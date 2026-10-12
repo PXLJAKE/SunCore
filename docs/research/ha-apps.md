@@ -245,9 +245,10 @@ Sources fetched from `raw.githubusercontent.com` on 2026-10-12 (branches
   `S6_SERVICES_GRACETIME` (default 3000 ms), then TERM to the rest and KILL
   after `S6_KILL_GRACETIME` (3000 ms); `docker stop` exit code defaults to 0.
   SunCore sets `S6_SERVICES_GRACETIME=5000` (total below Docker's 10 s).
-  `base-python` itself (its Dockerfile path was not found in the repository)
-  is assumed to inherit this; the smoke test proves the start and SIGTERM
-  behaviour.
+  `base-python` (`python/3.13/Dockerfile` in `home-assistant/docker-base`)
+  builds `FROM ${BUILD_FROM}` (the `alpine` base) and sets only `PATH`, no
+  `ENTRYPOINT`/`CMD`, so it inherits `/init`, `/etc/services.d`,
+  `with-contenv` and bashio. The smoke test proves the runtime behaviour.
 - **Node base**: `node:22-alpine` index digest
   `sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402`
   (22.23.3, pushed 2026-09-23, Docker Hub tags API).

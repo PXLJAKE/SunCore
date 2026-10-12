@@ -28,8 +28,8 @@ Supported architectures: `amd64` and `aarch64`.
 
 ## First start
 
-1. Start the app and check the **Log** tab: SunCore reports that it is
-   connected to Home Assistant.
+1. Start the app and check the **Log** tab: once connected, SunCore logs an
+   `ha.connected` line.
 2. Open **SunCore** in the sidebar. The panel is visible to administrators
    only.
 3. Without a configuration the **Now** page says that no energy sources are
@@ -107,7 +107,8 @@ again and restart to see your own data.
   detail and attach the log when you report a problem. Tokens are redacted.
 - **Health**: the app serves `/health` internally; Home Assistant uses it
   to mark the app as unhealthy. It reports a failure when the database is
-  unusable or Home Assistant rejects the app's credentials.
+  unusable, Home Assistant rejects the app's credentials, or the connection
+  was closed for good. A Home Assistant restart alone does not count.
 
 ## What is not there yet
 

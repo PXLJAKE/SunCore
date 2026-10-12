@@ -146,7 +146,7 @@ async def serve(
     stop: asyncio.Event | None = None,
     install_signals: bool = True,
     server_factory: Callable[[Runtime], uvicorn.Server] = make_server,
-) -> None:
+) -> bool:
     """Run until ``stop`` is set or SIGTERM/SIGINT arrives, then shut down in order."""
     stop = stop or asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -165,15 +165,17 @@ async def serve(
         server.should_exit = True
         await server_task
         stop_task.cancel()
-        if server_task in done and not stop.is_set():
+        clean = not (server_task in done and not stop.is_set())
+        if not clean:
             log.error("http.server_exited")
     finally:
         await runtime.stop()
         for sig in installed:
             loop.remove_signal_handler(sig)
+    return clean
 
 
-async def _amain(settings: Settings) -> None:
+async def _amain(settings: Settings) -> int:
     log.info(
         "app.starting",
         version=__version__,
@@ -182,8 +184,11 @@ async def _amain(settings: Settings) -> None:
         supervised=under_supervisor(),
     )
     runtime = await build_runtime(settings)
-    await serve(runtime)
+    clean = await serve(runtime)
     log.info("app.stopped")
+    # A server that ends without a stop signal is a failure: a non-zero code
+    # lets the s6 finish script halt the container instead of restarting it.
+    return 0 if clean else 1
 
 
 def run(argv: list[str] | None = None) -> int:  # noqa: ARG001
@@ -199,8 +204,7 @@ def run(argv: list[str] | None = None) -> int:  # noqa: ARG001
         return 2
     configure_logging(settings.log_level)
     try:
-        asyncio.run(_amain(settings))
+        return asyncio.run(_amain(settings))
     except Exception:
         log.exception("app.crashed")
         return 1
-    return 0

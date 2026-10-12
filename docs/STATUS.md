@@ -66,7 +66,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
     `frontend/dist`; s6 service (`/etc/services.d/suncore`) execs
     `python3 -m suncore`; `HEALTHCHECK` polls `/health` over loopback.
   - Smoke test (`scripts/smoke_image.sh`): demo mode, `/health` within
-    90 s, idle RSS ≤ 300 MiB after 60 s, clean stop (exit 0,
+    90 s, idle container memory ≤ 300 MiB after 60 s, clean stop (exit 0,
     `app.stopped`); PRs on amd64, `main` per architecture after the push.
   - App option `demo_mode` (en/de). Verified against Supervisor source:
     `panel_admin` and `ingress_port` defaults, ingress gateway
@@ -120,7 +120,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Forecast.Solar / Open-Meteo Solar Forecast attribute names; Octopus attributes | `research/integrations.md` | Phase 4, read integration source |
 | Theme variable inheritance inside ingress iframe (spike: not verifiable without a running HA; fallback `prefers-color-scheme`) | `frontend/README.md` | Phase 2, on the maintainer's HA |
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
-| `base-python` image inherits s6-overlay/`/etc/services.d` from docker-base `alpine` (Dockerfile path not found) | `addon/*/Dockerfile` | CI smoke test (start, health, SIGTERM) |
+| HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
 | Registry list WebSocket command names; `power_config` shape in energy prefs | `research/ha-websocket-api.md` | Phase 1/2, read `components/config/*.py` |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |

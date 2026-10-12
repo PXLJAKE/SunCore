@@ -69,7 +69,8 @@ as an app repository in Home Assistant (Settings → Apps → App store →
 menu → Repositories) and install **SunCore (beta)**. Phase 1 only shows the
 live energy flow; there are no forecasts, planner or device control yet.
 Start with the [quick start](docs/user/en/quick-start.md)
-([Deutsch](docs/user/de/quick-start.md)).
+([Deutsch](docs/user/de/quick-start.md)). Menu names differ between Home
+Assistant versions (older ones say "Add-ons" and "Add-on store").
 
 ## Licence
 

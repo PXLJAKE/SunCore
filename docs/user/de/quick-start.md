@@ -13,6 +13,10 @@ Sollwert geschrieben. Die vollständige App-Beschreibung (englisch) steht in
 3. Installiere **SunCore (beta)**, solange es kein stabiles Release gibt,
    starte die App und aktiviere **In der Seitenleiste anzeigen**.
 
+Die Menünamen unterscheiden sich je nach Home-Assistant-Version; ältere
+Versionen zeigen **Add-ons** und **Add-on-Store** statt **Apps** und
+**App-Store**.
+
 ## 2. Demo ausprobieren (optional)
 
 Schalte auf dem Reiter **Konfiguration** der App die Option `demo_mode` ein

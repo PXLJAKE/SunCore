@@ -13,6 +13,9 @@ written. The full app description is in
 3. Install **SunCore (beta)** while no stable release exists, then
    **Start** it and enable **Show in sidebar**.
 
+Menu names differ between Home Assistant versions; older versions say
+**Add-ons** and **Add-on store** instead of **Apps** and **App store**.
+
 ## 2. Try the demo (optional)
 
 Switch on the option `demo_mode` on the app's **Configuration** tab and

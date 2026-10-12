@@ -8,7 +8,8 @@
 # 2. Wait up to HEALTH_TIMEOUT_S (90) for GET /health = 200. The API is
 #    loopback-only without Supervisor, so the probe runs inside the container.
 # 3. Idle IDLE_S (60), then read the memory usage (`docker stats`) and fail
-#    above RSS_LIMIT_MIB (300).
+#    above RSS_LIMIT_MIB (300). This is docker stats' cgroup memory usage, which is at
+#    least the process RSS, so the check is conservative.
 # 4. `docker stop`: the container must exit 0 and log "app.stopped" (SIGTERM
 #    reaches python through s6-overlay).
 # Results go to the job summary when GITHUB_STEP_SUMMARY is set.
