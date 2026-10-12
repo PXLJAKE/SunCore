@@ -99,6 +99,7 @@ class FakeHA:
         self.states: dict[str, dict[str, Any]] = {}
         self.respond_pong = True
         self.coalesce_replies = False
+        self.withhold_initial_event = False
         self.fail_commands: dict[str, tuple[str, str]] = {}
         self.received: list[dict[str, Any]] = []
         self.auth_attempts = 0
@@ -234,7 +235,10 @@ class FakeHA:
             wanted = set(msg.get("entity_ids") or self.states)
             self.subscriptions[ws] = (mid, wanted)
             init = {"a": {e: compress(s) for e, s in self.states.items() if e in wanted}}
-            await self._reply(ws, ok(), {"id": mid, "type": "event", "event": init})
+            if self.withhold_initial_event:
+                await self._reply(ws, ok())
+            else:
+                await self._reply(ws, ok(), {"id": mid, "type": "event", "event": init})
         elif kind == "unsubscribe_events":
             self.subscriptions.pop(ws, None)
             await self._reply(ws, ok())

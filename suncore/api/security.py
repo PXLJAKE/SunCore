@@ -23,7 +23,7 @@ Receive = Callable[[], Awaitable[MutableMapping[str, Any]]]
 Send = Callable[[MutableMapping[str, Any]], Awaitable[None]]
 ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-_DENIED_BODY = b'{"detail":"forbidden"}'
+_DENIED_BODY = b'{"detail":"api.error.forbidden"}'
 
 
 class PeerCheckMiddleware:

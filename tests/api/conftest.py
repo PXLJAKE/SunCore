@@ -91,9 +91,12 @@ class FakeServices:
         self.ha_down = False
         self.imported: list[object] = []
         self.listeners: list[Callable[[], None]] = []
+        self.health_listeners: list[Callable[[], None]] = []
+        self.health_calls = 0
         self.last_limit: int | None = None
 
     async def health(self) -> HealthReport:
+        self.health_calls += 1
         return HealthReport(self.ha_state, 1.5, self.db_ok, self.version)
 
     async def get_site(self) -> SiteConfig | None:
@@ -131,6 +134,19 @@ class FakeServices:
                 self.listeners.remove(listener)
 
         return remove
+
+    def add_health_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        self.health_listeners.append(listener)
+
+        def remove() -> None:
+            with contextlib.suppress(ValueError):
+                self.health_listeners.remove(listener)
+
+        return remove
+
+    def trigger_health(self) -> None:
+        for listener in list(self.health_listeners):
+            listener()
 
     def trigger(self) -> None:
         for listener in list(self.listeners):

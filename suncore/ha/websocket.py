@@ -135,12 +135,17 @@ def state_from_compressed(entity_id: str, data: Mapping[str, Any]) -> EntityStat
     """Build a state from a full compressed state (``a`` entries / initial snapshot)."""
     last_changed = _float_or_none(data.get(_LC))
     last_updated = _float_or_none(data.get(_LU))
+    resolved_updated = last_updated if last_updated is not None else last_changed
+    attributes = data.get(_A)
     return EntityState(
         entity_id=entity_id,
         state=str(data.get(_S, "")),
-        attributes=dict(data.get(_A) or {}),
+        attributes=dict(attributes) if isinstance(attributes, Mapping) else {},
         last_changed=last_changed,
-        last_updated=last_updated if last_updated is not None else last_changed,
+        last_updated=resolved_updated,
+        # HA sets last_reported = last_updated on a new state (core.py State.__init__);
+        # the stream carries no last_reported, so mirror that to compare like with like.
+        last_reported=resolved_updated,
     )
 
 
@@ -166,7 +171,7 @@ def apply_diff(previous: EntityState, diff: Mapping[str, Any]) -> EntityState:
         attributes=attributes,
         last_changed=last_changed,
         last_updated=last_updated,
-        last_reported=None,
+        last_reported=last_updated,  # see state_from_compressed
     )
 
 
@@ -323,6 +328,10 @@ class WebSocketConnection:
                 log.warning("ha.connection_lost", reason=str(err))
             except (aiohttp.ClientError, OSError, TimeoutError) as err:
                 log.warning("ha.connect_failed", reason=type(err).__name__, detail=str(err))
+            except Exception as err:
+                # Anything unexpected must not kill the supervisor task silently: log (no
+                # token, no message text) and fall through to back-off and reconnect.
+                log.exception("ha.connection_crashed", reason=type(err).__name__)
             finally:
                 self._ws = None
                 self._sub_id = None
@@ -473,7 +482,7 @@ class WebSocketConnection:
     async def _subscribe_on_wire(self) -> None:
         if self._sub_id is not None:
             old, self._sub_id = self._sub_id, None
-            with contextlib.suppress(CommandError):
+            with contextlib.suppress(CommandError, CommandTimeoutError):
                 await self._command({"type": "unsubscribe_events", "subscription": old})
         if not self._wanted:
             self._states = {}
@@ -485,7 +494,15 @@ class WebSocketConnection:
         self._sub_id = mid
         try:
             await self._command({"type": "subscribe_entities", "entity_ids": list(self._wanted)})
-            await self._within(init.wait(), self._command_timeout)
+            try:
+                await self._within(init.wait(), self._command_timeout)
+            except TimeoutError as err:
+                msg = "no initial entity event for subscribe_entities"
+                raise CommandTimeoutError(msg) from err
+        except CommandTimeoutError:
+            # The server may well hold the subscription: keep its id so that the next
+            # subscribe unsubscribes it instead of leaking it.
+            raise
         except BaseException:
             self._sub_id = None
             raise
@@ -495,22 +512,29 @@ class WebSocketConnection:
     def _on_entities_event(self, event: Mapping[str, Any]) -> None:
         changed: dict[str, EntityState] = {}
         removed: list[str] = []
-        inconsistent = False
         full = self._awaiting_init is not None and not self._awaiting_init.is_set()
         if full:
             self._states = {}
-        for entity_id, comp in (event.get("a") or {}).items():
-            if isinstance(comp, Mapping):
-                changed[entity_id] = self._states[entity_id] = state_from_compressed(
-                    entity_id, comp
-                )
-        for entity_id, diff in (event.get("c") or {}).items():
-            previous = self._states.get(entity_id)
-            if previous is None or not isinstance(diff, Mapping):
-                inconsistent = True  # diff for an entity we never saw (R5)
+        added, diffs, gone, malformed = _split_event(event)
+        inconsistent = malformed
+        for entity_id, comp in added.items():
+            if not isinstance(entity_id, str) or not isinstance(comp, Mapping):
+                inconsistent = True
                 continue
-            changed[entity_id] = self._states[entity_id] = apply_diff(previous, diff)
-        for entity_id in event.get("r") or []:
+            changed[entity_id] = self._states[entity_id] = state_from_compressed(entity_id, comp)
+        for entity_id, diff in diffs.items():
+            previous = self._states.get(entity_id) if isinstance(entity_id, str) else None
+            if previous is None or not isinstance(diff, Mapping):
+                inconsistent = True  # diff for an entity we never saw (R5) or malformed
+                continue
+            try:
+                changed[entity_id] = self._states[entity_id] = apply_diff(previous, diff)
+            except (AttributeError, TypeError, ValueError):
+                inconsistent = True
+        for entity_id in gone:
+            if not isinstance(entity_id, str):
+                inconsistent = True
+                continue
             if self._states.pop(entity_id, None) is not None:
                 changed.pop(entity_id, None)
                 removed.append(entity_id)
@@ -642,6 +666,21 @@ class WebSocketConnection:
             callback(value)
         except Exception:
             log.exception("ha.listener_failed")
+
+
+def _split_event(
+    event: Mapping[str, Any],
+) -> tuple[Mapping[Any, Any], Mapping[Any, Any], list[Any], bool]:
+    """Pick ``a`` / ``c`` / ``r`` of an entity event; wrongly typed parts count as malformed."""
+    added, diffs, gone = event.get("a"), event.get("c"), event.get("r")
+    malformed = False
+    if added is not None and not isinstance(added, Mapping):
+        added, malformed = None, True
+    if diffs is not None and not isinstance(diffs, Mapping):
+        diffs, malformed = None, True
+    if gone is not None and not isinstance(gone, list):
+        gone, malformed = None, True
+    return added or {}, diffs or {}, gone or [], malformed
 
 
 def _loads(text: str) -> Any:

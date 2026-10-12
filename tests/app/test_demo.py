@@ -9,12 +9,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog.testing
 from websockets.asyncio.client import ClientConnection, connect
 
 from suncore.api import create_app
 from suncore.app.main import build_runtime
 from suncore.app.runtime import Runtime
 from suncore.core.site import EntityRef
+from suncore.ha.connection import CommandTimeoutError
 from suncore.sim.fake_ha import SIM_ENTITY_IDS, demo_site_config
 from tests.api.conftest import client_for, serving
 from tests.app.conftest import RecordingConnection, demo_settings
@@ -90,6 +92,24 @@ async def test_put_site_resubscribes(demo_runtime: Runtime) -> None:
     assert (await demo_runtime.config.get_site()) == reduced
 
 
+@pytest.mark.parametrize(
+    "error", [CommandTimeoutError("no initial event"), TimeoutError()], ids=["wrapped", "bare"]
+)
+async def test_put_site_survives_subscribe_timeout(
+    demo_runtime: Runtime, error: BaseException
+) -> None:
+    conn = demo_runtime.connection
+    assert isinstance(conn, RecordingConnection)
+    conn.subscribe_error = error
+    reduced = demo_site_config().model_copy(update={"house": None})
+    with structlog.testing.capture_logs() as logs:
+        async with client_for(create_app(demo_runtime)) as client:
+            r = await client.put("/api/v1/config/site", json=reduced.model_dump(mode="json"))
+    assert r.status_code == 200
+    assert (await demo_runtime.config.get_site()) == reduced  # persisted
+    assert [e["event"] for e in logs if e["log_level"] == "warning"] == ["ha.subscribe_failed"]
+
+
 async def test_put_site_notifies_live_listeners(demo_runtime: Runtime) -> None:
     hits: list[int] = []
     remove = demo_runtime.add_change_listener(lambda: hits.append(1))
@@ -143,15 +163,16 @@ async def test_decisions_endpoint_reads_log(demo_runtime: Runtime) -> None:
     assert body[0]["kind"] == decision.kind.value == "shadow"
 
 
-async def test_health_503_while_connection_is_down(tmp_path: Path) -> None:
+async def test_health_stays_200_while_connection_is_down(tmp_path: Path) -> None:
     conn = RecordingConnection(speed=6000.0)
     runtime = await build_runtime(demo_settings(tmp_path), env={}, connection=conn)
     try:
         # Not started: the fake connection is still DISCONNECTED.
         async with client_for(create_app(runtime)) as client:
             r = await client.get("/health")
-        assert r.status_code == 503
+        assert r.status_code == 200  # liveness: HA being away does not fail the watchdog
         assert r.json()["ha_state"] == "disconnected"
+        assert r.json()["ok"] is True
     finally:
         await runtime.stop()
 

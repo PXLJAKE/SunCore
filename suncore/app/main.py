@@ -12,7 +12,7 @@ import contextlib
 import os
 import signal
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -113,7 +113,7 @@ class _Server(uvicorn.Server):
     """Uvicorn without its own signal capture: the composition root owns signals."""
 
     @contextlib.contextmanager
-    def capture_signals(self):  # type: ignore[no-untyped-def]
+    def capture_signals(self) -> Generator[None, None, None]:
         yield
 
 

@@ -26,13 +26,27 @@ async def test_health_ok(services: FakeServices) -> None:
     }
 
 
-@pytest.mark.parametrize(("ha_state", "db_ok"), [("reconnecting", True), ("connected", False)])
+@pytest.mark.parametrize(
+    ("ha_state", "db_ok"),
+    [("connected", False), ("auth_failed", True), ("closed", True), ("reconnecting", False)],
+)
 async def test_health_503(services: FakeServices, ha_state: str, db_ok: bool) -> None:
     services.ha_state, services.db_ok = ha_state, db_ok
     async with client_for(create_app(services)) as client:
         r = await client.get("/health")
     assert r.status_code == 503
     assert r.json()["ok"] is False
+
+
+@pytest.mark.parametrize("ha_state", ["connecting", "reconnecting", "disconnected"])
+async def test_health_stays_200_while_ha_is_away(services: FakeServices, ha_state: str) -> None:
+    """Liveness for the Supervisor watchdog: an HA core restart must not restart the app."""
+    services.ha_state = ha_state
+    async with client_for(create_app(services)) as client:
+        r = await client.get("/health")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert r.json()["ha_state"] == ha_state
 
 
 async def test_info(services: FakeServices) -> None:
@@ -80,6 +94,7 @@ async def test_entities(services: FakeServices) -> None:
         }
     ]
     assert down.status_code == 503
+    assert down.json() == {"detail": "api.error.ha_unavailable"}
 
 
 async def test_export(services: FakeServices) -> None:
@@ -96,8 +111,9 @@ async def test_import_ok_and_rejected(services: FakeServices) -> None:
     assert ok.status_code == 200
     assert ok.json() == {"imported_sections": ["site"]}
     assert bad.status_code == 422
-    assert "bad header" in bad.json()["detail"]
+    assert bad.json() == {"detail": "api.error.import_rejected"}
     assert garbage.status_code == 422
+    assert garbage.json() == {"detail": "api.error.invalid_json"}
 
 
 async def test_import_oversize_is_413_before_parsing(services: FakeServices) -> None:
@@ -113,6 +129,7 @@ async def test_import_oversize_is_413_before_parsing(services: FakeServices) -> 
 
         r2 = await client.post("/api/v1/config/import", content=chunks())
     assert r.status_code == 413
+    assert r.json() == {"detail": "api.error.import_too_large"}
     assert r2.status_code == 413
     assert services.imported == []
 

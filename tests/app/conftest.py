@@ -19,9 +19,12 @@ class RecordingConnection(FakeHAConnection):
     def __init__(self, speed: float) -> None:
         super().__init__(load_scenario("summer_day"), clock=utc_now, speed=speed)
         self.subscriptions: list[frozenset[str]] = []
+        self.subscribe_error: BaseException | None = None
 
     async def subscribe_entities(self, entity_ids: Collection[str]) -> None:
         self.subscriptions.append(frozenset(entity_ids))
+        if self.subscribe_error is not None:
+            raise self.subscribe_error
         await super().subscribe_entities(entity_ids)
 
 

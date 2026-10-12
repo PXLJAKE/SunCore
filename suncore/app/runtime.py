@@ -54,6 +54,7 @@ class Runtime:
     supervised: bool
     site: SiteConfig | None = None
     _listeners: list[Callable[[], None]] = field(default_factory=list)
+    _health_listeners: list[Callable[[], None]] = field(default_factory=list)
     _last_update: datetime | None = None
     _connect_task: asyncio.Task[None] | None = None
     _unsubscribers: list[Callable[[], None]] = field(default_factory=list)
@@ -114,13 +115,18 @@ class Runtime:
 
     def _on_state(self, _state: ConnectionState) -> None:
         self._notify()
+        for listener in list(self._health_listeners):
+            try:
+                listener()
+            except Exception:
+                log.exception("health listener failed")
 
     async def _resubscribe(self) -> None:
         ids = [r.entity_id for r in self.site.entity_refs()] if self.site else []
         try:
             await self.connection.subscribe_entities(ids)
-        except HAError as exc:
-            log.warning("ha.subscribe_failed", error=str(exc))
+        except (HAError, TimeoutError) as exc:
+            log.warning("ha.subscribe_failed", error=str(exc), reason=type(exc).__name__)
 
     # --- api.Services -----------------------------------------------------------
 
@@ -219,5 +225,14 @@ class Runtime:
         def remove() -> None:
             with contextlib.suppress(ValueError):
                 self._listeners.remove(listener)
+
+        return remove
+
+    def add_health_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        self._health_listeners.append(listener)
+
+        def remove() -> None:
+            with contextlib.suppress(ValueError):
+                self._health_listeners.remove(listener)
 
         return remove

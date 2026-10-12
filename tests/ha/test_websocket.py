@@ -12,12 +12,14 @@ from typing import Any
 
 import pytest
 import structlog
+import structlog.testing
 
 from suncore.ha import websocket as ws_module
 from suncore.ha.cache import EntityCache
 from suncore.ha.connection import (
     AuthError,
     CommandError,
+    CommandTimeoutError,
     ConnectionState,
     EntityState,
     EntityUpdate,
@@ -223,6 +225,72 @@ async def test_diff_for_unknown_entity_triggers_get_states_resync(ha: FakeHA, ma
     before = [m["type"] for m in ha.received].count("get_states")
     await ha.push_event({"c": {"sensor.ghost": {"+": {"s": "1"}}}})
     await wait_until(lambda: [m["type"] for m in ha.received].count("get_states") == before + 1)
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"a": ["not", "a", "mapping"]},
+        {"a": {"sensor.x": 5}},
+        {"c": "text"},
+        {"c": {"sensor.a": {"+": {"a": "not-a-mapping"}}}},
+        {"c": {"sensor.a": ["diff"]}},
+        {"r": [["unhashable"]]},
+        {"r": "sensor.a"},
+    ],
+    ids=["a-list", "a-value", "c-str", "c-attrs", "c-diff-list", "r-unhashable", "r-str"],
+)
+async def test_malformed_entity_event_is_ignored_and_resynced(
+    ha: FakeHA, make: Make, event: dict[str, Any]
+) -> None:
+    conn = make()
+    updates = record(conn)
+    await conn.subscribe_entities(["sensor.a"])
+    await up(conn)
+    before = [m["type"] for m in ha.received].count("get_states")
+    await ha.push_event(event)
+    await wait_until(lambda: [m["type"] for m in ha.received].count("get_states") == before + 1)
+    assert conn.state is ConnectionState.CONNECTED
+    assert updates[-1].changed["sensor.a"].state == "100"  # resync restored a clean view
+    await ha.change("sensor.a", state="5")  # the stream still works
+    await wait_until(
+        lambda: "sensor.a" in updates[-1].changed and updates[-1].changed["sensor.a"].state == "5"
+    )
+
+
+async def test_unexpected_exception_in_dispatch_reconnects(
+    ha: FakeHA, make: Make, clock: FakeClock
+) -> None:
+    conn = make()
+    states: list[ConnectionState] = []
+    conn.add_state_listener(states.append)
+    await conn.subscribe_entities(["sensor.a"])
+    await up(conn)
+    original = conn._dispatch
+    calls = 0
+
+    def boom(msg: Any) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("injected " + TOKEN)
+        original(msg)
+
+    conn._dispatch = boom  # type: ignore[method-assign]
+    with structlog.testing.capture_logs() as logs:
+        await ha.push_event({"c": {"sensor.a": {"+": {"s": "1"}}}})
+        await wait_until(lambda: conn.state is ConnectionState.RECONNECTING)
+    crashed = [e for e in logs if e["event"] == "ha.connection_crashed"]
+    assert [e["reason"] for e in crashed] == ["RuntimeError"]
+    assert TOKEN not in repr(crashed).replace("injected " + TOKEN, "")  # message text not logged
+    await clock.advance(1.0)
+    await wait_until(lambda: conn.state is ConnectionState.CONNECTED)
+    assert states[-3:] == [
+        ConnectionState.RECONNECTING,
+        ConnectionState.CONNECTING,
+        ConnectionState.CONNECTED,
+    ]
+    assert ha.connection_count == 2
 
 
 # --- commands ------------------------------------------------------------------------
@@ -441,6 +509,69 @@ async def test_periodic_resync_keeps_constant_sensor_fresh(
         )
     assert not cache.is_stale("sensor.a")
     assert cache.is_stale("sensor.b")
+
+
+async def test_diff_then_identical_resync_does_not_refresh(
+    ha: FakeHA, make: Make, clock: FakeClock
+) -> None:
+    """Stream states mirror HA (last_reported = last_updated) so resyncs compare equal."""
+    iso = lambda s: datetime.fromtimestamp(s, UTC).isoformat()  # noqa: E731
+    ha.states["sensor.a"]["last_reported"] = iso(1000.0)
+    conn = make(resync_interval=60.0)
+    cache = EntityCache(clock=clock.wall, max_age_s=100)
+    cache.attach(conn)
+    await conn.subscribe_entities(["sensor.a"])
+    await up(conn)
+    await clock.advance(30.0)
+    # HA: new state at 2000 -> last_changed = last_updated = last_reported = 2000
+    ha.states["sensor.a"].update(lc=2000.0, last_reported=iso(2000.0))
+    await ha.change("sensor.a", state="150", lc=2000.0)
+    await wait_until(lambda: (e := cache.get("sensor.a")) is not None and e.state.state == "150")
+    entry = cache.get("sensor.a")
+    assert entry is not None
+    assert entry.state.last_reported == 2000.0
+    refreshed = entry.refreshed_at
+    assert refreshed == clock.wall()
+
+    await clock.advance(30.0)  # t=60: periodic resync with the identical last_reported
+    await wait_until(lambda: [m["type"] for m in ha.received].count("get_states") == 2)
+    await wait_until(lambda: (e := cache.get("sensor.a")) is not None and e.state.state == "150")
+    again = cache.get("sensor.a")
+    assert again is not None
+    assert again.refreshed_at == refreshed
+    assert not cache.is_stale("sensor.a")
+
+    await clock.advance(60.0)  # t=120: age 90 s, another identical resync
+    await wait_until(lambda: [m["type"] for m in ha.received].count("get_states") == 3)
+    assert cache.get("sensor.a").refreshed_at == refreshed  # type: ignore[union-attr]
+    assert not cache.is_stale("sensor.a")
+    await clock.advance(11.0)  # age 101 s > max_age 100 s
+    assert cache.is_stale("sensor.a")
+
+
+# --- subscribe timeout ----------------------------------------------------------------------
+
+
+async def test_late_initial_event_is_a_command_timeout_and_keeps_the_sub_id(
+    ha: FakeHA, make: Make, clock: FakeClock
+) -> None:
+    conn = make()
+    await up(conn)
+    ha.withhold_initial_event = True
+    task = asyncio.create_task(conn.subscribe_entities(["sensor.a"]))
+    await wait_until(lambda: any(m["type"] == "subscribe_entities" for m in ha.received))
+    stuck_id = next(m["id"] for m in ha.received if m["type"] == "subscribe_entities")
+    await wait_until(lambda: COMMAND in clock.requested)
+    await clock.advance(COMMAND)
+    with pytest.raises(CommandTimeoutError):
+        await asyncio.wait_for(task, 5)
+    assert conn.state is ConnectionState.CONNECTED
+
+    ha.withhold_initial_event = False
+    ha.received.clear()
+    await conn.subscribe_entities(["sensor.a"])
+    unsub = [m for m in ha.received if m["type"] == "unsubscribe_events"]
+    assert [m["subscription"] for m in unsub] == [stuck_id]
 
 
 # --- shutdown ---------------------------------------------------------------------------------

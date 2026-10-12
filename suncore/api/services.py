@@ -11,16 +11,26 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from suncore.core.balance import FlowSnapshot
 from suncore.core.decisions import Decision
 from suncore.core.site import SiteConfig
 
+FATAL_HA_STATES: Final = frozenset({"auth_failed", "closed"})
+"""Connection states that a restart of the app may fix or that mean it is shutting down."""
+
 
 @dataclass(frozen=True, slots=True)
 class HealthReport:
-    """Liveness facts for ``/health`` and the live feed."""
+    """Liveness facts for ``/health`` and the live feed.
+
+    ``/health`` is the Supervisor watchdog's liveness signal, not a readiness probe:
+    a Home Assistant core restart (``connecting``/``reconnecting``/``disconnected``) must
+    not make the watchdog restart this app, so only a failed database check or a
+    terminal connection state (``auth_failed``, ``closed``) turns ``ok`` false (503).
+    The connection state itself is always in the body.
+    """
 
     ha_state: str
     """``suncore.ha.ConnectionState`` value (``connected``, ``reconnecting``, ...)."""
@@ -30,7 +40,7 @@ class HealthReport:
 
     @property
     def ok(self) -> bool:
-        return self.db_ok and self.ha_state == "connected"
+        return self.db_ok and self.ha_state not in FATAL_HA_STATES
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +113,10 @@ class Services(Protocol):
 
     def add_change_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Call ``listener`` whenever entity data or the connection state changes."""
+        ...
+
+    def add_health_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` only when the connection state changes (not per entity event)."""
         ...
 
 

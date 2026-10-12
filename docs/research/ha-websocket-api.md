@@ -14,6 +14,27 @@ From an app: `ws://supervisor/core/websocket`. Flow: server sends
 batches messages. Heartbeat with `ping`/`pong`. Errors: `success: false`
 with `error.code`/`error.message`.
 
+Verified on 2026-10-12 against `home-assistant/core` (dev):
+
+- `websocket_api/auth.py`: `auth_required` and `auth_ok` both carry `ha_version`;
+  `auth_invalid` carries `message`, then the server closes the socket.
+- `websocket_api/http.py`: with `supported_features` → `coalesce_messages`, several
+  messages may arrive as one JSON **array** in a single text frame; clients must
+  accept both an object and an array per frame.
+- `websocket_api/commands.py`: `unsubscribe_events` takes the field `subscription`
+  (the `id` of the subscribing command), not `id`.
+- `websocket_api/commands.py` (`subscribe_entities`): the `result` message is sent
+  *before* the initial `{"a": {...}}` event, so a client waits for both. An empty or
+  absent `entity_ids` list means **all** entities; a client that wants none must not
+  subscribe.
+- `core.py`: `State.as_dict` keys are `entity_id`, `state`, `attributes`, `last_changed`,
+  `last_reported`, `last_updated` (ISO strings) plus `context`. On a new state
+  `last_reported` is set equal to `last_updated`.
+- `core.py`: `EVENT_STATE_REPORTED` is a separate event; `subscribe_entities` does not
+  carry it, so a sensor that reports an unchanged value is silent on the stream. Its
+  freshness is only visible as an advancing `last_reported` in `get_states`.
+- `websocket_api/messages.py`: in compressed states `lu` is omitted when it equals `lc`.
+
 The same code path works for a standalone container against
 `ws://<ha>:8123/api/websocket` with a long-lived access token, which is why
 the connector takes the URL and token as parameters.
@@ -48,7 +69,7 @@ First event: `{"a": {entity_id: compressed_state}}`. Later events:
 
 Compressed state keys (`homeassistant.const`): `s` state, `a` attributes,
 `c` context (string id or dict), `lc` last_changed, `lu` last_updated
-(only when `last_changed` unchanged). Timestamps are floats (epoch seconds).
+(omitted when equal to `lc`; in a `c` diff only when `last_changed` unchanged). Timestamps are floats (epoch seconds).
 Inside a `c` diff only changed fields appear.
 
 ## Energy preferences (`energy/get_prefs`)

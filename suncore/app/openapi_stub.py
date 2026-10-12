@@ -47,3 +47,6 @@ class StubServices:
 
     def add_change_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
         return lambda: None
+
+    def add_health_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
+        return lambda: None

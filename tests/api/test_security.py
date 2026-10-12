@@ -34,7 +34,7 @@ async def test_other_peer_denied(enforced: FakeServices, path: str) -> None:
     async with client_for(create_app(enforced), OTHER) as client:
         r = await client.get(path)
     assert r.status_code == 403
-    assert r.json() == {"detail": "forbidden"}
+    assert r.json() == {"detail": "api.error.forbidden"}
 
 
 async def test_write_from_other_peer_denied(enforced: FakeServices) -> None:

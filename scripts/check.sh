@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
+uv run python scripts/export_openapi.py --check
 if [ "${FAST:-0}" = "1" ]; then
   uv run pytest -q -x -m "not slow"
 else

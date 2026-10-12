@@ -16,6 +16,7 @@ from typing import Any, Final
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import TypeAdapter
+from starlette.websockets import WebSocketState
 
 from suncore.api.models import (
     DecisionsMessage,
@@ -40,6 +41,13 @@ log = logging.getLogger(__name__)
 
 API_PREFIX: Final = "/api/v1"
 DECISIONS_MAX: Final = 1000
+
+# Stable error keys for ``detail``; the SPA renders them through the message catalogue.
+ERR_HA_UNAVAILABLE: Final = "api.error.ha_unavailable"
+ERR_IMPORT_TOO_LARGE: Final = "api.error.import_too_large"
+ERR_INVALID_JSON: Final = "api.error.invalid_json"
+ERR_IMPORT_REJECTED: Final = "api.error.import_rejected"
+ERR_NOT_FOUND: Final = "api.error.not_found"
 SNAPSHOT_DECISIONS: Final = 20
 
 
@@ -95,7 +103,7 @@ def _register_http(app: FastAPI, services: Services) -> None:
         try:
             found = await services.candidates()
         except HAUnavailableError as exc:
-            raise HTTPException(status_code=503, detail="Home Assistant is not reachable") from exc
+            raise HTTPException(status_code=503, detail=ERR_HA_UNAVAILABLE) from exc
         return [EntityCandidateOut.from_info(c) for c in found]
 
     @app.get(f"{API_PREFIX}/config/export")
@@ -111,22 +119,23 @@ def _register_http(app: FastAPI, services: Services) -> None:
         limit = services.max_import_bytes
         declared = request.headers.get("content-length")
         if declared is not None and declared.isdigit() and int(declared) > limit:
-            raise HTTPException(status_code=413, detail="import body too large")
+            raise HTTPException(status_code=413, detail=ERR_IMPORT_TOO_LARGE)
         chunks: list[bytes] = []
         size = 0
         async for chunk in request.stream():
             size += len(chunk)
             if size > limit:
-                raise HTTPException(status_code=413, detail="import body too large")
+                raise HTTPException(status_code=413, detail=ERR_IMPORT_TOO_LARGE)
             chunks.append(chunk)
         try:
             data = json.loads(b"".join(chunks))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise HTTPException(status_code=422, detail="import body is not valid JSON") from exc
+            raise HTTPException(status_code=422, detail=ERR_INVALID_JSON) from exc
         try:
             sections = await services.import_config(data)
         except ImportRejectedError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            log.info("config import rejected: %s", exc)  # reason stays in the log
+            raise HTTPException(status_code=422, detail=ERR_IMPORT_REJECTED) from exc
         return ImportResultOut(imported_sections=sections)
 
     @app.get(f"{API_PREFIX}/decisions", response_model=list[Decision])
@@ -142,31 +151,79 @@ def _register_live(
     @app.websocket(f"{API_PREFIX}/live")
     async def live(ws: WebSocket) -> None:
         await ws.accept()
-        changed = asyncio.Event()
-        remove = services.add_change_listener(changed.set)
+        wake = _Wake()
+        removers = (
+            services.add_change_listener(wake.flows),
+            services.add_health_listener(wake.health),
+        )
         pump = asyncio.create_task(
-            _pump(ws, services, changed, live_min_interval_s, live_health_interval_s)
+            _pump(ws, services, wake, live_min_interval_s, live_health_interval_s)
         )
         drain = asyncio.create_task(_drain(ws))
         try:
             await asyncio.wait({pump, drain}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            remove()
+            for remove in removers:
+                remove()
             for task in (pump, drain):
                 task.cancel()
             await asyncio.gather(pump, drain, return_exceptions=True)
-            with contextlib.suppress(RuntimeError, WebSocketDisconnect):
-                await ws.close()
+            await _close_quietly(ws)
 
 
 # --- live feed ------------------------------------------------------------------
 
 
+class _Wake:
+    """Wake-up signal of the pump: flow data changed and/or the connection state did."""
+
+    def __init__(self) -> None:
+        self.event = asyncio.Event()
+        self.flows_changed = False
+        self.health_changed = False
+
+    def flows(self) -> None:
+        self.flows_changed = True
+        self.event.set()
+
+    def health(self) -> None:
+        self.health_changed = True
+        self.event.set()
+
+    def take(self) -> tuple[bool, bool]:
+        taken = (self.flows_changed, self.health_changed)
+        self.flows_changed = self.health_changed = False
+        self.event.clear()
+        return taken
+
+
+def _client_gone(ws: WebSocket, exc: RuntimeError) -> bool:
+    """A ``RuntimeError`` is a disconnect only if the client side is really gone."""
+    if ws.client_state is WebSocketState.DISCONNECTED:
+        return True
+    log.error("live websocket failed: %r", exc)
+    return False
+
+
+async def _close_quietly(ws: WebSocket) -> None:
+    try:
+        await ws.close()
+    except WebSocketDisconnect:
+        pass
+    except RuntimeError as exc:
+        if ws.application_state is not WebSocketState.DISCONNECTED:
+            _client_gone(ws, exc)  # logs unless the client has gone
+
+
 async def _drain(ws: WebSocket) -> None:
     """Read and ignore client messages so a disconnect is noticed."""
-    with contextlib.suppress(WebSocketDisconnect, RuntimeError):
+    try:
         while True:
             await ws.receive_text()
+    except WebSocketDisconnect:
+        return
+    except RuntimeError as exc:
+        _client_gone(ws, exc)  # either way the feed ends; the handler closes the socket
 
 
 def _flows_out(services: Services) -> FlowsOut | None:
@@ -177,7 +234,7 @@ def _flows_out(services: Services) -> FlowsOut | None:
 async def _pump(
     ws: WebSocket,
     services: Services,
-    changed: asyncio.Event,
+    wake: _Wake,
     min_interval_s: float,
     health_interval_s: float,
 ) -> None:
@@ -191,22 +248,22 @@ async def _pump(
             decisions=latest,
         )
         await ws.send_json(snapshot.model_dump(mode="json"))
-        last_key = (health.ha_state, health.db_ok)
         last_decisions = _decision_keys(latest)
         next_health = loop.time() + health_interval_s
-        changed.clear()
+        wake.take()
         while True:
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(changed.wait(), timeout=max(0.0, next_health - loop.time()))
-            flows_changed = changed.is_set()
-            changed.clear()
+                await asyncio.wait_for(
+                    wake.event.wait(), timeout=max(0.0, next_health - loop.time())
+                )
+            flows_changed, state_changed = wake.take()
             if flows_changed:
                 msg = FlowsMessage(flows=_flows_out(services))
                 await ws.send_json(msg.model_dump(mode="json"))
-            health = await services.health()
-            due = loop.time() >= next_health
-            if due or (health.ha_state, health.db_ok) != last_key:
-                last_key = (health.ha_state, health.db_ok)
+            # Health (with its DB check) runs on its own cadence or on a connection state
+            # change, never per flow event.
+            if state_changed or loop.time() >= next_health:
+                health = await services.health()
                 next_health = loop.time() + health_interval_s
                 hmsg = HealthMessage(health=HealthOut.from_report(health))
                 await ws.send_json(hmsg.model_dump(mode="json"))
@@ -218,8 +275,12 @@ async def _pump(
                     await ws.send_json(dmsg.model_dump(mode="json"))
             if flows_changed:
                 await asyncio.sleep(min_interval_s)  # throttle: coalesce changes meanwhile
-    except (WebSocketDisconnect, RuntimeError):
+    except WebSocketDisconnect:
         return
+    except RuntimeError as exc:
+        if _client_gone(ws, exc):
+            return
+        raise
     except Exception:
         log.exception("live feed failed")
         raise
@@ -244,7 +305,7 @@ def _mount_spa(app: FastAPI, services: Services) -> None:
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str) -> Response:
         if path == "health" or path.startswith("api/") or path == "api":
-            raise HTTPException(status_code=404, detail="not found")
+            raise HTTPException(status_code=404, detail=ERR_NOT_FOUND)
         candidate = (root / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(root):
             return FileResponse(candidate)
