@@ -103,8 +103,17 @@ def _make_connection(settings: Settings, env: Mapping[str, str], clock: Clock) -
         from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
         from suncore.sim.scenario import load_scenario  # noqa: PLC0415
 
+        scenario = load_scenario(DEMO_SCENARIO)
+        start = scenario.start
+        begin = start.replace(
+            hour=settings.demo_start_time.hour,
+            minute=settings.demo_start_time.minute,
+            second=0,
+            microsecond=0,
+        )
+        offset_s = (begin - start).total_seconds() % scenario.duration_s
         return FakeHAConnection(
-            load_scenario(DEMO_SCENARIO), clock=clock, speed=settings.demo_speed
+            scenario, clock=clock, speed=settings.demo_speed, start_offset_s=offset_s
         )
     return WebSocketConnection(transport_from_env(env))
 

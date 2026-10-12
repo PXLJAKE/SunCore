@@ -12,7 +12,7 @@ no personal data.
 ## Steps
 
 1. Start the stack in demo mode:
-   `SUNCORE_DEMO=1 SUNCORE_DEMO_CLOCK=2026-06-21T12:00:00+02:00 uv run python -m suncore`
+   `SUNCORE_DEMO=1 SUNCORE_DEMO_START_TIME=12:00 uv run python -m suncore`
    and the frontend dev server, or the built image with `-e SUNCORE_DEMO=1`.
 2. Run `uv run python scripts/screenshots.py --out docs/assets/screenshots`
    (Playwright; viewports: phone 390×844, tablet 1024×768; colour schemes

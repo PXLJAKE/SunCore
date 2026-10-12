@@ -117,15 +117,20 @@ class FakeHAConnection:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         speed: float = 1.0,
         loop_scenario: bool = True,
+        start_offset_s: float = 0.0,
     ) -> None:
         if speed <= 0:
             msg = "speed must be positive"
+            raise ValueError(msg)
+        if not 0 <= start_offset_s < scenario.duration_s:
+            msg = "start_offset_s must lie within the scenario"
             raise ValueError(msg)
         self._scenario = scenario
         self._clock = clock
         self._sleep = sleep
         self._speed = speed
         self._loop = loop_scenario
+        self._start_steps = int(start_offset_s // scenario.step_s)
         self._state = ConnectionState.DISCONNECTED
         self._state_listeners: list[StateListener] = []
         self._entity_listeners: list[EntityListener] = []
@@ -163,6 +168,11 @@ class FakeHAConnection:
         self._house = self._scenario.build_house()
         self._step_index = 0
         self._published = {}
+        # Fast-forward silently so the house state (e.g. battery SoC) evolves
+        # as if the scenario had run since its start.
+        for _ in range(self._start_steps):
+            self._house.step()
+            self._step_index += 1
         self._apply_step(emit=False)
         self._set_state(ConnectionState.CONNECTED)
         self._task = asyncio.get_running_loop().create_task(self._run(), name="fake-ha-feed")
