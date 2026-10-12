@@ -1,9 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Command-line entry point.
-
-Phase 0 only knows ``--version``; the application bootstrap arrives with
-Phase 1 (``suncore.app``).
-"""
+"""Command-line entry point: ``python -m suncore`` starts the application."""
 
 from __future__ import annotations
 
@@ -21,8 +17,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     build_parser().parse_args(argv)
-    sys.stderr.write("SunCore is not runnable yet (Phase 0 skeleton). See docs/roadmap.md.\n")
-    return 2
+    from suncore.app.main import run  # noqa: PLC0415 - keep --version free of heavy imports
+
+    return run()
 
 
 if __name__ == "__main__":  # pragma: no cover

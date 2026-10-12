@@ -48,8 +48,11 @@ def test_cli_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert suncore.__version__ in capsys.readouterr().out
 
 
-def test_cli_without_args_is_not_runnable_yet() -> None:
-    assert main([]) == 2
+def test_cli_without_args_starts_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr("suncore.app.main.run", lambda: calls.append("run") or 0)
+    assert main([]) == 0
+    assert calls == ["run"]
 
 
 @pytest.mark.parametrize("app", ["suncore", "suncore_beta"])

@@ -22,9 +22,13 @@ classifiers = [
 dependencies = [
   "aiohttp>=3.14.5",
   "aiosqlite>=0.22.1",
+  "fastapi>=0.143.0",
   "pydantic>=2.11,<3",
+  "pydantic-settings>=2.15.0",
   "pyyaml>=6.0.3",
   "structlog>=26.1.0",
+  "uvicorn>=0.54.0",
+  "websockets>=17.2",
 ]
 
 [project.urls]
@@ -45,6 +49,7 @@ dev = [
   "hypothesis>=6.140",
   "types-pyyaml",
   "pytest-asyncio>=1.4.0",
+  "httpx>=0.28.1",
 ]
 
 [build-system]
