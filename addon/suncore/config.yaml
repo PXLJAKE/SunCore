@@ -1,0 +1,35 @@
+# Home Assistant app configuration (stable channel).
+# Keys verified against the Supervisor schema (docs/research/ha-apps.md).
+# Defaults are omitted on purpose: the app linter rejects redundant defaults and
+# the obsolete `watchdog` key (health is a Docker HEALTHCHECK in the Dockerfile).
+name: SunCore
+version: "0.1.0" # x-release-please-version
+slug: suncore
+description: Energy management – forecasts, planner and real-time surplus control, explainable and safe by default.
+url: https://github.com/pxljake/suncore
+arch:
+  - aarch64
+  - amd64
+image: ghcr.io/pxljake/suncore
+init: false
+stage: experimental
+ingress: true
+panel_icon: mdi:solar-power-variant
+panel_title: SunCore
+homeassistant_api: true
+hassio_api: true
+services:
+  - mqtt:want
+backup_exclude:
+  - timeseries.db
+  - timeseries.db-wal
+  - timeseries.db-shm
+map:
+  - type: homeassistant_config
+    read_only: true
+options:
+  log_level: info
+  controller_interval_s: 5
+schema:
+  log_level: list(debug|info|warning|error)
+  controller_interval_s: int(2,60)

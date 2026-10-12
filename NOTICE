@@ -1,0 +1,19 @@
+SunCore
+Copyright 2026 Jake Frietsch and SunCore contributors
+
+This product includes software developed as part of the SunCore project
+(https://github.com/pxljake/suncore), licensed under the Apache License,
+Version 2.0.
+
+Third-party attributions
+
+Concepts in SunCore were informed by studying the documentation of
+evcc (https://evcc.io, MIT), EMHASS (https://emhass.readthedocs.io, MIT)
+and Predbat (https://springfall2008.github.io/batpred, personal-use
+licence). No code from these projects is included.
+
+Weather and solar data used by the built-in forecast fallback is provided
+by Open-Meteo (https://open-meteo.com) under CC BY 4.0.
+
+Dependencies and their licences are listed in the generated
+third-party notice shipped with each release image.

@@ -1,0 +1,7 @@
+configuration:
+  log_level:
+    name: Log-Level
+    description: Ausführlichkeit des Anwendungsprotokolls.
+  controller_interval_s:
+    name: Regler-Intervall
+    description: Wie oft der Echtzeit-Regler läuft, in Sekunden (2–60).

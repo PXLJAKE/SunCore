@@ -1,0 +1,33 @@
+# Home Assistant app configuration (beta channel).
+# Same image as the stable app, built from main as pre-releases (ADR-0009).
+name: SunCore (beta)
+version: "0.1.0-beta.0"
+slug: suncore_beta
+description: Beta channel of SunCore – energy management with forecasts, planner and real-time surplus control.
+url: https://github.com/pxljake/suncore
+arch:
+  - aarch64
+  - amd64
+image: ghcr.io/pxljake/suncore-beta
+init: false
+stage: experimental
+ingress: true
+panel_icon: mdi:solar-power-variant
+panel_title: SunCore β
+homeassistant_api: true
+hassio_api: true
+services:
+  - mqtt:want
+backup_exclude:
+  - timeseries.db
+  - timeseries.db-wal
+  - timeseries.db-shm
+map:
+  - type: homeassistant_config
+    read_only: true
+options:
+  log_level: info
+  controller_interval_s: 5
+schema:
+  log_level: list(debug|info|warning|error)
+  controller_interval_s: int(2,60)
