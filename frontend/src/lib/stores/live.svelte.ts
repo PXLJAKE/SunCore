@@ -4,7 +4,7 @@ import { liveUrl } from '../api/client';
 import type { Decision, Flows, Health, LiveMessage } from '../api/types';
 import { LiveClient, type ConnectionState } from '../api/ws';
 
-export type LinkStatus = 'connecting' | 'live' | 'ha_down' | 'offline';
+export type LinkStatus = 'connecting' | 'live' | 'ha_down' | 'degraded' | 'offline';
 
 /** HA connector states that count as "connected" (suncore.ha.connection.ConnectionState). */
 const HA_CONNECTED = 'connected';
@@ -16,7 +16,9 @@ export function linkStatus(
 ): LinkStatus {
   if (connection === 'closed') return 'offline';
   if (connection === 'connecting' || !haveSnapshot) return 'connecting';
-  if (!health || health.ha_state !== HA_CONNECTED || !health.ok) return 'ha_down';
+  if (!health || health.ha_state !== HA_CONNECTED) return 'ha_down';
+  // Home Assistant is fine but SunCore itself reports trouble (e.g. database).
+  if (!health.ok || !health.db_ok) return 'degraded';
   return 'live';
 }
 
@@ -69,9 +71,22 @@ export class LiveStore {
       onState: (s) => this.setConnection(s),
     });
     this.client.start();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', this.onWake);
+      document.addEventListener('visibilitychange', this.onWake);
+    }
   }
 
+  private onWake = (): void => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    this.client?.reconnectNow();
+  };
+
   stop(): void {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.onWake);
+      document.removeEventListener('visibilitychange', this.onWake);
+    }
     this.client?.stop();
     this.client = null;
   }

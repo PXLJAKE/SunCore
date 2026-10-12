@@ -137,6 +137,23 @@ describe('LiveClient', () => {
     expect(h2.timers).toHaveLength(0);
   });
 
+  it('reconnectNow() skips the wait, but only while disconnected', () => {
+    const h = harness(() => 1);
+    h.client.start();
+    h.client.reconnectNow(); // connecting: no second socket
+    expect(h.sockets).toHaveLength(1);
+    h.sockets[0]!.onclose?.({});
+    expect(h.timers).toHaveLength(1);
+    h.client.reconnectNow();
+    expect(h.timers).toHaveLength(0);
+    expect(h.sockets).toHaveLength(2);
+    h.sockets[1]!.onclose?.({});
+    expect(h.timers[0]!.ms).toBe(1000); // back-off restarted
+    h.client.stop();
+    h.client.reconnectNow();
+    expect(h.sockets).toHaveLength(2);
+  });
+
   it('retries when creating the socket throws', () => {
     const timers: number[] = [];
     const client = new LiveClient({

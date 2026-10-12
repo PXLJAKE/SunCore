@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
 import type { EntityCandidate, SiteConfig } from './api/types';
-import { emptyForm, formFromSite, previewOf, siteFromForm } from './siteForm';
+import { emptyForm, formFromSite, previewOf, siteFromForm, validateForm } from './siteForm';
 
 const cand = (over: Partial<EntityCandidate> = {}): EntityCandidate => ({
   entity_id: 'sensor.x',
@@ -60,6 +60,37 @@ describe('site form round trip', () => {
   });
   it('starts empty without a stored config', () => {
     expect(formFromSite(null).pv).toHaveLength(1);
+  });
+});
+
+describe('validateForm', () => {
+  it('accepts complete and fully empty groups', () => {
+    expect(validateForm(emptyForm())).toEqual([]);
+    const f = emptyForm();
+    f.batteryEnabled = true;
+    f.batteryPower.entity_id = 'sensor.p';
+    f.batterySoc.entity_id = 'sensor.s';
+    f.gridMode = 'pair';
+    f.gridImport.entity_id = 'sensor.i';
+    f.gridExport.entity_id = 'sensor.e';
+    expect(validateForm(f)).toEqual([]);
+  });
+  it('flags an incomplete battery instead of dropping it', () => {
+    const f = emptyForm();
+    f.batteryEnabled = true;
+    f.batteryPower.entity_id = 'sensor.p';
+    expect(validateForm(f)).toEqual(['settings.error.battery_incomplete']);
+    f.batteryPower.entity_id = '';
+    f.batterySoc.entity_id = 'sensor.s';
+    expect(validateForm(f)).toEqual(['settings.error.battery_incomplete']);
+    f.batteryEnabled = false; // disabled battery is simply not sent
+    expect(validateForm(f)).toEqual([]);
+  });
+  it('flags a grid pair with one sensor only', () => {
+    const f = emptyForm();
+    f.gridMode = 'pair';
+    f.gridImport.entity_id = 'sensor.i';
+    expect(validateForm(f)).toEqual(['settings.error.grid_pair_incomplete']);
   });
 });
 

@@ -63,6 +63,12 @@ describe('translator', () => {
     expect(t2.render('de', 'a')).toBe('English');
     expect(t2.render('de', 'missing.key')).toBe('missing.key');
   });
+  it('does not resolve inherited object properties as keys', () => {
+    for (const key of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      expect(tr.has(key, 'en'), key).toBe(false);
+      expect(tr.render('en', key)).toBe(key);
+    }
+  });
   it('does not blank the UI when an argument is missing', () => {
     expect(tr.render('en', 'unit.w')).not.toBe('');
   });

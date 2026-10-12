@@ -88,6 +88,18 @@ export class LiveClient {
     this.opts.onState('closed');
   }
 
+  /**
+   * Skip the back-off wait and reconnect immediately (network came back, tab became visible).
+   * No-op while connected or connecting, or after stop().
+   */
+  reconnectNow(): void {
+    if (this.stopped || this.socket !== null) return;
+    if (this.timer !== null) this.clearTimer(this.timer);
+    this.timer = null;
+    this.attempt = 0;
+    this.connect();
+  }
+
   private connect(): void {
     this.timer = null;
     this.opts.onState('connecting');

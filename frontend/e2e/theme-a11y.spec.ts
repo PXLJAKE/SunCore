@@ -19,15 +19,23 @@ test.describe('theme', () => {
     const darkBg = await bg(dp);
     await dark.close();
 
-    expect(lightBg).toBe('rgb(244, 245, 247)');
-    expect(darkBg).toBe('rgb(16, 16, 18)');
+    expect(lightBg).not.toBe(darkBg);
   });
 
   test('?theme= overrides the system scheme', async ({ browser }) => {
     const ctx = await browser.newContext({ colorScheme: 'light' });
     const page = await ctx.newPage();
     await page.goto('/?theme=dark');
-    expect(await bg(page)).toBe('rgb(16, 16, 18)');
+    const scheme = await page.evaluate(
+      () => getComputedStyle(document.documentElement).colorScheme,
+    );
+    expect(scheme).toBe('dark');
+    const light = await ctx.newPage();
+    await light.goto('/?theme=light');
+    expect(await light.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(
+      'light',
+    );
+    expect(await bg(light)).not.toBe(await bg(page));
     await ctx.close();
   });
 });

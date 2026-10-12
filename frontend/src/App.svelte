@@ -16,6 +16,7 @@
     connecting: 'conn.connecting',
     live: 'conn.live',
     ha_down: 'conn.ha_down',
+    degraded: 'conn.degraded',
     offline: 'conn.offline',
   };
   const MODE: Record<OperatingMode, MessageKey> = {
@@ -178,12 +179,14 @@
   .conn.live .dot {
     background: var(--success-color);
   }
+  .conn.degraded .dot,
   .conn.ha_down .dot {
     background: var(--warning-color);
   }
   .conn.offline .dot {
     background: var(--error-color);
   }
+  .conn.degraded,
   .conn.ha_down,
   .conn.offline {
     color: var(--primary-text-color);

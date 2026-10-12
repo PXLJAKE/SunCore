@@ -33,7 +33,9 @@ export function createTranslator(catalogues: Record<Locale, Catalogue>): Transla
     const id = `${locale}\u0000${key}`;
     const hit = cache.get(id);
     if (hit) return hit;
-    const source = catalogues[locale][key];
+    const cat = catalogues[locale];
+    if (!Object.hasOwn(cat, key)) return null;
+    const source = cat[key];
     if (source === undefined) return null;
     try {
       const fmt = new IntlMessageFormat(source, locale);
@@ -58,7 +60,7 @@ export function createTranslator(catalogues: Record<Locale, Catalogue>): Transla
       return key;
     },
     has(key, locale = FALLBACK_LOCALE) {
-      return catalogues[locale][key] !== undefined;
+      return Object.hasOwn(catalogues[locale], key);
     },
   };
 }

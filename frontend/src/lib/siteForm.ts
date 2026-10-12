@@ -64,6 +64,27 @@ export function formFromSite(site: SiteConfig | null): SiteForm {
   };
 }
 
+export type FormErrorKey =
+  'settings.error.battery_incomplete' | 'settings.error.grid_pair_incomplete';
+
+/** Client-side checks that would otherwise make `siteFromForm` drop data silently. */
+export function validateForm(form: SiteForm): FormErrorKey[] {
+  const errors: FormErrorKey[] = [];
+  if (
+    form.gridMode === 'pair' &&
+    (toRef(form.gridImport) === null) !== (toRef(form.gridExport) === null)
+  ) {
+    errors.push('settings.error.grid_pair_incomplete');
+  }
+  if (
+    form.batteryEnabled &&
+    (toRef(form.batteryPower) === null) !== (toRef(form.batterySoc) === null)
+  ) {
+    errors.push('settings.error.battery_incomplete');
+  }
+  return errors;
+}
+
 /** Build the PUT body. Empty rows are dropped; the backend validates the rest (422). */
 export function siteFromForm(form: SiteForm): SiteConfig {
   const grid =

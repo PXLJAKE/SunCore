@@ -19,7 +19,11 @@ describe('linkStatus', () => {
     expect(linkStatus('closed', true, health())).toBe('offline');
     expect(linkStatus('open', true, health())).toBe('live');
     expect(linkStatus('open', true, health({ ha_state: 'reconnecting' }))).toBe('ha_down');
-    expect(linkStatus('open', true, health({ ok: false }))).toBe('ha_down');
+    expect(linkStatus('open', true, health({ ok: false }))).toBe('degraded');
+    expect(linkStatus('open', true, health({ ok: false, db_ok: false }))).toBe('degraded');
+    expect(
+      linkStatus('open', true, health({ ok: false, ha_state: 'auth_failed', db_ok: true })),
+    ).toBe('ha_down');
   });
 });
 

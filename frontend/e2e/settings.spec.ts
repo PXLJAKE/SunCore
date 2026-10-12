@@ -1,8 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 import { expect, test } from '@playwright/test';
 
+const ref = (entity_id: string) => ({ entity_id, invert_sign: false });
+const DEMO_SITE = {
+  schema_version: 1,
+  grid: { power: ref('sensor.sim_grid_power'), import_power: null, export_power: null },
+  pv: [ref('sensor.sim_pv_power')],
+  battery: { power: ref('sensor.sim_battery_power'), soc: ref('sensor.sim_battery_soc') },
+  house: ref('sensor.sim_house_power'),
+};
+
 test.describe('Settings', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, request }) => {
+    // Never inherit state from a previous test, retry or project.
+    const res = await request.put('/api/v1/config/site', { data: DEMO_SITE });
+    expect(res.ok()).toBe(true);
     await page.goto('/#/settings');
     await expect(page.getByRole('heading', { name: 'Settings', level: 2 })).toBeVisible();
     await expect(page.getByLabel('Grid power (positive = import)')).toHaveValue(
@@ -73,6 +85,22 @@ test.describe('Settings', () => {
     const restored = await (await request.get('/api/v1/config/site')).json();
     expect(restored.pv).toHaveLength(1);
     expect(restored.house.entity_id).toBe('sensor.sim_house_power');
+  });
+
+  test('blocks saving an incomplete battery or grid pair on the client', async ({ page }) => {
+    let puts = 0;
+    page.on('request', (r) => {
+      if (r.method() === 'PUT') puts += 1;
+    });
+    await page.getByLabel('Battery state of charge (%)').fill('');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByTestId('form-error')).toContainText('Select both the battery power');
+    await page.getByLabel('Battery state of charge (%)').fill('sensor.sim_battery_soc');
+    await page.getByLabel('Separate import and export sensors').check();
+    await page.getByLabel('Import power (grid consumption)').fill('sensor.sim_grid_power');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByTestId('form-error')).toContainText('Select both the import');
+    expect(puts).toBe(0);
   });
 
   test('shows validation errors from the API', async ({ page }) => {

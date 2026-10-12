@@ -8,6 +8,8 @@
   import { t, tDynamic, tPercent, tPower } from '../i18n/index.svelte';
   import {
     emptyForm,
+    validateForm,
+    type FormErrorKey,
     emptyRef,
     formFromSite,
     siteFromForm,
@@ -18,7 +20,7 @@
   import { live } from '../stores/live.svelte';
 
   const LIST_ID = 'suncore-entity-options';
-  const POLL_MS = 3000;
+  const POLL_MS = 10_000;
 
   let form = $state<SiteForm>(emptyForm());
   let loaded = $state(false);
@@ -28,6 +30,7 @@
   let saved = $state(false);
   let saveError = $state<string | null>(null);
   let issues = $state.raw<ValidationIssue[]>([]);
+  let formErrors = $state.raw<FormErrorKey[]>([]);
 
   const flows = $derived(live.flows);
   const pvCount = $derived(form.pv.filter((p) => p.entity_id.trim() !== '').length);
@@ -51,8 +54,29 @@
       loaded = true;
     })();
     void loadEntities();
-    const timer = setInterval(() => void loadEntities(), POLL_MS);
-    return () => clearInterval(timer);
+    // Each call is a full get_states in HA: slow polling, paused while the tab is hidden.
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const startPolling = () => {
+      if (timer === null) timer = setInterval(() => void loadEntities(), POLL_MS);
+    };
+    const stopPolling = () => {
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        void loadEntities();
+        startPolling();
+      }
+    };
+    if (!document.hidden) startPolling();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   });
 
   function liveText(id: 'grid_w' | 'pv_w' | 'house_w'): string {
@@ -70,8 +94,12 @@
 
   async function save(ev: SubmitEvent): Promise<void> {
     ev.preventDefault();
-    saving = true;
     saved = false;
+    saveError = null;
+    issues = [];
+    formErrors = validateForm(form);
+    if (formErrors.length > 0) return;
+    saving = true;
     saveError = null;
     issues = [];
     try {
@@ -215,6 +243,15 @@
         />
       </fieldset>
 
+      {#if formErrors.length > 0}
+        <div class="notice error" role="alert" data-testid="form-error">
+          <ul>
+            {#each formErrors as key (key)}
+              <li>{t(key)}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
       {#if saveError}
         <div class="notice error" role="alert" data-testid="save-error">
           <p>{tDynamic(saveError, undefined, 'api.error.unknown')}</p>

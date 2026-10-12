@@ -3,7 +3,9 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-12 · **Phase:** 1 (app skeleton) · **Branch:** `phase-1/app-skeleton`
+**Last update:** 2026-10-12 · **Phase:** 1 (app skeleton) ·
+**Branches:** `phase-1/app-skeleton` (#3) → `phase-1/ha-api-sim` (#4) →
+`phase-1/frontend`
 
 ## Done
 
@@ -43,20 +45,38 @@ ADRs relevant to your task. Keep it short; history lives in git.
     touches `/data`.
   - Image installs the hash-checked set from `uv.lock` from PyPI only
     (the base image's HA wheels index lagged behind, see PR #3).
+- **PR 1-C** (WP7, WP8), stacked on 1-B:
+  - `frontend/`: Svelte 5 + Vite + TypeScript, hash routing and relative
+    URLs (ingress base path), "Now" view with animated SVG energy flow,
+    quality states, shadow-mode badge, connection indicator, demo banner;
+    temporary settings page for grid/PV/battery/house entities with sign
+    inversion and live preview; theme tokens named after HA variables with
+    `prefers-color-scheme` defaults. Bundle 40 kB gzip (budget 250 kB).
+  - i18n: `intl-messageformat`, `en.json`/`de.json` (same keys, ICU
+    checked), ESLint rule against hardcoded UI text,
+    `scripts/check_reasons.py` keeps backend reason/error keys and
+    catalogues in sync.
+  - Tests: Vitest, Playwright E2E against the real demo backend (desktop,
+    phone, tablet; axe WCAG 2.1 AA), CI job `frontend`.
+  - Demo starts at `SUNCORE_DEMO_START_TIME` (default 10:00); screenshots
+    in `docs/assets/screenshots/` come from the real demo.
 - R1 cleared: every planned Python dependency has cp313 musllinux wheels
   for aarch64 and x86_64 or is pure Python.
 
 ## Open – Phase 1
 
-- PR 1-C (frontend, i18n), 1-D (image, smoke test, docs, beta release).
+- PR 1-D (image, smoke test, docs, beta release).
 - WP9: Dockerfile `HEALTHCHECK`/`CMD` still call `--version`; switch to
   `/health` and the s6 service. Smoke test must reach `/health` from inside
   the container (loopback) or set `SUNCORE_ALLOW_ANY_PEER=1`. Decide
   `panel_admin: true` with `verify-ha-api` (the skeleton test currently
   rejects it as a redundant default).
-- WP8 must add the reason keys `safety.shadow_mode` and
-  `safety.emergency_stop` to `en.json`/`de.json`.
-- WP8: API error details are keys `api.error.*` – add them to the catalogue.
+- WP9: redirect to a trailing slash when the ingress path arrives without
+  one (relative asset URLs, UNVERIFIED whether Supervisor ever does that).
+- Phase 2 wizard: render 422 validation issues through catalogue keys
+  instead of Pydantic's English messages; serve `/api/v1/entities` from the
+  entity cache instead of a full `get_states` per request; theme bridge from
+  the ingress parent document (see `frontend/README.md`).
 - Python ICU library decision (ADR-0007 follow-up) deferred to Phase 6:
   in Phase 1 the backend only emits `Reason(key, args)`.
 - Phase 3 follow-ups: extend boundary rule 2 to `suncore.devices` drivers
@@ -77,8 +97,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Next steps
 
-1. Maintainer reviews and merges PR 1-A, then PR 1-B.
-2. WP7 frontend and WP8 i18n → PR 1-C.
+1. Maintainer reviews and merges PR 1-A, 1-B, 1-C in this order.
+2. WP9 image/s6/health/smoke test, WP10 docs, first beta → PR 1-D.
 
 ## Known problems and `UNVERIFIED` items
 
@@ -88,7 +108,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
 | Open-Meteo tilted-irradiance parameters; Energy-Charts and aWATTar APIs and terms | `research/integrations.md` | Phase 4, session with network access |
 | Forecast.Solar / Open-Meteo Solar Forecast attribute names; Octopus attributes | `research/integrations.md` | Phase 4, read integration source |
-| Theme variable inheritance inside ingress iframe | `research/ha-apps.md` | Phase 1 spike |
+| Theme variable inheritance inside ingress iframe (spike: not verifiable without a running HA; fallback `prefers-color-scheme`) | `frontend/README.md` | Phase 2, on the maintainer's HA |
+| Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | Ingress gateway peer `172.30.32.2` (from research note, not from Supervisor source) | `suncore/app/settings.py` | WP9 `verify-ha-api` |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
 | Registry list WebSocket command names; `power_config` shape in energy prefs | `research/ha-websocket-api.md` | Phase 1/2, read `components/config/*.py` |

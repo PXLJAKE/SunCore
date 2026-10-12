@@ -23,14 +23,65 @@ const TEXT_ATTRIBUTES = new Set([
 
 const HAS_LETTER = /\p{L}/u;
 
-/** @param {import('estree').Node | null | undefined} node */
-function literalText(node) {
-  if (!node) return null;
-  if (node.type === 'Literal' && typeof node.value === 'string') return node.value;
-  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
-    return node.quasis.map((q) => q.value.cooked ?? '').join('');
+/**
+ * Props of components that are obviously not text (identifiers, enums, URLs, styling hooks).
+ * `data-*` is allowed by prefix.
+ */
+const NON_TEXT_COMPONENT_PROPS = new Set([
+  'class',
+  'id',
+  'href',
+  'src',
+  'type',
+  'name',
+  'for',
+  'role',
+  'rel',
+  'target',
+  'lang',
+  'key',
+  'slot',
+  'style',
+  'variant',
+  'kind',
+  'size',
+  'tone',
+  'mode',
+  'color',
+  'icon',
+  'testid',
+  'autocomplete',
+]);
+
+/**
+ * All string literals that can end up as text through this expression: literals, template
+ * quasis, both branches of ?: and ||/&&/??, and both sides of `+`. Calls (t(...)) are opaque.
+ * @param {import('estree').Node | null | undefined} node
+ * @returns {string[]}
+ */
+function literalTexts(node) {
+  if (!node) return [];
+  switch (node.type) {
+    case 'Literal':
+      return typeof node.value === 'string' ? [node.value] : [];
+    case 'TemplateLiteral':
+      return [
+        ...node.quasis.map((q) => q.value.cooked ?? ''),
+        ...node.expressions.flatMap(literalTexts),
+      ];
+    case 'ConditionalExpression':
+      return [...literalTexts(node.consequent), ...literalTexts(node.alternate)];
+    case 'LogicalExpression':
+      return [...literalTexts(node.left), ...literalTexts(node.right)];
+    case 'BinaryExpression':
+      return node.operator === '+' ? [...literalTexts(node.left), ...literalTexts(node.right)] : [];
+    case 'TSAsExpression':
+    case 'TSNonNullExpression':
+    case 'TSSatisfiesExpression':
+      return literalTexts(node.expression);
+    default:
+      return [];
   }
-  return null;
 }
 
 /** @type {import('eslint').Rule.RuleModule} */
@@ -67,17 +118,26 @@ export default {
         // Attribute values are handled by the SvelteAttribute visitor for named attributes;
         // everywhere else a string literal that contains a letter is UI text.
         if (node.parent && node.parent.type === 'SvelteAttribute') return;
-        const text = literalText(node.expression);
-        if (text !== null && HAS_LETTER.test(text)) {
+        const text = literalTexts(node.expression).find((x) => HAS_LETTER.test(x));
+        if (text !== undefined) {
           context.report({ node, messageId: 'mustache', data: { text: trim(text) } });
         }
       },
       SvelteAttribute(node) {
         const name = node.key && node.key.name;
-        if (typeof name !== 'string' || !TEXT_ATTRIBUTES.has(name)) return;
+        if (typeof name !== 'string') return;
+        const element = node.parent && node.parent.parent;
+        const isComponent =
+          !!element && element.type === 'SvelteElement' && element.kind === 'component';
+        const checked = TEXT_ATTRIBUTES.has(name)
+          ? true
+          : isComponent && !NON_TEXT_COMPONENT_PROPS.has(name) && !name.startsWith('data-');
+        if (!checked) return;
         for (const part of node.value) {
-          const text = part.type === 'SvelteLiteral' ? part.value : literalText(part.expression);
-          if (text !== null && HAS_LETTER.test(text)) {
+          const texts =
+            part.type === 'SvelteLiteral' ? [part.value] : literalTexts(part.expression);
+          const text = texts.find((x) => HAS_LETTER.test(x));
+          if (text !== undefined) {
             context.report({
               node: part,
               messageId: 'attribute',
