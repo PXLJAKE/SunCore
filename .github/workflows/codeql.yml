@@ -13,6 +13,10 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # Code scanning on a private repository needs GitHub Code Security, which
+    # is not enabled here; it is free once the repository is public. Until
+    # then the job is skipped instead of failing every PR.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
       security-events: write

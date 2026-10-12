@@ -33,6 +33,10 @@ ADRs relevant to your task. Keep it short; history lives in git.
 - PR #1 awaits CI results (first run of the workflows) and the maintainer's
   merge. The image build could not be run in the cloud session (no Docker
   daemon) – CI validates it.
+- CodeQL is skipped while the repository is private ("Code scanning is not
+  enabled for this repository"); it runs automatically once the repository is
+  public, or earlier if the maintainer enables Code Security in the
+  repository settings.
 - `RELEASE_PLEASE_TOKEN` secret (fine-grained PAT) still to be created by
   the maintainer (ADR-0009); without it the release build must be started
   by `workflow_dispatch`.
