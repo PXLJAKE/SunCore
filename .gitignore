@@ -1,0 +1,3 @@
+# Vendor documents (copyright of their owners, not redistributed)
+docs/research/vendor/*
+!docs/research/vendor/README.md

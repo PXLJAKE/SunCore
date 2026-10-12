@@ -1,6 +1,6 @@
 # ADR-0001: Backend stack
 
-- **Status:** proposed
+- **Status:** accepted (maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
 - **Research:** [`ha-apps.md`](../research/ha-apps.md), [`solver-on-aarch64.md`](../research/solver-on-aarch64.md)

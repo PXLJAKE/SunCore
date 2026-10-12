@@ -1,6 +1,6 @@
 # ADR-0007: Internationalisation and translation platform
 
-- **Status:** proposed
+- **Status:** accepted (maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
 - **Research:** BRIEF §7; Weblate repository README (hosting page unreachable)

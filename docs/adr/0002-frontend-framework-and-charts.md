@@ -1,6 +1,6 @@
 # ADR-0002: Frontend framework and chart library
 
-- **Status:** proposed
+- **Status:** accepted (maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
 - **Research:** npm registry (Svelte 5.57, ECharts 6.1 Apache-2.0), [`ha-apps.md`](../research/ha-apps.md) (ingress)

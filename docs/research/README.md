@@ -12,7 +12,7 @@ primary source are marked `UNVERIFIED` and listed in
 | [`mqtt-discovery.md`](mqtt-discovery.md) | MQTT discovery payloads, device-based discovery, broker credentials via Supervisor |
 | [`competitors.md`](competitors.md) | evcc, EMHASS, Predbat: concepts, limits, licences, what SunCore adopts |
 | [`integrations.md`](integrations.md) | Solcast, Forecast.Solar, Open-Meteo Solar Forecast, Tibber, Nord Pool, ENTSO-E, EPEX Spot, Octopus, LG ThinQ, Kostal Plenticore (REST), SunSpec |
-| [`kostal-plenticore-modbus.md`](kostal-plenticore-modbus.md) | External battery control over Modbus TCP: what is known, what is `UNVERIFIED` |
+| [`kostal-plenticore-modbus.md`](kostal-plenticore-modbus.md) | Inverter and KSEM register maps from the official KOSTAL documents, external battery control, fail-safe mechanism |
 | [`solver-on-aarch64.md`](solver-on-aarch64.md) | HiGHS / `highspy` and SciPy wheel availability for the target platforms |
 
 ## Network access during Phase 0
@@ -22,7 +22,7 @@ This research was done from a cloud session whose network policy allows
 but **not** `home-assistant.io`, `developers.home-assistant.io`,
 `docs.evcc.io`, `*.readthedocs.io`, `*.github.io`, `open-meteo.com`,
 `weblate.org`, `api.energy-charts.info`, `api.awattar.de` or
-`kostal-solar-electric.com`.
+`kostal-solar-electric.com`. The KOSTAL PDFs were supplied by the maintainer and live in the git-ignored `docs/research/vendor/` folder.
 
 Where the rendered documentation was unreachable, the notes cite the
 documentation **source files** in the official GitHub repositories

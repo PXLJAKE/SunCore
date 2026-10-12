@@ -1,6 +1,6 @@
 # ADR-0011: Two control layers and the safety boundary
 
-- **Status:** proposed
+- **Status:** accepted (maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
 - **Research:** [`competitors.md`](../research/competitors.md), BRIEF §3, §5

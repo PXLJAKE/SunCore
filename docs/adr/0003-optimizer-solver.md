@@ -1,6 +1,6 @@
 # ADR-0003: Optimiser and solver
 
-- **Status:** proposed
+- **Status:** accepted (maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
 - **Research:** [`solver-on-aarch64.md`](../research/solver-on-aarch64.md), [`competitors.md`](../research/competitors.md) (EMHASS model)
