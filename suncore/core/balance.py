@@ -37,10 +37,6 @@ class Flow:
     value: float | None
     quality: Quality
 
-    @property
-    def known(self) -> bool:
-        return self.value is not None
-
 
 @dataclass(frozen=True, slots=True)
 class FlowSnapshot:

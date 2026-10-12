@@ -64,11 +64,15 @@ class Database:
     async def _connect(self) -> None:
         # isolation_level=None: autocommit; we issue BEGIN/COMMIT ourselves.
         conn = await aiosqlite.connect(self._path, isolation_level=None)
+        try:
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await conn.execute("PRAGMA synchronous=NORMAL")
+            await conn.execute("PRAGMA busy_timeout=5000")
+        except BaseException:
+            await conn.close()
+            raise
         self._conn = conn
-        await conn.execute("PRAGMA journal_mode=WAL")
-        await conn.execute("PRAGMA foreign_keys=ON")
-        await conn.execute("PRAGMA synchronous=NORMAL")
-        await conn.execute("PRAGMA busy_timeout=5000")
 
     def _connection(self) -> aiosqlite.Connection:
         if self._conn is None:
@@ -117,7 +121,11 @@ class Database:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[Transaction]:
-        """Atomic block: commit on success, roll back on any exception."""
+        """Atomic block: commit on success, roll back on any exception.
+
+        Use only the yielded ``Transaction`` inside the block: the lock is not
+        reentrant, so calling ``Database`` methods here would deadlock.
+        """
         async with self._lock:
             conn = self._connection()
             await conn.execute("BEGIN IMMEDIATE")

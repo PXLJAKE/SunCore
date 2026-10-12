@@ -1,6 +1,6 @@
 # Phase 1 – App skeleton that shows live data
 
-Status: **draft, awaiting maintainer approval**
+Status: **approved** by the maintainer on 2026-10-12 (defaults of §6 apply)
 Source of truth: [`docs/BRIEF.md`](../BRIEF.md) §2, §3, §4.9 ("Now"), §4.11
 (shadow mode), §4.14, §5, §7, §8, §10; [`docs/roadmap.md`](../roadmap.md)
 Phase 1; ADR-0001, 0002, 0004, 0007, 0009, 0010, 0011.

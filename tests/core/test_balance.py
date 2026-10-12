@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 from datetime import UTC, datetime
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -189,3 +190,20 @@ def test_pair_units_and_inversion(
     exp = pair[1] * units[1].factor * (-1 if inv[1] else 1)
     assert f.grid_w.value is not None
     assert math.isclose(f.grid_w.value, imp - exp, rel_tol=1e-9, abs_tol=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("missing", "expected"),
+    [
+        (s(None, Unit.W, Quality.UNAVAILABLE), Quality.UNAVAILABLE),
+        (s(5.0, Unit.W, Quality.INVALID), Quality.INVALID),
+    ],
+)
+def test_pair_with_missing_member_has_no_value(missing: Sample, expected: Quality) -> None:
+    site = SiteConfig.model_validate(
+        {"grid": {"import_power": r("sensor.i"), "export_power": r("sensor.e")}}
+    )
+    f = compute_flows(site, {"sensor.i": s(250.0), "sensor.e": missing})
+    assert f.grid_w.value is None
+    assert f.grid_w.quality is expected
+    assert f.house_w.value is None

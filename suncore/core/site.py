@@ -7,6 +7,7 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+# Stricter than HA's VALID_ENTITY_ID on purpose (no digits in the domain).
 ENTITY_ID_PATTERN = r"^[a-z_]+\.[a-z0-9_]+$"
 
 EntityId = Annotated[str, StringConstraints(pattern=ENTITY_ID_PATTERN)]

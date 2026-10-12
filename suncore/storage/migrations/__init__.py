@@ -69,9 +69,11 @@ async def run_migrations(
         script = f"BEGIN IMMEDIATE;\n{mig.sql}\nPRAGMA user_version = {int(mig.version)};\nCOMMIT;"
         try:
             await conn.executescript(script)
-        except Exception as exc:
+        except BaseException as exc:
             if conn.in_transaction:
                 await conn.execute("ROLLBACK")
+            if not isinstance(exc, Exception):
+                raise
             msg = f"migration {mig.name} failed: {exc}"
             raise MigrationError(msg) from exc
     return target

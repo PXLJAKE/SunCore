@@ -4,7 +4,7 @@
 The gate is hard-wired to shadow mode: no sequence of intents, emergency
 stops and releases may ever reach an actuator, and every decision is
 either ``shadow`` or ``rejected``. Coroutines are driven with
-``asyncio.run`` because the project has no pytest-asyncio dependency yet.
+``asyncio.run`` so that hypothesis controls every example's event loop.
 """
 
 from __future__ import annotations

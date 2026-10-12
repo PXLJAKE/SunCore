@@ -140,7 +140,13 @@ def test_phase_1_has_no_apply_call_anywhere() -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_only_safety_imports_the_actuator_module(path: Path) -> None:
-    """Rule 2: the actuator protocol (and any implementation) stays behind the gate."""
+    """Rule 2: the actuator protocol stays behind the gate.
+
+    Actuator implementations (``suncore.devices``, Phase 3) satisfy the
+    protocol structurally and need not import it. Phase 3 must extend this
+    rule: driver modules may only be imported by ``safety`` and the
+    composition root (``suncore.app``).
+    """
     module = module_name(path)
     if in_package(module, SAFETY):
         return

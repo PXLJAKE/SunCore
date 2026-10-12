@@ -191,3 +191,13 @@ async def test_failure_during_write_rolls_back(
         await store.import_json(_valid_export())
     monkeypatch.undo()
     assert await store.export_json() == before
+
+
+async def test_stored_body_that_is_not_an_object_is_corrupt(db: Database) -> None:
+    store = ConfigStore(db)
+    await db.execute(
+        "INSERT INTO config_doc (section, schema_version, body, updated_at) VALUES (?, ?, ?, ?)",
+        ("site", 1, "[]", "2026-10-12T00:00:00+00:00"),
+    )
+    with pytest.raises(ConfigCorruptError):
+        await store.get("site")
