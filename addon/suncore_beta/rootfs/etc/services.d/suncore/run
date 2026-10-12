@@ -1,0 +1,12 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# SPDX-License-Identifier: Apache-2.0
+# ==============================================================================
+# Start the SunCore application as the supervised s6 service.
+# with-contenv imports the container environment (SUPERVISOR_TOKEN, SUNCORE_*).
+# exec makes python the service process, so s6's TERM at shutdown reaches it
+# directly and it can stop gracefully (log line "app.stopped").
+# ==============================================================================
+
+bashio::log.info "Starting SunCore..."
+exec python3 -m suncore

@@ -1,0 +1,16 @@
+#!/usr/bin/env bashio
+# SPDX-License-Identifier: Apache-2.0
+# ==============================================================================
+# Take down the s6 supervision tree when SunCore crashes, so the container
+# exits with the application's exit code and the Supervisor can react.
+# Pattern from home-assistant/apps-example (example/rootfs/etc/services.d).
+# $1 = exit code of the service, 256 = killed by a signal (also normal shutdown).
+# ==============================================================================
+
+declare APP_EXIT_CODE=${1}
+
+if [[ "${APP_EXIT_CODE}" -ne 0 ]] && [[ "${APP_EXIT_CODE}" -ne 256 ]]; then
+  bashio::log.warning "Halt app with exit code ${APP_EXIT_CODE}"
+  echo "${APP_EXIT_CODE}" > /run/s6-linux-init-container-results/exitcode
+  exec /run/s6/basedir/bin/halt
+fi

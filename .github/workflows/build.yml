@@ -1,9 +1,12 @@
 # Builds the app image with the official Home Assistant builder actions
 # (docs/research/ha-apps.md, ADR-0009).
 #
-# - pull_request: amd64 only, no push, smoke test of the image.
-# - push to main: both architectures, pushed as the beta image.
-# - release published: both architectures, pushed as the stable image.
+# - pull_request: amd64 only, no push, smoke test of the loaded image.
+# - push to main: both architectures, pushed as the beta image, then the
+#   pushed per-arch image is pulled and smoke-tested (aarch64 memory, risk R4).
+# - release published: both architectures, pushed as the stable image, smoke test.
+# The smoke test (scripts/smoke_image.sh) starts the image in demo mode, waits
+# for /health, fails above 300 MiB after 60 s idle and checks the clean SIGTERM exit.
 name: Build app image
 
 on:
@@ -11,16 +14,22 @@ on:
     paths:
       - "addon/**"
       - "suncore/**"
+      - "frontend/**"
       - "pyproject.toml"
       - "uv.lock"
+      - ".dockerignore"
+      - "scripts/smoke_image.sh"
       - ".github/workflows/build.yml"
   push:
     branches: [main]
     paths:
       - "addon/**"
       - "suncore/**"
+      - "frontend/**"
       - "pyproject.toml"
       - "uv.lock"
+      - ".dockerignore"
+      - "scripts/smoke_image.sh"
       - ".github/workflows/build.yml"
   release:
     types: [published]
@@ -130,9 +139,19 @@ jobs:
             io.hass.type=app
             io.hass.name=SunCore
             io.hass.url=https://github.com/pxljake/suncore
+      - name: Pull pushed image for the smoke test
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USER: ${{ github.actor }}
+          IMAGE_REF: ${{ matrix.image }}:${{ needs.prepare.outputs.version }}
+        run: |
+          echo "${REGISTRY_PASSWORD}" | docker login ghcr.io -u "${REGISTRY_USER}" --password-stdin
+          docker pull "${IMAGE_REF}"
       - name: Smoke test
-        if: needs.prepare.outputs.publish == 'false'
-        run: docker run --rm "${{ matrix.image }}:${{ needs.prepare.outputs.version }}"
+        env:
+          IMAGE_REF: ${{ matrix.image }}:${{ needs.prepare.outputs.version }}
+        run: ./scripts/smoke_image.sh "${IMAGE_REF}"
 
   manifest:
     name: Publish multi-arch manifest

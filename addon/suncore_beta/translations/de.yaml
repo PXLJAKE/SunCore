@@ -2,6 +2,9 @@ configuration:
   log_level:
     name: Log-Level
     description: Ausführlichkeit des Anwendungsprotokolls.
+  demo_mode:
+    name: Demo-Modus
+    description: Läuft mit einem simulierten Haus statt mit Home Assistant verbunden zu sein. Es wird nichts an Geräte geschrieben und nichts gespeichert. Zum Ausprobieren der Oberfläche.
   controller_interval_s:
     name: Regler-Intervall
     description: Wie oft der Echtzeit-Regler läuft, in Sekunden (2–60).

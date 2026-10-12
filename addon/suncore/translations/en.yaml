@@ -2,6 +2,9 @@ configuration:
   log_level:
     name: Log level
     description: Verbosity of the application log.
+  demo_mode:
+    name: Demo mode
+    description: Run with a simulated house instead of connecting to Home Assistant. Nothing is written to your devices and no data is stored. For trying out the interface.
   controller_interval_s:
     name: Controller interval
     description: How often the real-time controller runs, in seconds (2–60).

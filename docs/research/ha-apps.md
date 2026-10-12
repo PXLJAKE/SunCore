@@ -202,3 +202,55 @@ Verified on 2026-10-12 against:
 - HAOS 17.0 release notes and the 2025-05-22 deprecation blog post (via search results; blog itself unreachable)
 
 `UNVERIFIED`: theme-variable inheritance inside ingress iframes.
+
+### Verification 2026-10-12 (WP9, image and ingress)
+
+Sources fetched from `raw.githubusercontent.com` on 2026-10-12 (branches
+`main`/`master` at that date).
+
+- **Ingress gateway peer**: `supervisor/docker/network.py` defines
+  `supervisor` as `DOCKER_IPV4_NETWORK_MASK[2]` with
+  `DOCKER_IPV4_NETWORK_MASK = IPv4Network("172.30.32.0/23")`
+  (`supervisor/const.py`), i.e. `172.30.32.2` is the Supervisor container.
+  `supervisor/api/ingress.py` forwards with
+  `http://{app.ip_address}:{app.ingress_port}/{path}` from that container.
+  The developer docs (`docs/apps/presentation.md`) state the same address.
+  Resolved: the peer value in `suncore/app/settings.py` is correct.
+- **Defaults**: `supervisor/apps/validate.py`: `ingress_port` default `8099`,
+  `panel_admin` default `True`, `init` default `True`, `ingress_stream`
+  default `False`. SunCore therefore omits `ingress_port` and `panel_admin`
+  (admin-only panel by default) and sets `init: false`.
+- **Ingress URL and base path**: `supervisor/apps/app.py`: `ingress_url` is
+  `/api/hassio_ingress/<token>/` (with trailing slash, plus `ingress_entry`
+  if set), `ingress_entry` is `/api/hassio_ingress/<token>` (no slash). Core
+  routes `/api/hassio_ingress/{token}/{path:.*}`
+  (`core/homeassistant/components/hassio/ingress.py`) and sets
+  `X-Ingress-Path: /api/hassio_ingress/<token>` (no trailing slash) there;
+  the app receives the remainder as path, so the document URL always ends
+  with a slash and relative asset URLs resolve below the token. No redirect
+  is needed in the backend. `X-Remote-User-*` headers are set by Supervisor
+  (`api/ingress.py`, `_init_header`).
+- **Base image init**: `home-assistant/docker-base` `alpine/Dockerfile`
+  (base of `base-python`): `ENTRYPOINT ["/init"]` (s6-overlay v3.2.3.2),
+  `mkdir -p /etc/services.d`, `S6_BEHAVIOUR_IF_STAGE2_FAILS=2`,
+  `S6_CMD_WAIT_FOR_SERVICES=1`, `S6_SERVICES_READYTIME=50`, bashio 0.19.0.
+  With `init: false` Supervisor does not add Docker's `--init`
+  (`default_init`, `supervisor/docker/app.py`), so s6 is PID 1.
+  The example app starts its service with legacy `/etc/services.d/<name>/run`
+  (`#!/usr/bin/with-contenv bashio`, ends in `exec`) and a `finish` script
+  (`#!/usr/bin/env bashio`) that writes
+  `/run/s6-linux-init-container-results/exitcode` and runs
+  `/run/s6/basedir/bin/halt` when the exit code is not 0 or 256.
+  s6-overlay v3.2.3.2 README: stage 3 sends TERM to legacy services, waits
+  `S6_SERVICES_GRACETIME` (default 3000 ms), then TERM to the rest and KILL
+  after `S6_KILL_GRACETIME` (3000 ms); `docker stop` exit code defaults to 0.
+  SunCore sets `S6_SERVICES_GRACETIME=5000` (total below Docker's 10 s).
+  `base-python` itself (its Dockerfile path was not found in the repository)
+  is assumed to inherit this; the smoke test proves the start and SIGTERM
+  behaviour.
+- **Node base**: `node:22-alpine` index digest
+  `sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402`
+  (22.23.3, pushed 2026-09-23, Docker Hub tags API).
+- **Builder per-arch image names**: `prepare-multi-arch-matrix` yields
+  `<registry-prefix>/<arch>-<image-name>`; `build-image` tags
+  `<image>:<tag>` per line of `image-tags`.

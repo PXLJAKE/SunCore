@@ -11,6 +11,9 @@ arch:
 image: ghcr.io/pxljake/suncore-beta
 init: false
 stage: experimental
+# ingress_port (8099) and panel_admin (true, panel is admin-only) are Supervisor
+# defaults: omitted on purpose, the app linter rejects redundant defaults.
+# Verified in supervisor/apps/validate.py on 2026-10-12 (docs/research/ha-apps.md).
 ingress: true
 panel_icon: mdi:solar-power-variant
 panel_title: SunCore β
@@ -27,7 +30,9 @@ map:
     read_only: true
 options:
   log_level: info
+  demo_mode: false
   controller_interval_s: 5
 schema:
   log_level: list(debug|info|warning|error)
+  demo_mode: bool
   controller_interval_s: int(2,60)
