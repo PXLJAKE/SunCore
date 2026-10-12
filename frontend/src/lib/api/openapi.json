@@ -778,7 +778,7 @@
                 }
               }
             },
-            "description": "Content Too Large"
+            "description": "Import too large"
           },
           "422": {
             "content": {
@@ -788,7 +788,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Import rejected"
           }
         },
         "summary": "Import Config"
