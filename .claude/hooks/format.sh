@@ -18,9 +18,9 @@ case "$file" in
       uv run --quiet ruff check --quiet --fix --exit-zero "$file" >/dev/null 2>&1 || true
     fi
     ;;
-  *.ts|*.js|*.svelte|*.css|*.json|*.jsonc|*.yaml|*.yml|*.md)
-    # Prettier is only configured once the frontend exists (Phase 1); until
-    # then this is a no-op so hooks never block.
+  */frontend/*.ts|*/frontend/*.js|*/frontend/*.svelte|*/frontend/*.css|*/frontend/*.json)
+    # Prettier is configured for frontend/ only; docs and app YAML keep their
+    # own style (markdownlint, app linter).
     if [ -f "$root/frontend/node_modules/.bin/prettier" ]; then
       "$root/frontend/node_modules/.bin/prettier" --log-level silent --write "$file" >/dev/null 2>&1 || true
     fi
