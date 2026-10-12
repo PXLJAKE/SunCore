@@ -1,0 +1,151 @@
+# Builds the app image with the official Home Assistant builder actions
+# (docs/research/ha-apps.md, ADR-0009).
+#
+# - pull_request: amd64 only, no push, smoke test of the image.
+# - push to main: both architectures, pushed as the beta image.
+# - release published: both architectures, pushed as the stable image.
+name: Build app image
+
+on:
+  pull_request:
+    paths:
+      - "addon/**"
+      - "suncore/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "addon/**"
+      - "suncore/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/build.yml"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUILDER_VERSION: "2026.09.0"
+
+jobs:
+  prepare:
+    name: Prepare matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      version: ${{ steps.meta.outputs.version }}
+      image_name: ${{ steps.meta.outputs.image_name }}
+      registry_prefix: ${{ steps.meta.outputs.registry_prefix }}
+      architectures: ${{ steps.meta.outputs.architectures }}
+      publish: ${{ steps.meta.outputs.publish }}
+      app: ${{ steps.meta.outputs.app }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Select channel
+        id: channel
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "app=suncore" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=suncore_beta" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Read app config
+        id: info
+        uses: home-assistant/actions/helpers/info@master
+        with:
+          path: ./addon/${{ steps.channel.outputs.app }}
+      - name: Derive metadata
+        id: meta
+        env:
+          IMAGE: ${{ steps.info.outputs.image }}
+          VERSION: ${{ steps.info.outputs.version }}
+          ARCHS: ${{ steps.info.outputs.architectures }}
+          APP: ${{ steps.channel.outputs.app }}
+        run: |
+          echo "image_name=${IMAGE##*/}" >> "$GITHUB_OUTPUT"
+          echo "registry_prefix=${IMAGE%/*}" >> "$GITHUB_OUTPUT"
+          echo "app=${APP}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo 'architectures=["amd64"]' >> "$GITHUB_OUTPUT"
+            echo "version=pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            echo "architectures=${ARCHS}" >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "architectures=${ARCHS}" >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}-main.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "publish=${{ github.event_name == 'push' }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        with:
+          architectures: ${{ steps.meta.outputs.architectures }}
+          image-name: ${{ steps.meta.outputs.image_name }}
+          registry-prefix: ${{ steps.meta.outputs.registry_prefix }}
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Build image
+        uses: home-assistant/builder/actions/build-image@2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.prepare.outputs.version }}
+            latest
+          version: ${{ needs.prepare.outputs.version }}
+          context: .
+          file: addon/${{ needs.prepare.outputs.app }}/Dockerfile
+          push: ${{ needs.prepare.outputs.publish }}
+          load: ${{ needs.prepare.outputs.publish == 'false' }}
+          cosign: ${{ needs.prepare.outputs.publish }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          labels: |
+            io.hass.type=app
+            io.hass.name=SunCore
+            io.hass.url=https://github.com/pxljake/suncore
+      - name: Smoke test
+        if: needs.prepare.outputs.publish == 'false'
+        run: docker run --rm "${{ matrix.image }}:${{ needs.prepare.outputs.version }}"
+
+  manifest:
+    name: Publish multi-arch manifest
+    needs: [prepare, build]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.09.0
+        with:
+          architectures: ${{ needs.prepare.outputs.architectures }}
+          image-name: ${{ needs.prepare.outputs.image_name }}
+          registry-prefix: ${{ needs.prepare.outputs.registry_prefix }}
+          image-tags: |
+            ${{ needs.prepare.outputs.version }}
+            latest
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}

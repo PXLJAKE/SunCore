@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Fast local checks – what CI runs, minus the image build. Used by the
+# pre-commit hook in .claude/settings.json (with FAST=1) and by contributors.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+if [ "${FAST:-0}" = "1" ]; then
+  uv run pytest -q -x -m "not slow"
+else
+  uv run pytest -q --cov --cov-report=term-missing
+fi

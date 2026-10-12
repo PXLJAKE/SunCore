@@ -3,7 +3,10 @@
 - **Status:** accepted (maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
-- **Research:** [`ha-apps.md`](../research/ha-apps.md) (`/data`, `backup_exclude`), [`ha-websocket-api.md`](../research/ha-websocket-api.md) (statistics)
+- **Research:**
+  [`ha-apps.md`](../research/ha-apps.md) (`/data`,
+  `backup_exclude`),
+  [`ha-websocket-api.md`](../research/ha-websocket-api.md) (statistics)
 
 ## Context
 

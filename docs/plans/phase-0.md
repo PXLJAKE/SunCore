@@ -98,7 +98,7 @@ confirmed by WP1:
 
 Directory layout (final names confirmed by ADR-0001/0002):
 
-```
+```text
 suncore/                 Python package (core, ha, forecast, tariff, planner,
                          controller, safety, devices, api, storage, sim)
 frontend/                SPA (placeholder until ADR-0002 is accepted)
@@ -170,7 +170,7 @@ scaffold if the framework decision changes).
 
 ## 3. Execution order and model use
 
-```
+```text
 WP0 plan ──► WP1 research ──► WP2 ADRs ──► WP3 architecture ──► WP4 roadmap
                                   │
                                   └──► WP5 scaffold ──► WP6 CI ──► WP7 agents ──► WP8 PR

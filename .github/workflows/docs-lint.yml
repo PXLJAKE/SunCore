@@ -1,0 +1,50 @@
+name: Docs lint
+
+on:
+  push:
+    branches: [main]
+    paths: ["**/*.md", ".markdownlint-cli2.jsonc", "lychee.toml", ".github/workflows/docs-lint.yml"]
+  pull_request:
+    paths: ["**/*.md", ".markdownlint-cli2.jsonc", "lychee.toml", ".github/workflows/docs-lint.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  markdownlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: DavidAnson/markdownlint-cli2-action@v20
+        with:
+          globs: "**/*.md"
+
+  links:
+    name: Internal links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: --config lychee.toml --no-progress "**/*.md"
+          fail: true
+
+  mermaid:
+    name: Mermaid diagrams render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Render every diagram in docs/architecture.md
+        run: |
+          npx -y @mermaid-js/mermaid-cli@11 -i docs/architecture.md -o /tmp/architecture.md
+          test -s /tmp/architecture-1.svg

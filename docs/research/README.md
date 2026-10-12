@@ -22,7 +22,8 @@ This research was done from a cloud session whose network policy allows
 but **not** `home-assistant.io`, `developers.home-assistant.io`,
 `docs.evcc.io`, `*.readthedocs.io`, `*.github.io`, `open-meteo.com`,
 `weblate.org`, `api.energy-charts.info`, `api.awattar.de` or
-`kostal-solar-electric.com`. The KOSTAL PDFs were supplied by the maintainer and live in the git-ignored `docs/research/vendor/` folder.
+`kostal-solar-electric.com`. The KOSTAL PDFs were supplied by the
+maintainer and live in the git-ignored `docs/research/vendor/` folder.
 
 Where the rendered documentation was unreachable, the notes cite the
 documentation **source files** in the official GitHub repositories

@@ -3,7 +3,10 @@
 - **Status:** accepted (maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
-- **Research:** [`mqtt-discovery.md`](../research/mqtt-discovery.md), [`ha-apps.md`](../research/ha-apps.md) (services API, discovery)
+- **Research:**
+  [`mqtt-discovery.md`](../research/mqtt-discovery.md),
+  [`ha-apps.md`](../research/ha-apps.md) (services API,
+  discovery)
 
 ## Context
 

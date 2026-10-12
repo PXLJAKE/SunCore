@@ -185,10 +185,16 @@ install methods) in May 2025 with a six-month window; HAOS 17.0 dropped
 
 Verified on 2026-10-12 against:
 
-- `home-assistant/developers.home-assistant` `docs/apps/{configuration,presentation,repository,communication,publishing,security,testing}.md` and `docs/api/supervisor/endpoints.md` (master)
-- `home-assistant/supervisor` `supervisor/apps/validate.py`, `supervisor/const.py`, `supervisor/services/modules/mqtt.py` (main)
-- `home-assistant/apps-example` `example/config.yaml`, `example/Dockerfile`, `.github/workflows/{builder,build-app}.yaml` (main)
-- `home-assistant/builder` `actions/{build-image,prepare-multi-arch-matrix}/action.yml`, `home-assistant/actions` `helpers/info/action.yml`
+- `home-assistant/developers.home-assistant` (master):
+  `docs/apps/{configuration,presentation,repository,communication,publishing,security,testing}.md`
+  and `docs/api/supervisor/endpoints.md`
+- `home-assistant/supervisor` (main): `supervisor/apps/validate.py`,
+  `supervisor/const.py`, `supervisor/services/modules/mqtt.py`
+- `home-assistant/apps-example` (main): `example/config.yaml`,
+  `example/Dockerfile`, `.github/workflows/{builder,build-app}.yaml`
+- `home-assistant/builder`
+  `actions/{build-image,prepare-multi-arch-matrix}/action.yml`,
+  `home-assistant/actions` `helpers/info/action.yml`
 - `home-assistant/docker-base` README
 - `frenck/action-app-linter` README and `action.yaml`
 - HAOS 17.0 release notes and the 2025-05-22 deprecation blog post (via search results; blog itself unreachable)

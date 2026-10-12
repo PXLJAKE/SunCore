@@ -1,0 +1,39 @@
+name: Device / tariff / forecast template
+description: Request or offer a template for a device, inverter, tariff source, forecast source or region.
+labels: ["template", "triage"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [device, battery / inverter, tariff, forecast, region]
+    validations:
+      required: true
+  - type: input
+    id: product
+    attributes:
+      label: Vendor and model / provider
+    validations:
+      required: true
+  - type: input
+    id: integration
+    attributes:
+      label: Home Assistant integration used (name and version)
+  - type: textarea
+    id: entities
+    attributes:
+      label: Entities and attributes
+      description: Paste the relevant entity ids, units and attributes from Developer Tools → States. Do not guess names.
+      render: yaml
+  - type: textarea
+    id: docs
+    attributes:
+      label: Official documentation
+      description: Links to manufacturer documents (register maps, API docs). Templates are only accepted with a source.
+  - type: checkboxes
+    id: offer
+    attributes:
+      label: Contribution
+      options:
+        - label: I can test a template on my own system.
+        - label: I would like to write the template myself (see CONTRIBUTING.md).

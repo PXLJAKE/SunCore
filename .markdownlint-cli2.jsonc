@@ -1,0 +1,12 @@
+{
+  "config": {
+    "default": true,
+    // Line length is enforced for prose only; tables, code and URLs are long.
+    "MD013": { "line_length": 100, "tables": false, "code_blocks": false, "headings": false },
+    "MD024": { "siblings_only": true },
+    "MD033": false,
+    "MD041": false
+  },
+  "globs": ["**/*.md"],
+  "ignores": ["node_modules", "frontend/node_modules", ".venv", "CHANGELOG.md", "CODE_OF_CONDUCT.md", "LICENSE", "docs/BRIEF.md"]
+}

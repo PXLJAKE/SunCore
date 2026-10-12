@@ -1,0 +1,6 @@
+# Link checker configuration (docs-lint workflow). Internal links are
+# checked offline; external links are only warned about because several
+# documentation hosts are unreachable from CI runners and cloud sessions.
+offline = true
+include_fragments = true
+exclude_path = ["node_modules", ".venv", "docs/research/vendor"]

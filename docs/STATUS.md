@@ -18,16 +18,31 @@ ADRs relevant to your task. Keep it short; history lives in git.
 - Kostal Modbus (rev 2.9) and KSEM register maps verified from the official PDFs.
 - `docs/architecture.md` – 8 Mermaid diagrams, rendered with mermaid-cli.
 - `docs/roadmap.md`.
+- Repository scaffold: `suncore/` packages (empty, SPDX headers, smoke
+  tests), `addon/suncore` + `addon/suncore_beta` (config, Dockerfile, DOCS,
+  translations, icons), community files, issue/PR templates, `uv.lock`.
+- CI: `ci.yml` (ruff, mypy, pytest 3.12/3.13, lockfile), `app-lint.yml`,
+  `docs-lint.yml` (markdownlint, lychee offline, Mermaid render),
+  `codeql.yml`, `build.yml` (official HA builder actions; amd64 smoke build
+  on PRs, multi-arch publish on main/release), `release-please.yml`.
+- `.claude/`: 11 agents, 6 skills, format + pre-commit hooks, permissions;
+  `CLAUDE.md` (85 lines).
 
 ## Open – Phase 0
 
-- Single Phase 0 PR (#1): scaffold, CI, `.claude/` agents, skills, hooks,
-  `CLAUDE.md` are being added to the same branch.
+- PR #1 awaits CI results (first run of the workflows) and the maintainer's
+  merge. The image build could not be run in the cloud session (no Docker
+  daemon) – CI validates it.
+- `RELEASE_PLEASE_TOKEN` secret (fine-grained PAT) still to be created by
+  the maintainer (ADR-0009); without it the release build must be started
+  by `workflow_dispatch`.
 
 ## Next steps
 
-1. Finish scaffold, CI green, agents, CLAUDE.md on PR #1.
-2. Maintainer merges PR #1 and deletes the old tags.
+1. Fix anything CI reports on PR #1; maintainer merges and deletes the old
+   tags `v0.1.0`–`v0.3.0`.
+2. Maintainer allows the blocked hosts in the cloud environment's network
+   settings (optional, speeds up verification).
 3. Phase 1 plan in `docs/plans/phase-1.md`.
 
 ## Known problems and `UNVERIFIED` items

@@ -3,7 +3,9 @@
 - **Status:** accepted (maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
-- **Research:** [`integrations.md`](../research/integrations.md), [`competitors.md`](../research/competitors.md) (evcc templates)
+- **Research:**
+  [`integrations.md`](../research/integrations.md),
+  [`competitors.md`](../research/competitors.md) (evcc templates)
 
 ## Context
 
