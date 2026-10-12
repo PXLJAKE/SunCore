@@ -3,6 +3,10 @@
 # Stage 1 builds the SPA, stage 2 is the app image on the Home Assistant Python
 # base (Alpine, s6-overlay v3, bashio). ADR-0001.
 
+# Global build argument: an ARG used in a FROM line must be declared before the
+# first FROM, otherwise it is scoped to the previous stage and empty here.
+ARG BUILD_FROM=ghcr.io/home-assistant/base-python:3.13-alpine3.24
+
 # ---------------------------------------------------------------------------
 # Stage 1: frontend (runs on the build host, the output is architecture-independent)
 # node:22-alpine = 22.23.3-alpine, pushed 2026-09-23, digest looked up on Docker Hub
@@ -20,7 +24,6 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 2: app image
 # ---------------------------------------------------------------------------
-ARG BUILD_FROM=ghcr.io/home-assistant/base-python:3.13-alpine3.24
 FROM ${BUILD_FROM}
 
 ARG BUILD_ARCH

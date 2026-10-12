@@ -87,6 +87,22 @@ def test_dockerfile_contract(app: str) -> None:
 
 
 @pytest.mark.parametrize("app", APPS)
+def test_from_args_are_global(app: str) -> None:
+    """An ARG used in a FROM line must be declared before the first FROM (Docker scoping)."""
+    lines = (ROOT / "addon" / app / "Dockerfile").read_text().splitlines()
+    first_from = next(i for i, line in enumerate(lines) if line.startswith("FROM "))
+    global_args = {
+        line.split()[1].split("=")[0] for line in lines[:first_from] if line.startswith("ARG ")
+    }
+    for line in lines:
+        if line.startswith("FROM "):
+            for name in re.findall(r"\$\{?([A-Z_]+)\}?", line):
+                if name in {"BUILDPLATFORM", "TARGETPLATFORM"}:
+                    continue  # automatic platform args
+                assert name in global_args, f"{name} in {line!r} is not a global ARG"
+
+
+@pytest.mark.parametrize("app", APPS)
 def test_s6_service_scripts(app: str) -> None:
     service = ROOT / "addon" / app / "rootfs" / "etc" / "services.d" / "suncore"
     run = (service / "run").read_text()
