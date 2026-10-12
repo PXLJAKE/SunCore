@@ -459,7 +459,7 @@ export interface operations {
                     "application/json": components["schemas"]["ImportResultOut"];
                 };
             };
-            /** @description Content Too Large */
+            /** @description Import too large */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -468,7 +468,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Unprocessable Content */
+            /** @description Import rejected */
             422: {
                 headers: {
                     [name: string]: unknown;
