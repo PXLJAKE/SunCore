@@ -69,7 +69,8 @@ First event: `{"a": {entity_id: compressed_state}}`. Later events:
 
 Compressed state keys (`homeassistant.const`): `s` state, `a` attributes,
 `c` context (string id or dict), `lc` last_changed, `lu` last_updated
-(omitted when equal to `lc`; in a `c` diff only when `last_changed` unchanged). Timestamps are floats (epoch seconds).
+(omitted when equal to `lc`; in a `c` diff only when `last_changed` unchanged).
+Timestamps are floats (epoch seconds).
 Inside a `c` diff only changed fields appear.
 
 ## Energy preferences (`energy/get_prefs`)
