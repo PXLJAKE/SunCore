@@ -20,7 +20,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      'npm run build && cd .. && SUNCORE_DEMO=1 SUNCORE_STATIC_DIR=frontend/dist uv run python -m suncore',
+      'npm run build && cd .. && SUNCORE_DEMO=1 SUNCORE_DEMO_START_TIME=09:30 SUNCORE_STATIC_DIR=frontend/dist uv run python -m suncore',
     url: `http://127.0.0.1:${PORT}/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

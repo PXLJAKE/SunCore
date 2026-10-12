@@ -11,18 +11,19 @@ no personal data.
 
 ## Steps
 
-1. Start the stack in demo mode:
-   `SUNCORE_DEMO=1 SUNCORE_DEMO_START_TIME=12:00 uv run python -m suncore`
-   and the frontend dev server, or the built image with `-e SUNCORE_DEMO=1`.
-2. Run `uv run python scripts/screenshots.py --out docs/assets/screenshots`
-   (Playwright; viewports: phone 390×844, tablet 1024×768; colour schemes
-   light and dark; views: now, plan, history, devices, device detail,
-   log, setup steps, settings, expert mode).
-3. Review the images: no overlapping text, correct theme, German variant
-   generated with `--locale de` for the German docs.
-4. Reference them from the docs with relative paths; keep PNG under
-   300 kB (the script optimises them).
+1. `cd frontend && SCREENSHOTS_DIR=../docs/assets/screenshots npx playwright test screenshots`.
+   Playwright builds the SPA and starts the backend itself in demo mode
+   (`SUNCORE_DEMO=1 SUNCORE_DEMO_START_TIME=09:30`, scenario `summer_day`,
+   see `frontend/playwright.config.ts`); nothing is mocked.
+2. The spec `frontend/e2e/screenshots.spec.ts` captures phone (375×667) and
+   tablet (768×1024), light and dark, English and German. Add views there
+   as they are built (plan, history, devices, log, setup, expert mode).
+3. Review the images: no overlapping text, correct theme, plausible daytime
+   flows; the German variants (`-de`) are for the German docs.
+4. Reference them from the docs with relative paths; keep each PNG under
+   300 kB (long pages: tablet only).
 5. For a PR: attach the before/after images of the changed view.
 
-The script fails if the demo scenario or clock is missing, so screenshots
-are never taken from a live system.
+The spec skips unless `SCREENSHOTS_DIR` is set, and the web server it
+starts always runs in demo mode, so screenshots are never taken from a live
+system.
