@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+name: sensor_dropout
+description: Sunny spring day; the grid sensor goes unavailable, the battery SoC goes stale, then the connection drops.
+start: "2026-04-15T06:00:00+02:00"
+duration_s: 43200
+step_s: 30
+house:
+  seed: 3
+  load: {noise_fraction: 0.05}
+  battery: {initial_soc_pct: 40}
+faults:
+  - {kind: unavailable, target: grid_power, from_s: 7200, to_s: 9000}
+  - {kind: stale, target: battery_soc, from_s: 14400, to_s: 18000}
+  - {kind: disconnect, from_s: 28800, to_s: 29100}

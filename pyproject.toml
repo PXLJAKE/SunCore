@@ -20,8 +20,11 @@ classifiers = [
 # Runtime dependencies grow with the phases (ADR-0001). Phase 0 ships an
 # empty skeleton on purpose.
 dependencies = [
+  "aiohttp>=3.14.5",
   "aiosqlite>=0.22.1",
   "pydantic>=2.11,<3",
+  "pyyaml>=6.0.3",
+  "structlog>=26.1.0",
 ]
 
 [project.urls]
@@ -40,7 +43,6 @@ dev = [
   "pytest>=8.4",
   "pytest-cov>=7",
   "hypothesis>=6.140",
-  "pyyaml>=6",
   "types-pyyaml",
   "pytest-asyncio>=1.4.0",
 ]
