@@ -17,9 +17,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /usr/local/bin/uv
 WORKDIR /opt/suncore
 COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 COPY suncore ./suncore
-# Wheels only: a missing aarch64/musl wheel must fail the build, not compile on a Pi.
-RUN uv pip install --no-deps --only-binary=:all: . \
-    && uv pip install --only-binary=:all: -r pyproject.toml
+# Dependencies as wheels only: a missing aarch64/musl wheel must fail the build,
+# not compile on a Pi. SunCore itself is pure Python and is built from source.
+RUN uv pip install --only-binary=:all: -r pyproject.toml \
+    && uv pip install --no-deps .
 
 COPY addon/suncore_beta/rootfs /
 

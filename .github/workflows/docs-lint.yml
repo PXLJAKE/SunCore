@@ -46,5 +46,7 @@ jobs:
           node-version: 22
       - name: Render every diagram in docs/architecture.md
         run: |
-          npx -y @mermaid-js/mermaid-cli@11 -i docs/architecture.md -o /tmp/architecture.md
+          # Ubuntu 24.04 runners restrict unprivileged user namespaces; headless Chromium needs --no-sandbox.
+          echo '{"args": ["--no-sandbox", "--disable-gpu"]}' > /tmp/puppeteer.json
+          npx -y @mermaid-js/mermaid-cli@11 -p /tmp/puppeteer.json -i docs/architecture.md -o /tmp/architecture.md
           test -s /tmp/architecture-1.svg
