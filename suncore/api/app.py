@@ -113,7 +113,12 @@ def _register_http(app: FastAPI, services: Services) -> None:
     @app.post(
         f"{API_PREFIX}/config/import",
         response_model=ImportResultOut,
-        responses={413: {"model": ErrorOut}, 422: {"model": ErrorOut}},
+        # Explicit descriptions: the defaults come from http.HTTPStatus, whose
+        # phrases differ between Python 3.12 and 3.13 (OpenAPI drift guard).
+        responses={
+            413: {"model": ErrorOut, "description": "Import too large"},
+            422: {"model": ErrorOut, "description": "Import rejected"},
+        },
     )
     async def import_config(request: Request) -> ImportResultOut:
         limit = services.max_import_bytes
