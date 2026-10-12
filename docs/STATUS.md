@@ -3,13 +3,12 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-12 · **Phase:** 0 (blueprint) · **Branch:** `phase-0/foundation`
+**Last update:** 2026-10-12 · **Phase:** 0 done, Phase 1 plan awaiting approval · **Branch:** `phase-1/plan`
 
 ## Done
 
-- Repository reset to an empty history (old prototype removed; tags
-  `v0.1.0`–`v0.3.0` still exist on GitHub and must be deleted by the
-  maintainer).
+- Repository reset to an empty history (old prototype removed; old tags
+  deleted by the maintainer).
 - `docs/BRIEF.md` (product and engineering brief), `docs/plans/phase-0.md`
   (approved plan).
 - `docs/research/` – 7 notes, sourced against GitHub mirrors of the HA
@@ -28,11 +27,20 @@ ADRs relevant to your task. Keep it short; history lives in git.
 - `.claude/`: 11 agents, 6 skills, format + pre-commit hooks, permissions;
   `CLAUDE.md` (85 lines).
 
-## Open – Phase 0
+- PR #1 merged (2026-10-12). First push to `main` built and pushed
+  `ghcr.io/pxljake/{amd64,aarch64}-suncore-beta` on native runners; the
+  `ubuntu-24.04-arm` runner works for this repository.
+- `docs/plans/phase-1.md` drafted.
 
-- PR #1 awaits CI results (first run of the workflows) and the maintainer's
-  merge. The image build could not be run in the cloud session (no Docker
-  daemon) – CI validates it.
+## Open
+
+- **release-please is blocked:** "GitHub Actions is not permitted to create
+  or approve pull requests". Maintainer enables *Settings → Actions →
+  General → Workflow permissions → Allow GitHub Actions to create and
+  approve pull requests*, or adds the `RELEASE_PLEASE_TOKEN` PAT (which
+  also lets releases trigger the image build). The branch
+  `release-please--branches--main--components--suncore` it created is
+  reused on the next run.
 - CodeQL is skipped while the repository is private ("Code scanning is not
   enabled for this repository"); it runs automatically once the repository is
   public, or earlier if the maintainer enables Code Security in the
@@ -43,11 +51,12 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Next steps
 
-1. Fix anything CI reports on PR #1; maintainer merges and deletes the old
-   tags `v0.1.0`–`v0.3.0`.
-2. Maintainer allows the blocked hosts in the cloud environment's network
+1. Maintainer approves `docs/plans/phase-1.md` (or amends it).
+2. Maintainer fixes the release-please permission (above).
+3. Maintainer allows the blocked hosts in the cloud environment's network
    settings (optional, speeds up verification).
-3. Phase 1 plan in `docs/plans/phase-1.md`.
+4. Phase 1, PR 1 (bootstrap, s6, health, smoke test) and PR 2 (core model,
+   safety skeleton) start in parallel.
 
 ## Known problems and `UNVERIFIED` items
 
