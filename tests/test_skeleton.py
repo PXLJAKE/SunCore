@@ -59,7 +59,10 @@ def test_app_config_matches_package(app: str) -> None:
     assert config["slug"] == app
     assert set(config["arch"]) == {"aarch64", "amd64"}
     assert config["ingress"] is True
-    assert config["panel_admin"] is True
+    # The app linter rejects keys that repeat Supervisor defaults.
+    redundant = {"startup", "boot", "ingress_port", "panel_admin", "hassio_role", "backup"}
+    redundant.add("watchdog")  # obsolete, HEALTHCHECK instead
+    assert not redundant & config.keys()
     if app == "suncore":
         assert config["version"] == suncore.__version__
 

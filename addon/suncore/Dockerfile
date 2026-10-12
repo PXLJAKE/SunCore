@@ -32,5 +32,10 @@ LABEL \
     org.opencontainers.image.source="https://github.com/pxljake/suncore" \
     org.opencontainers.image.licenses="Apache-2.0"
 
+# Supervisor watchdog uses the container health check (the `watchdog` config
+# key is obsolete). Phase 1 points it at the /health endpoint.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD python3 -m suncore --version || exit 1
+
 # Phase 1 replaces this with the s6 service that starts the application.
 CMD ["python3", "-m", "suncore", "--version"]

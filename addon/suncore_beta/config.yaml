@@ -10,21 +10,14 @@ arch:
   - amd64
 image: ghcr.io/pxljake/suncore-beta
 init: false
-startup: application
-boot: auto
 stage: experimental
 ingress: true
-ingress_port: 8099
 panel_icon: mdi:solar-power-variant
 panel_title: SunCore β
-panel_admin: true
 homeassistant_api: true
 hassio_api: true
-hassio_role: default
 services:
   - mqtt:want
-watchdog: http://[HOST]:[PORT:8099]/health
-backup: hot
 backup_exclude:
   - timeseries.db
   - timeseries.db-wal

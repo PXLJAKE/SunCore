@@ -44,7 +44,7 @@ Required: `name`, `version` (string; quote numeric values), `slug`,
 | `hassio_role` | `default` | `default`, `homeassistant`, `backup`, `manager`, `admin` |
 | `homeassistant_api` | `false` | Core REST proxy at `http://supervisor/core/api` |
 | `auth_api` | `false` | HA user backend |
-| `watchdog` | – | URL, regex `^(?:https?\|\[PROTO:\w+\]\|tcp):\/\/\[HOST\]:(\[PORT:\d+\]\|\d+).*$` |
+| `watchdog` | – | still in the schema, but **the app linter (v2) rejects it as obsolete**: use a Docker `HEALTHCHECK` in the Dockerfile instead |
 | `backup` | `hot` | `hot`, `cold` |
 | `backup_exclude` | – | list of globs |
 | `backup_pre` / `backup_post` | – | commands, ignored for `cold` |
@@ -59,7 +59,9 @@ Required: `name`, `version` (string; quote numeric values), `slug`,
 | `host_network`, `privileged`, `full_access`, `docker_api`, `uart`, `usb`, `gpio`, `realtime`, `journald`, `tmpfs`, `apparmor` (default `true`) | | not needed by SunCore except `apparmor` |
 
 Unknown keys are removed (`extra=vol.REMOVE_EXTRA`), so typos fail silently:
-the linter is the guard.
+the linter is the guard. The linter also **fails** on keys that repeat a
+default (`startup: application`, `boot: auto`, `ingress_port: 8099`,
+`panel_admin: true`, `hassio_role: default`, `backup: hot`) – omit them.
 
 ### Options schema syntax
 

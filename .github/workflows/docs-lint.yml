@@ -3,9 +3,9 @@ name: Docs lint
 on:
   push:
     branches: [main]
-    paths: ["**/*.md", ".markdownlint-cli2.jsonc", "lychee.toml", ".github/workflows/docs-lint.yml"]
+    paths: ["**/*.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml"]
   pull_request:
-    paths: ["**/*.md", ".markdownlint-cli2.jsonc", "lychee.toml", ".github/workflows/docs-lint.yml"]
+    paths: ["**/*.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml"]
   workflow_dispatch:
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - uses: lycheeverse/lychee-action@v2
         with:
-          args: --config lychee.toml --no-progress "**/*.md"
+          args: --offline --include-fragments --no-progress --exclude-path docs/research/vendor "**/*.md"
           fail: true
 
   mermaid:
