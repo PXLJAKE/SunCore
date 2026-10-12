@@ -27,12 +27,65 @@ uv run mypy
 uv run pytest
 ```
 
-Frontend (from Phase 1): `cd frontend && npm ci && npm run dev`.
-
 The app can be built locally with
 `docker build -f addon/suncore/Dockerfile -t local/suncore .` and tested
 against a Home Assistant devcontainer as described in the HA developer
 documentation.
+
+## Frontend
+
+Svelte 5 + Vite + TypeScript in `frontend/` (details in
+[`frontend/README.md`](frontend/README.md)).
+
+```bash
+cd frontend
+npm ci
+npm run dev           # Vite on :5173, proxies /api and /health to 127.0.0.1:8099
+npm run lint          # ESLint, including the "no hardcoded UI text" rule
+npm run check         # svelte-check
+npm run test          # Vitest
+npm run build         # production bundle in frontend/dist
+npm run verify        # everything above plus format check and bundle-size budget
+npm run test:e2e      # Playwright against the real demo backend (builds the SPA first)
+```
+
+The E2E tests start the backend in demo mode themselves; nothing is mocked.
+Documentation screenshots come from the same setup – follow the
+`demo-screenshots` skill (`.claude/skills/demo-screenshots/SKILL.md`):
+
+```bash
+cd frontend && SCREENSHOTS_DIR=../docs/assets/screenshots npx playwright test screenshots
+```
+
+Never edit screenshots by hand.
+
+## Run the stack locally
+
+Build the SPA once (`cd frontend && npm run build`), then start the backend
+in demo mode (simulated house, no Home Assistant needed, never touches
+`/data`):
+
+```bash
+SUNCORE_DEMO=1 uv run python -m suncore
+```
+
+Open <http://127.0.0.1:8099>. `SUNCORE_DEMO_START_TIME=09:30` sets the
+time of day the demo starts at (default 10:00). Without a Supervisor the
+backend accepts loopback peers only.
+
+To talk to a real Home Assistant instead (`DirectTransport`), create a
+long-lived access token in your HA profile and run:
+
+```bash
+SUNCORE_HA_URL=http://homeassistant.local:8123 SUNCORE_HA_TOKEN=<token> \
+SUNCORE_DATA_DIR=./.data uv run python -m suncore
+```
+
+`SUNCORE_ALLOW_ANY_PEER=1` disables the peer check and is for development
+only (for example to reach the dev server from another machine); never set
+it in an app configuration. Settings are read from `/data/options.json`
+(or `$SUNCORE_OPTIONS_PATH`), then overridden by `SUNCORE_<FIELD>`
+environment variables.
 
 ## Pull requests
 
@@ -50,7 +103,22 @@ documentation it was built from) and a simulator scenario. See
 ## Translations
 
 Translations are managed on Weblate (from Phase 7). Until then, edit the
-JSON catalogues directly and run the sync script.
+JSON catalogues directly. UI strings are keys only: add each key to
+`frontend/src/lib/i18n/locales/en.json` (source) and `de.json` in the same
+change, written as ICU MessageFormat. `uv run python scripts/check_reasons.py`
+verifies that backend reason and error keys exist in both catalogues.
+User documentation is English under `docs/user/en/` with the German
+translation at the same path under `docs/user/de/` (ADR-0008).
+
+## Checks before you push
+
+```bash
+./scripts/check.sh          # ruff, mypy, pytest with coverage, frontend checks
+FAST=1 ./scripts/check.sh   # what the commit hook runs
+```
+
+`check.sh` also runs the frontend checks when `frontend/node_modules`
+exists; E2E is opt-in with `E2E=1` and always runs in CI.
 
 ## Releases
 
