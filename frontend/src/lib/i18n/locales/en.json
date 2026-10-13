@@ -543,6 +543,7 @@
   "wizard.check.house_negative": "The calculated house consumption is negative ({house_w} W). A sign is probably wrong.",
   "wizard.check.pv_negative": "The solar power is negative ({pv_w} W). The sign may be inverted.",
   "wizard.check.section_missing": "{section, select, region {Region} tariff {Tariff} other {A section}} is not set up yet.",
+  "wizard.check.forecast_missing": "No PV forecast source chosen yet. That is optional.",
   "wizard.check.sign_suspect": "Inverting the sign of {part, select, grid {the grid} battery {the battery} pv {the solar} other {a value}} would close the power balance.",
   "wizard.check.site_missing": "The installation is not set up yet.",
   "wizard.check.soc_range": "{entity_id} reports {value} %, which is not a valid state of charge.",

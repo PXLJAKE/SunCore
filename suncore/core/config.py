@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Configuration sections besides ``site``: region, tariff, devices, goals, operation, wizard.
+"""Configuration sections besides ``site`` (region, tariff, forecast, devices, goals, ...).
 
 Pure, frozen models; storage and API only move them around. ``operation`` is *stored*
 but never read by the safety gate before Phase 3: the gate stays shadow-only.
@@ -145,7 +145,7 @@ class ExportTariff(_Frozen):
 
 
 class TariffConfig(_Frozen):
-    """Import/export prices and the forecast sources."""
+    """Import and export prices (the forecast sources live in :class:`ForecastConfig`)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
     """``import`` is a Python keyword: the JSON key is ``import``, ``import_`` is accepted too.
@@ -154,9 +154,24 @@ class TariffConfig(_Frozen):
     before the alias existed (key ``import_``) still load.
     """
 
-    schema_version: int = 1
+    schema_version: int = 2
     import_: ImportTariff = Field(alias="import")
     export: ExportTariff
+
+    def entity_refs(self) -> list[EntityRef]:
+        return [self.import_.price_entity] if self.import_.price_entity is not None else []
+
+
+# --- forecast -----------------------------------------------------------------
+
+
+class ForecastConfig(_Frozen):
+    """PV forecast sources: templates and the entities of their roles.
+
+    Independent of the tariff so that the wizard can store the choice without prices.
+    """
+
+    schema_version: int = 1
     forecast_template_ids: list[TemplateId] = Field(default_factory=list)
     forecast_entities: dict[RoleName, EntityRef] = Field(default_factory=dict)
     """Forecast role (e.g. ``today``, ``tomorrow``) to entity."""
@@ -165,15 +180,12 @@ class TariffConfig(_Frozen):
     def _unique_templates(self) -> Self:
         if len(set(self.forecast_template_ids)) != len(self.forecast_template_ids):
             raise invalid(
-                "forecast_templates_unique", "tariff: forecast_template_ids must be unique"
+                "forecast_templates_unique", "forecast: forecast_template_ids must be unique"
             )
         return self
 
     def entity_refs(self) -> list[EntityRef]:
-        refs = list(self.forecast_entities.values())
-        if self.import_.price_entity is not None:
-            refs.append(self.import_.price_entity)
-        return refs
+        return list(self.forecast_entities.values())
 
 
 # --- devices ------------------------------------------------------------------
@@ -263,6 +275,7 @@ SECTION_MODELS: Final[Mapping[str, type[BaseModel]]] = {
     "site": SiteConfig,
     "region": RegionConfig,
     "tariff": TariffConfig,
+    "forecast": ForecastConfig,
     "devices": DevicesConfig,
     "goals": GoalsConfig,
     "operation": OperationConfig,

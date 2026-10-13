@@ -1525,6 +1525,37 @@
         "title": "FlowsOut",
         "type": "object"
       },
+      "ForecastConfig": {
+        "additionalProperties": false,
+        "description": "PV forecast sources: templates and the entities of their roles.\n\nIndependent of the tariff so that the wizard can store the choice without prices.",
+        "properties": {
+          "forecast_entities": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/EntityRef"
+              }
+            },
+            "title": "Forecast Entities",
+            "type": "object"
+          },
+          "forecast_template_ids": {
+            "items": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "title": "Forecast Template Ids",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "ForecastConfig",
+        "type": "object"
+      },
       "ForecastTemplate": {
         "additionalProperties": false,
         "properties": {
@@ -3121,34 +3152,16 @@
       },
       "TariffConfig": {
         "additionalProperties": false,
-        "description": "Import/export prices and the forecast sources.",
+        "description": "Import and export prices (the forecast sources live in :class:`ForecastConfig`).",
         "properties": {
           "export": {
             "$ref": "#/components/schemas/ExportTariff"
-          },
-          "forecast_entities": {
-            "patternProperties": {
-              "^[a-z][a-z0-9_]{0,31}$": {
-                "$ref": "#/components/schemas/EntityRef"
-              }
-            },
-            "title": "Forecast Entities",
-            "type": "object"
-          },
-          "forecast_template_ids": {
-            "items": {
-              "maxLength": 64,
-              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
-              "type": "string"
-            },
-            "title": "Forecast Template Ids",
-            "type": "array"
           },
           "import": {
             "$ref": "#/components/schemas/ImportTariff"
           },
           "schema_version": {
-            "default": 1,
+            "default": 2,
             "title": "Schema Version",
             "type": "integer"
           }
@@ -3805,6 +3818,78 @@
           }
         },
         "summary": "Export Config"
+      }
+    },
+    "/api/v1/config/forecast": {
+      "get": {
+        "operationId": "get_config_forecast",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ForecastConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Forecast"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the forecast section"
+      },
+      "put": {
+        "operationId": "put_config_forecast",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForecastConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForecastConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the forecast section"
       }
     },
     "/api/v1/config/goals": {

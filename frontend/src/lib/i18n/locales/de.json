@@ -543,6 +543,7 @@
   "wizard.check.house_negative": "Der berechnete Hausverbrauch ist negativ ({house_w} W). Vermutlich ist ein Vorzeichen falsch.",
   "wizard.check.pv_negative": "Die Solarleistung ist negativ ({pv_w} W). Das Vorzeichen könnte vertauscht sein.",
   "wizard.check.section_missing": "{section, select, region {Die Region} tariff {Der Tarif} other {Ein Bereich}} ist noch nicht eingerichtet.",
+  "wizard.check.forecast_missing": "Noch keine PV-Prognosequelle gewählt. Das ist optional.",
   "wizard.check.sign_suspect": "Das Vorzeichen von {part, select, grid {Netz} battery {Batterie} pv {Solar} other {einem Wert}} umzukehren würde die Leistungsbilanz schließen.",
   "wizard.check.site_missing": "Die Anlage ist noch nicht eingerichtet.",
   "wizard.check.soc_range": "{entity_id} meldet {value} %, das ist kein gültiger Ladestand.",

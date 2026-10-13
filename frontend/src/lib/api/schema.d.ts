@@ -39,6 +39,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/forecast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the forecast section */
+        get: operations["get_config_forecast"];
+        /** Replace the forecast section */
+        put: operations["put_config_forecast"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/goals": {
         parameters: {
             query?: never;
@@ -916,6 +934,25 @@ export interface components {
             /** Ts */
             ts: string | null;
         };
+        /**
+         * ForecastConfig
+         * @description PV forecast sources: templates and the entities of their roles.
+         *
+         *     Independent of the tariff so that the wizard can store the choice without prices.
+         */
+        ForecastConfig: {
+            /** Forecast Entities */
+            forecast_entities?: {
+                [key: string]: components["schemas"]["EntityRef"];
+            };
+            /** Forecast Template Ids */
+            forecast_template_ids?: string[];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+        };
         /** ForecastTemplate */
         ForecastTemplate: {
             /** Capabilities */
@@ -1488,20 +1525,14 @@ export interface components {
         };
         /**
          * TariffConfig
-         * @description Import/export prices and the forecast sources.
+         * @description Import and export prices (the forecast sources live in :class:`ForecastConfig`).
          */
         TariffConfig: {
             export: components["schemas"]["ExportTariff"];
-            /** Forecast Entities */
-            forecast_entities?: {
-                [key: string]: components["schemas"]["EntityRef"];
-            };
-            /** Forecast Template Ids */
-            forecast_template_ids?: string[];
             import: components["schemas"]["ImportTariff"];
             /**
              * Schema Version
-             * @default 1
+             * @default 2
              */
             schema_version: number;
         };
@@ -1800,6 +1831,68 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    get_config_forecast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_forecast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForecastConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
