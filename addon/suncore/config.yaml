@@ -1,9 +1,11 @@
+# Home Assistant app configuration (stable channel).
+# Keys verified against the Supervisor schema (docs/research/ha-apps.md).
+# Defaults are omitted on purpose: the app linter rejects redundant defaults and
+# the obsolete `watchdog` key (health is a Docker HEALTHCHECK in the Dockerfile).
 name: SunCore
-version: 0.2.0
+version: "0.2.0" # x-release-please-version
 slug: suncore
-description: >-
-  Energy management – forecasts, planner and real-time surplus control,
-  explainable and safe by default.
+description: Energy management – forecasts, planner and real-time surplus control, explainable and safe by default.
 url: https://github.com/pxljake/suncore
 arch:
   - aarch64
@@ -11,10 +13,15 @@ arch:
 image: ghcr.io/pxljake/suncore
 init: false
 stage: experimental
+# ingress_port (8099) and panel_admin (true, panel is admin-only) are Supervisor
+# defaults: omitted on purpose, the app linter rejects redundant defaults.
+# Verified in supervisor/apps/validate.py on 2026-10-12 (docs/research/ha-apps.md).
 ingress: true
 panel_icon: mdi:solar-power-variant
 panel_title: SunCore
 homeassistant_api: true
+# hassio_api (Supervisor REST) is not used yet; MQTT credentials via the
+# services API will need it again (Phase 6). Least privilege until then.
 services:
   - mqtt:want
 backup_exclude:
