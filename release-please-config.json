@@ -10,6 +10,11 @@
         {
           "type": "generic",
           "path": "addon/suncore/config.yaml"
+        },
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='suncore')].version"
         }
       ]
     }
