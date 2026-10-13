@@ -30,6 +30,7 @@ def test_filters_by_device_class_and_unit() -> None:
     assert [c.entity_id for c in got] == [
         "sensor.grid_kw",
         "sensor.off",
+        "sensor.plain",
         "sensor.pv",
         "sensor.soc",
     ]
@@ -40,3 +41,15 @@ def test_filters_by_device_class_and_unit() -> None:
     assert by_id["sensor.soc"].device_class == "battery"
     assert by_id["sensor.off"].available is False
     assert by_id["sensor.pv"].available is True
+    assert by_id["sensor.plain"].device_class == "power"
+
+
+def test_sensors_without_device_class_are_classified_by_unit() -> None:
+    states = [
+        _s("sensor.soc_template", "75", unit_of_measurement="%"),
+        _s("sensor.power_template", "0.5", unit_of_measurement="kW"),
+        _s("sensor.humidity", "40", device_class="humidity", unit_of_measurement="%"),
+        _s("sensor.temp", "21", unit_of_measurement="°C"),
+    ]
+    got = {c.entity_id: c.device_class for c in entity_candidates(states)}
+    assert got == {"sensor.power_template": "power", "sensor.soc_template": "battery"}

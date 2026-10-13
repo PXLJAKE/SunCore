@@ -138,3 +138,52 @@ export function previewOf(
   if (unit === 'kw') return { type: 'power', watts: sign * n * 1000 };
   return { type: 'raw', text: `${n} ${candidate.unit}`.trim() };
 }
+
+/** Maximum number of options rendered in the entity picker. */
+export const MAX_SUGGESTIONS = 50;
+
+const POWER_UNITS = new Set(['w', 'kw']);
+
+/** Does the candidate belong in a picker of this kind (power: W/kW, soc: %)? */
+export function matchesKind(c: EntityCandidate, kind: PreviewKind): boolean {
+  const unit = c.unit.trim().toLowerCase();
+  return kind === 'soc' ? unit === '%' : POWER_UNITS.has(unit);
+}
+
+export interface Suggestions {
+  items: EntityCandidate[];
+  /** Number of matches before the cap. */
+  total: number;
+}
+
+/**
+ * Candidates of the given kind whose entity id or friendly name contains every
+ * whitespace-separated term of `query` (case-insensitive). Capped at `cap`.
+ */
+export function filterCandidates(
+  candidates: readonly EntityCandidate[],
+  kind: PreviewKind,
+  query: string,
+  cap: number = MAX_SUGGESTIONS,
+): Suggestions {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = candidates.filter((c) => {
+    if (!matchesKind(c, kind)) return false;
+    const hay = `${c.entity_id} ${c.name}`.toLowerCase();
+    return terms.every((term) => hay.includes(term));
+  });
+  return { items: matches.slice(0, cap), total: matches.length };
+}
+
+/** The candidate whose entity id or exact friendly name equals `text` (case-insensitive). */
+export function resolveCandidate(
+  candidates: readonly EntityCandidate[],
+  text: string,
+): EntityCandidate | undefined {
+  const needle = text.trim().toLowerCase();
+  if (needle === '') return undefined;
+  return (
+    candidates.find((c) => c.entity_id.toLowerCase() === needle) ??
+    candidates.find((c) => c.name.trim().toLowerCase() === needle)
+  );
+}

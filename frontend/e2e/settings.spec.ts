@@ -47,22 +47,15 @@ test.describe('Settings', () => {
     await expect(page.getByTestId('saved')).toBeVisible();
   });
 
-  test('picks entities from the candidates (datalist) and adds a second PV sensor', async ({
+  test('picks entities from the candidates and adds a second PV sensor', async ({
     page,
     request,
   }) => {
-    const options = await page
-      .locator('datalist option')
-      .evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
-    expect(options).toEqual(
-      expect.arrayContaining([
-        'sensor.sim_grid_power',
-        'sensor.sim_pv_power',
-        'sensor.sim_battery_power',
-        'sensor.sim_battery_soc',
-        'sensor.sim_house_power',
-      ]),
-    );
+    await page.getByLabel('Solar power 1').focus();
+    const options = page.getByRole('option');
+    await expect(options.filter({ hasText: 'sensor.sim_pv_power' })).toBeVisible();
+    await expect(options.filter({ hasText: 'sensor.sim_battery_soc' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
     // Every sim entity is in use; free the house sensor first (entities must be unique).
     await page.getByLabel('House consumption').fill('');
@@ -129,5 +122,66 @@ test.describe('Settings', () => {
     await expect(page.getByTestId('save-error')).toContainText(
       'Home Assistant is not reachable right now.',
     );
+  });
+
+  test.describe('entity combobox', () => {
+    test('finds the SoC sensor by friendly name: keyboard and click', async ({ page }) => {
+      const soc = page.getByLabel('Battery state of charge (%)');
+      const socPreview = page.locator('.field', { has: soc }).getByTestId('preview');
+
+      await soc.fill('');
+      await soc.fill('battery soc');
+      await expect(soc).toHaveAttribute('aria-expanded', 'true');
+      const option = page.getByRole('option', { name: /Sim battery SoC/ });
+      await expect(option).toHaveCount(1);
+      await expect(option).toContainText('sensor.sim_battery_soc');
+      await expect(option).toContainText('%');
+      expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+
+      // keyboard
+      await soc.press('ArrowDown');
+      await expect(soc).toHaveAttribute('aria-activedescendant', /-opt-0$/);
+      await soc.press('Enter');
+      await expect(soc).toHaveValue('sensor.sim_battery_soc');
+      await expect(soc).toHaveAttribute('aria-expanded', 'false');
+      await expect(socPreview).toContainText(/Sensor reads \d+(\.\d+)?\s?%/);
+
+      // click
+      await soc.fill('');
+      await soc.fill('sim battery');
+      await page.getByRole('option', { name: /Sim battery SoC/ }).click();
+      await expect(soc).toHaveValue('sensor.sim_battery_soc');
+      await expect(socPreview).toContainText('%');
+    });
+
+    test('an exact friendly name resolves, unknown text shows a hint', async ({ page }) => {
+      const soc = page.getByLabel('Battery state of charge (%)');
+      const socPreview = page.locator('.field', { has: soc }).getByTestId('preview');
+      await soc.fill('sim battery soc');
+      await expect(socPreview).toContainText('%');
+      await soc.blur();
+      await expect(soc).toHaveValue('sensor.sim_battery_soc');
+      await soc.fill('does not exist');
+      await expect(socPreview).toContainText('Not found among the Home Assistant battery sensors');
+      await expect(page.getByText('No matching sensors found')).toBeVisible();
+      await soc.press('Escape');
+      await expect(soc).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    test('power fields never offer the SoC sensor; focus lists all of the kind', async ({
+      page,
+    }) => {
+      const grid = page.getByLabel('Grid power (positive = import)');
+      await grid.focus();
+      await expect(grid).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByRole('option', { name: /Sim grid power/ })).toBeVisible();
+      await expect(page.getByRole('option', { name: /Sim house power/ })).toBeVisible();
+      await expect(page.getByRole('option', { name: /Sim battery SoC/ })).toHaveCount(0);
+      await grid.fill('soc');
+      await expect(page.getByRole('option')).toHaveCount(0);
+      // outside click closes
+      await page.getByRole('heading', { name: 'Settings', level: 2 }).click();
+      await expect(grid).toHaveAttribute('aria-expanded', 'false');
+    });
   });
 });
