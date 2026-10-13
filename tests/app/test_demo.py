@@ -59,7 +59,11 @@ async def test_demo_health_and_info(demo_runtime: Runtime) -> None:
     assert info.json()["demo"] is True
     assert info.json()["mode"] == "shadow"
     assert site.json() == demo_site_config().model_dump(mode="json")
-    assert {c["entity_id"] for c in entities.json()} == set(SIM_ENTITY_IDS)
+    # The picker offers power and battery sensors: the site sensors plus the pool pump plug.
+    assert {c["entity_id"] for c in entities.json()} == {
+        *SIM_ENTITY_IDS,
+        "sensor.sim_pool_pump_power",
+    }
 
 
 async def test_demo_live_feed_balance_closes(demo_runtime: Runtime) -> None:

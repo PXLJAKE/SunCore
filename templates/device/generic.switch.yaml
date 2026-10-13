@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# Any `switch` entity (smart plug, relay) with an optional power sensor of the same device.
+id: generic.switch
+kind: device
+schema_version: 1
+name: template.generic.switch.name
+source:
+  - title: "Home Assistant developer docs: Switch entity"
+    url: "https://developers.home-assistant.io/docs/core/entity/switch/"
+    date: 2026-10-13
+  - title: "Home Assistant developer docs: Sensor entity (device classes, units)"
+    url: "https://developers.home-assistant.io/docs/core/entity/sensor/"
+    date: 2026-10-13
+tested_with: []
+capabilities: [on_off, power_measured]
+unverified:
+  - "Generic template, exercised in the simulator only (switch.sim_pool_pump); not tested with a physical plug."
+  - "min_run_s and min_pause_s are conservative design defaults for motor loads such as pumps."
+device_kind: switch
+roles:
+  switch:
+    matcher:
+      domain: switch
+    description: template.generic.switch.role.switch
+  power:
+    required: false
+    same_device_as: switch
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.switch.role.power
+defaults:
+  # The wizard offers `measured` when the optional power role is mapped and asks for the
+  # nominal power (W) otherwise.
+  power_model:
+    kind: nominal
+  control:
+    kind: on_off
+    role: switch
+  settle_s: 3
+  min_run_s: 300
+  min_pause_s: 300

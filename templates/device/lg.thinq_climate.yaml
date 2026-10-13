@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# LG ThinQ air conditioner (core integration `lg_thinq`, cloud push).
+# There is no power sensor for air conditioners in the integration: the power comes from the
+# hourly Wh counter `energy_usage_today` (learned model, never a control input).
+id: lg.thinq_climate
+kind: device
+schema_version: 1
+name: template.lg.thinq_climate.name
+source:
+  - title: "home-assistant/core lg_thinq climate.py (features, HVAC modes, 2 s turn-on delay)"
+    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/lg_thinq/climate.py"
+    date: 2026-10-13
+  - title: "home-assistant/core lg_thinq sensor.py (energy_usage_* sensors, Wh, hourly/daily)"
+    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/lg_thinq/sensor.py"
+    date: 2026-10-13
+  - title: "home-assistant/core lg_thinq entity.py (device ids, translation key suffix)"
+    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/lg_thinq/entity.py"
+    date: 2026-10-13
+tested_with: []
+capabilities: [energy_counter, temperature_setpoint, hvac_modes, preset_modes, fan_modes]
+unverified:
+  - "Read from the integration source (core 14f093e, 2026.11.0.dev0) only; not observed on a running Home Assistant or a real air conditioner."
+  - "Exact entity ids and the property id part of the unique id (built at runtime from the device profile); the template therefore matches by platform and translation key."
+  - "Which HVAC modes, presets and fan modes a given model reports; LG never offers heat_cool (mapped to auto by the integration)."
+  - "Energy sensors exist only when the device API exposes `energyUsage`; sub-device layouts (sub_id) are unknown."
+  - "min_run_s and min_pause_s are compressor-protective design defaults, not manufacturer data."
+  - "target_temp_step depends on the model; the 1 °C set-point step is a safe default because the integration truncates the target to an integer when the step is >= 1."
+device_kind: climate
+roles:
+  climate:
+    matcher:
+      domain: climate
+      platforms: [lg_thinq]
+      translation_key: climate_air_conditioner
+    description: template.lg.thinq_climate.role.climate
+  energy_today:
+    same_device_as: climate
+    matcher:
+      domain: sensor
+      platforms: [lg_thinq]
+      translation_key_pattern: '^energy_usage_today(_for_location)?$'
+      device_class: energy
+      units: [Wh]
+    description: template.lg.thinq_climate.role.energy_today
+  energy_yesterday:
+    required: false
+    same_device_as: climate
+    matcher:
+      domain: sensor
+      platforms: [lg_thinq]
+      translation_key_pattern: '^energy_usage_yesterday(_for_location)?$'
+      device_class: energy
+      units: [Wh]
+    description: template.lg.thinq_climate.role.energy_yesterday
+defaults:
+  # No power sensor: learn the power from the hourly counter. The nominal power of the
+  # user's model is asked in the wizard (not part of the template).
+  power_model:
+    kind: learned
+    energy_role: energy_today
+    counter_update_s: 3600
+  control:
+    kind: setpoint
+    role: climate
+    shift_max_c: 2
+    step_c: 1
+  # Writes arrive by cloud push; the integration sleeps 2 s after turning a unit on.
+  settle_s: 5
+  # Compressor protection (design defaults, see unverified).
+  min_run_s: 600
+  min_pause_s: 300

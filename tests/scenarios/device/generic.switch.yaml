@@ -1,0 +1,12 @@
+template: generic.switch
+sim_scenario: summer_day
+user_input:
+  nominal_w: 750
+roles:
+  switch:
+    entity: switch.sim_pool_pump
+    criteria: [domain]
+  power:
+    entity: sensor.sim_pool_pump_power
+    unit: W
+    criteria: [domain, device_class, units, same_device]

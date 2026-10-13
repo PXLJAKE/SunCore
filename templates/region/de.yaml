@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../schema/region.schema.json
+# Germany. Data only, no legal advice (BRIEF section 6).
+id: de
+kind: region
+schema_version: 1
+name: template.de.name
+source:
+  - title: "EEG 2023 section 51 (Verringerung des Zahlungsanspruchs bei negativen Preisen), gesetze-im-internet.de"
+    url: "https://www.gesetze-im-internet.de/eeg_2014/__51.html"
+    # Date of the citation. The text itself could not be retrieved when this file was written
+    # (see `unverified`).
+    date: 2026-10-13
+tested_with: []
+capabilities: [negative_price_rule]
+unverified:
+  - "Law text of section 51 EEG 2023 not fetched in the authoring session (network policy). The rule follows the maintainer's brief; verify the URL and the commissioning dates it applies to."
+  - "feed_in_tiers is empty on purpose: the official Bundesnetzagentur table of feed-in rates was not retrievable and numbers are never invented. Add rates with that table as source."
+country: DE
+currency: EUR
+timezone: Europe/Berlin
+negative_price_rule: no_remuneration
+feed_in_tiers: []

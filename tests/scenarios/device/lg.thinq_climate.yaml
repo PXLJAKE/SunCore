@@ -1,0 +1,18 @@
+# Conformance scenario for templates/device/lg.thinq_climate.yaml against the fake HA metadata.
+template: lg.thinq_climate
+sim_scenario: summer_day
+user_input:
+  nominal_w: 900          # prior of the learned model: asked in the wizard
+  comfort: {min_c: 22, max_c: 26}
+roles:
+  climate:
+    entity: climate.sim_living_room_ac
+    criteria: [domain, translation_key, platforms]
+  energy_today:
+    entity: sensor.sim_living_room_ac_energy_today
+    unit: Wh
+    criteria: [domain, device_class, platforms, translation_key_pattern, units, same_device]
+  energy_yesterday:
+    entity: sensor.sim_living_room_ac_energy_yesterday
+    unit: Wh
+    criteria: [domain, device_class, platforms, translation_key_pattern, units, same_device]

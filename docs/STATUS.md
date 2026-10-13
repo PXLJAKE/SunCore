@@ -96,6 +96,20 @@ ADRs relevant to your task. Keep it short; history lives in git.
   `research/device-integrations.md`), LG ThinQ, Tibber, Solcast. Notes:
   `research/ha-websocket-api.md`, `research/device-integrations.md`.
 
+- **Phase 2 WP2/WP3** (branch `phase-2/setup-wizard`): template schema v1 reworked per
+  ADR-0012 (all 12 items, compatibility policy and "Schema v1 changelog" in
+  `templates/README.md`); package moved to `suncore/templates/` (core-only dependency rule in
+  the boundary test); `DeviceConfig.mode` removed (the `operation` section is the single
+  store); `TariffConfig.import_` is stored as `import` (old key still loads). First
+  templates: `lg.thinq_climate`, `generic.switch`, `generic.climate`, `generic.number_load`,
+  `tibber.price`, `solcast.pv`, regions `de` and `generic`, each with a conformance scenario
+  in `tests/scenarios/` (`-m simulator`). `FakeHAConnection` serves registry, device, area and
+  Energy-dashboard data and demo entities (LG-like AC with hourly Wh counter, pool plug,
+  Tibber-like price, Solcast-like forecast); WP5 wires the accessors to the WS commands.
+  `UNVERIFIED`: all three integration templates come from source reading only (no live HA
+  or hardware); section 51 EEG 2023 could not be fetched (rule per maintainer brief) and the
+  region `de` feed-in tiers are empty until the official BNetzA table is cited.
+
 ## Open – Phase 1
 
 - Still to report by the maintainer: memory on the Pi, menu names in the
