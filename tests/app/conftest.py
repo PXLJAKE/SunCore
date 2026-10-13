@@ -11,6 +11,7 @@ import pytest
 from suncore.app.main import build_runtime, utc_now
 from suncore.app.runtime import Runtime
 from suncore.app.settings import Settings
+from suncore.ha.connection import EntityState
 from suncore.sim.fake_ha import FakeHAConnection
 from suncore.sim.scenario import load_scenario
 
@@ -20,6 +21,11 @@ class RecordingConnection(FakeHAConnection):
         super().__init__(load_scenario("summer_day"), clock=utc_now, speed=speed)
         self.subscriptions: list[frozenset[str]] = []
         self.subscribe_error: BaseException | None = None
+        self.get_states_calls = 0
+
+    async def get_states(self) -> list[EntityState]:
+        self.get_states_calls += 1
+        return await super().get_states()
 
     async def subscribe_entities(self, entity_ids: Collection[str]) -> None:
         self.subscriptions.append(frozenset(entity_ids))

@@ -257,6 +257,11 @@ class ConfigStore:
             raise HistoryEntryNotFoundError(msg)
         return await self.put(section, self._parse_row(section, row))
 
+    async def stored_sections(self) -> frozenset[str]:
+        """Names of the sections that have a stored body."""
+        rows = await self._db.fetchall("SELECT section FROM config_doc")
+        return frozenset(str(r[0]) for r in rows)
+
     async def get_site(self) -> SiteConfig | None:
         model = await self.get("site")
         assert model is None or isinstance(model, SiteConfig)

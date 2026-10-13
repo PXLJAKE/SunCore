@@ -45,6 +45,11 @@ def default_static_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
+def default_templates_dir() -> Path:
+    """``templates/`` next to the package (source checkout and image layout)."""
+    return Path(__file__).resolve().parents[2] / "templates"
+
+
 class Settings(BaseSettings):
     """Runtime settings of the SunCore process."""
 
@@ -64,6 +69,8 @@ class Settings(BaseSettings):
     """Development only: disable the Supervisor peer check."""
     max_import_bytes: int = Field(default=1024 * 1024, gt=0)
     static_dir: Path = Field(default_factory=default_static_dir)
+    templates_dir: Path = Field(default_factory=default_templates_dir)
+    """Built-in templates; user templates are read from ``<data_dir>/templates`` (not in demo)."""
 
     _options_path: ClassVar[Path] = DEFAULT_OPTIONS_PATH
 

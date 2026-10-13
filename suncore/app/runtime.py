@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -16,22 +16,40 @@ import structlog
 from pydantic import BaseModel
 
 from suncore import __version__
-from suncore.api.services import CandidateInfo, HAUnavailableError, HealthReport, PeerPolicy
+from suncore.api.services import (
+    EntityQuery,
+    HAUnavailableError,
+    HealthReport,
+    PeerPolicy,
+    UnknownRoleError,
+    UnknownTemplateError,
+)
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.config import DevicesConfig
 from suncore.core.decisions import Decision
+from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
+from suncore.core.wizard import CheckItem, PreviewItem, collect_refs, preview, run_system_check
 from suncore.ha import (
+    SITE_ROLES,
+    CommandError,
     ConnectionState,
     EntityCache,
+    EntityCatalogue,
     EntityUpdate,
     HAConnection,
     HAError,
-    entity_candidates,
+    describe,
+    detect_site_role,
+    detect_template_role,
+    legacy_entities,
+    suggest_from_prefs,
 )
 from suncore.safety.gate import Clock, SafetyGate
-from suncore.storage import ConfigStore, Database, DecisionLog
+from suncore.storage import ConfigStore, Database, DecisionLog, HistoryEntry
+from suncore.templates import TemplateCatalog
 
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
 
@@ -50,6 +68,8 @@ class Runtime:
     decision_log: DecisionLog
     connection: HAConnection
     cache: EntityCache
+    catalogue: EntityCatalogue
+    template_catalog: TemplateCatalog
     gate: SafetyGate
     clock: Clock
     demo: bool
@@ -76,6 +96,7 @@ class Runtime:
         self._unsubscribers.append(self.connection.add_entity_listener(self._on_entities))
         self._unsubscribers.append(self.connection.add_state_listener(self._on_state))
         await self._resubscribe()
+        await self.catalogue.start()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
 
     async def _load_live_sections(self) -> None:
@@ -102,6 +123,7 @@ class Runtime:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        await self.catalogue.stop()
         await self.connection.close()
         await self.db.close()
         if self._tempdir is not None:
@@ -215,22 +237,79 @@ class Runtime:
         self._notify()
         return stored
 
-    async def candidates(self) -> Sequence[CandidateInfo]:
+    async def entities(self, query: EntityQuery) -> Sequence[DetectedEntity]:
+        """Ranked entities from the catalogue (registry snapshot + state cache, ≤ 30 s old)."""
+        await self.catalogue.ensure_fresh()
+        if not self.catalogue.has_states:
+            raise HAUnavailableError("no entity data yet")
+        metas = self.catalogue.metas()
+        if query.template_id is not None:
+            template = self.template_catalog.get(query.template_id)
+            if template is None:
+                raise UnknownTemplateError(query.template_id)
+            roles = getattr(template, "roles", {})
+            spec = roles.get(query.role) if query.role is not None else None
+            if spec is None:
+                raise UnknownRoleError(str(query.role))
+            matches = detect_template_role(spec, metas, same_device_id=query.device_id)
+            return describe(matches, live=self.cache, catalogue=self.catalogue)
+        if query.role is None:
+            return legacy_entities(metas, live=self.cache, catalogue=self.catalogue)
+        if query.role not in SITE_ROLES:
+            raise UnknownRoleError(query.role)
+        site_matches = detect_site_role(query.role, metas)
+        return describe(site_matches, live=self.cache, catalogue=self.catalogue)
+
+    def templates(self) -> TemplateCatalog:
+        return self.template_catalog
+
+    async def section_history(self, name: str) -> list[HistoryEntry]:
+        return await self.config.history(name)
+
+    async def restore_section(self, name: str, entry_id: int) -> BaseModel:
+        """Restore a history entry; live sections are reloaded like after a normal save."""
+        restored = await self.config.restore(name, entry_id)
+        if name in ("site", "devices"):
+            await self._load_live_sections()
+            await self._resubscribe()
+        self._notify()
+        return restored
+
+    async def energy_suggestions(self) -> EnergySuggestions:
         try:
-            states = await self.connection.get_states()
-        except HAError as exc:
+            prefs = await self.connection.energy_get_prefs()
+        except CommandError as exc:
+            if exc.code != "unknown_command":  # energy integration not loaded (UNVERIFIED code)
+                raise HAUnavailableError(str(exc)) from exc
+            prefs = None
+        except (HAError, TimeoutError) as exc:
             raise HAUnavailableError(str(exc)) from exc
-        return [
-            CandidateInfo(
-                entity_id=c.entity_id,
-                name=c.name,
-                device_class=c.device_class,
-                unit=c.unit.value,
-                state=c.state,
-                available=c.available,
-            )
-            for c in entity_candidates(states)
-        ]
+        await self.catalogue.ensure_fresh()
+        known = self.catalogue.browse.ids() if self.catalogue.has_states else None
+        return suggest_from_prefs(prefs, known_entity_ids=known)
+
+    def _samples(self, entity_ids: Iterable[str]) -> dict[str, Sample]:
+        """Live values where subscribed, otherwise the catalogue's browse copy."""
+        ids = list(entity_ids)
+        result = self.catalogue.browse.samples(ids)
+        result.update(self.cache.samples(ids))
+        return result
+
+    async def _browse_if_needed(self, entity_ids: Iterable[str]) -> None:
+        if any(eid not in self.cache for eid in entity_ids):
+            await self.catalogue.ensure_fresh()
+
+    async def system_check(self, site: SiteConfig | None) -> list[CheckItem]:
+        site = site if site is not None else self.site
+        ids = [r.entity_id for r in site.entity_refs()] if site is not None else []
+        await self._browse_if_needed(ids)
+        present = await self.config.stored_sections()
+        return run_system_check(site, self._samples(ids), present)
+
+    async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
+        ids = list(dict.fromkeys(entity_id for _, entity_id, _ in collect_refs(fragment)))
+        await self._browse_if_needed(ids)
+        return preview(fragment, self._samples(ids))
 
     def flows(self) -> FlowSnapshot | None:
         if self.site is None:

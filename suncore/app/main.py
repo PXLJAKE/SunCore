@@ -26,6 +26,7 @@ from suncore.app.runtime import DB_FILENAME, Runtime
 from suncore.app.settings import ENV_SUPERVISOR_TOKEN, Settings, load_settings, under_supervisor
 from suncore.ha import (
     EntityCache,
+    EntityCatalogue,
     HAConnection,
     WebSocketConnection,
     transport_from_env,
@@ -33,6 +34,7 @@ from suncore.ha import (
 from suncore.ha.redact import register_secret
 from suncore.safety.gate import Clock, SafetyGate
 from suncore.storage import ConfigStore, Database, DecisionLog
+from suncore.templates import load_templates
 
 log = structlog.get_logger(__name__)
 
@@ -77,6 +79,13 @@ async def build_runtime(
         decision_log = DecisionLog(db)
         gate = SafetyGate(clock=clock, sink=decision_log.append)
         cache = EntityCache(clock=clock)
+        catalogue = EntityCatalogue(connection, wall_clock=clock)
+        user_templates = None if demo else data_dir / "templates"
+        template_catalog = load_templates(
+            settings.templates_dir, user_templates, app_version=__version__
+        )
+        for error in template_catalog.errors:
+            log.warning("templates.user_template_invalid", file=str(error))
     except BaseException:
         await db.close()
         if tempdir is not None:
@@ -89,6 +98,8 @@ async def build_runtime(
         decision_log=decision_log,
         connection=connection,
         cache=cache,
+        catalogue=catalogue,
+        template_catalog=template_catalog,
         gate=gate,
         clock=clock,
         demo=demo,

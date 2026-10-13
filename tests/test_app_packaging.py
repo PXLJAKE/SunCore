@@ -73,6 +73,9 @@ def test_dockerfile_contract(app: str) -> None:
     assert re.search(r"^FROM .*node:22-alpine@sha256:[0-9a-f]{64} AS frontend$", text, re.M)
     assert "COPY --from=frontend /src/frontend/dist /opt/suncore/frontend/dist" in text
     assert "SUNCORE_STATIC_DIR=/opt/suncore/frontend/dist" in text
+    # Built-in templates ship in the image and are found through the setting.
+    assert "COPY templates /opt/suncore/templates" in text
+    assert "SUNCORE_TEMPLATES_DIR=/opt/suncore/templates" in text
     assert "frontend/.npmrc" in text
     # Locked dependencies from PyPI only, wheels only.
     assert "--only-binary=:all:" in text

@@ -8,6 +8,7 @@ but never read by the safety gate before Phase 3: the gate stays shadow-only.
 from __future__ import annotations
 
 import itertools
+from collections.abc import Mapping
 from typing import Annotated, Final, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -22,7 +23,7 @@ from pydantic import (
 
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig, DeviceId, RoleName, TemplateId
-from suncore.core.site import EntityRef
+from suncore.core.site import EntityRef, SiteConfig
 
 REGION_ID_PATTERN: Final = r"^[a-z][a-z0-9_]{0,31}$"
 STEP_PATTERN: Final = r"^[a-z][a-z0-9_]{0,47}$"
@@ -242,3 +243,15 @@ class WizardState(_Frozen):
     )
     version: Annotated[int, Field(ge=1)] = 1
     """Wizard flow version that produced ``completed_steps``."""
+
+
+SECTION_MODELS: Final[Mapping[str, type[BaseModel]]] = {
+    "site": SiteConfig,
+    "region": RegionConfig,
+    "tariff": TariffConfig,
+    "devices": DevicesConfig,
+    "goals": GoalsConfig,
+    "operation": OperationConfig,
+    "wizard": WizardState,
+}
+"""All configuration sections by name and their document model (API and storage share it)."""

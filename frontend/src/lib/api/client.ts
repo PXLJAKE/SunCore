@@ -1,7 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // REST client. Every URL is resolved against the current document so the Home Assistant
 // ingress base path (dynamic, unknown at build time) never matters. Never use `/api/...`.
-import type { EntityCandidate, Info, SiteConfig, ValidationIssue } from './types';
+import type {
+  CheckResult,
+  ConfigHistoryEntry,
+  ConfigSectionName,
+  EnergyPrefs,
+  EntityCandidate,
+  HistoryRestore,
+  Info,
+  PreviewResult,
+  SiteConfig,
+  TemplateDetail,
+  TemplateKind,
+  TemplateList,
+  ValidationIssue,
+} from './types';
 
 export const API_PREFIX = 'api/v1/';
 
@@ -68,4 +82,55 @@ export const api = {
       body: JSON.stringify(site),
     }),
   entities: () => request<EntityCandidate[]>(`${API_PREFIX}entities`),
+  /** Ranked entities for a site role (`grid_power`, `battery_soc`, ...). */
+  entitiesForRole: (role: string) =>
+    request<EntityCandidate[]>(`${API_PREFIX}entities${query({ role })}`),
+  /** Ranked entities for a template role; `deviceId` scopes `same_device_as` roles. */
+  entitiesForTemplate: (template: string, role: string, deviceId?: string) =>
+    request<EntityCandidate[]>(
+      `${API_PREFIX}entities${query({ template, role, device_id: deviceId })}`,
+    ),
+  /** A config section; `null` while it was never stored. */
+  getSection: <T>(section: ConfigSectionName) =>
+    request<T | null>(`${API_PREFIX}config/${section}`),
+  putSection: <T>(section: ConfigSectionName, body: T) =>
+    request<T>(`${API_PREFIX}config/${section}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  history: (section: ConfigSectionName) =>
+    request<ConfigHistoryEntry[]>(`${API_PREFIX}config/${section}/history`),
+  restore: (section: ConfigSectionName, id: number) =>
+    request<HistoryRestore>(`${API_PREFIX}config/${section}/history/${id}/restore`, {
+      method: 'POST',
+    }),
+  templates: (kind?: TemplateKind) =>
+    request<TemplateList>(`${API_PREFIX}templates${query({ kind })}`),
+  template: (id: string) =>
+    request<TemplateDetail>(`${API_PREFIX}templates/${encodeURIComponent(id)}`),
+  energyPrefs: () => request<EnergyPrefs>(`${API_PREFIX}wizard/energy-prefs`),
+  /** System check of the stored site, or of an unsaved one. */
+  check: (site?: SiteConfig) =>
+    request<CheckResult>(`${API_PREFIX}wizard/check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(site ? { site } : {}),
+    }),
+  /** Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment. */
+  preview: (fragment: Record<string, unknown>) =>
+    request<PreviewResult>(`${API_PREFIX}preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fragment),
+    }),
 };
+
+function query(params: Record<string, string | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) search.set(key, value);
+  }
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}

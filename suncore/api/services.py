@@ -8,7 +8,7 @@ talks to this protocol. ``suncore.app.runtime`` implements it for the real proce
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Protocol
@@ -17,7 +17,11 @@ from pydantic import BaseModel
 
 from suncore.core.balance import FlowSnapshot
 from suncore.core.decisions import Decision
+from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
+from suncore.core.wizard import CheckItem, PreviewItem
+from suncore.storage import HistoryEntry
+from suncore.templates import TemplateCatalog
 
 FATAL_HA_STATES: Final = frozenset({"auth_failed", "closed"})
 """Connection states that a restart of the app may fix or that mean it is shutting down."""
@@ -46,15 +50,18 @@ class HealthReport:
 
 
 @dataclass(frozen=True, slots=True)
-class CandidateInfo:
-    """One entity the settings picker may offer."""
+class EntityQuery:
+    """What ``GET /api/v1/entities`` asks for.
 
-    entity_id: str
-    name: str
-    device_class: str
-    unit: str
-    state: str
-    available: bool
+    * nothing: the Phase 1 picker (all power and battery sensors);
+    * ``role``: a site role (``grid_power``, ``battery_soc``, ...);
+    * ``template_id`` and ``role``: a role of a template; ``device_id`` is the registry device
+      of the entity already chosen for the role named by ``same_device_as``.
+    """
+
+    role: str | None = None
+    template_id: str | None = None
+    device_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,8 +112,36 @@ class Services(Protocol):
         """Store a config section, return what was stored (see ``Runtime.put_section``)."""
         ...
 
-    async def candidates(self) -> Sequence[CandidateInfo]:
-        """Picker candidates; raises :class:`HAUnavailableError` without a connection."""
+    async def entities(self, query: EntityQuery) -> Sequence[DetectedEntity]:
+        """Ranked entities from the registry snapshot and state cache (no per-request HA call).
+
+        Raises :class:`HAUnavailableError` while nothing is known yet,
+        :class:`UnknownRoleError` / :class:`UnknownTemplateError` for bad queries.
+        """
+        ...
+
+    def templates(self) -> TemplateCatalog:
+        """The template catalogue loaded at startup (built-in plus user directory)."""
+        ...
+
+    async def section_history(self, name: str) -> list[HistoryEntry]:
+        """Replaced bodies of a section, newest first; ``UnknownSectionError`` if not a section."""
+        ...
+
+    async def restore_section(self, name: str, entry_id: int) -> BaseModel:
+        """Make a history entry current again; ``HistoryEntryNotFoundError`` if it is gone."""
+        ...
+
+    async def energy_suggestions(self) -> EnergySuggestions:
+        """Energy dashboard suggestions; ``HAUnavailableError`` if Home Assistant is unreachable."""
+        ...
+
+    async def system_check(self, site: SiteConfig | None) -> list[CheckItem]:
+        """System check of ``site`` (``None`` = the stored site) against the current values."""
+        ...
+
+    async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
+        """Live values of an unsaved fragment; ``PreviewTooLargeError`` if it is too big."""
         ...
 
     def flows(self) -> FlowSnapshot | None:
@@ -132,3 +167,11 @@ class Services(Protocol):
 
 class HAUnavailableError(RuntimeError):
     """Home Assistant cannot be reached right now."""
+
+
+class UnknownRoleError(LookupError):
+    """The requested role does not exist (site role or role of the template)."""
+
+
+class UnknownTemplateError(LookupError):
+    """No template with the requested id is loaded."""

@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 from pydantic import BaseModel
 
 from suncore.core.config import (
+    SECTION_MODELS,
     BatteryTarget,
     DevicesConfig,
     ExportTariff,
@@ -444,3 +445,14 @@ async def test_tariff_stored_with_import_key_and_legacy_key_still_loads(db: Data
         "UPDATE config_doc SET body = ? WHERE section = 'tariff'", (json.dumps(legacy),)
     )
     assert await store.get("tariff") == tariff
+
+
+def test_section_models_match_the_api_registry() -> None:
+    assert {name: spec.model for name, spec in DEFAULT_SECTIONS.items()} == dict(SECTION_MODELS)
+
+
+async def test_stored_sections_lists_only_written_ones(db: Database) -> None:
+    store = ConfigStore(db)
+    assert await store.stored_sections() == frozenset()
+    await store.put("wizard", WizardState())
+    assert await store.stored_sections() == frozenset({"wizard"})

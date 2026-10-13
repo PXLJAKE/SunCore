@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -16,8 +16,16 @@ import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from suncore.api import CandidateInfo, HAUnavailableError, HealthReport, PeerPolicy
+from suncore.api import (
+    EntityQuery,
+    HAUnavailableError,
+    HealthReport,
+    PeerPolicy,
+    UnknownRoleError,
+    UnknownTemplateError,
+)
 from suncore.core.balance import Flow, FlowSnapshot
+from suncore.core.config import SECTION_MODELS
 from suncore.core.decisions import (
     Decision,
     DecisionKind,
@@ -27,11 +35,22 @@ from suncore.core.decisions import (
     Reason,
     SwitchAction,
 )
+from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.signals import Quality
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
-from suncore.storage import ImportRejectedError
+from suncore.core.wizard import CheckItem, PreviewItem, PreviewTooLargeError
+from suncore.storage import (
+    HistoryEntry,
+    HistoryEntryNotFoundError,
+    ImportRejectedError,
+    UnknownSectionError,
+)
+from suncore.templates import TemplateCatalog, load_templates
+
+TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates"
 
 NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+SECTION_NAMES = tuple(SECTION_MODELS)
 
 
 def make_site() -> SiteConfig:
@@ -57,6 +76,30 @@ def make_decision(n: int = 1) -> Decision:
         reasons=(Reason(key="safety.shadow_mode"),),
         mode=OperatingMode.SHADOW,
     )
+
+
+def make_entity(entity_id: str = "sensor.pv", **kw: Any) -> DetectedEntity:
+    fields: dict[str, Any] = {
+        "entity_id": entity_id,
+        "name": "PV",
+        "domain": "sensor",
+        "platform": None,
+        "device_class": "power",
+        "unit": "W",
+        "state_class": None,
+        "area_id": None,
+        "area_name": None,
+        "device_id": None,
+        "device_name": None,
+        "score": 0,
+        "criteria": (),
+        "state": "1200",
+        "available": True,
+        "value": 1200.0,
+        "quality": Quality.OK,
+    }
+    fields.update(kw)
+    return DetectedEntity(**fields)
 
 
 def make_flows(pv: float = 3000.0) -> FlowSnapshot:
@@ -87,9 +130,16 @@ class FakeServices:
         self.sections: dict[str, BaseModel] = {}
         self.flow: FlowSnapshot | None = make_flows()
         self.decision_list: list[Decision] = [make_decision(1)]
-        self.candidate_list: list[CandidateInfo] = [
-            CandidateInfo("sensor.pv", "PV", "power", "W", "1200", True)
-        ]
+        self.entity_list: list[DetectedEntity] = [make_entity()]
+        self.queries: list[EntityQuery] = []
+        self.catalog: TemplateCatalog = load_templates(TEMPLATES_DIR)
+        self.history_entries: dict[str, list[HistoryEntry]] = {}
+        self.restored: list[tuple[str, int]] = []
+        self.energy = EnergySuggestions(configured=False)
+        self.check_items: list[CheckItem] = []
+        self.checked_sites: list[SiteConfig | None] = []
+        self.preview_items: list[PreviewItem] = []
+        self.fragments: list[Mapping[str, Any]] = []
         self.ha_down = False
         self.imported: list[object] = []
         self.listeners: list[Callable[[], None]] = []
@@ -114,10 +164,49 @@ class FakeServices:
         self.sections[name] = model
         return model
 
-    async def candidates(self) -> Sequence[CandidateInfo]:
+    async def entities(self, query: EntityQuery) -> Sequence[DetectedEntity]:
+        self.queries.append(query)
         if self.ha_down:
             raise HAUnavailableError("down")
-        return self.candidate_list
+        if query.role == "nope":
+            raise UnknownRoleError("nope")
+        if query.template_id == "nope.nope":
+            raise UnknownTemplateError("nope.nope")
+        return self.entity_list
+
+    def templates(self) -> TemplateCatalog:
+        return self.catalog
+
+    async def section_history(self, name: str) -> list[HistoryEntry]:
+        if name not in SECTION_NAMES:
+            raise UnknownSectionError(name)
+        return self.history_entries.get(name, [])
+
+    async def restore_section(self, name: str, entry_id: int) -> BaseModel:
+        if name not in SECTION_NAMES:
+            raise UnknownSectionError(name)
+        entry = next((e for e in self.history_entries.get(name, []) if e.id == entry_id), None)
+        if entry is None:
+            raise HistoryEntryNotFoundError(f"{name}/{entry_id}")
+        self.restored.append((name, entry_id))
+        model = SECTION_MODELS[name].model_validate({**entry.body, "schema_version": 1})
+        self.sections[name] = model
+        return model
+
+    async def energy_suggestions(self) -> EnergySuggestions:
+        if self.ha_down:
+            raise HAUnavailableError("down")
+        return self.energy
+
+    async def system_check(self, site: SiteConfig | None) -> list[CheckItem]:
+        self.checked_sites.append(site)
+        return self.check_items
+
+    async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
+        self.fragments.append(fragment)
+        if fragment.get("too") == "big":
+            raise PreviewTooLargeError("too big")
+        return self.preview_items
 
     def flows(self) -> FlowSnapshot | None:
         return self.flow

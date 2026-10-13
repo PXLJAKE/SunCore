@@ -4,6 +4,24 @@
  */
 
 export interface paths {
+    "/api/v1/config/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the devices section */
+        get: operations["get_config_devices"];
+        /** Replace the devices section */
+        put: operations["put_config_devices"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/export": {
         parameters: {
             query?: never;
@@ -14,6 +32,24 @@ export interface paths {
         /** Export Config */
         get: operations["export_config_api_v1_config_export_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/goals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the goals section */
+        get: operations["get_config_goals"];
+        /** Replace the goals section */
+        put: operations["put_config_goals"];
         post?: never;
         delete?: never;
         options?: never;
@@ -38,6 +74,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/operation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the operation section */
+        get: operations["get_config_operation"];
+        /** Replace the operation section */
+        put: operations["put_config_operation"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/region": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the region section */
+        get: operations["get_config_region"];
+        /** Replace the region section */
+        put: operations["put_config_region"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/site": {
         parameters: {
             query?: never;
@@ -45,11 +117,87 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Site */
-        get: operations["get_site_api_v1_config_site_get"];
-        /** Put Site */
-        put: operations["put_site_api_v1_config_site_put"];
+        /** Get the site section */
+        get: operations["get_config_site"];
+        /** Replace the site section */
+        put: operations["put_config_site"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/tariff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the tariff section */
+        get: operations["get_config_tariff"];
+        /** Replace the tariff section */
+        put: operations["put_config_tariff"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/wizard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the wizard section */
+        get: operations["get_config_wizard"];
+        /** Replace the wizard section */
+        put: operations["put_config_wizard"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/{section}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History
+         * @description Replaced bodies of a section, newest first (the last 20).
+         */
+        get: operations["history_api_v1_config__section__history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/{section}/history/{entry_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore
+         * @description Make a history entry current again (the current body moves to the history).
+         */
+        post: operations["restore_api_v1_config__section__history__entry_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -80,7 +228,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Entities */
+        /**
+         * Entities
+         * @description Entities for a site role (``role``) or a template role (``template`` + ``role``).
+         *
+         *     Without parameters: the unranked power and battery sensors of the Phase 1 picker.
+         *     Served from the registry snapshot and state cache, never per-request from HA.
+         */
         get: operations["entities_api_v1_entities_get"];
         put?: never;
         post?: never;
@@ -99,6 +253,103 @@ export interface paths {
         };
         /** Info */
         get: operations["info_api_v1_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview
+         * @description Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment.
+         */
+        post: operations["preview_api_v1_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Templates
+         * @description Template gallery; ``errors`` lists user templates that failed to load.
+         */
+        get: operations["templates_api_v1_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Template */
+        get: operations["template_api_v1_templates__template_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wizard/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check
+         * @description System check of the stored site (or of ``site`` in the body) against live values.
+         */
+        post: operations["check_api_v1_wizard_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wizard/energy-prefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Energy Prefs
+         * @description Suggestions from the Energy dashboard; ``configured: false`` if it was never saved.
+         */
+        get: operations["energy_prefs_api_v1_wizard_energy_prefs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -129,6 +380,46 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ActionSeries
+         * @description Series returned by a read-only action (``return_response`` is implied).
+         */
+        ActionSeries: {
+            /** Domain */
+            domain: string;
+            /** End Field */
+            end_field?: string | null;
+            fields: components["schemas"]["SeriesFields"];
+            /** Max Horizon H */
+            max_horizon_h: number;
+            /** Response Path */
+            response_path: string;
+            /** Service */
+            service: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            source: "action";
+            /** Start Field */
+            start_field?: string | null;
+        };
+        /**
+         * AttributeSeries
+         * @description Series held in an attribute of the entities of ``roles`` (concatenated in order).
+         */
+        AttributeSeries: {
+            /** Attribute */
+            attribute: string;
+            fields: components["schemas"]["SeriesFields"];
+            /** Roles */
+            roles: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            source: "attribute";
+        };
+        /**
          * BatteryConfig
          * @description Battery: power (+ = charging), state of charge in percent, limits.
          *
@@ -154,6 +445,113 @@ export interface components {
             min_soc_pct?: number | null;
             power: components["schemas"]["EntityRef"];
             soc: components["schemas"]["EntityRef"];
+        };
+        /**
+         * BatteryTarget
+         * @description Be at ``soc_pct`` by local time ``time`` (``HH:MM``).
+         */
+        BatteryTarget: {
+            /** Soc Pct */
+            soc_pct: number;
+            /** Time */
+            time: string;
+        };
+        /**
+         * Capability
+         * @description What a template provides.
+         * @enum {string}
+         */
+        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule";
+        /** CheckItemOut */
+        CheckItemOut: {
+            reason: components["schemas"]["Reason"];
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "ok" | "warn" | "error";
+            /** Subject */
+            subject: string | null;
+        };
+        /** CheckOut */
+        CheckOut: {
+            /** Items */
+            items: components["schemas"]["CheckItemOut"][];
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "ok" | "warn" | "error";
+        };
+        /**
+         * CheckRequest
+         * @description Optional body of the system check: check this unsaved site instead of the stored one.
+         */
+        CheckRequest: {
+            site?: components["schemas"]["SiteConfig"] | null;
+        };
+        /**
+         * ComfortBand
+         * @description Allowed temperature range in °C.
+         */
+        ComfortBand: {
+            /** Max C */
+            max_c: number;
+            /** Min C */
+            min_c: number;
+        };
+        /**
+         * ConfigHistoryEntryOut
+         * @description A replaced section body that can be restored.
+         */
+        ConfigHistoryEntryOut: {
+            /** Body */
+            body: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: number;
+            /** Replaced At */
+            replaced_at: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Section */
+            section: string;
+        };
+        /**
+         * ContinuousControl
+         * @description A number entity in W, A or % of ``nominal_w`` between ``min`` and ``max``.
+         */
+        ContinuousControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "continuous";
+            /** Max */
+            max: number;
+            /** Min */
+            min: number;
+            /**
+             * Phases
+             * @default 1
+             * @enum {integer}
+             */
+            phases: 1 | 3;
+            /** Role */
+            role: string;
+            /** Step */
+            step?: number | null;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "W" | "A" | "%";
+            /**
+             * Voltage V
+             * @default 230
+             */
+            voltage_v: number;
         };
         /**
          * Decision
@@ -190,20 +588,227 @@ export interface components {
              */
             type: "decisions";
         };
-        /** EntityCandidateOut */
+        /**
+         * DeviceConfig
+         * @description One configured device (instance of a template).
+         *
+         *     ``max_switches_per_hour`` / hysteresis / ``settle_s`` ``None`` mean "safety/controller
+         *     default", never "unlimited" or "none" (ADR-0012 item 6).
+         */
+        DeviceConfig: {
+            comfort?: components["schemas"]["ComfortBand"] | null;
+            /** Control */
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"];
+            /** Entities */
+            entities?: {
+                [key: string]: components["schemas"]["EntityRef"];
+            };
+            /** Hysteresis Delay S */
+            hysteresis_delay_s?: number | null;
+            /** Hysteresis W */
+            hysteresis_w?: number | null;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["DeviceKind"];
+            /** Max Switches Per Hour */
+            max_switches_per_hour?: number | null;
+            /**
+             * Min Pause S
+             * @default 0
+             */
+            min_pause_s: number;
+            /**
+             * Min Run S
+             * @default 0
+             */
+            min_run_s: number;
+            /** Name */
+            name: string;
+            power_model: components["schemas"]["PowerModel"];
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
+            /** Settle S */
+            settle_s?: number | null;
+            /** Template Id */
+            template_id: string;
+            /**
+             * Windows
+             * @default []
+             */
+            windows: components["schemas"]["TimeWindow"][];
+        };
+        /**
+         * DeviceDefaults
+         * @description Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.
+         */
+        DeviceDefaults: {
+            comfort?: components["schemas"]["ComfortBand"] | null;
+            /** Control */
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"];
+            /** Hysteresis Delay S */
+            hysteresis_delay_s?: number | null;
+            /** Hysteresis W */
+            hysteresis_w?: number | null;
+            /** Max Switches Per Hour */
+            max_switches_per_hour?: number | null;
+            /**
+             * Min Pause S
+             * @default 0
+             */
+            min_pause_s: number;
+            /**
+             * Min Run S
+             * @default 0
+             */
+            min_run_s: number;
+            power_model: components["schemas"]["PowerModelDefault"];
+            /** Settle S */
+            settle_s?: number | null;
+        };
+        /**
+         * DeviceKind
+         * @description Kind of controllable device. Templates use climate, switch and number_load for now.
+         * @enum {string}
+         */
+        DeviceKind: "climate" | "switch" | "number_load" | "water_heater" | "heat_pump" | "wallbox" | "program" | "generic";
+        /** DeviceTemplate */
+        DeviceTemplate: {
+            /** Capabilities */
+            capabilities: components["schemas"]["Capability"][];
+            defaults: components["schemas"]["DeviceDefaults"];
+            device_kind: components["schemas"]["DeviceKind"];
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "device";
+            /** Min App Version */
+            min_app_version?: string | null;
+            /** Name */
+            name: string;
+            /** Roles */
+            roles: {
+                [key: string]: components["schemas"]["RoleSpec"];
+            };
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Source */
+            source: components["schemas"]["SourceRef"][];
+            /** Tested With */
+            tested_with: components["schemas"]["TestedWith"][];
+            /** Unverified */
+            unverified?: string[];
+        };
+        /**
+         * DevicesConfig
+         * @description All configured devices.
+         */
+        DevicesConfig: {
+            /** Devices */
+            devices?: components["schemas"]["DeviceConfig"][];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+        };
+        /**
+         * EnergyPrefsOut
+         * @description Energy dashboard import: suggestions only, never applied by the server.
+         */
+        EnergyPrefsOut: {
+            /** Configured */
+            configured: boolean;
+            /** Notes */
+            notes: components["schemas"]["Reason"][];
+            /** Site */
+            site: {
+                [key: string]: unknown;
+            };
+            /** Suggestions */
+            suggestions: components["schemas"]["SuggestionOut"][];
+        };
+        /**
+         * EntityCandidateOut
+         * @description An entity offered for a role.
+         *
+         *     ``device_class`` and ``unit`` are empty strings when unknown. ``score`` is 0 and
+         *     ``criteria`` empty for the unranked Phase 1 list. ``value`` is the raw state in ``unit``
+         *     (no conversion, no sign inversion).
+         */
         EntityCandidateOut: {
+            /** Area Id */
+            area_id: string | null;
+            /** Area Name */
+            area_name: string | null;
             /** Available */
             available: boolean;
+            /** Criteria */
+            criteria: string[];
             /** Device Class */
             device_class: string;
+            /** Device Id */
+            device_id: string | null;
+            /** Device Name */
+            device_name: string | null;
+            /** Domain */
+            domain: string;
             /** Entity Id */
             entity_id: string;
             /** Name */
             name: string;
+            /** Platform */
+            platform: string | null;
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "ok" | "stale" | "unavailable" | "invalid";
+            /** Score */
+            score: number;
             /** State */
             state: string;
+            /** State Class */
+            state_class: string | null;
             /** Unit */
             unit: string;
+            /** Value */
+            value: number | null;
+        };
+        /**
+         * EntityMatcher
+         * @description Role matcher; every given criterion must match, ``domain`` is mandatory.
+         *
+         *     ``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive);
+         *     ``unit_pattern`` is a regular expression matched with ``re.fullmatch`` on the stripped
+         *     unit. ``translation_key`` / ``translation_key_pattern`` likewise. Exact and pattern
+         *     forms exclude each other.
+         */
+        EntityMatcher: {
+            /** Device Class */
+            device_class?: string | null;
+            /** Domain */
+            domain: string;
+            /** Platforms */
+            platforms?: string[] | null;
+            /** State Class */
+            state_class?: string | null;
+            /** Translation Key */
+            translation_key?: string | null;
+            /** Translation Key Pattern */
+            translation_key_pattern?: string | null;
+            /** Unit Pattern */
+            unit_pattern?: string | null;
+            /** Units */
+            units?: string[] | null;
         };
         /**
          * EntityRef
@@ -222,6 +827,57 @@ export interface components {
         ErrorOut: {
             /** Detail */
             detail: string;
+        };
+        /**
+         * ExportTariff
+         * @description Feed-in remuneration.
+         */
+        ExportTariff: {
+            /** Fixed Price */
+            fixed_price?: number | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "fixed" | "tiered" | "none";
+            /**
+             * Tiers
+             * @default []
+             */
+            tiers: components["schemas"]["ExportTier"][];
+        };
+        /**
+         * ExportTier
+         * @description Feed-in price up to ``up_to_kwp`` of installed power (``None`` = no upper bound).
+         */
+        ExportTier: {
+            /** Price */
+            price: number;
+            /** Up To Kwp */
+            up_to_kwp?: number | null;
+        };
+        /**
+         * FeedInTier
+         * @description Feed-in remuneration band, data only (no legal advice).
+         *
+         *     Bands apply to the share of the plant up to ``up_to_kwp`` (cumulative, lower bounds
+         *     are the previous band); ``None`` = no upper bound and only allowed on the last band.
+         */
+        FeedInTier: {
+            /**
+             * Mode
+             * @default surplus
+             * @enum {string}
+             */
+            mode: "surplus" | "full_feed_in";
+            /** Rate Per Kwh */
+            rate_per_kwh: number;
+            /** Up To Kwp */
+            up_to_kwp?: number | null;
+            /** Valid From */
+            valid_from?: string | null;
+            /** Valid Until */
+            valid_until?: string | null;
         };
         /**
          * FlowOut
@@ -257,6 +913,65 @@ export interface components {
             pv_w: components["schemas"]["FlowOut"];
             /** Ts */
             ts: string | null;
+        };
+        /** ForecastTemplate */
+        ForecastTemplate: {
+            /** Capabilities */
+            capabilities: components["schemas"]["Capability"][];
+            /**
+             * Forecast Kind
+             * @enum {string}
+             */
+            forecast_kind: "pv" | "load";
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "forecast";
+            /** Min App Version */
+            min_app_version?: string | null;
+            /** Name */
+            name: string;
+            /** Resolution Min */
+            resolution_min: number;
+            /** Roles */
+            roles?: {
+                [key: string]: components["schemas"]["RoleSpec"];
+            };
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Series */
+            series: components["schemas"]["AttributeSeries"] | components["schemas"]["ActionSeries"];
+            /** Source */
+            source: components["schemas"]["SourceRef"][];
+            /** Tested With */
+            tested_with: components["schemas"]["TestedWith"][];
+            /** Unverified */
+            unverified?: string[];
+        };
+        /** GoalsConfig */
+        GoalsConfig: {
+            battery_target?: components["schemas"]["BatteryTarget"] | null;
+            /**
+             * Climate Before Export
+             * @default false
+             */
+            climate_before_export: boolean;
+            /**
+             * Grid Charge Night Only
+             * @default true
+             */
+            grid_charge_night_only: boolean;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
         };
         /**
          * GridConfig
@@ -308,10 +1023,35 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** HistoryRestoreOut */
+        HistoryRestoreOut: {
+            /** Body */
+            body: {
+                [key: string]: unknown;
+            };
+            /** Section */
+            section: string;
+        };
         /** ImportResultOut */
         ImportResultOut: {
             /** Imported Sections */
             imported_sections: string[];
+        };
+        /**
+         * ImportTariff
+         * @description How the price of imported energy is obtained.
+         */
+        ImportTariff: {
+            /** Fixed Price */
+            fixed_price?: number | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "fixed" | "dynamic";
+            price_entity?: components["schemas"]["EntityRef"] | null;
+            /** Template Id */
+            template_id?: string | null;
         };
         /** InfoOut */
         InfoOut: {
@@ -350,17 +1090,128 @@ export interface components {
         };
         LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"];
         /**
+         * Mode
+         * @description One mode of a mode-controlled device and the power it draws.
+         */
+        Mode: {
+            /** Power W */
+            power_w: number;
+            /** Value */
+            value: string;
+        };
+        /**
+         * ModeControl
+         * @description Select one of several modes (select entity or climate preset).
+         */
+        ModeControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "mode";
+            /** Modes */
+            modes: components["schemas"]["Mode"][];
+            /** Role */
+            role: string;
+        };
+        /**
+         * NegativePriceRule
+         * @description Feed-in remuneration during negative spot prices.
+         * @enum {string}
+         */
+        NegativePriceRule: "none" | "no_remuneration" | "curtailment_required";
+        /**
+         * OnOffControl
+         * @description Switch on/off through ``role``.
+         */
+        OnOffControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "on_off";
+            /** Role */
+            role: string;
+        };
+        /**
          * OperatingMode
          * @description Operating mode per device and globally (BRIEF §4.11).
          * @enum {string}
          */
         OperatingMode: "shadow" | "assisted" | "automatic";
         /**
+         * OperationConfig
+         * @description Stored operating modes. Not read by the safety gate before Phase 3.
+         *
+         *     Devices that are new at ``devices`` put/import time lose any entry here (shadow).
+         */
+        OperationConfig: {
+            /** Device Modes */
+            device_modes?: {
+                [key: string]: components["schemas"]["OperatingMode"];
+            };
+            /** @default shadow */
+            mode: components["schemas"]["OperatingMode"];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+        };
+        /**
          * Origin
          * @description The layer that produced an intent (ADR-0011).
          * @enum {string}
          */
         Origin: "planner" | "controller" | "user";
+        /**
+         * PowerModel
+         * @description Power source of a device; refers to roles of :attr:`DeviceConfig.entities`.
+         *
+         *     * ``measured``: needs ``power_role`` (a power sensor).
+         *     * ``counter_derived``: needs ``energy_role``; the average power is derived from counter
+         *       deltas (latency and quantisation apply, ``counter_update_s`` is the latency floor).
+         *     * ``learned``: needs ``nominal_w`` as prior; ``power_role``/``energy_role`` train it.
+         *     * ``nominal``: needs ``nominal_w``.
+         *
+         *     The unit of the counter is read from the live state (like ``core/balance.py``); a
+         *     non-energy unit yields quality ``invalid`` at runtime.
+         */
+        PowerModel: {
+            /** Counter Update S */
+            counter_update_s?: number | null;
+            /** Energy Role */
+            energy_role?: string | null;
+            kind: components["schemas"]["PowerModelKind"];
+            /** Nominal W */
+            nominal_w?: number | null;
+            /** Power Role */
+            power_role?: string | null;
+        };
+        /**
+         * PowerModelDefault
+         * @description Default power model; ``power_role``/``energy_role`` refer to roles of the template.
+         *
+         *     ``nominal_w`` is only a hint: a template cannot know the user's model, the wizard asks
+         *     (the instance-level :class:`~suncore.core.devices.PowerModel` stays strict).
+         */
+        PowerModelDefault: {
+            /** Counter Update S */
+            counter_update_s?: number | null;
+            /** Energy Role */
+            energy_role?: string | null;
+            kind: components["schemas"]["PowerModelKind"];
+            /** Nominal W */
+            nominal_w?: number | null;
+            /** Power Role */
+            power_role?: string | null;
+        };
+        /**
+         * PowerModelKind
+         * @description How a device's power is obtained (BRIEF §4.5); each kind yields an uncertain estimate.
+         * @enum {string}
+         */
+        PowerModelKind: "measured" | "counter_derived" | "learned" | "nominal";
         /**
          * PowerSetpointAction
          * @description Request a power set-point in W (device + = consumption, battery + = charging).
@@ -373,6 +1224,37 @@ export interface components {
             kind: "power_setpoint";
             /** Power W */
             power_w: number;
+        };
+        /** PreviewItemOut */
+        PreviewItemOut: {
+            /** Base Unit */
+            base_unit: string | null;
+            /** Base Value */
+            base_value: number | null;
+            /** Entity Id */
+            entity_id: string;
+            /** Expected */
+            expected: ("power" | "energy" | "ratio") | null;
+            /** Invert Sign */
+            invert_sign: boolean;
+            /** Path */
+            path: string;
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "ok" | "stale" | "unavailable" | "invalid";
+            /** Raw Value */
+            raw_value: number | null;
+            /** Unit */
+            unit: string | null;
+            /** Unit Ok */
+            unit_ok: boolean | null;
+        };
+        /** PreviewOut */
+        PreviewOut: {
+            /** Items */
+            items: components["schemas"]["PreviewItemOut"][];
         };
         /**
          * PvArray
@@ -407,6 +1289,118 @@ export interface components {
             key: string;
         };
         /**
+         * RegionConfig
+         * @description Region template choice, currency, time zone and UI language.
+         */
+        RegionConfig: {
+            /** Currency */
+            currency: string;
+            /**
+             * Language
+             * @default auto
+             * @enum {string}
+             */
+            language: "auto" | "en" | "de";
+            /** Region Id */
+            region_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Timezone */
+            timezone: string;
+        };
+        /** RegionTemplate */
+        RegionTemplate: {
+            /** Capabilities */
+            capabilities: components["schemas"]["Capability"][];
+            /** Country */
+            country: string;
+            /** Currency */
+            currency?: string | null;
+            /** Feed In Tiers */
+            feed_in_tiers?: components["schemas"]["FeedInTier"][];
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "region";
+            /** Min App Version */
+            min_app_version?: string | null;
+            /** Name */
+            name: string;
+            /** @default none */
+            negative_price_rule: components["schemas"]["NegativePriceRule"];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Source */
+            source: components["schemas"]["SourceRef"][];
+            /** Tested With */
+            tested_with: components["schemas"]["TestedWith"][];
+            /** Timezone */
+            timezone?: string | null;
+            /** Unverified */
+            unverified?: string[];
+        };
+        /**
+         * RoleSpec
+         * @description One entity role of a template.
+         */
+        RoleSpec: {
+            /** Description */
+            description: string;
+            matcher: components["schemas"]["EntityMatcher"];
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+            /** Same Device As */
+            same_device_as?: string | null;
+        };
+        /**
+         * SeriesFields
+         * @description Names of the fields of one series point and the unit of its values.
+         */
+        SeriesFields: {
+            /** P10 Field */
+            p10_field?: string | null;
+            /** P90 Field */
+            p90_field?: string | null;
+            /** Timestamp Field */
+            timestamp_field: string;
+            /** Value Field */
+            value_field: string;
+            /** Value Unit */
+            value_unit: string;
+        };
+        /**
+         * SetpointControl
+         * @description Shift the user's temperature set-point inside the comfort band (needs ``comfort``).
+         */
+        SetpointControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "setpoint";
+            /** Role */
+            role: string;
+            /** Shift Max C */
+            shift_max_c: number;
+            /**
+             * Step C
+             * @default 0.5
+             */
+            step_c: number;
+        };
+        /**
          * SiteConfig
          * @description Site description. Entity ids come from the user; none are hard-coded.
          */
@@ -435,6 +1429,54 @@ export interface components {
             type: "snapshot";
         };
         /**
+         * SourceRef
+         * @description Documentation a template (or one of its facts) is based on.
+         */
+        SourceRef: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+        };
+        /**
+         * Step
+         * @description One level of a stepped load: the value written and the power it draws.
+         */
+        Step: {
+            /** Power W */
+            power_w: number;
+            /** Value */
+            value: string | number;
+        };
+        /**
+         * StepsControl
+         * @description Discrete power levels written to ``role`` (select option or number).
+         */
+        StepsControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "steps";
+            /** Role */
+            role: string;
+            /** Steps */
+            steps: components["schemas"]["Step"][];
+        };
+        /** SuggestionOut */
+        SuggestionOut: {
+            /** Path */
+            path: string;
+            reason: components["schemas"]["Reason"];
+            /** Value */
+            value: unknown;
+        };
+        /**
          * SwitchAction
          * @description Turn a device on or off.
          */
@@ -446,6 +1488,187 @@ export interface components {
             kind: "switch";
             /** On */
             on: boolean;
+        };
+        /**
+         * TariffConfig
+         * @description Import/export prices and the forecast sources.
+         */
+        TariffConfig: {
+            export: components["schemas"]["ExportTariff"];
+            /** Forecast Entities */
+            forecast_entities?: {
+                [key: string]: components["schemas"]["EntityRef"];
+            };
+            /** Forecast Template Ids */
+            forecast_template_ids?: string[];
+            import: components["schemas"]["ImportTariff"];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+        };
+        /** TariffTemplate */
+        TariffTemplate: {
+            /** Capabilities */
+            capabilities: components["schemas"]["Capability"][];
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "import" | "export";
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tariff";
+            /** Min App Version */
+            min_app_version?: string | null;
+            /** Name */
+            name: string;
+            /** Price Includes */
+            price_includes?: ("spot_only" | "all_in") | null;
+            /** Price Series */
+            price_series?: (components["schemas"]["AttributeSeries"] | components["schemas"]["ActionSeries"]) | null;
+            /** Price Unit */
+            price_unit: string;
+            /** Resolution Min */
+            resolution_min?: (15 | 60) | null;
+            /** Roles */
+            roles?: {
+                [key: string]: components["schemas"]["RoleSpec"];
+            };
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Source */
+            source: components["schemas"]["SourceRef"][];
+            /**
+             * Tariff Type
+             * @enum {string}
+             */
+            tariff_type: "fixed" | "dynamic";
+            /** Tested With */
+            tested_with: components["schemas"]["TestedWith"][];
+            /** Unverified */
+            unverified?: string[];
+        };
+        /** TemplateDetailOut */
+        TemplateDetailOut: {
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "builtin" | "user";
+            /** Template */
+            template: components["schemas"]["DeviceTemplate"] | components["schemas"]["TariffTemplate"] | components["schemas"]["ForecastTemplate"] | components["schemas"]["RegionTemplate"];
+        };
+        /**
+         * TemplateErrorOut
+         * @description A user template that failed to load. ``message`` is technical English.
+         */
+        TemplateErrorOut: {
+            /** File */
+            file: string;
+            /** Message */
+            message: string;
+        };
+        /** TemplateListOut */
+        TemplateListOut: {
+            /** Errors */
+            errors: components["schemas"]["TemplateErrorOut"][];
+            /** Templates */
+            templates: components["schemas"]["TemplateSummaryOut"][];
+        };
+        /**
+         * TemplateSummaryOut
+         * @description Gallery entry of a template.
+         */
+        TemplateSummaryOut: {
+            /** Capabilities */
+            capabilities: string[];
+            /** Device Kind */
+            device_kind: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "device" | "tariff" | "forecast" | "region";
+            /** Name */
+            name: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "builtin" | "user";
+            /** Overridden */
+            overridden: boolean;
+            /** Roles */
+            roles: string[];
+            /** Tested With */
+            tested_with: components["schemas"]["TestedWithOut"][];
+            /** Unverified */
+            unverified: string[];
+        };
+        /**
+         * TestedWith
+         * @description Integration version the template was verified against.
+         */
+        TestedWith: {
+            /** Integration */
+            integration: string;
+            /** Version */
+            version: string;
+        };
+        /** TestedWithOut */
+        TestedWithOut: {
+            /** Integration */
+            integration: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * TimeWindow
+         * @description Local-time window on given weekdays (0 = Monday ... 6 = Sunday).
+         *
+         *     ``start`` > ``end`` wraps over midnight (e.g. 22:00-06:00). ``start == end`` is rejected.
+         */
+        TimeWindow: {
+            /**
+             * Days
+             * @default [
+             *       0,
+             *       1,
+             *       2,
+             *       3,
+             *       4,
+             *       5,
+             *       6
+             *     ]
+             */
+            days: number[];
+            /**
+             * End
+             * Format: time
+             */
+            end: string;
+            /**
+             * Mode
+             * @default allow
+             * @enum {string}
+             */
+            mode: "allow" | "block";
+            /**
+             * Start
+             * Format: time
+             */
+            start: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -460,6 +1683,26 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WizardState */
+        WizardState: {
+            /**
+             * Completed
+             * @default false
+             */
+            completed: boolean;
+            /** Completed Steps */
+            completed_steps?: string[];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -469,6 +1712,59 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_config_devices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicesConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_devices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevicesConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicesConfig"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_config_api_v1_config_export_get: {
         parameters: {
             query?: never;
@@ -487,6 +1783,59 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    get_config_goals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalsConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_goals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoalsConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalsConfig"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -529,7 +1878,113 @@ export interface operations {
             };
         };
     };
-    get_site_api_v1_config_site_get: {
+    get_config_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperationConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_config_region: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_region: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegionConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionConfig"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_config_site: {
         parameters: {
             query?: never;
             header?: never;
@@ -549,7 +2004,7 @@ export interface operations {
             };
         };
     };
-    put_site_api_v1_config_site_put: {
+    put_config_site: {
         parameters: {
             query?: never;
             header?: never;
@@ -569,6 +2024,202 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SiteConfig"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_config_tariff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TariffConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_tariff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TariffConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TariffConfig"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_config_wizard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WizardState"] | null;
+                };
+            };
+        };
+    };
+    put_config_wizard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WizardState"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WizardState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    history_api_v1_config__section__history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                section: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigHistoryEntryOut"][];
+                };
+            };
+            /** @description Unknown section */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_api_v1_config__section__history__entry_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                section: string;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryRestoreOut"];
+                };
+            };
+            /** @description Unknown section or history entry */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The stored body no longer validates */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Validation Error */
@@ -615,7 +2266,11 @@ export interface operations {
     };
     entities_api_v1_entities_get: {
         parameters: {
-            query?: never;
+            query?: {
+                role?: string | null;
+                template?: string | null;
+                device_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -631,7 +2286,25 @@ export interface operations {
                     "application/json": components["schemas"]["EntityCandidateOut"][];
                 };
             };
-            /** @description Service Unavailable */
+            /** @description Unknown role or template */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Role missing */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Home Assistant not reachable */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -658,6 +2331,192 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InfoOut"];
+                };
+            };
+        };
+    };
+    preview_api_v1_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewOut"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Fragment names too many entities */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    templates_api_v1_templates_get: {
+        parameters: {
+            query?: {
+                kind?: ("device" | "tariff" | "forecast" | "region") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    template_api_v1_templates__template_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateDetailOut"];
+                };
+            };
+            /** @description Unknown template */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_api_v1_wizard_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CheckRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckOut"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    energy_prefs_api_v1_wizard_energy_prefs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnergyPrefsOut"];
+                };
+            };
+            /** @description Home Assistant not reachable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
         };

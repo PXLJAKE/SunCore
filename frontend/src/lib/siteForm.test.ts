@@ -18,6 +18,17 @@ const cand = (over: Partial<EntityCandidate> = {}): EntityCandidate => ({
   unit: 'W',
   state: '1200',
   available: true,
+  domain: 'sensor',
+  platform: null,
+  state_class: null,
+  area_id: null,
+  area_name: null,
+  device_id: null,
+  device_name: null,
+  score: 0,
+  criteria: [],
+  value: null,
+  quality: 'ok',
   ...over,
 });
 
