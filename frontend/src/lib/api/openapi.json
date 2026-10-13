@@ -607,6 +607,7 @@
             "title": "Hysteresis W"
           },
           "id": {
+            "maxLength": 48,
             "pattern": "^[a-z][a-z0-9_]{0,47}$",
             "title": "Id",
             "type": "string"
@@ -671,6 +672,7 @@
             "title": "Settle S"
           },
           "template_id": {
+            "maxLength": 64,
             "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
             "title": "Template Id",
             "type": "string"
@@ -1148,6 +1150,7 @@
           "device_class": {
             "anyOf": [
               {
+                "maxLength": 64,
                 "type": "string"
               },
               {
@@ -1193,6 +1196,7 @@
           "translation_key": {
             "anyOf": [
               {
+                "maxLength": 128,
                 "type": "string"
               },
               {
@@ -1926,6 +1930,7 @@
           "template_id": {
             "anyOf": [
               {
+                "maxLength": 64,
                 "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
                 "type": "string"
               },
@@ -2162,6 +2167,9 @@
               "^[a-z][a-z0-9_]{0,47}$": {
                 "$ref": "#/components/schemas/OperatingMode"
               }
+            },
+            "propertyNames": {
+              "maxLength": 48
             },
             "title": "Device Modes",
             "type": "object"
@@ -2613,7 +2621,8 @@
             "type": "string"
           },
           "region_id": {
-            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
             "title": "Region Id",
             "type": "string"
           },
@@ -3128,6 +3137,7 @@
           },
           "forecast_template_ids": {
             "items": {
+              "maxLength": 64,
               "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
               "type": "string"
             },
