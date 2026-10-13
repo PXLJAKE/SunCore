@@ -7,6 +7,8 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from suncore.core.validation import invalid
+
 # Equivalent to HA's ``valid_entity_id`` (research/device-integrations.md): lowercase
 # letters and digits in domain and object id, single underscores only between
 # characters, no look-arounds so the Rust regex engine behind Pydantic accepts it.
@@ -66,25 +68,34 @@ class GridConfig(_Frozen):
         pair = (self.import_power, self.export_power)
         has_pair = any(p is not None for p in pair)
         if self.power is not None and has_pair:
-            msg = "grid: configure either `power` or `import_power`+`export_power`, not both"
-            raise ValueError(msg)
+            raise invalid(
+                "grid_variant_both",
+                "grid: configure either `power` or `import_power`+`export_power`, not both",
+            )
         if self.power is None and not has_pair:
-            msg = "grid: configure `power` or `import_power`+`export_power`"
-            raise ValueError(msg)
+            raise invalid(
+                "grid_variant_none", "grid: configure `power` or `import_power`+`export_power`"
+            )
         if has_pair and None in pair:
-            msg = "grid: `import_power` and `export_power` must be given together"
-            raise ValueError(msg)
+            raise invalid(
+                "grid_pair_incomplete",
+                "grid: `import_power` and `export_power` must be given together",
+            )
         if self.export_limit_w is not None and self.export_limit_pct_kwp is not None:
-            msg = "grid: `export_limit_w` and `export_limit_pct_kwp` are mutually exclusive"
-            raise ValueError(msg)
+            raise invalid(
+                "export_limit_exclusive",
+                "grid: `export_limit_w` and `export_limit_pct_kwp` are mutually exclusive",
+            )
         if self.para14a_signal is not None and not self.para14a:
-            msg = "grid: `para14a_signal` needs `para14a`"
-            raise ValueError(msg)
+            raise invalid("para14a_signal_needs_flag", "grid: `para14a_signal` needs `para14a`")
         for name in ("para14a_signal", "energy_import", "energy_export"):
             ref: EntityRef | None = getattr(self, name)
             if ref is not None and ref.invert_sign:
-                msg = f"grid.{name}: invert_sign is meaningless here"
-                raise ValueError(msg)
+                raise invalid(
+                    "invert_meaningless",
+                    "grid.{field}: invert_sign is meaningless here",
+                    field=name,
+                )
         return self
 
     @property
@@ -111,12 +122,17 @@ class BatteryConfig(_Frozen):
     @model_validator(mode="after")
     def _consistent(self) -> Self:
         if self.soc.invert_sign:
-            msg = "battery.soc: invert_sign is meaningless for a state of charge"
-            raise ValueError(msg)
+            raise invalid(
+                "soc_invert", "battery.soc: invert_sign is meaningless for a state of charge"
+            )
         lo, hi = self.min_soc_pct, self.max_soc_pct
         if lo is not None and hi is not None and not lo < hi:
-            msg = f"battery: min_soc_pct ({lo}) must be below max_soc_pct ({hi})"
-            raise ValueError(msg)
+            raise invalid(
+                "soc_order",
+                "battery: min_soc_pct ({min_soc_pct}) must be below max_soc_pct ({max_soc_pct})",
+                min_soc_pct=lo,
+                max_soc_pct=hi,
+            )
         return self
 
 
@@ -134,16 +150,19 @@ class SiteConfig(_Frozen):
         seen: set[str] = set()
         for ref in self.entity_refs():
             if ref.entity_id in seen:
-                msg = f"entity {ref.entity_id} is used more than once"
-                raise ValueError(msg)
+                raise invalid(
+                    "entity_reused",
+                    "entity {entity_id} is used more than once",
+                    entity_id=ref.entity_id,
+                )
             seen.add(ref.entity_id)
         names = [a.name for a in self.pv]
         if len(set(names)) != len(names):
-            msg = "pv: array names must be unique"
-            raise ValueError(msg)
+            raise invalid("pv_names_unique", "pv: array names must be unique")
         if self.grid.export_limit_pct_kwp is not None and self.total_kwp is None:
-            msg = "grid: `export_limit_pct_kwp` needs `kwp` on every PV array"
-            raise ValueError(msg)
+            raise invalid(
+                "export_pct_needs_kwp", "grid: `export_limit_pct_kwp` needs `kwp` on every PV array"
+            )
         return self
 
     @property

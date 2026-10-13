@@ -996,11 +996,6 @@ export interface components {
             para14a_signal?: components["schemas"]["EntityRef"] | null;
             power?: components["schemas"]["EntityRef"] | null;
         };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
         /** HealthMessage */
         HealthMessage: {
             health: components["schemas"]["HealthOut"];
@@ -1670,18 +1665,29 @@ export interface components {
              */
             start: string;
         };
-        /** ValidationError */
-        ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
-            /** Location */
+        /**
+         * ValidationErrorOut
+         * @description 422 body of a request that failed validation.
+         */
+        ValidationErrorOut: {
+            /** Detail */
+            detail: string;
+            /** Issues */
+            issues: components["schemas"]["ValidationIssueOut"][];
+        };
+        /**
+         * ValidationIssueOut
+         * @description One invalid field. ``key`` is a catalogue key, ``args`` its ICU placeholders.
+         */
+        ValidationIssueOut: {
+            /** Args */
+            args: {
+                [key: string]: string | number | boolean;
+            };
+            /** Key */
+            key: string;
+            /** Loc */
             loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
         };
         /** WizardState */
         WizardState: {
@@ -1754,13 +1760,13 @@ export interface operations {
                     "application/json": components["schemas"]["DevicesConfig"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -1829,13 +1835,13 @@ export interface operations {
                     "application/json": components["schemas"]["GoalsConfig"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -1920,13 +1926,13 @@ export interface operations {
                     "application/json": components["schemas"]["OperationConfig"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -1973,13 +1979,13 @@ export interface operations {
                     "application/json": components["schemas"]["RegionConfig"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2026,13 +2032,13 @@ export interface operations {
                     "application/json": components["schemas"]["SiteConfig"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2079,13 +2085,13 @@ export interface operations {
                     "application/json": components["schemas"]["TariffConfig"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2132,13 +2138,13 @@ export interface operations {
                     "application/json": components["schemas"]["WizardState"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2172,13 +2178,13 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2222,13 +2228,13 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2253,13 +2259,13 @@ export interface operations {
                     "application/json": components["schemas"]["Decision"][];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2399,13 +2405,13 @@ export interface operations {
                     "application/json": components["schemas"]["TemplateListOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2439,13 +2445,13 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -2481,13 +2487,13 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

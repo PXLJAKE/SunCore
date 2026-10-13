@@ -22,6 +22,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, TypeAdapter
 from starlette.websockets import WebSocketState
@@ -47,6 +48,7 @@ from suncore.api.models import (
     SnapshotMessage,
     TemplateDetailOut,
     TemplateListOut,
+    ValidationErrorOut,
     template_list,
 )
 from suncore.api.security import PeerCheckMiddleware
@@ -57,6 +59,7 @@ from suncore.api.services import (
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.api.validation import validation_exception_handler
 from suncore.core.config import SECTION_MODELS
 from suncore.core.decisions import Decision
 from suncore.core.site import SiteConfig
@@ -107,6 +110,7 @@ def create_app(
         redoc_url=None,
     )
     app.add_middleware(PeerCheckMiddleware, policy=services.peer_policy)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
     _register_http(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
@@ -550,5 +554,27 @@ def _openapi(app: FastAPI) -> dict[str, Any]:
     for name, definition in live.pop("$defs", {}).items():
         components.setdefault(name, definition)
     components["LiveMessage"] = live
+    _use_validation_error_schema(schema)
     app.openapi_schema = schema
     return schema
+
+
+def _use_validation_error_schema(schema: dict[str, Any]) -> None:
+    """Describe automatic 422 responses with our body instead of FastAPI's default one."""
+    components = schema["components"]["schemas"]
+    ours = TypeAdapter(ValidationErrorOut).json_schema(ref_template="#/components/schemas/{model}")
+    for name, definition in ours.pop("$defs", {}).items():
+        components.setdefault(name, definition)
+    components["ValidationErrorOut"] = ours
+    default_ref = "#/components/schemas/HTTPValidationError"
+    for methods in schema["paths"].values():
+        for operation in methods.values():
+            response = operation.get("responses", {}).get("422")
+            if response is None:
+                continue
+            content = response.get("content", {}).get("application/json", {})
+            if content.get("schema", {}).get("$ref") == default_ref:
+                content["schema"] = {"$ref": "#/components/schemas/ValidationErrorOut"}
+                response["description"] = "Validation error"
+    components.pop("HTTPValidationError", None)
+    components.pop("ValidationError", None)

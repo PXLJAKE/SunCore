@@ -24,6 +24,7 @@ from pydantic import (
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig, DeviceId, RoleName, TemplateId
 from suncore.core.site import EntityRef, SiteConfig
+from suncore.core.validation import invalid
 
 REGION_ID_PATTERN: Final = r"^[a-z][a-z0-9_]{0,31}$"
 STEP_PATTERN: Final = r"^[a-z][a-z0-9_]{0,47}$"
@@ -58,8 +59,9 @@ class RegionConfig(_Frozen):
         try:
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
-            msg = f"unknown IANA time zone {value!r}"
-            raise ValueError(msg) from exc
+            raise invalid(
+                "unknown_timezone", "unknown IANA time zone {timezone!r}", timezone=value
+            ) from exc
         return value
 
 
@@ -78,17 +80,23 @@ class ImportTariff(_Frozen):
     def _consistent(self) -> Self:
         if self.kind == "fixed":
             if self.fixed_price is None:
-                msg = "tariff.import: kind `fixed` needs `fixed_price`"
-                raise ValueError(msg)
+                raise invalid(
+                    "import_fixed_needs_price", "tariff.import: kind `fixed` needs `fixed_price`"
+                )
             if self.template_id is not None or self.price_entity is not None:
-                msg = "tariff.import: kind `fixed` takes no `template_id`/`price_entity`"
-                raise ValueError(msg)
+                raise invalid(
+                    "import_fixed_extra",
+                    "tariff.import: kind `fixed` takes no `template_id`/`price_entity`",
+                )
         elif self.template_id is None and self.price_entity is None:
-            msg = "tariff.import: kind `dynamic` needs `template_id` or `price_entity`"
-            raise ValueError(msg)
+            raise invalid(
+                "import_dynamic_needs_source",
+                "tariff.import: kind `dynamic` needs `template_id` or `price_entity`",
+            )
         elif self.fixed_price is not None:
-            msg = "tariff.import: kind `dynamic` takes no `fixed_price`"
-            raise ValueError(msg)
+            raise invalid(
+                "import_dynamic_extra", "tariff.import: kind `dynamic` takes no `fixed_price`"
+            )
         return self
 
 
@@ -110,23 +118,28 @@ class ExportTariff(_Frozen):
     def _consistent(self) -> Self:
         if self.kind == "fixed":
             if self.fixed_price is None or self.tiers:
-                msg = "tariff.export: kind `fixed` needs `fixed_price` and no tiers"
-                raise ValueError(msg)
+                raise invalid(
+                    "export_fixed_invalid",
+                    "tariff.export: kind `fixed` needs `fixed_price` and no tiers",
+                )
         elif self.kind == "tiered":
             if self.fixed_price is not None or not self.tiers:
-                msg = "tariff.export: kind `tiered` needs tiers and no `fixed_price`"
-                raise ValueError(msg)
+                raise invalid(
+                    "export_tiered_invalid",
+                    "tariff.export: kind `tiered` needs tiers and no `fixed_price`",
+                )
             bounds = [t.up_to_kwp for t in self.tiers]
             if None in bounds[:-1]:
-                msg = "tariff.export: only the last tier may be unbounded"
-                raise ValueError(msg)
+                raise invalid(
+                    "tier_unbounded", "tariff.export: only the last tier may be unbounded"
+                )
             finite = [b for b in bounds if b is not None]
             if any(a >= b for a, b in itertools.pairwise(finite)):
-                msg = "tariff.export: tier bounds must be strictly increasing"
-                raise ValueError(msg)
+                raise invalid(
+                    "tier_order", "tariff.export: tier bounds must be strictly increasing"
+                )
         elif self.fixed_price is not None or self.tiers:
-            msg = "tariff.export: kind `none` takes no price or tiers"
-            raise ValueError(msg)
+            raise invalid("export_none_extra", "tariff.export: kind `none` takes no price or tiers")
         return self
 
 
@@ -150,8 +163,9 @@ class TariffConfig(_Frozen):
     @model_validator(mode="after")
     def _unique_templates(self) -> Self:
         if len(set(self.forecast_template_ids)) != len(self.forecast_template_ids):
-            msg = "tariff: forecast_template_ids must be unique"
-            raise ValueError(msg)
+            raise invalid(
+                "forecast_templates_unique", "tariff: forecast_template_ids must be unique"
+            )
         return self
 
     def entity_refs(self) -> list[EntityRef]:
@@ -174,8 +188,7 @@ class DevicesConfig(_Frozen):
     def _unique_ids(self) -> Self:
         ids = [d.id for d in self.devices]
         if len(set(ids)) != len(ids):
-            msg = "devices: ids must be unique"
-            raise ValueError(msg)
+            raise invalid("device_ids_unique", "devices: ids must be unique")
         return self
 
     def by_priority(self) -> list[DeviceConfig]:

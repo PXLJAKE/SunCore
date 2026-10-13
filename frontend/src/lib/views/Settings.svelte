@@ -108,8 +108,7 @@
     } catch (e) {
       if (e instanceof ApiError) {
         issues = e.issues;
-        saveError =
-          e.status === 422 && !e.key ? 'settings.error.validation' : (e.key ?? 'api.error.network');
+        saveError = e.key ?? (e.status === 422 ? 'settings.error.validation' : 'api.error.network');
       } else {
         saveError = 'api.error.network';
       }
@@ -236,7 +235,10 @@
           {#if issues.length > 0}
             <ul>
               {#each issues as issue, i (i)}
-                <li><span class="loc">{fieldPath(issue)}</span> {issue.msg}</li>
+                <li>
+                  <span class="loc">{fieldPath(issue)}</span>
+                  {tDynamic(issue.key, issue.args, 'api.validation.invalid')}
+                </li>
               {/each}
             </ul>
           {/if}

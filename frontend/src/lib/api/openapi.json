@@ -1791,19 +1791,6 @@
         "title": "GridConfig",
         "type": "object"
       },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
       "HealthMessage": {
         "additionalProperties": false,
         "properties": {
@@ -3604,14 +3591,56 @@
         "title": "TimeWindow",
         "type": "object"
       },
-      "ValidationError": {
+      "ValidationErrorOut": {
+        "additionalProperties": false,
+        "description": "422 body of a request that failed validation.",
         "properties": {
-          "ctx": {
-            "title": "Context",
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssueOut"
+            },
+            "title": "Issues",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail",
+          "issues"
+        ],
+        "title": "ValidationErrorOut",
+        "type": "object"
+      },
+      "ValidationIssueOut": {
+        "additionalProperties": false,
+        "description": "One invalid field. ``key`` is a catalogue key, ``args`` its ICU placeholders.",
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Args",
             "type": "object"
           },
-          "input": {
-            "title": "Input"
+          "key": {
+            "title": "Key",
+            "type": "string"
           },
           "loc": {
             "items": {
@@ -3624,24 +3653,16 @@
                 }
               ]
             },
-            "title": "Location",
+            "title": "Loc",
             "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
           }
         },
         "required": [
           "loc",
-          "msg",
-          "type"
+          "key",
+          "args"
         ],
-        "title": "ValidationError",
+        "title": "ValidationIssueOut",
         "type": "object"
       },
       "WizardState": {
@@ -3736,11 +3757,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Replace the devices section"
@@ -3818,11 +3839,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Replace the goals section"
@@ -3918,11 +3939,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Replace the operation section"
@@ -3980,11 +4001,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Replace the region section"
@@ -4042,11 +4063,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Replace the site section"
@@ -4104,11 +4125,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Replace the tariff section"
@@ -4166,11 +4187,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Replace the wizard section"
@@ -4220,11 +4241,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "History"
@@ -4289,11 +4310,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Restore"
@@ -4335,11 +4356,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Decisions"
@@ -4563,11 +4584,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Templates"
@@ -4612,11 +4633,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Template"
@@ -4668,11 +4689,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Check"

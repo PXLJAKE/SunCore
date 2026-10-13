@@ -141,6 +141,23 @@ class EntityCandidateOut(_Model):
         )
 
 
+class ValidationIssueOut(_Model):
+    """One invalid field. ``key`` is a catalogue key, ``args`` its ICU placeholders."""
+
+    loc: list[str | int]
+    """Path of the field, starting with ``body``/``query``/``path``."""
+    key: str
+    args: dict[str, str | int | float | bool]
+
+
+class ValidationErrorOut(_Model):
+    """422 body of a request that failed validation."""
+
+    detail: str
+    """Always ``api.error.validation``."""
+    issues: list[ValidationIssueOut]
+
+
 class ImportResultOut(_Model):
     imported_sections: list[str]
 
@@ -409,5 +426,7 @@ __all__ = [
     "TemplateErrorOut",
     "TemplateListOut",
     "TemplateSummaryOut",
+    "ValidationErrorOut",
+    "ValidationIssueOut",
     "template_list",
 ]

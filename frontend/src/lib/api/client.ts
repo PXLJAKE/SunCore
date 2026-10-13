@@ -61,9 +61,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let key: string | null = null;
     let issues: ValidationIssue[] = [];
     try {
-      const body = (await res.json()) as { detail?: unknown };
+      const body = (await res.json()) as { detail?: unknown; issues?: unknown };
       if (typeof body.detail === 'string') key = body.detail;
-      else if (Array.isArray(body.detail)) issues = body.detail as ValidationIssue[];
+      if (Array.isArray(body.issues)) issues = body.issues as ValidationIssue[];
     } catch {
       // Non-JSON error body (e.g. a proxy page): fall through to the generic key.
     }

@@ -18,7 +18,7 @@ export type GridConfig = S['GridConfig'];
 export type BatteryConfig = S['BatteryConfig'];
 export type EntityRef = S['EntityRef'];
 export type EntityCandidate = S['EntityCandidateOut'];
-export type ValidationIssue = S['ValidationError'];
+export type ValidationIssue = S['ValidationIssueOut'];
 
 export type ConfigSectionName =
   'site' | 'region' | 'tariff' | 'devices' | 'goals' | 'operation' | 'wizard';
