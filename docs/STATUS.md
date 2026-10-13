@@ -130,8 +130,11 @@ ADRs relevant to your task. Keep it short; history lives in git.
   HA UI, whether the panel follows the HA theme. The GHCR packages of the
   stable app (`suncore`, `aarch64-suncore`, `amd64-suncore`) must be made
   public after the first stable build.
-- The beta app version is bumped by hand for now (HA only offers an update
-  when `config.yaml` changes); automate it in the build workflow (Phase 2).
+- ~~Beta app version bumped by hand~~ Done (Phase 2, WP10): `build.yml`
+  derives `<next>-beta.<n>` and the `bump-beta` job commits it to
+  `addon/suncore_beta/config.yaml` on `main` (ADR-0009 addendum). Needs
+  push permission to `main` for `github-actions[bot]` or
+  `RELEASE_PLEASE_TOKEN`; UNVERIFIED until the first run on `main`.
 - Phase 2 wizard: theme bridge from the ingress parent document (see
   `frontend/README.md`). Done in PR 2-B: 422 issues are rendered as catalogue
   keys (`api.validation.*`), and `/api/v1/entities` is served from the entity

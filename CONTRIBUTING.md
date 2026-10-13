@@ -124,3 +124,12 @@ exists; E2E is opt-in with `E2E=1` and always runs in CI.
 
 Maintainers merge the release-please PR; images are built and signed by
 GitHub Actions. See ADR-0009.
+
+The beta app needs no manual version bump: every push to `main` that changes
+the app publishes `ghcr.io/pxljake/suncore-beta:<next>-beta.<n>` and a bot
+commit (`chore(beta): bump app version … [skip ci]`) writes that version to
+`addon/suncore_beta/config.yaml`, which is what makes Home Assistant offer
+the update (ADR-0009 addendum). Do not edit that version by hand, except to
+raise the `x.y.z` base. Pull the bot commit (`git pull --rebase`) before
+pushing to `main`-based work. The bump needs permission to push to `main`
+(allow `github-actions[bot]` or use `RELEASE_PLEASE_TOKEN` of a bypass user).

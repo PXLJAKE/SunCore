@@ -2,8 +2,11 @@
 # (docs/research/ha-apps.md, ADR-0009).
 #
 # - pull_request: amd64 only, no push, smoke test of the loaded image.
-# - push to main: both architectures, pushed as the beta image, then the
-#   pushed per-arch image is pulled and smoke-tested (aarch64 memory, risk R4).
+# - push to main: both architectures, pushed as the beta image under a derived
+#   version `<next>-beta.<n>` (scripts/beta_version.py, ADR-0009 addendum), then
+#   the pushed per-arch image is pulled and smoke-tested (aarch64 memory, risk R4).
+#   After the manifest is published the `bump-beta` job commits that version to
+#   addon/suncore_beta/config.yaml on main, so Home Assistant offers the update.
 # - release published: both architectures, pushed as the stable image, smoke test.
 # The smoke test (scripts/smoke_image.sh) starts the image in demo mode, waits
 # for /health, fails above 300 MiB after 60 s idle and checks the clean SIGTERM exit.
@@ -24,6 +27,9 @@ on:
     branches: [main]
     paths:
       - "addon/**"
+      # The bot's own version bump must not rebuild (loop guard, see bump-beta).
+      - "!addon/suncore_beta/config.yaml"
+      - "scripts/beta_version.py"
       - "suncore/**"
       - "frontend/**"
       - "pyproject.toml"
@@ -37,6 +43,12 @@ on:
 
 permissions:
   contents: read
+
+# Pushes to main (and releases) are serialised so beta versions are published
+# and committed in order; a superseded pending run is dropped, the newest wins.
+concurrency:
+  group: build-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   BUILDER_VERSION: "2026.09.0"
@@ -54,6 +66,7 @@ jobs:
       architectures: ${{ steps.meta.outputs.architectures }}
       publish: ${{ steps.meta.outputs.publish }}
       app: ${{ steps.meta.outputs.app }}
+      beta_version: ${{ steps.meta.outputs.beta_version }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -78,6 +91,7 @@ jobs:
           VERSION: ${{ steps.info.outputs.version }}
           ARCHS: ${{ steps.info.outputs.architectures }}
           APP: ${{ steps.channel.outputs.app }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           # helpers/info emits YAML-quoted strings; strip the quotes.
           IMAGE="${IMAGE%\"}"; IMAGE="${IMAGE#\"}"
@@ -87,6 +101,11 @@ jobs:
           echo "app=${APP}" >> "$GITHUB_OUTPUT"
           # The Supervisor pulls <image>:<config.yaml version>, so that tag must exist.
           echo "app_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" != "release" ]; then
+            # Fails the run early if either config.yaml version is malformed.
+            BETA_VERSION="$(python3 scripts/beta_version.py compute --run-number "${RUN_NUMBER}")"
+            echo "beta_version=${BETA_VERSION}" >> "$GITHUB_OUTPUT"
+          fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo 'architectures=["amd64"]' >> "$GITHUB_OUTPUT"
             echo "version=pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
@@ -95,10 +114,18 @@ jobs:
             echo "architectures=${ARCHS}" >> "$GITHUB_OUTPUT"
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # The Supervisor pulls <image>:<config.yaml version>; bump-beta commits
+            # this very version once the manifest exists.
             echo "architectures=${ARCHS}" >> "$GITHUB_OUTPUT"
-            echo "version=${VERSION}-main.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-            echo "publish=${{ github.event_name == 'push' }}" >> "$GITHUB_OUTPUT"
+            echo "version=${BETA_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "app_version=${BETA_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            # workflow_dispatch: build and smoke-test, never publish.
+            echo "architectures=${ARCHS}" >> "$GITHUB_OUTPUT"
+            echo "version=${BETA_VERSION}-dispatch.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Build matrix
         id: matrix
@@ -143,6 +170,7 @@ jobs:
             io.hass.type=app
             io.hass.name=SunCore
             io.hass.url=https://github.com/pxljake/suncore
+            org.opencontainers.image.revision=${{ github.sha }}
       - name: Pull pushed image for the smoke test
         if: needs.prepare.outputs.publish == 'true'
         env:
@@ -176,3 +204,50 @@ jobs:
             ${{ needs.prepare.outputs.app_version }}
             latest
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  bump-beta:
+    name: Commit beta version to main
+    needs: [prepare, build, manifest]
+    if: github.event_name == 'push' && needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      BETA_VERSION: ${{ needs.prepare.outputs.beta_version }}
+    steps:
+      # Only after the image and manifest exist: HA must never be offered a
+      # version whose tag cannot be pulled.
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          # RELEASE_PLEASE_TOKEN (PAT) may bypass branch protection; GITHUB_TOKEN
+          # pushes never retrigger workflows. Loop guards: the paths filter above,
+          # `[skip ci]` in the message.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Commit the version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git pull --rebase origin main
+            status=0
+            python3 scripts/beta_version.py write "${BETA_VERSION}" || status=$?
+            if [ "${status}" = "3" ]; then
+              echo "::notice::main already has a newer beta version, nothing to commit"
+              exit 0
+            elif [ "${status}" != "0" ]; then
+              exit "${status}"
+            fi
+            if git diff --quiet -- addon/suncore_beta/config.yaml; then
+              echo "::notice::config.yaml already at ${BETA_VERSION}"
+              exit 0
+            fi
+            git commit -m "chore(beta): bump app version to ${BETA_VERSION} [skip ci]" \
+              -- addon/suncore_beta/config.yaml
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            git reset --hard origin/main
+          done
+          echo "::error::could not push the beta version bump (branch protection? see ADR-0009 addendum)"
+          exit 1
