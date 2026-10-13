@@ -104,7 +104,10 @@ code="$(docker inspect -f '{{.State.ExitCode}}' "${NAME}")"
 if [ "${code}" != "0" ]; then
   fail "container exit code ${code} after docker stop, expected 0"
 fi
-if ! docker logs "${NAME}" 2>&1 | grep -q "app.stopped"; then
+# Read the whole log first: `grep -q` exits on the first match, which can
+# SIGPIPE `docker logs` and fail the pipeline under `pipefail`.
+logs="$(docker logs "${NAME}" 2>&1)"
+if ! grep -q "app.stopped" <<<"${logs}"; then
   fail "log line 'app.stopped' missing: SIGTERM did not reach python"
 fi
 echo "- Clean shutdown: exit code 0, \"app.stopped\" logged" >> "${SUMMARY}"
