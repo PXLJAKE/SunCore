@@ -255,3 +255,15 @@ Sources fetched from `raw.githubusercontent.com` on 2026-10-12 (branches
 - **Builder per-arch image names**: `prepare-multi-arch-matrix` yields
   `<registry-prefix>/<arch>-<image-name>`; `build-image` tags
   `<image>:<tag>` per line of `image-tags`.
+
+### Verification 2026-10-13 (beta app version)
+
+From `raw.githubusercontent.com` (`main`): `home-assistant/supervisor`
+`supervisor/apps/app.py` (`need_update` is `self.version != self.latest_version`),
+`supervisor/validate.py` (`version_tag` accepts any string as `AwesomeVersion`),
+`supervisor/docker/interface.py` (image pulled as `f"{image}:{version!s}"`),
+`supervisor/store/git.py` (store pull = fetch + hard reset to
+`origin/<branch>`); `ludeeus/awesomeversion` `awesomeversion.py`
+(`__eq__` compares strings). Consequence: any new Docker-tag-safe string in
+the store's `config.yaml` triggers the update offer; ordering only matters for
+`breaking_versions` and auto-update.

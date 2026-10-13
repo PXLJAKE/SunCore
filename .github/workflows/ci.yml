@@ -44,6 +44,8 @@ jobs:
         run: uv run python scripts/export_openapi.py --check
       - name: Template schemas up to date
         run: uv run python scripts/gen_schemas.py --check
+      - name: Compatibility list up to date
+        run: uv run python scripts/gen_compat.py --check
       - name: Templates valid
         run: uv run python scripts/validate_templates.py --check
       - name: Coverage gate (core, safety, planner, controller >= 80 %)

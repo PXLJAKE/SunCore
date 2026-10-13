@@ -98,7 +98,8 @@ from commit messages.
 Templates live in `templates/<kind>/` and are validated against the JSON
 Schemas in `templates/schema/`. Every template needs a `source` (the
 documentation it was built from) and a simulator scenario. See
-`docs/user/en/contributing/templates.md` (from Phase 2).
+[`docs/user/en/device-templates.md`](docs/user/en/device-templates.md).
+Run `uv run python scripts/gen_compat.py` to regenerate the compatibility list.
 
 ## Translations
 
@@ -124,3 +125,14 @@ exists; E2E is opt-in with `E2E=1` and always runs in CI.
 
 Maintainers merge the release-please PR; images are built and signed by
 GitHub Actions. See ADR-0009.
+
+The beta app needs no manual version bump: every push to `main` that changes
+the app publishes `ghcr.io/pxljake/suncore-beta:<next>-beta.<n>` and a bot
+commit (`chore(beta): bump app version … [skip ci]`) writes that version to
+`addon/suncore_beta/config.yaml`, which is what makes Home Assistant offer
+the update (ADR-0009 addendum). The base is always the stable version's
+next minor. Never edit `addon/suncore_beta/config.yaml` by hand; to
+announce a different next version, change how the base is derived in a PR
+(e.g. a major bump) – not the file. Pull the bot commit (`git pull --rebase`) before
+pushing to `main`-based work. The bump needs permission to push to `main`
+(allow `github-actions[bot]` or use `RELEASE_PLEASE_TOKEN` of a bypass user).

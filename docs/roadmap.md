@@ -38,19 +38,23 @@ mode.
 Exit: maintainer installs the beta app, picks grid/PV/battery entities by
 hand in a minimal settings page, sees live flows.
 
-## Phase 2 – Setup assistant and device model ⬜
+## Phase 2 – Setup assistant and device model ⏸
 
-| Milestone | Acceptance |
-|---|---|
-| Wizard steps 1–6, 9, 10 | region, energy-dashboard import, grid, PV, battery, tariff, mode, summary with system check |
-| Entity auto-detection | candidates ranked by device class, unit, integration, area; sign check live |
-| Device model + template schema v1 | Pydantic models, generated JSON Schema, CI validation |
-| First templates | LG ThinQ climate, generic switch, generic climate, generic number load, Tibber tariff, Solcast forecast |
-| Wizard steps 7–8 | add devices from gallery, priorities drag & drop, goals |
-| Config versioning | migration test from v1 fixtures |
+Implemented in PRs 2-A to 2-D; waiting for the maintainer's test on HA OS.
+
+| Milestone | Acceptance | Status |
+|---|---|---|
+| Wizard steps 1–6, 9, 10 | region, energy-dashboard import, grid, PV, battery, tariff, mode, summary with system check | ✅ |
+| Entity auto-detection | candidates ranked by device class, unit, integration, area; sign check live | ✅ |
+| Device model + template schema v1 | Pydantic models, generated JSON Schema, CI validation | ✅ |
+| First templates | LG ThinQ climate, generic switch, generic climate, generic number load, Tibber tariff, Solcast forecast | ✅ |
+| Wizard steps 7–8 | add devices from gallery, priorities drag & drop, goals | ✅ |
+| Config versioning | migration test from v1 fixtures | ✅ |
+| Docs | quick start around the wizard (en/de), template contributor guide, generated compatibility list | ✅ |
 
 Exit: maintainer's system fully described through the wizard, still shadow
-mode.
+mode. ⏸ waiting for the maintainer (he describes his system via the wizard
+on HA OS).
 
 ## Phase 3 – Real-time controller and safety ⬜
 

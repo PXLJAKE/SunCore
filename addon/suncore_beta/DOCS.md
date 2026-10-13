@@ -6,15 +6,22 @@ and a real-time surplus controller in one app.
 > This is the **beta channel**. It receives new versions earlier than the
 > stable app and may contain bugs. Please report what you find.
 
-## What SunCore does today (Phase 1)
+## What SunCore does today (Phase 2)
 
-SunCore is **pre-alpha**. This version shows your energy flow live and
-nothing else:
+SunCore is **pre-alpha**. This version helps you describe your installation
+and shows your energy flow live:
 
-- **Live energy flow** between solar, grid, battery and house, with the
-  battery charge level and an animated diagram.
+- **Setup assistant**: ten steps for region, Energy dashboard import, grid,
+  solar, battery, tariff, devices, priorities and goals, operating mode and
+  a system check. Entities are detected and ranked, and a live sign check
+  catches inverted sensors.
+- **Device templates** (LG ThinQ air conditioner, generic switch, climate and
+  adjustable load, Tibber, Solcast, regions) with a gallery; see the
+  [compatibility list](https://github.com/pxljake/suncore/blob/main/docs/user/compatibility.md).
+- **Live energy flow** between solar, grid, battery and house.
 - **Shadow mode** is always on: SunCore never switches a device and never
-  writes a set-point. The panel shows a "Shadow mode" badge.
+  writes a set-point. Your choice of operating mode is stored for a later
+  version.
 - Values that are outdated, unavailable or invalid are marked as such
   instead of being guessed.
 
@@ -35,24 +42,20 @@ Supported architectures: `amd64` and `aarch64`.
    `ha.connected` line.
 2. Open **SunCore** in the sidebar. The panel is visible to administrators
    only.
-3. Without a configuration the **Now** page says that no energy sources are
-   configured. Click **Open settings**.
+3. The setup assistant opens by itself. Follow the ten steps; every step is
+   saved, and you can leave and continue later. The
+   [quick start](https://github.com/pxljake/suncore/blob/main/docs/user/en/quick-start.md)
+   ([Deutsch](https://github.com/pxljake/suncore/blob/main/docs/user/de/quick-start.md))
+   explains each step with screenshots.
 
-## Settings page
+## Settings
 
-The settings page is a temporary one; the setup assistant of a later phase
-replaces it. Pick the Home Assistant sensors SunCore should read:
-
-- **Grid connection** – either one signed sensor, or separate import and
-  export sensors.
-- **Solar** – one or more PV power sensors (add as many as you have).
-- **Battery** – power and state of charge, or switch the battery off.
-- **House load** – optional. Without it the house consumption is
-  calculated from the other values (house = PV + grid − battery).
-
-Below every field SunCore shows the live value of the selected sensor, so
-you can check it right away. Power sensors in W and kW are understood;
-other units are rejected rather than guessed.
+**Settings** lists every section of your setup with a summary and an
+**Open** link to the matching assistant step. **Run setup again** restarts
+the assistant; **Earlier versions** restores a previous save; **Export
+configuration** and **Import configuration** back up everything as a file.
+The settings are stored in the app's `/data` folder and are part of the app
+backup.
 
 ### Sign convention
 
@@ -64,21 +67,17 @@ SunCore uses these signs internally:
 | Battery | charging |
 | PV | generation |
 
-If one of your sensors uses the opposite convention (for example a grid
-sensor that is negative while importing), switch on **Invert sign** for
-that sensor and check that the preview and the flow diagram look right: on
-a sunny day with a charging battery, PV must be positive and the battery
-arrow must point into the battery.
-
-Click **Save**. The settings are stored in the app's `/data` folder and are
-part of the app backup.
+The assistant asks whether the live direction is right and inverts the sign
+for you if not. On a sunny day with a charging battery, PV must be positive
+and the battery arrow must point into the battery. Power sensors in W and kW
+are understood; other units are rejected rather than guessed.
 
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
 | `log_level` | `info` | Log verbosity: `debug`, `info`, `warning`, `error`. |
-| `controller_interval_s` | `5` | Real-time controller tick in seconds (2–60). Not used in Phase 1, because nothing is controlled yet. |
+| `controller_interval_s` | `5` | Real-time controller tick in seconds (2–60). Not used yet, because nothing is controlled. |
 | `demo_mode` | `false` | Run with simulated data instead of your Home Assistant (see below). |
 
 Change options on the app's **Configuration** tab and restart the app.
@@ -97,6 +96,9 @@ again and restart to see your own data.
   cannot reach Home Assistant. It reconnects on its own with a growing
   delay. Check the app **Log** tab; if Home Assistant was restarting, the
   message disappears when it is back. If it persists, restart the app.
+- **The assistant finds no suggestions**: if Home Assistant's registry is
+  not available, SunCore falls back to a plain list of entities with simpler
+  rules; use the search field. See the quick start for sign and unit checks.
 - **A value is marked "Outdated"**: the sensor has not updated for a while.
   Check the source integration.
 - **A value is marked "Unavailable" or "Invalid"**: the entity is
@@ -115,9 +117,9 @@ again and restart to see your own data.
 
 ## What is not there yet
 
-No forecasts, planner, device control, tariffs, history charts or setup
-assistant, and no Home Assistant entities (MQTT discovery follows in a
-later phase; the Mosquitto app is not needed yet). See the
+No forecasts, planner, device control, history charts or tariff prices in
+use (they are only stored), and no Home Assistant entities (MQTT discovery
+follows in a later phase; the Mosquitto app is not needed yet). See the
 [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 ## Privacy

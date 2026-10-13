@@ -72,3 +72,62 @@ Option A.
 
 Accept; decide between PAT and `workflow_run` (PAT recommended – simpler
 and lets CI run on release PRs).
+
+## Addendum 2026-10-13: automatic beta app version
+
+Context: the Supervisor decides that an app update exists with
+`version != latest_version` on the store's `config.yaml` (string equality,
+no ordering) and pulls `<image>:<version>` with the version rendered as a
+string. A beta image that never changes `config.yaml` is therefore never
+offered. Verified 2026-10-13 against `home-assistant/supervisor` `main`:
+`supervisor/apps/app.py` (`need_update`), `supervisor/docker/interface.py`
+(`install`/`update` pull `f"{image}:{version!s}"`), `supervisor/validate.py`
+(`version_tag` = `AwesomeVersion(value)`, any string accepted),
+`supervisor/store/git.py` (store refresh fetches and hard-resets to
+`origin/<tracked branch>`), and `ludeeus/awesomeversion` (`__eq__` compares
+the strings).
+
+Decision: `build.yml` derives the version on every push to `main` and commits
+it back.
+
+- Scheme `<base>-beta.<n>` (SemVer pre-release, Docker-tag-safe: no `+`).
+  `base` is always the next minor of the stable app version (stable minor
+  plus one), never taken from the beta config. `n = max(github.run_number,
+  previous n + 1)` while the previous base equals the new base, otherwise
+  `github.run_number`; a result that would go backwards is refused. The
+  config `version` is written only by the `bump-beta` bot. Never edit
+  `addon/suncore_beta/config.yaml` by hand; to announce a different next
+  version, change how the base is derived in a PR (e.g. a major bump) – not
+  the file.
+  Logic and tests: `scripts/beta_version.py`, `tests/test_beta_version.py`.
+- `prepare` computes the version and uses it as image tag (and as the
+  `app_version` tag). After the per-arch builds, smoke tests and the
+  manifest succeeded, the `bump-beta` job commits only
+  `addon/suncore_beta/config.yaml` to `main` as
+  `chore(beta): bump app version to <v> [skip ci]`. HA is thus never offered
+  a tag that cannot be pulled.
+- No loop: the commit carries `[skip ci]`, the push-trigger path filter
+  excludes `addon/suncore_beta/config.yaml`, and a `GITHUB_TOKEN` push does
+  not start workflows anyway. Runs on `main` are serialised
+  (`concurrency`), so versions are committed in publish order; the script
+  refuses to move the version backwards.
+- release-please is unaffected: only `addon/suncore/config.yaml` is an extra
+  file; `chore` commits are hidden in the changelog and do not create a
+  release.
+- Merging the release PR changes `addon/suncore/config.yaml` and therefore
+  also triggers a beta build of the release commit (the base jumps to the
+  next minor); this is intended. The bot commit's `[skip ci]` also skips
+  app-lint and release-please for that one commit.
+- Stable is unchanged (`release: published`, version from `config.yaml`).
+- Rejected: a separate `beta` branch (users would need a branch-qualified
+  repository URL, two repository URLs for one project) and `+sha` build
+  metadata (not a valid Docker tag character).
+
+Maintainer requirement: pushing to `main` must be allowed for the bump.
+If `main` is protected, either allow `github-actions[bot]` to bypass, or
+make `RELEASE_PLEASE_TOKEN` (already used by release-please) belong to a user
+or app that may bypass; the job prefers that secret and falls back to
+`GITHUB_TOKEN`. If neither can push, the job fails after the image is
+published (beta users are not offered the update until the bump is committed,
+e.g. by re-running the job once the permission exists); the alternative is a
+`beta` branch channel, to be decided then.

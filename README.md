@@ -4,10 +4,14 @@
 planner and a real-time surplus controller in one app – explainable, safe
 by default, set up in minutes.**
 
-> Status: **pre-alpha, Phase 1 (app skeleton)**. A beta app with a live
-> energy-flow view is available once the first beta is released. It runs in
-> shadow mode and switches nothing. See the [roadmap](docs/roadmap.md) and
-> [status](docs/STATUS.md).
+> Status: **pre-alpha, Phase 2 implemented** (waiting for maintainer
+> acceptance). The beta app has a guided **setup assistant** (ten steps with
+> Energy-dashboard import, entity detection and a live sign check), a device
+> template gallery (LG ThinQ air conditioner, generic switch, climate and
+> adjustable load, Tibber, Solcast), settings with history and
+> export/import, and the live energy-flow view. It runs in shadow mode and
+> switches nothing; forecasts, planner and control follow in Phases 3 and 4.
+> See the [roadmap](docs/roadmap.md) and [status](docs/STATUS.md).
 
 ![SunCore "Now" view: live energy flow between solar, grid, battery and house](docs/assets/screenshots/now-tablet-light-en.png)
 
@@ -58,6 +62,8 @@ young: see the roadmap.
   [Research notes](docs/research/)
 - [Quick start](docs/user/en/quick-start.md) ·
   [Schnellstart](docs/user/de/quick-start.md)
+- [Contribute a device template](docs/user/en/device-templates.md) ·
+  [Compatibility list](docs/user/compatibility.md)
 - [Roadmap](docs/roadmap.md) · [Status](docs/STATUS.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) ·
   [Code of Conduct](CODE_OF_CONDUCT.md)
@@ -66,8 +72,9 @@ young: see the roadmap.
 
 Once the first beta is released, add `https://github.com/pxljake/suncore`
 as an app repository in Home Assistant (Settings → Apps → App store →
-menu → Repositories) and install **SunCore (beta)**. Phase 1 only shows the
-live energy flow; there are no forecasts, planner or device control yet.
+menu → Repositories) and install **SunCore (beta)**. The beta guides you through
+the setup and shows the live energy flow; there are no forecasts, planner
+or device control yet.
 Start with the [quick start](docs/user/en/quick-start.md)
 ([Deutsch](docs/user/de/quick-start.md)). Menu names differ between Home
 Assistant versions (older ones say "Add-ons" and "Add-on store").

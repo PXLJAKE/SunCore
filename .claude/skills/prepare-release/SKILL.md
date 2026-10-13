@@ -17,7 +17,7 @@ SunCore releases are cut by release-please from Conventional Commits
    a section is misleading.
 3. `addon/suncore/config.yaml` `version` is bumped by release-please
    (`x-release-please-version` marker). `addon/suncore_beta/config.yaml`
-   keeps its pre-release version.
+   is bumped by the `bump-beta` job of `build.yml`, never by hand.
 4. Copy the user-facing sections of the new CHANGELOG entry into
    `addon/suncore/CHANGELOG.md` (HA shows this file); keep it short and in
    English.
@@ -38,6 +38,13 @@ SunCore releases are cut by release-please from Conventional Commits
 
 ## Beta channel
 
-Every merge to `main` publishes `ghcr.io/pxljake/suncore-beta` with a
-`<version>-main.<sha>` tag; bump `addon/suncore_beta/config.yaml` version
-(`x.y.z-beta.n`) when a beta should be offered as an update.
+Every merge to `main` that touches the app publishes
+`ghcr.io/pxljake/suncore-beta:<x.y.z>-beta.<n>`; after the manifest exists
+the `bump-beta` job commits that version to `addon/suncore_beta/config.yaml`
+(`chore(beta): bump app version … [skip ci]`), so HA offers the update
+(ADR-0009 addendum, `scripts/beta_version.py`). After a stable release the
+base moves to the next minor automatically (always stable minor + 1).
+Never edit `addon/suncore_beta/config.yaml` by hand; to announce a different
+next version, change how the base is derived in a PR (e.g. a major bump) –
+not the file. Check that the bump commit landed on `main`; if the job failed
+(branch protection), fix the push permission and re-run the job.

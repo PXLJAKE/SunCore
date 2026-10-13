@@ -8,6 +8,11 @@ is reported as an error. The JSON Schemas in `schema/` are generated from the Py
 models in `suncore/templates/models.py` and `suncore/core/devices.py` – never edit them by
 hand (`uv run python scripts/gen_schemas.py`; CI fails on drift).
 
+Step-by-step guide for contributors: [Contribute a device
+template](../docs/user/en/device-templates.md); generated list of what exists:
+[compatibility list](../docs/user/compatibility.md) (`scripts/gen_compat.py`, CI fails on
+drift).
+
 ## Built-in templates
 
 <!-- Keep in sync with the files below; `validate_templates.py` lints the files, not this list. -->
