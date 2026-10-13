@@ -17,10 +17,16 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /usr/local/bin/uv
 WORKDIR /opt/suncore
 COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 COPY suncore ./suncore
-# Dependencies as wheels only: a missing aarch64/musl wheel must fail the build,
-# not compile on a Pi. SunCore itself is pure Python and is built from source.
-RUN uv pip install --only-binary=:all: -r pyproject.toml \
-    && uv pip install --no-deps .
+# Dependencies exactly as locked in uv.lock (hash-checked) and as wheels only:
+# a missing aarch64/musl wheel must fail the build, not compile on a Pi.
+# The base image adds the HA wheels index via UV_EXTRA_INDEX_URL; uv would
+# then take only that index's versions, which may lag behind the lock, so the
+# locked set is installed from PyPI alone. SunCore itself is pure Python.
+RUN uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt \
+    && env -u UV_EXTRA_INDEX_URL -u PIP_EXTRA_INDEX_URL \
+       uv pip install --only-binary=:all: --require-hashes -r /tmp/requirements.txt \
+    && uv pip install --no-deps . \
+    && rm /tmp/requirements.txt
 
 COPY addon/suncore_beta/rootfs /
 

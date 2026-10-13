@@ -20,6 +20,7 @@ classifiers = [
 # Runtime dependencies grow with the phases (ADR-0001). Phase 0 ships an
 # empty skeleton on purpose.
 dependencies = [
+  "aiosqlite>=0.22.1",
   "pydantic>=2.11,<3",
 ]
 
@@ -41,6 +42,7 @@ dev = [
   "hypothesis>=6.140",
   "pyyaml>=6",
   "types-pyyaml",
+  "pytest-asyncio>=1.4.0",
 ]
 
 [build-system]
@@ -89,6 +91,8 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers"
 markers = [
   "slow: long-running tests, skipped by the pre-commit hook",
@@ -101,8 +105,8 @@ source = ["suncore"]
 branch = true
 
 [tool.coverage.report]
-# BRIEF §7 asks for >= 80 % on core/planner/controller/safety; enforced
-# once those packages contain code (Phase 3), see scripts/check.sh.
+# BRIEF §7 asks for >= 80 % on core/planner/controller/safety; enforced by
+# a separate `coverage report --fail-under=80` in scripts/check.sh and CI.
 show_missing = true
 skip_covered = true
 

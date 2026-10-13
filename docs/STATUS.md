@@ -3,51 +3,55 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-12 · **Phase:** 0 (blueprint) · **Branch:** `phase-0/foundation`
+**Last update:** 2026-10-12 · **Phase:** 1 (app skeleton) · **Branch:** `phase-1/app-skeleton`
 
 ## Done
 
-- Repository reset to an empty history (old prototype removed; tags
-  `v0.1.0`–`v0.3.0` still exist on GitHub and must be deleted by the
-  maintainer).
-- `docs/BRIEF.md` (product and engineering brief), `docs/plans/phase-0.md`
-  (approved plan).
-- `docs/research/` – 7 notes, sourced against GitHub mirrors of the HA
-  developer docs, HA Core/Supervisor source, evcc/EMHASS/Predbat docs, PyPI.
-- `docs/adr/0001`–`0011`, all **accepted** (maintainer delegated the choice).
-- Kostal Modbus (rev 2.9) and KSEM register maps verified from the official PDFs.
-- `docs/architecture.md` – 8 Mermaid diagrams, rendered with mermaid-cli.
-- `docs/roadmap.md`.
-- Repository scaffold: `suncore/` packages (empty, SPDX headers, smoke
-  tests), `addon/suncore` + `addon/suncore_beta` (config, Dockerfile, DOCS,
-  translations, icons), community files, issue/PR templates, `uv.lock`.
-- CI: `ci.yml` (ruff, mypy, pytest 3.12/3.13, lockfile), `app-lint.yml`,
-  `docs-lint.yml` (markdownlint, lychee offline, Mermaid render),
-  `codeql.yml`, `build.yml` (official HA builder actions; amd64 smoke build
-  on PRs, multi-arch publish on main/release), `release-please.yml`.
-- `.claude/`: 11 agents, 6 skills, format + pre-commit hooks, permissions;
-  `CLAUDE.md` (85 lines).
+- Phase 0 merged (PR #1): brief, research, ADRs 0001–0011 accepted,
+  architecture, roadmap, scaffold, CI, agent team.
+- Phase 1 plan `docs/plans/phase-1.md` approved (defaults of its §6: four
+  stacked PRs 1-A…1-D, `sensor.sim_*` demo entities, browser language,
+  repository stays private).
+- **PR 1-A** (WP1, WP2, WP4):
+  - `core`: units and HA unit parsing (unknown unit → `invalid`, never
+    guessed), signals with quality, `SiteConfig`, energy balance
+    (`house = pv + grid − battery`, worst input quality propagates).
+  - `core.decisions` + `safety`: `Reason`/`Intent`/`Decision` contracts,
+    `SafetyGate` structurally fixed to shadow mode, global emergency stop,
+    `Actuator` protocol without implementations; AST boundary test
+    (single writer, `call_service` only in `ha`/`safety`, dependency rule).
+    Signed off by `control-safety`.
+  - `storage`: `/data/suncore.db` with SQL migrations (`PRAGMA
+    user_version`), refusal of newer DBs, `ConfigStore` with per-section
+    document migrations, atomic export/import, decision log.
+  - Coverage gate ≥ 80 % for core/safety/planner/controller in
+    `check.sh` and CI.
+- R1 cleared: every planned Python dependency has cp313 musllinux wheels
+  for aarch64 and x86_64 or is pure Python.
 
-## Open – Phase 0
+## Open – Phase 1
 
-- PR #1 awaits CI results (first run of the workflows) and the maintainer's
-  merge. The image build could not be run in the cloud session (no Docker
-  daemon) – CI validates it.
-- CodeQL is skipped while the repository is private ("Code scanning is not
-  enabled for this repository"); it runs automatically once the repository is
-  public, or earlier if the maintainer enables Code Security in the
-  repository settings.
-- `RELEASE_PLEASE_TOKEN` secret (fine-grained PAT) still to be created by
-  the maintainer (ADR-0009); without it the release build must be started
-  by `workflow_dispatch`.
+- PR 1-B (HA connector, API, simulator/demo), 1-C (frontend, i18n),
+  1-D (image, smoke test, docs, beta release).
+- WP8 must add the reason keys `safety.shadow_mode` and
+  `safety.emergency_stop` to `en.json`/`de.json`.
+- WP5 must limit the request body size of `POST /api/v1/config/import`.
+- Python ICU library decision (ADR-0007 follow-up) deferred to Phase 6:
+  in Phase 1 the backend only emits `Reason(key, args)`.
+- Phase 3 follow-ups: extend boundary rule 2 to `suncore.devices` drivers
+  (only `safety` and `suncore.app` may import them) and remove
+  `test_phase_1_has_no_apply_call_anywhere`; version the decision payload
+  (or deserialise tolerantly) before changing `Decision`; retention for the
+  `decision` table; tables `plan_snapshot`/`template_override` and
+  `timeseries.db`. Emergency stop is not persisted yet (no hardware effect
+  in Phase 1). Migrations are SQL files; Python migrations when needed.
+- Carried over from Phase 0: `RELEASE_PLEASE_TOKEN` secret, CodeQL while
+  the repository is private, deleting old tags `v0.1.0`–`v0.3.0`.
 
 ## Next steps
 
-1. Fix anything CI reports on PR #1; maintainer merges and deletes the old
-   tags `v0.1.0`–`v0.3.0`.
-2. Maintainer allows the blocked hosts in the cloud environment's network
-   settings (optional, speeds up verification).
-3. Phase 1 plan in `docs/plans/phase-1.md`.
+1. Maintainer reviews and merges PR 1-A.
+2. WP3 HA connector, WP5 API, WP6 simulator → PR 1-B.
 
 ## Known problems and `UNVERIFIED` items
 
