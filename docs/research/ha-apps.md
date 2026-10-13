@@ -267,4 +267,3 @@ From `raw.githubusercontent.com` (`main`): `home-assistant/supervisor`
 (`__eq__` compares strings). Consequence: any new Docker-tag-safe string in
 the store's `config.yaml` triggers the update offer; ordering only matters for
 `breaking_versions` and auto-update.
-

@@ -122,4 +122,3 @@ or app that may bypass; the job prefers that secret and falls back to
 published (beta users are not offered the update until it is committed by hand
 with `python3 scripts/beta_version.py write <version>`); the alternative is a
 `beta` branch channel, to be decided then.
-
