@@ -8,9 +8,13 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
 3. Only ``suncore.ha`` and ``suncore.safety`` may reference an attribute
    named ``call_service`` (the connector exposes it only through a
    capability object handed to safety).
+   The same holds for the name ``service_caller`` (the capability accessor) and
+   for imports or references of ``ServiceCaller`` / ``ServiceCallerProvider``.
 4. Dependency rule (docs/architecture.md §2): ``suncore.core`` imports no
    sibling package; ``suncore.safety`` imports only ``suncore.core`` and
    itself.
+5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
+   ``suncore.devices`` (it talks to the ``Services`` protocol only).
 
 The scan is robust to packages that are still empty (``suncore/ha`` until
 WP3) because it only looks at the files that exist.
@@ -31,6 +35,9 @@ SAFETY = "suncore.safety"
 HA = "suncore.ha"
 CORE = "suncore.core"
 ACTUATOR_MODULE = "suncore.safety.actuator"
+API = "suncore.api"
+API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
+WRITE_CAPABILITY_NAMES = frozenset({"ServiceCaller", "ServiceCallerProvider"})
 
 
 def module_name(path: Path) -> str:
@@ -109,6 +116,14 @@ def attribute_refs(tree: ast.Module, attr: str) -> Iterator[int]:
             yield node.lineno
 
 
+def imported_names(tree: ast.Module) -> Iterator[tuple[int, str]]:
+    """Yield ``(lineno, name)`` of every name bound by ``from x import name [as y]``."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                yield node.lineno, alias.name
+
+
 def fmt(path: Path, lines: Iterable[int]) -> list[str]:
     return [f"{path.relative_to(ROOT)}:{line}" for line in sorted(set(lines))]
 
@@ -172,6 +187,39 @@ def test_call_service_is_confined_to_ha_and_safety(path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_service_caller_is_confined_to_ha_and_safety(path: Path) -> None:
+    """Rule 3b: the write capability and its accessor never leave ha/ and safety/."""
+    module = module_name(path)
+    if in_package(module, HA) or in_package(module, SAFETY):
+        return
+    tree = parse(path)
+    lines = list(attribute_refs(tree, "service_caller"))
+    for name in WRITE_CAPABILITY_NAMES:
+        lines.extend(attribute_refs(tree, name))
+        lines.extend(line for line, imported in imported_names(tree) if imported == name)
+    assert not lines, (
+        f"service_caller/ServiceCaller used outside suncore.ha/safety: {fmt(path, lines)}"
+    )
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_api_does_not_import_write_side_packages(path: Path) -> None:
+    """Rule 5: the API layer sees ``Services`` only, never safety, ha or devices."""
+    module = module_name(path)
+    if not in_package(module, API):
+        return
+    offenders = fmt(
+        path,
+        (
+            line
+            for line, imported in imported_modules(path, parse(path))
+            if any(in_package(imported, pkg) for pkg in API_FORBIDDEN)
+        ),
+    )
+    assert not offenders, f"{module} imports a write-side package: {offenders}"
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_dependency_rule(path: Path) -> None:
     """Rule 4: core imports no sibling; safety imports only core and itself."""
     module = module_name(path)
@@ -212,6 +260,35 @@ def test_scanner_detects_call_service_refs() -> None:
     assert list(attribute_refs(_tree("from x import call_service"), "call_service")) == []
     assert list(attribute_refs(_tree("call_service(a)"), "call_service")) == [1]
     assert list(attribute_refs(_tree("def call_service(): ..."), "call_service")) == [1]
+
+
+def test_scanner_detects_service_caller_uses() -> None:
+    assert list(attribute_refs(_tree("c = conn.service_caller()"), "service_caller")) == [1]
+    assert list(attribute_refs(_tree("service_caller()"), "service_caller")) == [1]
+    assert list(attribute_refs(_tree("def service_caller(self): ..."), "service_caller")) == [1]
+    assert list(attribute_refs(_tree("x: ha.ServiceCaller"), "ServiceCaller")) == [1]
+    assert list(attribute_refs(_tree("x: ServiceCaller"), "ServiceCaller")) == [1]
+    src = "from suncore.ha import EntityCache, ServiceCaller as SC\nimport suncore.ha\n"
+    assert [n for _, n in imported_names(_tree(src))] == ["EntityCache", "ServiceCaller"]
+    assert list(imported_names(_tree("from suncore.ha import ServiceCallerProvider"))) == [
+        (1, "ServiceCallerProvider")
+    ]
+
+
+def test_scanner_detects_forbidden_api_imports() -> None:
+    tmp = PACKAGE / "api" / "_synthetic.py"
+    src = (
+        "import suncore.ha.connection\n"
+        "from suncore.safety import gate\n"
+        "from ..devices import x\n"
+        "from suncore.core import site\n"
+    )
+    hits = {
+        line
+        for line, imported in imported_modules(tmp, _tree(src))
+        if any(in_package(imported, pkg) for pkg in API_FORBIDDEN)
+    }
+    assert hits == {1, 2, 3}
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+name: winter_fog
+description: Foggy winter day, PV stays far below nominal, battery nearly empty.
+start: "2026-12-21T00:00:00+01:00"
+duration_s: 86400
+step_s: 60
+house:
+  seed: 2
+  pv: {kwp: 8.0, latitude: 48.0, longitude: 11.0}
+  load: {noise_fraction: 0.15}
+  battery: {capacity_wh: 10000, initial_soc_pct: 15}
+clouds:
+  - {at_s: 0, factor: 0.15}
+  - {at_s: 43200, factor: 0.25}
+  - {at_s: 50400, factor: 0.1}

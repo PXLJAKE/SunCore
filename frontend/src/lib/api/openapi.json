@@ -1,0 +1,984 @@
+{
+  "components": {
+    "schemas": {
+      "BatteryConfig": {
+        "additionalProperties": false,
+        "description": "Battery: power (+ = charging) and state of charge in percent.",
+        "properties": {
+          "power": {
+            "$ref": "#/components/schemas/EntityRef"
+          },
+          "soc": {
+            "$ref": "#/components/schemas/EntityRef"
+          }
+        },
+        "required": [
+          "power",
+          "soc"
+        ],
+        "title": "BatteryConfig",
+        "type": "object"
+      },
+      "Decision": {
+        "additionalProperties": false,
+        "description": "The safety gate's verdict on an intent, as stored in the decision log.",
+        "properties": {
+          "intent": {
+            "$ref": "#/components/schemas/Intent"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DecisionKind"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "reasons": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "ts": {
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "intent",
+          "kind",
+          "ts",
+          "mode"
+        ],
+        "title": "Decision",
+        "type": "object"
+      },
+      "DecisionKind": {
+        "description": "Outcome of the safety gate for one intent.",
+        "enum": [
+          "accepted",
+          "rejected",
+          "shadow"
+        ],
+        "title": "DecisionKind",
+        "type": "string"
+      },
+      "DecisionsMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/Decision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "type": {
+            "const": "decisions",
+            "default": "decisions",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decisions"
+        ],
+        "title": "DecisionsMessage",
+        "type": "object"
+      },
+      "EntityCandidateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "device_class": {
+            "title": "Device Class",
+            "type": "string"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_id",
+          "name",
+          "device_class",
+          "unit",
+          "state",
+          "available"
+        ],
+        "title": "EntityCandidateOut",
+        "type": "object"
+      },
+      "EntityRef": {
+        "additionalProperties": false,
+        "description": "Reference to a HA entity. ``invert_sign`` flips a source with opposite polarity.",
+        "properties": {
+          "entity_id": {
+            "pattern": "^[a-z_]+\\.[a-z0-9_]+$",
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "invert_sign": {
+            "default": false,
+            "title": "Invert Sign",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entity_id"
+        ],
+        "title": "EntityRef",
+        "type": "object"
+      },
+      "ErrorOut": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorOut",
+        "type": "object"
+      },
+      "FlowOut": {
+        "additionalProperties": false,
+        "description": "A value in W (or % for the state of charge) with its data quality.",
+        "properties": {
+          "quality": {
+            "enum": [
+              "ok",
+              "stale",
+              "unavailable",
+              "invalid"
+            ],
+            "title": "Quality",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "quality"
+        ],
+        "title": "FlowOut",
+        "type": "object"
+      },
+      "FlowsMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "flows": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlowsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "const": "flows",
+            "default": "flows",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flows"
+        ],
+        "title": "FlowsMessage",
+        "type": "object"
+      },
+      "FlowsOut": {
+        "additionalProperties": false,
+        "description": "Site flows in W, core sign convention (grid + = import, battery + = charging).",
+        "properties": {
+          "battery_soc_pct": {
+            "$ref": "#/components/schemas/FlowOut"
+          },
+          "battery_w": {
+            "$ref": "#/components/schemas/FlowOut"
+          },
+          "grid_w": {
+            "$ref": "#/components/schemas/FlowOut"
+          },
+          "house_w": {
+            "$ref": "#/components/schemas/FlowOut"
+          },
+          "pv_w": {
+            "$ref": "#/components/schemas/FlowOut"
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts"
+          }
+        },
+        "required": [
+          "grid_w",
+          "pv_w",
+          "battery_w",
+          "house_w",
+          "battery_soc_pct",
+          "ts"
+        ],
+        "title": "FlowsOut",
+        "type": "object"
+      },
+      "GridConfig": {
+        "additionalProperties": false,
+        "description": "Grid connection: one signed sensor (+ = import) OR an import/export pair.",
+        "properties": {
+          "export_power": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "import_power": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "power": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "GridConfig",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "health": {
+            "$ref": "#/components/schemas/HealthOut"
+          },
+          "type": {
+            "const": "health",
+            "default": "health",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "health"
+        ],
+        "title": "HealthMessage",
+        "type": "object"
+      },
+      "HealthOut": {
+        "additionalProperties": false,
+        "properties": {
+          "db_ok": {
+            "title": "Db Ok",
+            "type": "boolean"
+          },
+          "ha_last_update_age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ha Last Update Age S"
+          },
+          "ha_state": {
+            "title": "Ha State",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "ha_state",
+          "ha_last_update_age_s",
+          "db_ok",
+          "version"
+        ],
+        "title": "HealthOut",
+        "type": "object"
+      },
+      "ImportResultOut": {
+        "additionalProperties": false,
+        "properties": {
+          "imported_sections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Imported Sections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "imported_sections"
+        ],
+        "title": "ImportResultOut",
+        "type": "object"
+      },
+      "InfoOut": {
+        "additionalProperties": false,
+        "properties": {
+          "demo": {
+            "title": "Demo",
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "shadow",
+              "assisted",
+              "automatic"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "demo",
+          "mode"
+        ],
+        "title": "InfoOut",
+        "type": "object"
+      },
+      "Intent": {
+        "additionalProperties": false,
+        "description": "What a control layer wants to do to one asset, and why.",
+        "properties": {
+          "action": {
+            "discriminator": {
+              "mapping": {
+                "power_setpoint": "#/components/schemas/PowerSetpointAction",
+                "switch": "#/components/schemas/SwitchAction"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SwitchAction"
+              },
+              {
+                "$ref": "#/components/schemas/PowerSetpointAction"
+              }
+            ],
+            "title": "Action"
+          },
+          "asset_id": {
+            "minLength": 1,
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/Origin"
+          },
+          "reasons": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "ts": {
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ts",
+          "asset_id",
+          "action",
+          "origin"
+        ],
+        "title": "Intent",
+        "type": "object"
+      },
+      "LiveMessage": {
+        "discriminator": {
+          "mapping": {
+            "decisions": "#/components/schemas/DecisionsMessage",
+            "flows": "#/components/schemas/FlowsMessage",
+            "health": "#/components/schemas/HealthMessage",
+            "snapshot": "#/components/schemas/SnapshotMessage"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SnapshotMessage"
+          },
+          {
+            "$ref": "#/components/schemas/FlowsMessage"
+          },
+          {
+            "$ref": "#/components/schemas/HealthMessage"
+          },
+          {
+            "$ref": "#/components/schemas/DecisionsMessage"
+          }
+        ]
+      },
+      "OperatingMode": {
+        "description": "Operating mode per device and globally (BRIEF §4.11).",
+        "enum": [
+          "shadow",
+          "assisted",
+          "automatic"
+        ],
+        "title": "OperatingMode",
+        "type": "string"
+      },
+      "Origin": {
+        "description": "The layer that produced an intent (ADR-0011).",
+        "enum": [
+          "planner",
+          "controller",
+          "user"
+        ],
+        "title": "Origin",
+        "type": "string"
+      },
+      "PowerSetpointAction": {
+        "additionalProperties": false,
+        "description": "Request a power set-point in W (device + = consumption, battery + = charging).",
+        "properties": {
+          "kind": {
+            "const": "power_setpoint",
+            "default": "power_setpoint",
+            "title": "Kind",
+            "type": "string"
+          },
+          "power_w": {
+            "title": "Power W",
+            "type": "number"
+          }
+        },
+        "required": [
+          "power_w"
+        ],
+        "title": "PowerSetpointAction",
+        "type": "object"
+      },
+      "Reason": {
+        "additionalProperties": false,
+        "description": "A structured, translatable explanation.\n\n``key`` addresses a message in the ICU catalogue; ``args`` are the\nplaceholders of that message. Free text is not allowed anywhere.",
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Args",
+            "type": "object"
+          },
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "Reason",
+        "type": "object"
+      },
+      "SiteConfig": {
+        "additionalProperties": false,
+        "description": "Site description. Entity ids come from the user; none are hard-coded.",
+        "properties": {
+          "battery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grid": {
+            "$ref": "#/components/schemas/GridConfig"
+          },
+          "house": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pv": {
+            "items": {
+              "$ref": "#/components/schemas/EntityRef"
+            },
+            "title": "Pv",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "grid"
+        ],
+        "title": "SiteConfig",
+        "type": "object"
+      },
+      "SnapshotMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/Decision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "flows": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlowsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "$ref": "#/components/schemas/HealthOut"
+          },
+          "type": {
+            "const": "snapshot",
+            "default": "snapshot",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flows",
+          "health",
+          "decisions"
+        ],
+        "title": "SnapshotMessage",
+        "type": "object"
+      },
+      "SwitchAction": {
+        "additionalProperties": false,
+        "description": "Turn a device on or off.",
+        "properties": {
+          "kind": {
+            "const": "switch",
+            "default": "switch",
+            "title": "Kind",
+            "type": "string"
+          },
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "title": "SwitchAction",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "SunCore HTTP API. Live updates: WebSocket `api/v1/live` (see LiveMessage).",
+    "title": "SunCore API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/config/export": {
+      "get": {
+        "operationId": "export_config_api_v1_config_export_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Export Config Api V1 Config Export Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export Config"
+      }
+    },
+    "/api/v1/config/import": {
+      "post": {
+        "operationId": "import_config_api_v1_config_import_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Import too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Import rejected"
+          }
+        },
+        "summary": "Import Config"
+      }
+    },
+    "/api/v1/config/site": {
+      "get": {
+        "operationId": "get_site_api_v1_config_site_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SiteConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Site Api V1 Config Site Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Site"
+      },
+      "put": {
+        "operationId": "put_site_api_v1_config_site_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Site"
+      }
+    },
+    "/api/v1/decisions": {
+      "get": {
+        "operationId": "decisions_api_v1_decisions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Decision"
+                  },
+                  "title": "Response Decisions Api V1 Decisions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decisions"
+      }
+    },
+    "/api/v1/entities": {
+      "get": {
+        "operationId": "entities_api_v1_entities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EntityCandidateOut"
+                  },
+                  "title": "Response Entities Api V1 Entities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Entities"
+      }
+    },
+    "/api/v1/info": {
+      "get": {
+        "operationId": "info_api_v1_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfoOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Info"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Health"
+      }
+    }
+  }
+}

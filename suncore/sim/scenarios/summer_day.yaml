@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+name: summer_day
+description: Clear summer day in Bavaria, 8 kWp, 10 kWh battery, light morning haze.
+start: "2026-06-21T00:00:00+02:00"
+duration_s: 86400
+step_s: 60
+house:
+  seed: 1
+  pv: {kwp: 8.0, latitude: 48.0, longitude: 11.0}
+  load: {noise_fraction: 0.1}
+  battery: {capacity_wh: 10000, initial_soc_pct: 30}
+clouds:
+  - {at_s: 21600, factor: 0.8}
+  - {at_s: 32400, factor: 1.0}
