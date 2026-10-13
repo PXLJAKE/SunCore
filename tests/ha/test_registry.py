@@ -376,3 +376,117 @@ async def test_start_tolerates_unavailable_event_subscription(
     await wait_until(lambda: cat.registry_available)
     await cat.start()  # second start is a no-op
     await cat.stop()
+
+
+def count_get_states(conn: FakeHAConnection) -> list[int]:
+    calls = [0]
+    original = conn.get_states
+
+    async def counting():  # type: ignore[no-untyped-def]
+        calls[0] += 1
+        return await original()
+
+    conn.get_states = counting  # type: ignore[method-assign]
+    return calls
+
+
+async def test_connect_and_registry_events_load_no_states(
+    conn: FakeHAConnection, clock: FakeClock
+) -> None:
+    calls = count_get_states(conn)
+    cat = make_catalogue(conn, clock)
+    await cat.start()
+    await wait_until(lambda: cat.registry_available)
+    conn.fire_registry_event("entity_registry_updated")
+    await clock.settle()
+    await clock.advance(2.0)
+    await clock.advance(10)
+    assert calls[0] == 0
+    assert cat.has_states is False
+    await cat.ensure_fresh()  # the first request loads them, once
+    assert calls[0] == 1
+    await cat.stop()
+
+
+async def test_reconnect_reloads_registry_and_states_lazily_once(
+    conn: FakeHAConnection, clock: FakeClock
+) -> None:
+    cat = make_catalogue(conn, clock)
+    await cat.start()
+    await wait_until(lambda: cat.registry_available)
+    await cat.ensure_fresh()
+    calls = count_get_states(conn)
+    cat._on_state(ConnectionState.CONNECTED)  # reconnect, states loaded before
+    await clock.settle()
+    assert calls[0] == 0
+    await cat.ensure_fresh()  # within the interval, but marked stale by the reconnect
+    assert calls[0] == 1
+    await cat.ensure_fresh()
+    assert calls[0] == 1
+    await cat.stop()
+
+
+async def test_browse_copy_keeps_only_the_attributes_that_are_read(
+    conn: FakeHAConnection, clock: FakeClock
+) -> None:
+    async def rich() -> list[EntityState]:
+        return [
+            EntityState(
+                "sensor.x",
+                "1",
+                {
+                    "device_class": "power",
+                    "unit_of_measurement": "W",
+                    "state_class": "measurement",
+                    "friendly_name": "X",
+                    "forecast": [1] * 1000,
+                    "icon": "mdi:flash",
+                },
+            )
+        ]
+
+    conn.get_states = rich  # type: ignore[method-assign]
+    cat = make_catalogue(conn, clock)
+    await cat.refresh()
+    cached = cat.browse.get("sensor.x")
+    assert cached is not None
+    assert dict(cached.state.attributes) == {
+        "device_class": "power",
+        "unit_of_measurement": "W",
+        "state_class": "measurement",
+        "friendly_name": "X",
+    }
+    assert cat.metas()[0].unit == "W"
+
+
+async def test_registry_event_during_a_running_refresh_reruns_it(
+    conn: FakeHAConnection, clock: FakeClock
+) -> None:
+    cat = make_catalogue(conn, clock)
+    await cat.start()
+    await wait_until(lambda: cat.registry_available)
+    loads = 0
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original = conn.entity_registry_list_for_display
+
+    async def slow():  # type: ignore[no-untyped-def]
+        nonlocal loads
+        loads += 1
+        entered.set()
+        await release.wait()
+        return await original()
+
+    conn.entity_registry_list_for_display = slow  # type: ignore[method-assign]
+    conn.fire_registry_event("entity_registry_updated")
+    await clock.settle()
+    await clock.advance(2.0)
+    await asyncio.wait_for(entered.wait(), 1)
+    conn.fire_registry_event("device_registry_updated")  # arrives mid-load: must not cancel
+    await clock.settle()
+    assert loads == 1
+    release.set()
+    await clock.settle(20)
+    await clock.advance(2.0)  # the debounce before the rerun
+    await wait_until(lambda: loads == 2)
+    await cat.stop()

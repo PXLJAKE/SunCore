@@ -7,9 +7,12 @@ Template matching and role detection need both. :class:`EntityCatalogue` joins t
 :class:`~suncore.core.entities.EntityMeta` records without asking Home Assistant per request:
 
 * the registry (three list commands) is loaded on connect and after every reconnect, and
-  refreshed - debounced - on the three ``*_registry_updated`` events;
-* the states of *all* entities come from one ``get_states`` on connect and are refreshed at
-  most every :data:`MIN_REFRESH_S` seconds, and only when someone asks (the setup wizard).
+  refreshed - debounced - on the three ``*_registry_updated`` events; those reload only the
+  registries;
+* the states of *all* entities come from one ``get_states`` the first time someone asks (the
+  setup wizard) and are refreshed at most every :data:`MIN_REFRESH_S` seconds, only on
+  demand; after a reconnect they count as stale but are not fetched before the next request.
+  Only the attributes in :data:`BROWSE_ATTRIBUTES` are kept.
   The alternative - ``subscribe_entities`` without ``entity_ids`` for every entity - was
   rejected: it streams every change of a house with thousands of entities to a process that
   needs the metadata of a handful (Pi budget), while the wizard tolerates 30 s old
@@ -49,6 +52,11 @@ from suncore.ha.connection import (
 )
 
 log = structlog.get_logger(__name__)
+
+BROWSE_ATTRIBUTES: Final = ("device_class", "unit_of_measurement", "state_class", "friendly_name")
+"""Attributes the browse copy keeps: what :func:`build_meta`, the picker candidates and the
+unit conversion of :class:`~suncore.ha.cache.EntityCache` read. Everything else (forecast
+lists, icons, ...) is dropped to keep the memory of a house with thousands of entities small."""
 
 MIN_REFRESH_S: Final = 30.0
 """At most one ``get_states`` (and one registry retry) per this many seconds."""
@@ -215,6 +223,19 @@ def build_meta(
     )
 
 
+def _slim(state: EntityState) -> EntityState:
+    """The state with only the attributes the browse copy needs."""
+    kept = {k: v for k in BROWSE_ATTRIBUTES if (v := state.attributes.get(k)) is not None}
+    return EntityState(
+        entity_id=state.entity_id,
+        state=state.state,
+        attributes=kept,
+        last_changed=state.last_changed,
+        last_updated=state.last_updated,
+        last_reported=state.last_reported,
+    )
+
+
 # --- the catalogue ----------------------------------------------------------------
 
 
@@ -241,6 +262,9 @@ class EntityCatalogue:
         self._registry_ok = False
         self._registry_attempt: float | None = None
         self._states_loaded: float | None = None
+        self._states_dirty = False
+        self._sleeping = False
+        self._rerun = False
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._unsubscribers: list[Unsubscribe] = []
@@ -276,23 +300,42 @@ class EntityCatalogue:
 
     def _on_state(self, state: ConnectionState) -> None:
         if state is ConnectionState.CONNECTED:
+            # The cached states may have missed changes while disconnected.
+            self._states_dirty = self._states_loaded is not None
             self._schedule(0.0)
 
     def _on_registry_event(self, _event_type: str) -> None:
         self._schedule(self._debounce_s)
 
     def _schedule(self, delay_s: float) -> None:
-        """(Re)start the single pending refresh; a new event postpones it (debounce)."""
+        """Request a registry reload after ``delay_s``.
+
+        A request during the debounce sleep postpones the pending reload. A request while a
+        reload is already running cannot cancel it (it would leave the snapshot half
+        loaded); it marks "run again after completion" instead.
+        """
         if self._task is not None and not self._task.done():
+            if not self._sleeping:
+                self._rerun = True
+                return
             self._task.cancel()
         self._task = asyncio.get_running_loop().create_task(
             self._delayed_refresh(delay_s), name="suncore-registry-refresh"
         )
 
     async def _delayed_refresh(self, delay_s: float) -> None:
-        if delay_s > 0:
-            await self._sleep(delay_s)
-        await self.refresh()
+        while True:
+            if delay_s > 0:
+                self._sleeping = True
+                try:
+                    await self._sleep(delay_s)
+                finally:
+                    self._sleeping = False
+            self._rerun = False
+            await self.refresh_registry()
+            if not self._rerun:
+                return
+            delay_s = self._debounce_s
 
     # --- loading --------------------------------------------------------------
 
@@ -314,6 +357,11 @@ class EntityCatalogue:
         async with self._lock:
             await self._load_registry()
             await self._load_states()
+
+    async def refresh_registry(self) -> None:
+        """Reload only the registries (connect, reconnect, registry events)."""
+        async with self._lock:
+            await self._load_registry()
 
     async def _load_registry(self) -> None:
         self._registry_attempt = self._clock()
@@ -344,14 +392,17 @@ class EntityCatalogue:
         except (HAError, TimeoutError) as exc:
             log.info("ha.catalogue_states_failed", reason=type(exc).__name__)
             return
-        self.browse.ingest_states(states)
+        self.browse.ingest_states(_slim(s) for s in states)
         self._states_loaded = self._clock()
+        self._states_dirty = False
 
     async def ensure_fresh(self) -> None:
         """Refresh states (and retry a failed registry) if older than the minimum interval."""
         now = self._clock()
         stale_states = (
-            self._states_loaded is None or now - self._states_loaded >= self._min_refresh_s
+            self._states_loaded is None
+            or self._states_dirty
+            or now - self._states_loaded >= self._min_refresh_s
         )
         retry_registry = not self._registry_ok and (
             self._registry_attempt is None or now - self._registry_attempt >= self._min_refresh_s
@@ -367,7 +418,11 @@ class EntityCatalogue:
                 or now - self._registry_attempt >= self._min_refresh_s
             ):
                 await self._load_registry()
-            if self._states_loaded is None or now - self._states_loaded >= self._min_refresh_s:
+            if (
+                self._states_loaded is None
+                or self._states_dirty
+                or now - self._states_loaded >= self._min_refresh_s
+            ):
                 await self._load_states()
 
     # --- reading --------------------------------------------------------------
