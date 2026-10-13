@@ -120,6 +120,16 @@ def version_key(text: str) -> tuple[tuple[int, ...], int, int]:
     return release, 0 if dev else pre, int(match.group(3) or 0)
 
 
+class _NoAliasLoader(yaml.SafeLoader):
+    """SafeLoader that rejects anchors/aliases (alias expansion could blow up a small file)."""
+
+    def compose_node(self, parent: yaml.Node | None, index: object) -> yaml.Node | None:
+        if self.check_event(yaml.AliasEvent):
+            msg = "aliases are not allowed in templates"
+            raise yaml.YAMLError(msg)
+        return super().compose_node(parent, index)  # type: ignore[arg-type]
+
+
 def _check_min_version(raw: dict[str, object], app_version: str | None) -> None:
     required = raw.get("min_app_version")
     if app_version is None or not isinstance(required, str) or not _VERSION_RE.match(required):
@@ -146,7 +156,7 @@ def parse_template(
         if size > MAX_FILE_BYTES:
             msg = f"file too large ({size} bytes, limit {MAX_FILE_BYTES})"
             raise ValueError(msg)
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw = yaml.load(path.read_text(encoding="utf-8"), Loader=_NoAliasLoader)
     except OSError as exc:
         msg = f"cannot read: {exc.strerror or exc}"
         raise ValueError(msg) from exc

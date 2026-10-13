@@ -175,9 +175,11 @@ class ConfigStore:
             raise ValueError(msg)
         async with self._db.transaction() as tx:
             now = self._clock().isoformat()
-            previous_ids = await self._stored_device_ids(tx)
+            previous_ids = (
+                await self._stored_device_ids(tx) if isinstance(model, DevicesConfig) else None
+            )
             await self._write(tx, section, model, now)
-            if isinstance(model, DevicesConfig):
+            if isinstance(model, DevicesConfig) and previous_ids is not None:
                 await self._shadow_new_devices(tx, model, previous_ids, now)
         return model
 

@@ -26,7 +26,8 @@ from suncore.core.devices import DeviceConfig, DeviceId, RoleName, TemplateId
 from suncore.core.site import EntityRef, SiteConfig
 from suncore.core.validation import invalid
 
-REGION_ID_PATTERN: Final = r"^[a-z][a-z0-9_]{0,31}$"
+REGION_ID_PATTERN: Final = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$"
+"""Region id: ``de`` or ``<country>.<variant>``; also the region template id pattern."""
 STEP_PATTERN: Final = r"^[a-z][a-z0-9_]{0,47}$"
 TIME_PATTERN: Final = r"^([01]\d|2[0-3]):[0-5]\d$"
 
@@ -45,7 +46,7 @@ class RegionConfig(_Frozen):
     """Region template choice, currency, time zone and UI language."""
 
     schema_version: int = 1
-    region_id: Annotated[str, StringConstraints(pattern=REGION_ID_PATTERN)]
+    region_id: Annotated[str, StringConstraints(pattern=REGION_ID_PATTERN, max_length=64)]
     """Region template id, e.g. ``de`` or ``generic``."""
     currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
     """ISO 4217 code."""

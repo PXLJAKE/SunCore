@@ -6,6 +6,10 @@ export interface RefField {
   entity_id: string;
   invert_sign: boolean;
 }
+/** A PV row keeps the array it was loaded from, so removing a row never shifts attributes. */
+export interface PvRow extends RefField {
+  origin?: PvArray;
+}
 export type GridMode = 'single' | 'pair';
 
 export interface SiteForm {
@@ -14,7 +18,7 @@ export interface SiteForm {
   gridPower: RefField;
   gridImport: RefField;
   gridExport: RefField;
-  pv: RefField[];
+  pv: PvRow[];
   batteryEnabled: boolean;
   batteryPower: RefField;
   batterySoc: RefField;
@@ -52,14 +56,14 @@ const toRef = (f: RefField): EntityRef | null => {
 export function formFromSite(site: SiteConfig | null): SiteForm {
   if (!site) return emptyForm();
   const pair = !site.grid.power && (!!site.grid.import_power || !!site.grid.export_power);
-  const pv = (site.pv ?? []).map((a) => a.power);
+  const pv: PvRow[] = (site.pv ?? []).map((a) => ({ ...fromRef(a.power), origin: a }));
   return {
     schemaVersion: site.schema_version,
     gridMode: pair ? 'pair' : 'single',
     gridPower: fromRef(site.grid.power),
     gridImport: fromRef(site.grid.import_power),
     gridExport: fromRef(site.grid.export_power),
-    pv: pv.length > 0 ? pv.map(fromRef) : [emptyRef()],
+    pv: pv.length > 0 ? pv : [emptyRef()],
     batteryEnabled: !!site.battery,
     batteryPower: fromRef(site.battery?.power),
     batterySoc: fromRef(site.battery?.soc),
@@ -101,13 +105,19 @@ export function siteFromForm(form: SiteForm): SiteConfig {
         };
   const power = toRef(form.batteryPower);
   const soc = toRef(form.batterySoc);
-  const basePv = form.base?.pv ?? [];
   const pv: PvArray[] = [];
-  form.pv.forEach((field, i) => {
+  const used = new Set(form.pv.flatMap((f) => (f.origin ? [f.origin.name] : [])));
+  form.pv.forEach((field) => {
     const ref = toRef(field);
     if (ref === null) return;
-    const kept = basePv[i];
-    pv.push({ ...kept, name: kept?.name ?? `PV ${i + 1}`, power: ref });
+    if (field.origin) {
+      pv.push({ ...field.origin, power: ref });
+      return;
+    }
+    let n = pv.length + 1;
+    while (used.has(`PV ${n}`)) n += 1;
+    used.add(`PV ${n}`);
+    pv.push({ name: `PV ${n}`, power: ref });
   });
   return {
     schema_version: form.schemaVersion,

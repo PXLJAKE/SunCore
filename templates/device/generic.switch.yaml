@@ -5,11 +5,17 @@ kind: device
 schema_version: 1
 name: template.generic.switch.name
 source:
-  - title: "Home Assistant developer docs: Switch entity"
-    url: "https://developers.home-assistant.io/docs/core/entity/switch/"
+  - title: "home-assistant/core switch/__init__.py (turn_on, turn_off services; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/switch/__init__.py"
     date: 2026-10-13
-  - title: "Home Assistant developer docs: Sensor entity (device classes, units)"
-    url: "https://developers.home-assistant.io/docs/core/entity/sensor/"
+  - title: "developers.home-assistant docs/core/entity/switch.md (GitHub mirror)"
+    url: "https://github.com/home-assistant/developers.home-assistant/blob/master/docs/core/entity/switch.md"
+    date: 2026-10-13
+  - title: "home-assistant/core sensor/const.py (SensorDeviceClass.POWER, unit sets)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/const.py"
+    date: 2026-10-13
+  - title: "home-assistant/core const.py (UnitOfPower: W, kW)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/const.py"
     date: 2026-10-13
 tested_with: []
 capabilities: [on_off, power_measured]

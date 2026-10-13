@@ -5,8 +5,14 @@ kind: device
 schema_version: 1
 name: template.generic.climate.name
 source:
-  - title: "Home Assistant developer docs: Climate entity"
-    url: "https://developers.home-assistant.io/docs/core/entity/climate/"
+  - title: "home-assistant/core climate/__init__.py and const.py (set_temperature, hvac_modes, target_temp_step; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/climate/__init__.py"
+    date: 2026-10-13
+  - title: "home-assistant/core climate/services.yaml (set_temperature fields)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/climate/services.yaml"
+    date: 2026-10-13
+  - title: "developers.home-assistant docs/core/entity/climate.md (GitHub mirror)"
+    url: "https://github.com/home-assistant/developers.home-assistant/blob/master/docs/core/entity/climate.md"
     date: 2026-10-13
 tested_with: []
 capabilities: [temperature_setpoint, hvac_modes, power_measured, energy_counter]

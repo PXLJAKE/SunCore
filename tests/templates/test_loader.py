@@ -171,3 +171,28 @@ def test_user_template_needing_newer_app_is_skipped(builtin: Path, tmp_path: Pat
 )  # fmt: skip
 def test_version_ordering(app: str, required: str, ok: bool) -> None:
     assert (version_key(app) >= version_key(required)) is ok
+
+
+_BOMB = "a: &a [x, x]\nb: &b [*a, *a]\nc: [*b, *b]\n"
+
+
+def test_alias_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "x.yaml"
+    path.write_text(_BOMB, encoding="utf-8")
+    with pytest.raises(ValueError, match="aliases are not allowed"):
+        parse_template(path)
+
+
+def test_user_template_with_alias_is_a_catalog_error(builtin: Path, tmp_path: Path) -> None:
+    user = tmp_path / "user"
+    write_template(user, device_doc("me.good"))
+    (user / "device" / "me.bomb.yaml").write_text(_BOMB, encoding="utf-8")
+    catalog = load_templates(builtin, user)
+    assert "me.good" in catalog.templates
+    assert any("aliases are not allowed" in str(e) for e in catalog.errors)
+
+
+def test_builtin_with_alias_raises(builtin: Path) -> None:
+    (builtin / "device" / "acme.bomb.yaml").write_text(_BOMB, encoding="utf-8")
+    with pytest.raises(BuiltinTemplateError, match="aliases are not allowed"):
+        load_templates(builtin)

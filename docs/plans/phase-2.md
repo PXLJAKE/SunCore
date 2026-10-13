@@ -107,7 +107,7 @@ from the session) and record in `docs/research/`:
 - `templates/device/lg.thinq_climate.yaml` (climate + Wh counter, no
   power sensor → `counter_derived`), `generic.switch.yaml`,
   `generic.climate.yaml`, `generic.number_load.yaml` (W, A or %),
-  `templates/tariff/tibber.yaml`, `templates/forecast/solcast.yaml`,
+  `templates/tariff/tibber.price.yaml`, `templates/forecast/solcast.pv.yaml`,
   `templates/region/de.yaml` and `generic.yaml` (de: currency EUR, negative-price rule for new
   PV, EEG tiers as data with source links; no legal advice, BRIEF §6).
 - Simulator: entity metadata fakes for these integrations
@@ -213,8 +213,8 @@ Four stacked PRs (same pattern as Phase 1), each reviewed by `reviewer`
 
 | PR | Content | Depends on |
 |---|---|---|
-| 2-A `feat(devices,templates)` | WP1, WP2, WP3 | – |
-| 2-B `feat(storage,ha,api)` | WP4, WP5, WP6 | 2-A |
+| 2-A `feat(devices,templates,storage)` | WP1, WP2, WP3, WP4 | – |
+| 2-B `feat(ha,api)` | WP5, WP6 | 2-A |
 | 2-C `feat(frontend): setup wizard` | WP7, WP8 | 2-B |
 | 2-D `test,build,docs` | WP9 (remaining), WP10, beta release | 2-C |
 

@@ -3,9 +3,9 @@ import { expect, test } from '@playwright/test';
 
 const ref = (entity_id: string) => ({ entity_id, invert_sign: false });
 const DEMO_SITE = {
-  schema_version: 1,
+  schema_version: 2,
   grid: { power: ref('sensor.sim_grid_power'), import_power: null, export_power: null },
-  pv: [ref('sensor.sim_pv_power')],
+  pv: [{ name: 'PV', power: ref('sensor.sim_pv_power') }],
   battery: { power: ref('sensor.sim_battery_power'), soc: ref('sensor.sim_battery_soc') },
   house: ref('sensor.sim_house_power'),
 };
@@ -65,7 +65,7 @@ test.describe('Settings', () => {
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByTestId('saved')).toBeVisible();
     const stored = await (await request.get('/api/v1/config/site')).json();
-    expect(stored.pv.map((p: { entity_id: string }) => p.entity_id)).toEqual([
+    expect(stored.pv.map((p: { power: { entity_id: string } }) => p.power.entity_id)).toEqual([
       'sensor.sim_pv_power',
       'sensor.sim_house_power',
     ]);
