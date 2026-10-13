@@ -21,9 +21,10 @@ export type EntityCandidate = S['EntityCandidateOut'];
 export type ValidationIssue = S['ValidationIssueOut'];
 
 export type ConfigSectionName =
-  'site' | 'region' | 'tariff' | 'devices' | 'goals' | 'operation' | 'wizard';
+  'site' | 'region' | 'tariff' | 'forecast' | 'devices' | 'goals' | 'operation' | 'wizard';
 export type RegionConfig = S['RegionConfig'];
 export type TariffConfig = S['TariffConfig'];
+export type ForecastConfig = S['ForecastConfig'];
 export type DevicesConfig = S['DevicesConfig'];
 export type GoalsConfig = S['GoalsConfig'];
 export type OperationConfig = S['OperationConfig'];

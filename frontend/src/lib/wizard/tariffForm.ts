@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Tariff section <-> form: import price (fixed or dynamic), feed-in (fixed, tiered, none) and the
-// forecast sources (templates plus the entities of their roles).
+// Tariff section <-> form: import price (fixed or dynamic) and feed-in (fixed, tiered, none).
 import type { ExportTier, RegionTemplate, TariffConfig } from '../api/types';
 import { emptyRef, fromRef, toRef, type RefField } from './forms';
 
@@ -23,9 +22,6 @@ export interface TariffForm {
   exportKind: ExportKind;
   exportFixed: number | null;
   tiers: TierRow[];
-  forecastTemplateIds: string[];
-  /** Forecast role -> entity; rows without an entity are not sent. */
-  forecastEntities: Record<string, RefField>;
 }
 
 export function emptyTariffForm(): TariffForm {
@@ -38,8 +34,6 @@ export function emptyTariffForm(): TariffForm {
     exportKind: 'fixed',
     exportFixed: null,
     tiers: [{ upToKwp: null, price: null }],
-    forecastTemplateIds: [],
-    forecastEntities: {},
   };
 }
 
@@ -59,10 +53,6 @@ export function tariffFormFromConfig(cfg: TariffConfig | null): TariffForm {
       exp.tiers && exp.tiers.length > 0
         ? exp.tiers.map((t) => ({ upToKwp: t.up_to_kwp ?? null, price: t.price }))
         : [{ upToKwp: null, price: null }],
-    forecastTemplateIds: [...(cfg.forecast_template_ids ?? [])],
-    forecastEntities: Object.fromEntries(
-      Object.entries(cfg.forecast_entities ?? {}).map(([role, ref]) => [role, fromRef(ref)]),
-    ),
   };
 }
 
@@ -94,13 +84,8 @@ export function tariffFromForm(form: TariffForm): TariffConfig {
           price: t.price ?? 0,
         }))
       : [];
-  const forecastEntities: TariffConfig['forecast_entities'] = {};
-  for (const [role, field] of Object.entries(form.forecastEntities)) {
-    const ref = toRef(field);
-    if (ref) forecastEntities[role] = ref;
-  }
   return {
-    schema_version: 1,
+    schema_version: 2,
     import: {
       kind: form.importKind,
       template_id: byTemplate ? form.importTemplateId : null,
@@ -112,8 +97,6 @@ export function tariffFromForm(form: TariffForm): TariffConfig {
       fixed_price: form.exportKind === 'fixed' ? form.exportFixed : null,
       tiers,
     },
-    forecast_template_ids: [...form.forecastTemplateIds],
-    forecast_entities: forecastEntities,
   };
 }
 
@@ -132,19 +115,4 @@ export function tiersFromRegion(template: RegionTemplate | undefined): TierRow[]
     upToKwp: t.up_to_kwp ?? null,
     price: t.rate_per_kwh,
   }));
-}
-
-/** Toggle a forecast template; entities of its roles are dropped when it is switched off. */
-export function setForecastTemplate(
-  form: TariffForm,
-  id: string,
-  on: boolean,
-  roles: readonly string[],
-): void {
-  const has = form.forecastTemplateIds.includes(id);
-  if (on && !has) form.forecastTemplateIds.push(id);
-  if (!on && has) {
-    form.forecastTemplateIds = form.forecastTemplateIds.filter((x) => x !== id);
-    for (const role of roles) delete form.forecastEntities[role];
-  }
 }

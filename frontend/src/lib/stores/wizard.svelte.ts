@@ -6,6 +6,7 @@ import { describeError, FormError, type FailedRequest } from '../api/errors';
 import type {
   DeviceConfig,
   DevicesConfig,
+  ForecastConfig,
   GoalsConfig,
   OperationConfig,
   RegionConfig,
@@ -15,6 +16,11 @@ import type {
 } from '../api/types';
 import { applyLanguage, type MessageKey } from '../i18n/index.svelte';
 import {
+  forecastFormFromConfig,
+  forecastFromForm,
+  type ForecastForm,
+} from '../wizard/forecastForm';
+import {
   goalsFormFromConfig,
   goalsFromForm,
   operationFormFromConfig,
@@ -22,6 +28,7 @@ import {
   type GoalsForm,
   type OperationForm,
 } from '../wizard/goalsForm';
+import { dirtySections, type DirtySection } from '../wizard/dirty';
 import { regionFormFromConfig, regionFromForm, type RegionForm } from '../wizard/regionForm';
 import { emptySiteForm, siteFormFromSite, siteFromForm, type SiteForm } from '../wizard/siteForm';
 import { STEP_IDS, withCompleted, type StepId } from '../wizard/steps';
@@ -81,6 +88,7 @@ export class WizardStore {
     site: SiteConfig | null;
     region: RegionConfig | null;
     tariff: TariffConfig | null;
+    forecast: ForecastConfig | null;
     devices: DevicesConfig | null;
     goals: GoalsConfig | null;
     operation: OperationConfig | null;
@@ -89,6 +97,7 @@ export class WizardStore {
     site: null,
     region: null,
     tariff: null,
+    forecast: null,
     devices: null,
     goals: null,
     operation: null,
@@ -98,6 +107,7 @@ export class WizardStore {
   site = $state<SiteForm>(emptySiteForm());
   region = $state<RegionForm>(regionFormFromConfig(null));
   tariff = $state<TariffForm>(tariffFormFromConfig(null));
+  forecast = $state<ForecastForm>(forecastFormFromConfig(null));
   goals = $state<GoalsForm>(goalsFormFromConfig(null));
   operation = $state<OperationForm>(operationFormFromConfig(null));
   devices = $state.raw<DeviceConfig[]>([]);
@@ -119,19 +129,23 @@ export class WizardStore {
 
   async load(): Promise<void> {
     try {
-      const [site, region, tariff, devices, goals, operation, wizard] = await Promise.all([
-        api.getSite(),
-        api.getSection<RegionConfig>('region'),
-        api.getSection<TariffConfig>('tariff'),
-        api.getSection<DevicesConfig>('devices'),
-        api.getSection<GoalsConfig>('goals'),
-        api.getSection<OperationConfig>('operation'),
-        api.getSection<WizardState>('wizard'),
-      ]);
-      this.saved = { site, region, tariff, devices, goals, operation, wizard };
+      const [site, region, tariff, forecast, devices, goals, operation, wizard] = await Promise.all(
+        [
+          api.getSite(),
+          api.getSection<RegionConfig>('region'),
+          api.getSection<TariffConfig>('tariff'),
+          api.getSection<ForecastConfig>('forecast'),
+          api.getSection<DevicesConfig>('devices'),
+          api.getSection<GoalsConfig>('goals'),
+          api.getSection<OperationConfig>('operation'),
+          api.getSection<WizardState>('wizard'),
+        ],
+      );
+      this.saved = { site, region, tariff, forecast, devices, goals, operation, wizard };
       this.site = siteFormFromSite(site);
       this.region = regionFormFromConfig(region);
       this.tariff = tariffFormFromConfig(tariff);
+      this.forecast = forecastFormFromConfig(forecast);
       this.goals = goalsFormFromConfig(goals);
       this.operation = operationFormFromConfig(operation);
       this.devices = devices?.devices ?? [];
@@ -142,6 +156,30 @@ export class WizardStore {
     } catch (e) {
       this.loadError = describeError(e).key;
     }
+  }
+
+  /** Sections with edits that are not stored yet (reads the forms, so it is reactive). */
+  dirty(): DirtySection[] {
+    if (!this.loaded) return [];
+    const { site, region, tariff, forecast, goals, operation } = this.saved;
+    return dirtySections({
+      forms: {
+        site: this.site,
+        region: this.region,
+        tariff: this.tariff,
+        forecast: this.forecast,
+        goals: this.goals,
+        operation: this.operation,
+      },
+      saved: { site, region, tariff, forecast, goals, operation },
+      deviceIds: this.devices.map((d) => d.id),
+    });
+  }
+
+  /** Throw away unsaved edits: the forms are filled from the server again. */
+  async discard(): Promise<void> {
+    this.invalidate();
+    await this.ensureLoaded();
   }
 
   // --- saves: each throws ApiError (422 carries the issues) --------------------------
@@ -168,6 +206,14 @@ export class WizardStore {
     this.saved = { ...this.saved, tariff: saved };
     this.tariff = tariffFormFromConfig(saved);
     return true;
+  }
+
+  /** Store the forecast sources; nothing is written while there is nothing to keep. */
+  async saveForecast(): Promise<void> {
+    if (this.forecast.templateIds.length === 0 && this.saved.forecast === null) return;
+    const saved = await api.putSection<ForecastConfig>('forecast', forecastFromForm(this.forecast));
+    this.saved = { ...this.saved, forecast: saved };
+    this.forecast = forecastFormFromConfig(saved);
   }
 
   async saveDevices(devices: DeviceConfig[]): Promise<void> {

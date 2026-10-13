@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
-import type { DeviceConfig, DeviceTemplate, RegionTemplate, TariffConfig } from '../api/types';
+import type {
+  DeviceConfig,
+  DeviceTemplate,
+  ForecastConfig,
+  RegionTemplate,
+  TariffConfig,
+} from '../api/types';
 import {
   deviceFormFromConfig,
   deviceFromForm,
@@ -11,6 +17,13 @@ import {
   uniqueName,
   validateDeviceForm,
 } from './deviceForm';
+import {
+  emptyForecastForm,
+  ensureRoleFields,
+  forecastFormFromConfig,
+  forecastFromForm,
+  setForecastTemplate,
+} from './forecastForm';
 import { num, slugify, uniqueId } from './forms';
 import {
   goalsFormFromConfig,
@@ -23,6 +36,7 @@ import {
   dropIndex,
   dropIndexWhileDragging,
   moveItem,
+  nextPriority,
   orderedDevices,
   targetFor,
   withPriorities,
@@ -38,7 +52,6 @@ import {
   emptyTariffForm,
   isTariffComplete,
   removeTier,
-  setForecastTemplate,
   tariffFormFromConfig,
   tariffFromForm,
   tiersFromRegion,
@@ -110,6 +123,33 @@ describe('region form', () => {
   });
 });
 
+describe('forecast form', () => {
+  it('round-trips a stored forecast without any tariff', () => {
+    const cfg: ForecastConfig = {
+      schema_version: 1,
+      forecast_template_ids: ['solcast.pv'],
+      forecast_entities: { forecast_today: ref('sensor.today') },
+    };
+    expect(forecastFromForm(forecastFormFromConfig(cfg))).toEqual(cfg);
+    expect(forecastFromForm(forecastFormFromConfig(null))).toEqual({
+      schema_version: 1,
+      forecast_template_ids: [],
+      forecast_entities: {},
+    });
+  });
+  it('drops forecast entities of a template that is switched off', () => {
+    const form = emptyForecastForm();
+    setForecastTemplate(form, 'solcast.pv', true, ['forecast_today']);
+    ensureRoleFields(form, ['forecast_today', 'forecast_tomorrow']);
+    form.entities.forecast_today = ref('sensor.today');
+    expect(Object.keys(forecastFromForm(form).forecast_entities!)).toEqual(['forecast_today']);
+    setForecastTemplate(form, 'solcast.pv', false, ['forecast_today', 'forecast_tomorrow']);
+    expect(form.templateIds).toEqual([]);
+    expect(form.entities).toEqual({});
+    expect(forecastFromForm(form).forecast_entities).toEqual({});
+  });
+});
+
 describe('tariff form', () => {
   it('stores a fixed import price and no feed-in', () => {
     const form = emptyTariffForm();
@@ -118,11 +158,9 @@ describe('tariff form', () => {
     form.exportKind = 'none';
     expect(isTariffComplete(form)).toBe(true);
     expect(tariffFromForm(form)).toEqual({
-      schema_version: 1,
+      schema_version: 2,
       import: { kind: 'fixed', template_id: null, price_entity: null, fixed_price: 0.32 },
       export: { kind: 'none', fixed_price: null, tiers: [] },
-      forecast_template_ids: [],
-      forecast_entities: {},
     });
   });
   it('maps a dynamic tariff with template and price entity, dropping the fixed price', () => {
@@ -168,9 +206,9 @@ describe('tariff form', () => {
     removeTier(form, 0);
     expect(form.tiers).toHaveLength(1);
   });
-  it('round-trips a stored tariff including forecast entities', () => {
+  it('round-trips a stored tariff', () => {
     const cfg: TariffConfig = {
-      schema_version: 1,
+      schema_version: 2,
       import: {
         kind: 'dynamic',
         template_id: 'tibber.price',
@@ -185,19 +223,8 @@ describe('tariff form', () => {
           { up_to_kwp: null, price: 0.07 },
         ],
       },
-      forecast_template_ids: ['solcast.pv'],
-      forecast_entities: { forecast_today: ref('sensor.today') },
     };
     expect(tariffFromForm(tariffFormFromConfig(cfg))).toEqual(cfg);
-  });
-  it('drops forecast entities of a template that is switched off', () => {
-    const form = emptyTariffForm();
-    setForecastTemplate(form, 'solcast.pv', true, ['forecast_today']);
-    form.forecastEntities.forecast_today = ref('sensor.today');
-    setForecastTemplate(form, 'solcast.pv', false, ['forecast_today']);
-    expect(form.forecastTemplateIds).toEqual([]);
-    expect(form.forecastEntities).toEqual({});
-    expect(tariffFromForm(form).forecast_entities).toEqual({});
   });
   it('offers region tiers as rows', () => {
     expect(
@@ -243,6 +270,10 @@ const TEMPLATE = {
     control: { kind: 'on_off', role: 'switch' },
     min_run_s: 300,
     min_pause_s: 120,
+    settle_s: 3,
+    hysteresis_w: 100,
+    hysteresis_delay_s: 30,
+    max_switches_per_hour: 6,
     comfort: null,
   },
 } as unknown as DeviceTemplate;
@@ -263,10 +294,30 @@ describe('device form', () => {
       priority: 2,
       min_run_s: 300,
       min_pause_s: 120,
+      // protection defaults of the template are carried into the new device
+      settle_s: 3,
+      hysteresis_w: 100,
+      hysteresis_delay_s: 30,
+      max_switches_per_hour: 6,
       entities: { switch: ref('switch.pump') },
       power_model: { kind: 'nominal', nominal_w: 750, power_role: null, energy_role: null },
       control: { kind: 'on_off', role: 'switch' },
       comfort: null,
+    });
+  });
+  it('stores null (safety default) when the template has no protection defaults', () => {
+    const bare = {
+      ...TEMPLATE,
+      defaults: { power_model: { kind: 'nominal' }, control: TEMPLATE.defaults.control },
+    } as unknown as DeviceTemplate;
+    const form = newDeviceForm(bare, 'Lamp', 0);
+    form.entities.switch = ref('switch.lamp');
+    form.nominalW = 10;
+    expect(deviceFromForm(form, 'lamp', bare)).toMatchObject({
+      settle_s: null,
+      hysteresis_w: null,
+      hysteresis_delay_s: null,
+      max_switches_per_hour: null,
     });
   });
   it('chooses the power model from the mapped roles', () => {
@@ -365,6 +416,13 @@ describe('device form', () => {
 });
 
 describe('priority reducer', () => {
+  it('puts a new device after the highest priority, not at the count', () => {
+    expect(nextPriority([])).toBe(0);
+    expect(nextPriority([{ priority: 0 }, { priority: 1 }])).toBe(2);
+    // gaps (a removed device) must not make the new one collide with an existing priority
+    expect(nextPriority([{ priority: 0 }, { priority: 5 }])).toBe(6);
+    expect(nextPriority([{ priority: 10_000 }])).toBe(10_000);
+  });
   it('moves items and clamps', () => {
     expect(moveItem(['a', 'b', 'c'], 0, 2)).toEqual(['b', 'c', 'a']);
     expect(moveItem(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b']);
