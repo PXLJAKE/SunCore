@@ -15,7 +15,14 @@ from websockets.asyncio.client import ClientConnection, connect
 from suncore.api import create_app
 from suncore.app.main import build_runtime
 from suncore.app.runtime import Runtime
-from suncore.core.config import DevicesConfig, OperationConfig, WizardState
+from suncore.core.config import (
+    SECTION_MODELS,
+    DevicesConfig,
+    ForecastConfig,
+    OperationConfig,
+    TariffConfig,
+    WizardState,
+)
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import (
     DeviceConfig,
@@ -26,7 +33,9 @@ from suncore.core.devices import (
 )
 from suncore.core.site import EntityRef
 from suncore.ha.connection import CommandTimeoutError
+from suncore.sim.demo_config import WIZARD_STEPS
 from suncore.sim.fake_ha import SIM_ENTITY_IDS, FakeHAConnection, demo_site_config
+from suncore.templates import DeviceTemplate
 from tests.api.conftest import client_for, serving
 from tests.app.conftest import RecordingConnection, demo_settings
 
@@ -90,17 +99,82 @@ async def test_demo_live_feed_balance_closes(demo_runtime: Runtime) -> None:
     assert len(seen_values) > 1  # the simulation advances
 
 
+DEMO_DEVICE_ENTITIES = frozenset(
+    {
+        "climate.sim_living_room_ac",
+        "sensor.sim_living_room_ac_energy_today",
+        "sensor.sim_living_room_ac_energy_yesterday",
+        "switch.sim_pool_pump",
+        "sensor.sim_pool_pump_power",
+        "number.sim_heating_rod_limit",
+    }
+)
+"""The demo starts with devices; the runtime subscribes to their entities too."""
+DEMO_SUBSCRIBED = frozenset(SIM_ENTITY_IDS) | DEMO_DEVICE_ENTITIES
+
+
+async def test_demo_starts_fully_configured(demo_runtime: Runtime) -> None:
+    sections = await demo_runtime.config.stored_sections()
+    assert sections == frozenset(SECTION_MODELS)
+    wizard = await demo_runtime.get_section("wizard")
+    assert isinstance(wizard, WizardState)
+    assert wizard.completed
+    assert wizard.completed_steps == list(WIZARD_STEPS)
+    devices = await demo_runtime.get_section("devices")
+    assert isinstance(devices, DevicesConfig)
+    assert [d.id for d in devices.by_priority()] == ["pool_pump", "living_room_ac", "heating_rod"]
+    assert {d.template_id for d in devices.devices} == {
+        "lg.thinq_climate",
+        "generic.switch",
+        "generic.number_load",
+    }
+    tariff = await demo_runtime.get_section("tariff")
+    assert isinstance(tariff, TariffConfig)
+    assert tariff.import_.kind == "dynamic"
+    assert tariff.import_.price_entity == EntityRef(entity_id="sensor.sim_electricity_price")
+    forecast = await demo_runtime.get_section("forecast")
+    assert isinstance(forecast, ForecastConfig)
+    assert forecast.forecast_template_ids == ["solcast.pv"]
+    operation = await demo_runtime.get_section("operation")
+    assert isinstance(operation, OperationConfig)
+    assert operation.mode is OperatingMode.SHADOW
+    assert demo_runtime.gate.mode is OperatingMode.SHADOW
+    items = await demo_runtime.system_check(None)
+    assert not [i for i in items if i.reason.key.startswith("wizard.check.section_missing")]
+    assert not [i for i in items if i.reason.key == "wizard.check.forecast_missing"]
+
+
+async def test_demo_devices_follow_the_templates(demo_runtime: Runtime) -> None:
+    devices = await demo_runtime.get_section("devices")
+    assert isinstance(devices, DevicesConfig)
+    by_id = {d.id: d for d in devices.devices}
+    ac, pump, rod = by_id["living_room_ac"], by_id["pool_pump"], by_id["heating_rod"]
+    lg = demo_runtime.template_catalog.get("lg.thinq_climate")
+    assert isinstance(lg, DeviceTemplate)
+    assert ac.settle_s == lg.defaults.settle_s
+    assert ac.min_run_s == lg.defaults.min_run_s
+    assert ac.power_model.kind.value == "learned"
+    assert ac.comfort is not None
+    assert pump.power_model.kind.value == "measured"
+    assert pump.power_model.power_role == "power"
+    assert rod.control.kind == "continuous"
+    assert rod.hysteresis_w == 100
+    # Every mapped entity exists in the simulator registry.
+    known = {m.entity_id for m in demo_runtime.connection.entity_metas()}  # type: ignore[attr-defined]
+    assert {r.entity_id for r in devices.entity_refs()} <= known
+
+
 async def test_put_site_resubscribes(demo_runtime: Runtime) -> None:
     conn = demo_runtime.connection
     assert isinstance(conn, RecordingConnection)
-    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS)
+    assert conn.subscriptions[-1] == DEMO_SUBSCRIBED
     reduced = demo_site_config().model_copy(update={"house": None})
     async with client_for(create_app(demo_runtime)) as client:
         r = await client.put("/api/v1/config/site", json=reduced.model_dump(mode="json"))
         stored = await client.get("/api/v1/config/site")
     assert r.status_code == 200
     assert len(conn.subscriptions) >= 2
-    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) - {"sensor.sim_house_power"}
+    assert conn.subscriptions[-1] == DEMO_SUBSCRIBED - {"sensor.sim_house_power"}
     assert stored.json()["house"] is None
     assert (await demo_runtime.config.get_site()) == reduced
 
@@ -147,7 +221,7 @@ async def test_export_import_roundtrip_resubscribes(demo_runtime: Runtime) -> No
         r = await client.post("/api/v1/config/import", json=exported)
         bad = await client.post("/api/v1/config/import", json={"nope": 1})
     assert r.status_code == 200
-    assert r.json() == {"imported_sections": ["site"]}
+    assert r.json() == {"imported_sections": sorted(SECTION_MODELS)}
     assert len(conn.subscriptions) == before + 1
     assert bad.status_code == 422
 
@@ -282,7 +356,7 @@ async def test_other_sections_do_not_resubscribe_nor_touch_the_gate(demo_runtime
     conn = demo_runtime.connection
     assert isinstance(conn, RecordingConnection)
     before = len(conn.subscriptions)
-    assert await demo_runtime.get_section("operation") is None
+    assert await demo_runtime.get_section("operation") == OperationConfig()
     await demo_runtime.put_section(
         "operation",
         OperationConfig(mode=OperatingMode.AUTOMATIC, device_modes={"x": OperatingMode.AUTOMATIC}),

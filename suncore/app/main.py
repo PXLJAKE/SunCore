@@ -70,10 +70,6 @@ async def build_runtime(
     db = await Database.open(data_dir / DB_FILENAME)
     try:
         config = ConfigStore(db)
-        if demo:
-            from suncore.sim.fake_ha import demo_site_config  # noqa: PLC0415
-
-            await config.put_site(demo_site_config())
         if connection is None:
             connection = _make_connection(settings, env, clock)
         decision_log = DecisionLog(db)
@@ -86,6 +82,15 @@ async def build_runtime(
         )
         for error in template_catalog.errors:
             log.warning("templates.user_template_invalid", file=str(error))
+        if demo:
+            # The demo starts fully set up (the wizard stays reachable).
+            from suncore.sim.demo_config import seed_demo_config  # noqa: PLC0415
+            from suncore.sim.fake_ha import demo_site_config  # noqa: PLC0415
+
+            await config.put_site(demo_site_config())
+            await seed_demo_config(config, template_catalog)
+        else:
+            await config.migrate_legacy_forecast()
     except BaseException:
         await db.close()
         if tempdir is not None:
