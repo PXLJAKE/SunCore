@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../../api/client';
-  import { FormError } from '../../api/errors';
+  import { describeError, FormError } from '../../api/errors';
   import type { RegionTemplate, TemplateSummary } from '../../api/types';
   import FieldIssues from '../../components/FieldIssues.svelte';
   import WizardShell from '../../components/WizardShell.svelte';
@@ -80,7 +80,7 @@
           }
         }
       } catch (e) {
-        loadError = e instanceof Error ? 'api.error.network' : 'api.error.unknown';
+        loadError = describeError(e).key;
       }
     })();
   });

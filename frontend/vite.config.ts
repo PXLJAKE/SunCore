@@ -10,6 +10,22 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // The message catalogues and the ICU formatter change independently of the views and are
+        // needed on first paint anyway: one cacheable chunk instead of riding in a shared one.
+        manualChunks(id: string): string | undefined {
+          if (
+            id.includes('/node_modules/intl-messageformat') ||
+            id.includes('/node_modules/@formatjs')
+          ) {
+            return 'icu';
+          }
+          if (id.includes('/src/lib/i18n/locales/')) return 'catalogues';
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     port: 5173,

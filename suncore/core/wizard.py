@@ -100,6 +100,8 @@ def _check_sections(site: SiteConfig | None, present: Collection[str]) -> list[C
         for name in ("region", "tariff")
         if name not in present
     )
+    if "forecast" not in present:  # optional: a note, never a warning
+        items.append(_item("ok", "wizard.check.forecast_missing", "forecast"))
     return items
 
 

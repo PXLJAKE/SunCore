@@ -23,6 +23,9 @@
     nextLabel?: string;
     /** Called instead of moving to the next step (summary). */
     onfinish?: () => Promise<void>;
+    /** The primary button is disabled; `blockedHint` says why (shown next to it). */
+    blocked?: boolean;
+    blockedHint?: string;
     children: Snippet;
   }
   let {
@@ -33,6 +36,8 @@
     skippable = false,
     nextLabel,
     onfinish,
+    blocked = false,
+    blockedHint,
     children,
   }: Props = $props();
 
@@ -40,14 +45,25 @@
   const def = $derived(STEPS[index]!);
   const prev = $derived(prevStep(step));
   const next = $derived(nextStep(step));
-  const doneCount = $derived(wizard.completedSteps.filter((s) => s !== 'summary').length);
+  // The summary counts as done once the whole setup is finished, so a finished wizard
+  // reads "10 of 10" and matches "Step n of 10".
+  const doneCount = $derived(
+    wizard.completedSteps.filter((s) => s !== 'summary').length + (wizard.completed ? 1 : 0),
+  );
 
   let heading: HTMLHeadingElement | undefined = $state();
   let listOpen = $state(false);
   let mounted = false;
+  let confirmingLeave = $state(false);
 
   onMount(() => {
     mounted = true;
+    // Closing the tab or reloading would lose unsaved edits: let the browser ask.
+    const onUnload = (e: BeforeUnloadEvent): void => {
+      if (wizard.dirty().length > 0) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
   });
 
   // Keyboard and screen reader users land on the new step's heading after each navigation.
@@ -81,7 +97,18 @@
     if (prev) router.go(stepHash(prev));
   }
 
+  /** Leaving with unsaved edits asks first; the edits are only kept while the page stays. */
   function leave(): void {
+    if (wizard.dirty().length > 0) {
+      confirmingLeave = true;
+      return;
+    }
+    router.go('#/settings');
+  }
+
+  async function discardAndLeave(): Promise<void> {
+    await wizard.discard();
+    confirmingLeave = false;
     router.go('#/settings');
   }
 </script>
@@ -127,7 +154,7 @@
       {/each}
     </ol>
     <p class="done-count">
-      {t('wizard.progress.done_count', { done: doneCount, total: STEPS.length - 1 })}
+      {t('wizard.progress.done_count', { done: doneCount, total: STEPS.length })}
     </p>
   </aside>
 
@@ -167,6 +194,37 @@
       </div>
     {/if}
 
+    {#if confirmingLeave}
+      <div
+        class="notice warn"
+        role="alertdialog"
+        aria-labelledby="leave-msg"
+        data-testid="leave-confirm"
+      >
+        <p id="leave-msg">{t('wizard.leave.unsaved')}</p>
+        <div class="confirm-actions">
+          <button
+            type="button"
+            class="btn danger small"
+            data-testid="leave-discard"
+            onclick={() => void discardAndLeave()}>{t('wizard.leave.discard')}</button
+          >
+          <button
+            type="button"
+            class="btn secondary small"
+            data-testid="leave-stay"
+            onclick={() => (confirmingLeave = false)}>{t('wizard.leave.stay')}</button
+          >
+        </div>
+      </div>
+    {/if}
+
+    {#if blocked && blockedHint}
+      <p id="blocked-hint-text" class="notice error" role="status" data-testid="blocked-hint">
+        {blockedHint}
+      </p>
+    {/if}
+
     <footer class="actions">
       <button type="button" class="btn secondary" onclick={leave}>{t('wizard.leave')}</button>
       <span class="spacer"></span>
@@ -184,7 +242,8 @@
         type="button"
         class="btn"
         data-testid="wizard-next"
-        disabled={save.saving}
+        disabled={save.saving || blocked}
+        aria-describedby={blocked && blockedHint ? 'blocked-hint-text' : undefined}
         onclick={onNext}
       >
         {save.saving ? t('action.saving') : (nextLabel ?? t('action.save_continue'))}
@@ -317,6 +376,15 @@
   }
   .notice.error {
     color: var(--error-color);
+  }
+  .notice.warn p {
+    color: var(--primary-text-color);
+  }
+  .confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
   }
   .loc {
     font-weight: 600;

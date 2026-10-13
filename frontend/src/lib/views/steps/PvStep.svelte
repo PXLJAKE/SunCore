@@ -12,10 +12,9 @@
   import { t, tDynamic, tPower } from '../../i18n/index.svelte';
   import { live } from '../../stores/live.svelte';
   import { SaveState, wizard } from '../../stores/wizard.svelte';
-  import { emptyRef } from '../../wizard/forms';
   import { issuesAt } from '../../wizard/issues';
   import { emptyPvRow } from '../../wizard/siteForm';
-  import { setForecastTemplate } from '../../wizard/tariffForm';
+  import { ensureRoleFields, setForecastTemplate } from '../../wizard/forecastForm';
 
   const save = new SaveState();
   const UNIT = { kwp: 'kWp', deg: '°' } as const;
@@ -49,23 +48,21 @@
 
   // Every role of a chosen forecast template gets a field, also when it was stored without one.
   $effect(() => {
-    for (const id of wizard.tariff.forecastTemplateIds) {
-      for (const role of Object.keys(details[id]?.roles ?? {})) {
-        wizard.tariff.forecastEntities[role] ??= emptyRef();
-      }
+    for (const id of wizard.forecast.templateIds) {
+      ensureRoleFields(wizard.forecast, Object.keys(details[id]?.roles ?? {}));
     }
   });
 
   function toggle(id: string, on: boolean): void {
     const roles = Object.keys(details[id]?.roles ?? {});
-    setForecastTemplate(wizard.tariff, id, on, roles);
+    setForecastTemplate(wizard.forecast, id, on, roles);
   }
 
   async function onsave(): Promise<void> {
     // Rows nobody filled in are dropped by the mapping.
     await wizard.saveSite();
-    // The tariff section needs import and export prices; until then the choice stays in memory.
-    await wizard.saveTariff();
+    // The forecast sources are their own section: no prices needed to keep the choice.
+    await wizard.saveForecast();
   }
 
   const at = (i: number, ...p: (string | number)[]) => issuesAt(save.issues, 'pv', i, ...p);
@@ -153,7 +150,7 @@
       <p class="notice error" role="alert">{t('api.error.network')}</p>
     {/if}
     {#each forecasts as tpl (tpl.id)}
-      {@const on = wizard.tariff.forecastTemplateIds.includes(tpl.id)}
+      {@const on = wizard.forecast.templateIds.includes(tpl.id)}
       <div class="forecast stack">
         <label class="check">
           <input
@@ -168,12 +165,12 @@
         {/if}
         {#if on}
           {#each Object.entries(details[tpl.id]?.roles ?? {}) as [role, spec] (role)}
-            {#if wizard.tariff.forecastEntities[role]}
+            {#if wizard.forecast.entities[role]}
               <RolePicker
                 label={tDynamic(spec.description, undefined, 'reason.unknown')}
                 {role}
                 template={tpl.id}
-                bind:field={wizard.tariff.forecastEntities[role]}
+                bind:field={wizard.forecast.entities[role]}
                 optional={!spec.required}
               />
             {/if}
@@ -183,7 +180,6 @@
     {:else}
       <p class="hint">{t('pv.forecast_none')}</p>
     {/each}
-    <p class="hint">{t('pv.forecast_stored')}</p>
   </fieldset>
 </WizardShell>
 

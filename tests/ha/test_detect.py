@@ -58,6 +58,7 @@ def test_site_roles_cover_the_documented_set() -> None:
         "battery_power",
         "battery_soc",
         "house_power",
+        "price",
         "para14a_signal",
     }
 
@@ -169,6 +170,22 @@ def test_para14a_signal_requires_a_keyword() -> None:
         "binary_sensor.evu_sperre",
         "input_boolean.para14a_active",
     }
+
+
+def test_price_role_matches_currency_per_kwh_sensors() -> None:
+    got = detect_site_role(
+        "price",
+        [
+            meta("sensor.tibber_strompreis", unit="EUR/kWh"),
+            meta("sensor.other_rate", unit="CHF/kWh"),
+            meta("sensor.grid_power", unit="W", device_class="power"),
+            meta("sensor.percent", unit="%"),
+            meta("sensor.lowercase", unit="eur/kWh"),
+        ],
+    )
+    assert [m.meta.entity_id for m in got] == ["sensor.tibber_strompreis", "sensor.other_rate"]
+    assert "name" in got[0].criteria
+    assert "unit_pattern" in got[0].criteria
 
 
 def test_unknown_site_role_raises() -> None:

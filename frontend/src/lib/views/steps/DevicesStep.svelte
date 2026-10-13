@@ -22,7 +22,7 @@
     type DeviceForm,
   } from '../../wizard/deviceForm';
   import { scopeIssues } from '../../wizard/issues';
-  import { orderedDevices } from '../../wizard/priorities';
+  import { nextPriority, orderedDevices } from '../../wizard/priorities';
 
   const save = new SaveState();
 
@@ -59,7 +59,7 @@
       wizard.devices.map((d) => d.name),
     );
     // New devices go to the end of the priority list.
-    form = newDeviceForm(tpl, name, wizard.devices.length);
+    form = newDeviceForm(tpl, name, nextPriority(wizard.devices));
     serverError = null;
     serverIssues = [];
     mode = { type: 'edit' };

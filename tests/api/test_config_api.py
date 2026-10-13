@@ -18,6 +18,10 @@ VALID: dict[str, dict[str, Any]] = {
         "import": {"kind": "fixed", "fixed_price": 0.3},
         "export": {"kind": "fixed", "fixed_price": 0.08},
     },
+    "forecast": {
+        "forecast_template_ids": ["solcast.pv"],
+        "forecast_entities": {"today": {"entity_id": "sensor.fc_today"}},
+    },
     "devices": {"devices": []},
     "goals": {"climate_before_export": True},
     "operation": {"mode": "shadow", "device_modes": {}},

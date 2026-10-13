@@ -53,7 +53,11 @@
       case 'name':
         return t('device.error.name');
       case 'role_missing':
-        return t('device.error.role_missing', { role: e.role });
+        return t('device.error.role_missing', {
+          role: template.roles[e.role]
+            ? tDynamic(template.roles[e.role]!.description, undefined, 'reason.unknown')
+            : e.role,
+        });
       case 'nominal_missing':
         return t('device.error.nominal');
       case 'comfort_missing':

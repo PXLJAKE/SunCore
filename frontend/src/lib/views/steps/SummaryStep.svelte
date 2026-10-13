@@ -47,6 +47,8 @@
   {onsave}
   {onfinish}
   nextLabel={t('summary.finish')}
+  blocked={result?.severity === 'error'}
+  blockedHint={t('summary.finish_blocked')}
 >
   <section class="card stack" aria-labelledby="chk-title">
     <h3 id="chk-title">{t('summary.check')}</h3>

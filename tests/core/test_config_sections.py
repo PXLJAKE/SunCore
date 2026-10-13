@@ -13,6 +13,7 @@ from suncore.core.config import (
     BatteryTarget,
     DevicesConfig,
     ExportTariff,
+    ForecastConfig,
     GoalsConfig,
     ImportTariff,
     OperationConfig,
@@ -190,17 +191,26 @@ def test_tariff_section() -> None:
             kind="tiered",
             tiers=[{"up_to_kwp": 10, "price": 0.0786}, {"price": 0.0680}],  # type: ignore[list-item]
         ),
+    )
+    assert [r.entity_id for r in t.entity_refs()] == ["sensor.p"]
+    assert t.schema_version == 2
+    assert TariffConfig.model_validate_json(t.model_dump_json()) == t
+    with pytest.raises(ValidationError):  # forecast fields moved to ForecastConfig
+        TariffConfig.model_validate(
+            {**t.model_dump(mode="json", by_alias=True), "forecast_template_ids": []}
+        )
+
+
+def test_forecast_section() -> None:
+    f = ForecastConfig(
         forecast_template_ids=["forecast.solcast"],
         forecast_entities={"today": EntityRef(entity_id="sensor.fc_today")},
     )
-    assert [r.entity_id for r in t.entity_refs()] == ["sensor.fc_today", "sensor.p"]
-    assert TariffConfig.model_validate_json(t.model_dump_json()) == t
+    assert ForecastConfig().forecast_template_ids == []
+    assert [r.entity_id for r in f.entity_refs()] == ["sensor.fc_today"]
+    assert ForecastConfig.model_validate_json(f.model_dump_json()) == f
     with pytest.raises(ValidationError, match="unique"):
-        TariffConfig(
-            import_=ImportTariff(kind="fixed", fixed_price=0.3),
-            export=ExportTariff(kind="none"),
-            forecast_template_ids=["a.b", "a.b"],
-        )
+        ForecastConfig(forecast_template_ids=["a.b", "a.b"])
 
 
 # --- devices -----------------------------------------------------------------------------

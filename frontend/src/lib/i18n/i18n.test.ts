@@ -44,6 +44,27 @@ describe('catalogues', () => {
   });
 });
 
+describe('sign check messages', () => {
+  it('end sentences cleanly for every direction (no stray space before the full stop)', () => {
+    for (const locale of ['en', 'de'] as const) {
+      for (const dir of ['importing', 'exporting', 'idle']) {
+        const text = tr.render(locale, 'signcheck.grid', { dir, power: '1.2 kW' });
+        expect(text, `${locale} ${dir}`).not.toMatch(/\s[.,?]|\s{2}/);
+        expect(text).toContain('1.2 kW');
+      }
+    }
+    expect(tr.render('de', 'signcheck.grid', { dir: 'importing', power: '1,2 kW' })).toBe(
+      'Am Netzanschluss werden gerade 1,2 kW bezogen. Stimmt das?',
+    );
+    expect(tr.render('de', 'signcheck.grid', { dir: 'exporting', power: '1,2 kW' })).toBe(
+      'Am Netzanschluss werden gerade 1,2 kW eingespeist. Stimmt das?',
+    );
+    expect(tr.render('de', 'signcheck.grid', { dir: 'idle', power: '3 W' })).toBe(
+      'Am Netzanschluss fließen gerade 3 W. Stimmt das?',
+    );
+  });
+});
+
 describe('translator', () => {
   it('renders ICU plurals per locale', () => {
     expect(tr.render('en', 'settings.sum.devices', { count: 0 })).toBe('No devices');

@@ -37,8 +37,20 @@ export interface DeviceForm {
   minRunMin: number | null;
   minPauseMin: number | null;
   priority: number;
+  /**
+   * Protection fields the form does not edit: from the template defaults for a new device, from
+   * the stored device when editing. `null` = safety/controller default, never "unlimited".
+   */
+  protection: Protection;
   /** The stored device: fields the form does not edit (hysteresis, windows, ...) are kept. */
   base: DeviceConfig | null;
+}
+
+export interface Protection {
+  settle_s: number | null;
+  hysteresis_w: number | null;
+  hysteresis_delay_s: number | null;
+  max_switches_per_hour: number | null;
 }
 
 const secToMin = (s: number): number => Math.round((s / 60) * 100) / 100;
@@ -125,6 +137,12 @@ export function newDeviceForm(
     minRunMin: secToMin(d.min_run_s),
     minPauseMin: secToMin(d.min_pause_s),
     priority,
+    protection: {
+      settle_s: d.settle_s ?? null,
+      hysteresis_w: d.hysteresis_w ?? null,
+      hysteresis_delay_s: d.hysteresis_delay_s ?? null,
+      max_switches_per_hour: d.max_switches_per_hour ?? null,
+    },
     base: null,
   };
 }
@@ -157,6 +175,12 @@ export function deviceFormFromConfig(
     minRunMin: secToMin(cfg.min_run_s),
     minPauseMin: secToMin(cfg.min_pause_s),
     priority: cfg.priority,
+    protection: {
+      settle_s: cfg.settle_s ?? null,
+      hysteresis_w: cfg.hysteresis_w ?? null,
+      hysteresis_delay_s: cfg.hysteresis_delay_s ?? null,
+      max_switches_per_hour: cfg.max_switches_per_hour ?? null,
+    },
     base: cfg,
   };
 }
@@ -201,12 +225,9 @@ export function deviceFromForm(
       : null;
   const base = form.base;
   return {
-    hysteresis_delay_s: base?.hysteresis_delay_s ?? null,
-    hysteresis_w: base?.hysteresis_w ?? null,
-    max_switches_per_hour: base?.max_switches_per_hour ?? null,
-    settle_s: base?.settle_s ?? null,
     windows: base?.windows ?? [],
     ...(base ?? {}),
+    ...form.protection,
     id,
     template_id: form.templateId,
     name: form.name.trim(),

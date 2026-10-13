@@ -197,10 +197,18 @@ async def test_system_check_of_the_demo_site(demo_runtime: Runtime) -> None:
     assert "wizard.check.entities_fresh" in keys
     assert "wizard.check.units_ok" in keys
     assert any(k.startswith("wizard.check.balance") for k in keys)
-    assert [i.subject for i in items if i.reason.key == "wizard.check.section_missing"] == [
+    # The demo starts fully set up: no section is missing.
+    assert [i for i in items if i.reason.key == "wizard.check.section_missing"] == []
+    # A fresh installation (sections removed) is told what is missing.
+    await demo_runtime.db.execute(
+        "DELETE FROM config_doc WHERE section IN ('region', 'tariff', 'forecast')"
+    )
+    bare = await demo_runtime.system_check(None)
+    assert [i.subject for i in bare if i.reason.key == "wizard.check.section_missing"] == [
         "region",
         "tariff",
     ]
+    assert [i.severity for i in bare if i.reason.key == "wizard.check.forecast_missing"] == ["ok"]
     await demo_runtime.put_section(
         "region", RegionConfig(region_id="de", currency="EUR", timezone="Europe/Berlin")
     )
@@ -291,5 +299,5 @@ async def test_the_wizard_endpoints_over_the_real_runtime(demo_runtime: Runtime)
     assert check.json()["items"]
     assert preview.json()["items"][0]["unit"] == "W"
     assert put.status_code == 200
-    assert goals_history.json() == []
+    assert len(goals_history.json()) == 1  # the seeded goals were replaced
     _ = cast("dict[str, Any]", {})

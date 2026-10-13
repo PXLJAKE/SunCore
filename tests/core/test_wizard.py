@@ -67,7 +67,7 @@ def keys(items: list) -> list[str]:  # type: ignore[type-arg]
     return [i.reason.key for i in items]
 
 
-PRESENT = {"site", "region", "tariff"}
+PRESENT = {"site", "region", "tariff", "forecast"}
 
 
 def test_everything_fine() -> None:
@@ -88,9 +88,14 @@ def test_missing_site_and_sections() -> None:
         ("error", "wizard.check.site_missing", "site"),
         ("warn", "wizard.check.section_missing", "region"),
         ("warn", "wizard.check.section_missing", "tariff"),
+        ("ok", "wizard.check.forecast_missing", "forecast"),
     ]
     assert worst_severity(items) == "error"
     assert worst_severity([]) == "ok"
+    no_forecast = run_system_check(site(), samples(), {"site", "region", "tariff"})
+    missing = [i for i in no_forecast if i.reason.key == "wizard.check.forecast_missing"]
+    assert [i.severity for i in missing] == ["ok"]  # an optional section is only a note
+    assert worst_severity(no_forecast) == "ok"
     only_tariff = run_system_check(site(), samples(), {"site", "region"})
     assert [i.subject for i in only_tariff if i.reason.key == "wizard.check.section_missing"] == [
         "tariff"

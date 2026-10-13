@@ -56,9 +56,11 @@
   let active = $state(-1);
   // While the list is open the typed text filters; opening on focus shows everything.
   let filtering = $state(false);
+  // Diagnostic, hidden and config entities are left out by default; this asks for them too.
+  let includeHidden = $state(false);
 
   $effect(() => {
-    const query = { role, template, deviceId };
+    const query = { role, template, deviceId, includeHidden };
     let stale = false;
     loadCandidates(query).then(
       (list) => {
@@ -240,6 +242,11 @@
       </button>
     </div>
   {/if}
+
+  <label class="check hidden-toggle">
+    <input type="checkbox" bind:checked={includeHidden} data-testid="include-hidden" />
+    {t('picker.include_hidden')}
+  </label>
 
   <div class="meta">
     {#if signed}

@@ -46,8 +46,11 @@ Demo backend: `SUNCORE_DEMO=1 SUNCORE_STATIC_DIR=frontend/dist uv run python -m 
   (combobox over `/entities?role=` or `?template=&role=&device_id=`, shows ranking criteria),
   `SignCheck` (live plausibility question through `POST /preview` with one-click inversion),
   `UnitBadge`, `NumberField`, `TemplateGallery`, `DeviceEditor`. Steps are lazy-loaded chunks.
-- The tariff section needs import and export prices; a forecast source chosen in the Solar step is
-  kept in memory until the Tariff step (or a complete tariff) stores it.
+- The tariff section needs import and export prices. The forecast source chosen in the Solar step
+  is its own section (`forecast`) and is stored right there, no tariff needed.
+- Unsaved edits: `wizard.dirty()` compares every form with the stored section. Leaving the wizard
+  asks first, Settings never reloads over unsaved edits (it offers to discard them), and
+  `beforeunload` asks on tab close.
 - The operating-mode step stores all three modes; only shadow is active (the gate ignores the
   section until Phase 3).
 
