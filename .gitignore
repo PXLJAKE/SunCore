@@ -25,3 +25,5 @@ frontend/dist/
 *.db
 .env
 .claude/settings.local.json
+frontend/playwright-report/
+frontend/test-results/

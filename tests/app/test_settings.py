@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from datetime import time
 from pathlib import Path
 
 import pytest
@@ -105,3 +106,9 @@ def test_under_supervisor() -> None:
     assert under_supervisor({"SUPERVISOR_TOKEN": "abc"}) is True
     assert under_supervisor({"SUPERVISOR_TOKEN": "  "}) is False
     assert under_supervisor({}) is False
+
+
+def test_demo_start_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert load_settings(tmp_path / "x.json").demo_start_time == time(10, 0)
+    monkeypatch.setenv("SUNCORE_DEMO_START_TIME", "13:30")
+    assert load_settings(tmp_path / "x.json").demo_start_time == time(13, 30)

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from datetime import time
 from pathlib import Path
 from typing import Any, ClassVar, Final, Literal
 
@@ -54,6 +55,8 @@ class Settings(BaseSettings):
     demo_mode: bool = False
     demo_speed: float = Field(default=60.0, gt=0)
     """Scenario acceleration in demo mode (60 = one 60 s step per real second)."""
+    demo_start_time: time = time(10, 0)
+    """Time of day (scenario-local) at which the demo starts (env SUNCORE_DEMO_START_TIME)."""
     data_dir: Path = Path("/data")
     port: int = Field(default=8099, ge=1, le=65535)
     host: str = "0.0.0.0"

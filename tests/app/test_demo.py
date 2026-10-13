@@ -17,7 +17,7 @@ from suncore.app.main import build_runtime
 from suncore.app.runtime import Runtime
 from suncore.core.site import EntityRef
 from suncore.ha.connection import CommandTimeoutError
-from suncore.sim.fake_ha import SIM_ENTITY_IDS, demo_site_config
+from suncore.sim.fake_ha import SIM_ENTITY_IDS, FakeHAConnection, demo_site_config
 from tests.api.conftest import client_for, serving
 from tests.app.conftest import RecordingConnection, demo_settings
 
@@ -211,3 +211,19 @@ async def test_peer_policy_follows_environment(tmp_path: Path) -> None:
         assert plain.peer_policy.allowed_peers == ("127.0.0.1", "::1")
     finally:
         await plain.stop()
+
+
+async def test_demo_starts_at_the_configured_time_of_day(tmp_path: Path) -> None:
+    runtime = await build_runtime(demo_settings(tmp_path, demo_start_time="12:00"), env={})
+    try:
+        await runtime.start()
+        conn = runtime.connection
+        assert isinstance(conn, FakeHAConnection)
+        for _ in range(100):
+            if conn.sim_time is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert conn.sim_time is not None
+        assert conn.sim_time.hour == 12
+    finally:
+        await runtime.stop()

@@ -348,3 +348,23 @@ def test_demo_site_config_is_valid() -> None:
     assert site.battery.power.entity_id == BATTERY_ID
     s = EntityState(entity_id=PV_ID, state="1.0")
     assert s.entity_id in SIM_ENTITY_IDS
+
+
+async def test_start_offset_fast_forwards_the_house(ticker: Ticker) -> None:
+    scenario = load_scenario("summer_day")
+    conn = FakeHAConnection(
+        scenario, clock=ticker.clock, sleep=ticker.sleep, start_offset_s=10 * 3600
+    )
+    await conn.connect()
+    try:
+        assert conn.sim_time == scenario.start + timedelta(hours=10)
+        states = {s.entity_id: s for s in await conn.get_states()}
+        assert float(states[PV_ID].state) > 0
+    finally:
+        await conn.close()
+
+
+@pytest.mark.parametrize("offset", [-1.0, 86400.0])
+def test_start_offset_outside_scenario_is_rejected(ticker: Ticker, offset: float) -> None:
+    with pytest.raises(ValueError, match="start_offset_s"):
+        FakeHAConnection(load_scenario("summer_day"), clock=ticker.clock, start_offset_s=offset)
