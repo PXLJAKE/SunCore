@@ -48,6 +48,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       version: ${{ steps.meta.outputs.version }}
+      app_version: ${{ steps.meta.outputs.app_version }}
       image_name: ${{ steps.meta.outputs.image_name }}
       registry_prefix: ${{ steps.meta.outputs.registry_prefix }}
       architectures: ${{ steps.meta.outputs.architectures }}
@@ -84,6 +85,8 @@ jobs:
           echo "image_name=${IMAGE##*/}" >> "$GITHUB_OUTPUT"
           echo "registry_prefix=${IMAGE%/*}" >> "$GITHUB_OUTPUT"
           echo "app=${APP}" >> "$GITHUB_OUTPUT"
+          # The Supervisor pulls <image>:<config.yaml version>, so that tag must exist.
+          echo "app_version=${VERSION}" >> "$GITHUB_OUTPUT"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo 'architectures=["amd64"]' >> "$GITHUB_OUTPUT"
             echo "version=pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
@@ -127,6 +130,7 @@ jobs:
           image: ${{ matrix.image }}
           image-tags: |
             ${{ needs.prepare.outputs.version }}
+            ${{ needs.prepare.outputs.app_version }}
             latest
           version: ${{ needs.prepare.outputs.version }}
           context: .
@@ -169,5 +173,6 @@ jobs:
           registry-prefix: ${{ needs.prepare.outputs.registry_prefix }}
           image-tags: |
             ${{ needs.prepare.outputs.version }}
+            ${{ needs.prepare.outputs.app_version }}
             latest
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}

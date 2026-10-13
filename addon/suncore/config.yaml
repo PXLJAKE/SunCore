@@ -20,7 +20,8 @@ ingress: true
 panel_icon: mdi:solar-power-variant
 panel_title: SunCore
 homeassistant_api: true
-hassio_api: true
+# hassio_api (Supervisor REST) is not used yet; MQTT credentials via the
+# services API will need it again (Phase 6). Least privilege until then.
 services:
   - mqtt:want
 backup_exclude:
