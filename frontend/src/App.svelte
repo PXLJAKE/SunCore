@@ -8,9 +8,11 @@
   import { live, type LinkStatus } from './lib/stores/live.svelte';
   import Now from './lib/views/Now.svelte';
   import Settings from './lib/views/Settings.svelte';
+  import Setup from './lib/views/Setup.svelte';
 
   let main: HTMLElement | undefined = $state();
   let firstRoute = true;
+  let redirected = false;
 
   const STATUS: Record<LinkStatus, MessageKey> = {
     connecting: 'conn.connecting',
@@ -48,9 +50,18 @@
     document.documentElement.lang = i18n.locale;
   });
 
+  // First start: nobody has completed the wizard, so open it once. Leaving it is allowed and is
+  // not undone (no redirect loop); a reload shows the wizard again until it is finished.
+  $effect(() => {
+    if (redirected || !app.needsSetup) return;
+    redirected = true;
+    if (router.route === 'now') router.replace('#/setup');
+  });
+
   // Move focus to the page content after navigation (keyboard and screen reader users).
   $effect(() => {
     void router.route;
+    if (router.route === 'setup') return; // the wizard moves the focus to its own heading
     if (firstRoute) {
       firstRoute = false;
       return;
@@ -65,7 +76,9 @@
   <h1 class="brand">{t('app.title')}</h1>
   <nav aria-label={t('nav.label')}>
     <a href="#/" aria-current={router.route === 'now' ? 'page' : undefined}>{t('nav.now')}</a>
-    <a href="#/settings" aria-current={router.route === 'settings' ? 'page' : undefined}
+    <a
+      href="#/settings"
+      aria-current={router.route === 'settings' || router.route === 'setup' ? 'page' : undefined}
       >{t('nav.settings')}</a
     >
   </nav>
@@ -92,7 +105,9 @@
 {/if}
 
 <main id="main" tabindex="-1" bind:this={main}>
-  {#if router.route === 'settings'}
+  {#if router.route === 'setup'}
+    <Setup />
+  {:else if router.route === 'settings'}
     <Settings />
   {:else}
     <Now />
@@ -200,7 +215,7 @@
     text-align: center;
   }
   main {
-    max-width: 960px;
+    max-width: 1100px;
     margin: 0 auto;
     padding: var(--sc-gap);
   }

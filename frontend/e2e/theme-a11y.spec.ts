@@ -52,7 +52,7 @@ for (const scheme of ['light', 'dark'] as const) {
         await page.goto(`/${hash}`);
         await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
         if (name === 'settings') {
-          await expect(page.getByLabel('Grid power (positive = import)')).toHaveValue(/sim/);
+          await expect(page.getByTestId('overview')).toContainText('sim_grid_power');
         }
         const results = await new AxeBuilder({ page })
           .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

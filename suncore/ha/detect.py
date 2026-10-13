@@ -162,6 +162,11 @@ SITE_ROLES: Final[Mapping[str, SiteRole]] = {
             keywords=("house", "haus", "home", "load", "consum", "verbrauch"),
         ),
         _role(
+            "price",
+            (EntityMatcher(domain="sensor", unit_pattern=r"^[A-Z]{3}/kWh$"), False),
+            keywords=("price", "preis", "tarif", "strompreis"),
+        ),
+        _role(
             "para14a_signal",
             (EntityMatcher(domain="binary_sensor"), False),
             (EntityMatcher(domain="input_boolean"), False),

@@ -51,6 +51,9 @@ const NON_TEXT_COMPONENT_PROPS = new Set([
   'icon',
   'testid',
   'autocomplete',
+  'step', // wizard step id
+  'path', // document path of a mapped entity
+  'unit', // unit symbol (W, kWh), not translatable text
 ]);
 
 /**

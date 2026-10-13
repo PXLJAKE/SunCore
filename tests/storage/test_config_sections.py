@@ -18,6 +18,7 @@ from suncore.core.config import (
     DevicesConfig,
     ExportTariff,
     ExportTier,
+    ForecastConfig,
     GoalsConfig,
     ImportTariff,
     OperationConfig,
@@ -215,6 +216,11 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
                 )
             ),
         ),
+    ),
+    "forecast": st.builds(
+        ForecastConfig,
+        forecast_template_ids=st.just(["solcast.pv"]),
+        forecast_entities=st.just({"today": EntityRef(entity_id="sensor.fc_today")}),
     ),
     "devices": _devices(),
     "goals": st.builds(
@@ -445,6 +451,78 @@ async def test_tariff_stored_with_import_key_and_legacy_key_still_loads(db: Data
         "UPDATE config_doc SET body = ? WHERE section = 'tariff'", (json.dumps(legacy),)
     )
     assert await store.get("tariff") == tariff
+
+
+V1_TARIFF = {
+    "schema_version": 1,
+    "import": {"kind": "fixed", "fixed_price": 0.3},
+    "export": {"kind": "none"},
+    "forecast_template_ids": ["solcast.pv"],
+    "forecast_entities": {"today": {"entity_id": "sensor.fc_today"}},
+}
+
+
+async def _store_v1_tariff(db: Database, body: dict[str, Any]) -> None:
+    await db.execute(
+        "INSERT INTO config_doc (section, schema_version, body, updated_at) "
+        "VALUES ('tariff', 1, ?, '2026-01-01T00:00:00+00:00')",
+        (json.dumps(body),),
+    )
+
+
+async def test_tariff_v1_forecast_fields_move_to_the_forecast_section(db: Database) -> None:
+    store = ConfigStore(db)
+    await _store_v1_tariff(db, V1_TARIFF)
+    # A plain read already drops the moved fields (document migration)...
+    tariff = await store.get("tariff")
+    assert isinstance(tariff, TariffConfig)
+    assert tariff.schema_version == 2
+    # ...and the start-up migration keeps them in their new section.
+    assert await store.migrate_legacy_forecast() is True
+    forecast = await store.get("forecast")
+    assert forecast == ForecastConfig(
+        forecast_template_ids=["solcast.pv"],
+        forecast_entities={"today": EntityRef(entity_id="sensor.fc_today")},
+    )
+    row = await db.fetchone("SELECT schema_version, body FROM config_doc WHERE section='tariff'")
+    assert row is not None
+    assert int(str(row[0])) == 2
+    assert "forecast_entities" not in json.loads(str(row[1]))
+    assert [h.schema_version for h in await store.history("tariff")] == [1]
+    assert await store.migrate_legacy_forecast() is False  # idempotent
+
+
+async def test_legacy_forecast_migration_keeps_an_existing_forecast_section(db: Database) -> None:
+    store = ConfigStore(db)
+    mine = ForecastConfig(forecast_template_ids=["other.pv"])
+    await store.put("forecast", mine)
+    await _store_v1_tariff(db, V1_TARIFF)
+    assert await store.migrate_legacy_forecast() is True
+    assert await store.get("forecast") == mine
+
+
+async def test_tariff_v1_without_forecast_fields_creates_no_forecast_section(
+    db: Database,
+) -> None:
+    store = ConfigStore(db)
+    await _store_v1_tariff(db, {k: v for k, v in V1_TARIFF.items() if not k.startswith("forecast")})
+    await store.migrate_legacy_forecast()
+    assert await store.get("forecast") is None
+    assert isinstance(await store.get("tariff"), TariffConfig)
+
+
+async def test_import_of_a_v1_tariff_export_carries_the_forecast_over(db: Database) -> None:
+    store = ConfigStore(db)
+    data = {
+        "suncore_export": 1,
+        "app_version": "0.2.0",
+        "db_schema_version": latest_version(),
+        "sections": {"tariff": {"schema_version": 1, "body": V1_TARIFF}},
+    }
+    assert await store.import_json(data) == ["forecast", "tariff"]
+    forecast = await store.get("forecast")
+    assert isinstance(forecast, ForecastConfig)
+    assert forecast.forecast_template_ids == ["solcast.pv"]
 
 
 def test_section_models_match_the_api_registry() -> None:

@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-13 · **Phase:** 2 in progress (PR 2-A) ·
+**Last update:** 2026-10-13 · **Phase:** 2 in progress (PR 2-C, wizard, stacked on 2-B) ·
 **Branch:** `phase-2/*` (stacked on `main`)
 
 ## Done
@@ -124,6 +124,33 @@ ADRs relevant to your task. Keep it short; history lives in git.
   (boundary tests keep the gate away from it). `UNVERIFIED`: `unknown_command` when the
   energy integration is not loaded; the older grid prefs format on a real older core.
 
+- **Phase 2 – PR 2-C (WP7–WP9, branch `phase-2/c-wizard`)**, stacked on 2-B:
+  - Frontend: setup wizard at `#/setup[/<step>]` (10 steps: region, Energy dashboard import, grid,
+    solar, battery, tariff, devices, priorities and goals, operating mode, summary with system
+    check), resumable via `wizard.completed_steps`; first start redirects once into it (Phase 1
+    users with a site but no wizard section land in the pre-filled wizard). `RolePicker`
+    (ranked candidates with the criteria that matched, live value, optional "also hidden and
+    diagnostic entities") and `SignCheck` (live plausibility question, one-click sign
+    inversion). Device gallery/editor from templates, drag-and-drop and keyboard priorities.
+    Settings overview with per-step edit links, config history/restore and export/import;
+    "Run setup again" restarts the wizard. Unsaved edits are guarded (leave confirmation,
+    Settings never reloads over them, `beforeunload`).
+  - Review fixes (this commit series): site role `price` (dynamic tariff with only a price
+    sensor); template protection defaults (`settle_s`, hysteresis, `max_switches_per_hour`)
+    carried into new devices; new device priority = highest + 1; "Finish" disabled while the
+    check reports an error; German wording; catalogue/ICU split into own chunks.
+  - Decisions: (1) the demo starts fully set up (region `de`, dynamic Tibber-style tariff,
+    forecast, three devices instantiated from `lg.thinq_climate`/`generic.switch`/
+    `generic.number_load`, goals, shadow, wizard completed); the wizard stays reachable.
+    (2) Phase 1 users are redirected once into the pre-filled wizard. (3) The forecast source
+    is its own optional section `forecast` (tariff is schema v2; tariff v1 forecast fields are
+    moved on start-up and on import); the system check only notes a missing forecast.
+    (4) `RolePicker` can include hidden/diagnostic entities.
+  - Bundle: 107.5 kB gzip in total (budget 250 kB); the first-paint chunks are `index`
+    11 kB, `icu` 10 kB, `catalogues` 22 kB (gzip), the wizard steps load on demand.
+  - `UNVERIFIED`: the theme bridge (copying HA theme variables from the ingress parent document)
+    is unit-tested with fake parent windows only, not on a real HA (table below).
+
 ## Open – Phase 1
 
 - Still to report by the maintainer: memory on the Pi, menu names in the
@@ -132,11 +159,11 @@ ADRs relevant to your task. Keep it short; history lives in git.
   public after the first stable build.
 - The beta app version is bumped by hand for now (HA only offers an update
   when `config.yaml` changes); automate it in the build workflow (Phase 2).
-- Phase 2 wizard: theme bridge from the ingress parent document (see
-  `frontend/README.md`). Done in PR 2-B: 422 issues are rendered as catalogue
-  keys (`api.validation.*`), and `/api/v1/entities` is served from the entity
-  catalogue (registry snapshot plus a state copy refreshed at most every 30 s,
-  never a `get_states` per request).
+- Done in PR 2-B: 422 issues are rendered as catalogue keys (`api.validation.*`),
+  and `/api/v1/entities` is served from the entity catalogue (registry snapshot
+  plus a state copy refreshed at most every 30 s, never a `get_states` per
+  request). The theme bridge from the ingress parent document is implemented
+  (PR 2-C) but `UNVERIFIED` on a real HA, see the table below.
 - Python ICU library decision (ADR-0007 follow-up) deferred to Phase 6:
   in Phase 1 the backend only emits `Reason(key, args)`.
 - Phase 3 follow-ups: extend boundary rule 2 to `suncore.devices` drivers
@@ -165,7 +192,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 ## Next steps
 
 1. Merge PR 2-A, then 2-B (`ha`, `api`: metadata, detection, operating mode
-   in config), 2-C and 2-D per `docs/plans/phase-2.md`.
+   in config), 2-C (wizard) and 2-D per `docs/plans/phase-2.md`.
 2. Release `0.2.0` (release-please PR #7) for the stable app after Phase 2.
 
 ## Known problems and `UNVERIFIED` items
@@ -176,7 +203,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
 | Open-Meteo tilted-irradiance parameters; Energy-Charts and aWATTar APIs and terms | `research/integrations.md` | Phase 4, session with network access |
 | Forecast.Solar / Open-Meteo Solar Forecast attribute names; Octopus attributes | `research/integrations.md` | Phase 4, read integration source |
-| Theme variable inheritance inside ingress iframe (spike: not verifiable without a running HA; fallback `prefers-color-scheme`) | `frontend/README.md` | Phase 2, on the maintainer's HA |
+| Theme bridge: `window.parent.document` readable from the ingress iframe, HA theme variable names (`THEME_MAP`) and the `MutationObserver` on the parent `<html>` follow HA theme switches (implemented in PR 2-C, unit-tested with fake parent windows only; fallback `prefers-color-scheme` is unchanged) | `frontend/src/lib/theme/bridge.ts`, `frontend/README.md` | maintainer's HA OS: switch the HA theme light/dark and check the panel follows |
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |

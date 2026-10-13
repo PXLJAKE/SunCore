@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 from suncore import __version__
 from suncore.core.config import (
     DevicesConfig,
+    ForecastConfig,
     GoalsConfig,
     OperationConfig,
     RegionConfig,
@@ -68,10 +69,29 @@ class HistoryEntry:
     body: Body
 
 
+FORECAST_KEYS: Final = ("forecast_template_ids", "forecast_entities")
+"""Tariff v1 fields that moved to the ``forecast`` section (tariff v2)."""
+
+
+def migrate_tariff_v1_to_v2(body: Body) -> Body:
+    """Tariff v2: the forecast sources are their own section (see :func:`legacy_forecast`)."""
+    return {k: v for k, v in body.items() if k not in FORECAST_KEYS}
+
+
+def legacy_forecast(body: Body) -> Body | None:
+    """The ``forecast`` section body hidden in a tariff v1 body; ``None`` if it had no sources."""
+    ids = body.get("forecast_template_ids") or []
+    entities = body.get("forecast_entities") or {}
+    if not ids and not entities:
+        return None
+    return {"forecast_template_ids": ids, "forecast_entities": entities}
+
+
 DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "site": SectionSpec(SiteConfig, (migrate_site_v1_to_v2,)),
     "region": SectionSpec(RegionConfig),
-    "tariff": SectionSpec(TariffConfig),
+    "tariff": SectionSpec(TariffConfig, (migrate_tariff_v1_to_v2,)),
+    "forecast": SectionSpec(ForecastConfig),
     "devices": SectionSpec(DevicesConfig),
     "goals": SectionSpec(GoalsConfig),
     "operation": SectionSpec(OperationConfig),
@@ -264,6 +284,44 @@ class ConfigStore:
         rows = await self._db.fetchall("SELECT section FROM config_doc")
         return frozenset(str(r[0]) for r in rows)
 
+    async def migrate_legacy_forecast(self) -> bool:
+        """Move forecast sources out of a stored tariff v1 into the ``forecast`` section.
+
+        Run once at start-up. Without it the v1 -> v2 document migration would drop them on
+        the next read. A stored ``forecast`` section wins; the tariff is rewritten at v2
+        (its old body goes to the history). Returns whether anything was moved.
+        """
+        if "tariff" not in self._sections or "forecast" not in self._sections:
+            return False
+        async with self._db.transaction() as tx:
+            row = await tx.fetchone(
+                "SELECT schema_version, body FROM config_doc WHERE section = 'tariff'"
+            )
+            if row is None or int(str(row[0])) != 1:
+                return False
+            try:
+                raw = json.loads(str(row[1]))
+            except json.JSONDecodeError:
+                return False
+            if not isinstance(raw, dict):
+                return False
+            moved = legacy_forecast(raw)
+            have = await tx.fetchone("SELECT 1 FROM config_doc WHERE section = 'forecast'")
+            now = self._clock().isoformat()
+            if moved is not None and have is None:
+                try:
+                    forecast = ForecastConfig.model_validate(moved)
+                except ValidationError:
+                    forecast = None
+                if forecast is not None:
+                    await self._write(tx, "forecast", forecast, now)
+            try:
+                tariff = self._upgrade("tariff", 1, raw)
+            except ConfigCorruptError:
+                return False  # stays as it is; reads report it
+            await self._write(tx, "tariff", tariff, now)
+        return True
+
     async def get_site(self) -> SiteConfig | None:
         model = await self.get("site")
         assert model is None or isinstance(model, SiteConfig)
@@ -324,6 +382,10 @@ class ConfigStore:
                     msg = f"section {name!r}: body must be an object"
                     raise ImportRejectedError(msg)
                 result[name] = self._upgrade(name, version, body)
+                if name == "tariff" and version == 1 and "forecast" not in raw_sections:
+                    moved = legacy_forecast(body)
+                    if moved is not None:
+                        result["forecast"] = self._upgrade("forecast", 1, moved)
             except (UnknownSectionError, ConfigCorruptError) as exc:
                 msg = f"import: {exc}"
                 raise ImportRejectedError(msg) from exc

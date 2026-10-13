@@ -44,3 +44,7 @@ export function formatPercentValue(pct: number, locale: Locale): string {
 export function formatTime(date: Date, locale: Locale): string {
   return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(date);
 }
+
+export function formatDateTime(date: Date, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}

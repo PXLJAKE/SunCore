@@ -8,6 +8,7 @@ import type {
   EnergyPrefs,
   EntityCandidate,
   HistoryRestore,
+  ImportResult,
   Info,
   PreviewResult,
   SiteConfig,
@@ -83,12 +84,19 @@ export const api = {
     }),
   entities: () => request<EntityCandidate[]>(`${API_PREFIX}entities`),
   /** Ranked entities for a site role (`grid_power`, `battery_soc`, ...). */
-  entitiesForRole: (role: string) =>
-    request<EntityCandidate[]>(`${API_PREFIX}entities${query({ role })}`),
-  /** Ranked entities for a template role; `deviceId` scopes `same_device_as` roles. */
-  entitiesForTemplate: (template: string, role: string, deviceId?: string) =>
+  entitiesForRole: (role: string, includeHidden = false) =>
     request<EntityCandidate[]>(
-      `${API_PREFIX}entities${query({ template, role, device_id: deviceId })}`,
+      `${API_PREFIX}entities${query({ role, include_hidden: includeHidden ? 'true' : undefined })}`,
+    ),
+  /** Ranked entities for a template role; `deviceId` scopes `same_device_as` roles. */
+  entitiesForTemplate: (template: string, role: string, deviceId?: string, includeHidden = false) =>
+    request<EntityCandidate[]>(
+      `${API_PREFIX}entities${query({
+        template,
+        role,
+        device_id: deviceId,
+        include_hidden: includeHidden ? 'true' : undefined,
+      })}`,
     ),
   /** A config section; `null` while it was never stored. */
   getSection: <T>(section: ConfigSectionName) =>
@@ -104,6 +112,15 @@ export const api = {
   restore: (section: ConfigSectionName, id: number) =>
     request<HistoryRestore>(`${API_PREFIX}config/${section}/history/${id}/restore`, {
       method: 'POST',
+    }),
+  /** URL of the configuration export (a plain download link, resolved against the document). */
+  exportUrl: (): string => apiUrl(`${API_PREFIX}config/export`).toString(),
+  /** Import an export file (raw JSON text, validated by the server). */
+  importConfig: (text: string) =>
+    request<ImportResult>(`${API_PREFIX}config/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: text,
     }),
   templates: (kind?: TemplateKind) =>
     request<TemplateList>(`${API_PREFIX}templates${query({ kind })}`),
