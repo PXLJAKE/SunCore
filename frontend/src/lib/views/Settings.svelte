@@ -19,7 +19,6 @@
   import { app } from '../stores/app.svelte';
   import { live } from '../stores/live.svelte';
 
-  const LIST_ID = 'suncore-entity-options';
   const POLL_MS = 10_000;
 
   let form = $state<SiteForm>(emptyForm());
@@ -135,12 +134,6 @@
     </p>
   {/if}
 
-  <datalist id={LIST_ID}>
-    {#each candidates as c (c.entity_id)}
-      <option value={c.entity_id}>{c.name}</option>
-    {/each}
-  </datalist>
-
   {#if loaded}
     <form onsubmit={save} novalidate>
       <fieldset class="card">
@@ -161,24 +154,17 @@
           {/each}
         </div>
         {#if form.gridMode === 'single'}
-          <EntityField
-            label={t('settings.grid.power')}
-            bind:field={form.gridPower}
-            {candidates}
-            listId={LIST_ID}
-          />
+          <EntityField label={t('settings.grid.power')} bind:field={form.gridPower} {candidates} />
         {:else}
           <EntityField
             label={t('settings.grid.import')}
             bind:field={form.gridImport}
             {candidates}
-            listId={LIST_ID}
           />
           <EntityField
             label={t('settings.grid.export')}
             bind:field={form.gridExport}
             {candidates}
-            listId={LIST_ID}
           />
         {/if}
       </fieldset>
@@ -195,7 +181,6 @@
             label={t('settings.pv.entity', { n: i + 1 })}
             bind:field={form.pv[i]!}
             {candidates}
-            listId={LIST_ID}
             onremove={form.pv.length > 1 ? () => form.pv.splice(i, 1) : undefined}
           />
         {/each}
@@ -218,7 +203,6 @@
             label={t('settings.battery.power')}
             bind:field={form.batteryPower}
             {candidates}
-            listId={LIST_ID}
           />
           <EntityField
             label={t('settings.battery.soc')}
@@ -226,7 +210,6 @@
             {candidates}
             kind="soc"
             signed={false}
-            listId={LIST_ID}
           />
         {/if}
       </fieldset>
@@ -235,12 +218,7 @@
         <legend>{t('settings.house.title')}</legend>
         <p class="hint">{t('settings.house.hint')}</p>
         <p class="live">{t('settings.live', { value: liveText('house_w') })}</p>
-        <EntityField
-          label={t('settings.house.entity')}
-          bind:field={form.house}
-          {candidates}
-          listId={LIST_ID}
-        />
+        <EntityField label={t('settings.house.entity')} bind:field={form.house} {candidates} />
       </fieldset>
 
       {#if formErrors.length > 0}

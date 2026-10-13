@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
 import type { EntityCandidate, SiteConfig } from './api/types';
-import { emptyForm, formFromSite, previewOf, siteFromForm, validateForm } from './siteForm';
+import {
+  emptyForm,
+  filterCandidates,
+  formFromSite,
+  previewOf,
+  resolveCandidate,
+  siteFromForm,
+  validateForm,
+} from './siteForm';
 
 const cand = (over: Partial<EntityCandidate> = {}): EntityCandidate => ({
   entity_id: 'sensor.x',
@@ -119,5 +127,50 @@ describe('previewOf', () => {
       type: 'percent',
       percent: 64,
     });
+  });
+});
+
+describe('entity picker matching', () => {
+  const soc = cand({
+    entity_id: 'sensor.kl_strom_plenticore_battery_soc',
+    name: 'Plenticore Battery SoC',
+    device_class: 'battery',
+    unit: '%',
+    state: '75',
+  });
+  const grid = cand({ entity_id: 'sensor.grid_power', name: 'Grid Power', unit: 'W' });
+  const pv = cand({ entity_id: 'sensor.pv_kw', name: 'PV Leistung', unit: 'kW' });
+  const temp = cand({ entity_id: 'sensor.temp', name: 'Temperatur', unit: '°C' });
+  const all = [soc, grid, pv, temp];
+
+  it('filters by kind', () => {
+    expect(filterCandidates(all, 'power', '').items).toEqual([grid, pv]);
+    expect(filterCandidates(all, 'soc', '').items).toEqual([soc]);
+  });
+  it('matches entity id and friendly name case-insensitively', () => {
+    expect(filterCandidates(all, 'soc', 'PLENTICORE').items).toEqual([soc]);
+    expect(filterCandidates(all, 'soc', 'kl_strom').items).toEqual([soc]);
+    expect(filterCandidates(all, 'power', 'leistung').items).toEqual([pv]);
+    expect(filterCandidates(all, 'power', 'nothing').total).toBe(0);
+  });
+  it('requires all whitespace-separated terms', () => {
+    expect(filterCandidates(all, 'soc', 'battery  soc').items).toEqual([soc]);
+    expect(filterCandidates(all, 'soc', 'battery grid').items).toEqual([]);
+  });
+  it('does not offer the SoC sensor for power fields', () => {
+    expect(filterCandidates(all, 'power', 'battery').items).toEqual([]);
+  });
+  it('caps the list but reports the total', () => {
+    const many = Array.from({ length: 80 }, (_, i) => cand({ entity_id: `sensor.p${i}` }));
+    const r = filterCandidates(many, 'power', 'p');
+    expect(r.items).toHaveLength(50);
+    expect(r.total).toBe(80);
+    expect(filterCandidates(many, 'power', '', 5).items).toHaveLength(5);
+  });
+  it('resolves an entity id or an exact friendly name', () => {
+    expect(resolveCandidate(all, ' sensor.grid_power ')).toBe(grid);
+    expect(resolveCandidate(all, 'plenticore battery soc')).toBe(soc);
+    expect(resolveCandidate(all, 'Plenticore')).toBeUndefined();
+    expect(resolveCandidate(all, '')).toBeUndefined();
   });
 });
