@@ -294,6 +294,15 @@ area}_registry.py`, `homeassistant/helpers/{entity,device,area}_registry.py`,
 This replaces the earlier `UNVERIFIED` markers for the registry list command
 names and the `power_config` shape.
 
+Verified on 2026-10-13 (Phase 2 WP5) against `home-assistant/core` `dev`, raw files
+`components/websocket_api/commands.py` (`handle_call_service`: with `return_response: true` the
+result is `{"context": ..., "response": ...}`; `handle_subscribe_events`: `event_type` string,
+empty result, events as `{"id": <subscribe id>, "type": "event", "event": {...}}`),
+`components/websocket_api/messages.py` (`cached_event_message`),
+`components/config/entity_registry.py` (`list_for_display` takes no fields, `ec` indexes the
+delivered `entity_categories`). SunCore uses them in `suncore/ha/websocket.py`
+(`subscribe_registry_updates`, `call_action_response`).
+
 `UNVERIFIED`: the shape on cores older than the dev branch (the device
 registry's single `config_entry_id` and the unified grid source are recent;
 cores 2025.x and early 2026.x may still return `config_entries` only and the

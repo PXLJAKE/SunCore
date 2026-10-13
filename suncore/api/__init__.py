@@ -3,18 +3,24 @@
 
 from suncore.api.app import create_app
 from suncore.api.services import (
-    CandidateInfo,
+    EnergyPrefsFailedError,
+    EntityQuery,
     HAUnavailableError,
     HealthReport,
     PeerPolicy,
     Services,
+    UnknownRoleError,
+    UnknownTemplateError,
 )
 
 __all__ = [
-    "CandidateInfo",
+    "EnergyPrefsFailedError",
+    "EntityQuery",
     "HAUnavailableError",
     "HealthReport",
     "PeerPolicy",
     "Services",
+    "UnknownRoleError",
+    "UnknownTemplateError",
     "create_app",
 ]

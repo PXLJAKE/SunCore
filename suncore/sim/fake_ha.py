@@ -28,22 +28,33 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Collection, Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Final
 
+from suncore.core.actions import is_read_only_action
 from suncore.core.entities import EntityMeta
 from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.ha.connection import (
+    REGISTRY_EVENT_TYPES,
+    ActionNotAllowedError,
+    CommandError,
     ConnectionState,
     EntityListener,
     EntityState,
     EntityUpdate,
+    HAError,
     NotConnectedError,
+    RegistryListener,
     StateListener,
     Unsubscribe,
 )
 from suncore.sim import registry
-from suncore.sim.demo_devices import SIM_DEVICE_ENTITY_IDS, DemoDevices
+from suncore.sim.demo_devices import (
+    FORECAST_TODAY_ID,
+    SIM_DEVICE_ENTITY_IDS,
+    DemoDevices,
+    sim_price,
+)
 from suncore.sim.house import House, HouseState
 from suncore.sim.scenario import Scenario, SimSignal
 
@@ -117,15 +128,18 @@ class FakeHAConnection:
         energy_prefs_configured: whether the fake Energy dashboard has preferences
             (``False`` = ``energy/get_prefs`` would answer ``not_found``).
 
-    Besides the :class:`HAConnection` protocol the fake offers accessors for the registry and
-    Energy dashboard data that WP5 wires to the WebSocket commands of the same name (all
-    raise :class:`NotConnectedError` while not connected, like the real commands would):
+    The registry and Energy dashboard accessors mirror the WebSocket commands of the same name
+    (all raise :class:`NotConnectedError` while not connected, like the real commands would;
+    set :attr:`registry_error` to make the registry commands fail, e.g. to test degradation):
 
     * :meth:`entity_registry_list_for_display` - ``config/entity_registry/list_for_display``
     * :meth:`entity_registry_list` - ``config/entity_registry/list``
     * :meth:`device_registry_list` - ``config/device_registry/list``
     * :meth:`area_registry_list` - ``config/area_registry/list``
     * :meth:`energy_get_prefs` - ``energy/get_prefs`` (``None`` = not configured)
+    * :meth:`subscribe_registry_updates` / :meth:`fire_registry_event` - the three registry
+      update events
+    * :meth:`call_action_response` - read-only actions (``tibber.get_prices``, ...)
     * :meth:`entity_metas` - registry joined with the current states as ``EntityMeta``
     """
 
@@ -163,6 +177,8 @@ class FakeHAConnection:
         self._house_state: HouseState | None = None
         self._demo: DemoDevices | None = None
         self._energy_prefs_configured = energy_prefs_configured
+        self.registry_error: HAError | None = None
+        self._registry_listeners: list[RegistryListener] = []
 
     # --- HAConnection ---------------------------------------------------------
 
@@ -246,7 +262,7 @@ class FakeHAConnection:
 
     async def entity_registry_list_for_display(self) -> dict[str, Any]:
         """Payload of ``config/entity_registry/list_for_display``."""
-        self._require_connected()
+        self._require_registry()
         return registry.entity_registry_list_for_display()
 
     async def entity_registry_list(self) -> list[dict[str, Any]]:
@@ -256,12 +272,12 @@ class FakeHAConnection:
 
     async def device_registry_list(self) -> list[dict[str, Any]]:
         """Payload of ``config/device_registry/list``."""
-        self._require_connected()
+        self._require_registry()
         return registry.device_registry_list()
 
     async def area_registry_list(self) -> list[dict[str, Any]]:
         """Payload of ``config/area_registry/list``."""
-        self._require_connected()
+        self._require_registry()
         return registry.area_registry_list()
 
     async def energy_get_prefs(self) -> dict[str, Any] | None:
@@ -270,6 +286,43 @@ class FakeHAConnection:
         if not self._energy_prefs_configured:
             return None
         return registry.energy_prefs(self._scenario.house.battery.capacity_wh / 1000)
+
+    async def subscribe_registry_updates(self, listener: RegistryListener) -> Unsubscribe:
+        """Register for registry events; :meth:`fire_registry_event` delivers them."""
+        return self._add(self._registry_listeners, listener)
+
+    def fire_registry_event(self, event_type: str = REGISTRY_EVENT_TYPES[0]) -> None:
+        """Deliver a registry update event to the listeners (tests and demo hooks)."""
+        for listener in list(self._registry_listeners):
+            try:
+                listener(event_type)
+            except Exception:
+                _log.exception("registry listener failed")
+
+    async def call_action_response(
+        self,
+        domain: str,
+        service: str,
+        data: Mapping[str, Any] | None = None,  # noqa: ARG002
+        *,
+        target: Mapping[str, Any] | None = None,  # noqa: ARG002
+    ) -> dict[str, Any]:
+        """Read-only action responses built from the demo data (allowlist like the real one)."""
+        if not is_read_only_action(domain, service):
+            msg = f"{domain}.{service} is not a read-only action"
+            raise ActionNotAllowedError(msg)
+        self._require_connected()
+        now = self._house_state.time if self._house_state is not None else self._clock()
+        if (domain, service) == ("tibber", "get_prices"):
+            start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+            slots = [start + timedelta(minutes=15 * i) for i in range(96)]
+            prices = [{"start_time": t.isoformat(), "price": sim_price(t)} for t in slots]
+            return {"prices": {"Home": prices}}
+        if (domain, service) == ("solcast_solar", "query_forecast_data"):
+            today = self._published.get(FORECAST_TODAY_ID)
+            slots_data = today.attributes.get("detailedForecast", []) if today else []
+            return {"data": list(slots_data)}
+        raise CommandError("not_found", f"Service {domain}.{service} not found.")
 
     def entity_metas(self) -> list[EntityMeta]:
         """Registry entries joined with the published states (what detection ranks)."""
@@ -306,6 +359,11 @@ class FakeHAConnection:
                 listeners.remove(listener)
 
         return remove
+
+    def _require_registry(self) -> None:
+        self._require_connected()
+        if self.registry_error is not None:
+            raise self.registry_error
 
     def _require_connected(self) -> None:
         if self._state is not ConnectionState.CONNECTED:

@@ -5,7 +5,10 @@
 Collected from ``suncore/``:
 
 * ``Reason(key="...")`` calls (AST, so comments and strings elsewhere do not count),
-* string constants starting with ``api.error.`` (the error ``detail`` keys of the API).
+* string constants starting with ``api.error.`` (the error ``detail`` keys of the API) or
+  ``api.validation.`` in ``suncore/api`` (validation issue keys),
+* string constants that are exactly one key with the prefix ``wizard.`` (check and import
+  reasons built from a variable) or ``detect.criterion.`` anywhere in ``suncore/``.
 
 Each key must be present in ``frontend/src/lib/i18n/locales/en.json`` and ``de.json``.
 Run via ``uv run python scripts/check_reasons.py``; exit code 1 lists the gaps.
@@ -15,13 +18,16 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "suncore"
 LOCALES = ROOT / "frontend" / "src" / "lib" / "i18n" / "locales"
-ERROR_PREFIX = "api.error."
+ERROR_PREFIXES = ("api.error.", "api.validation.")
+KEY_PREFIXES = ("wizard.", "detect.criterion.")
+KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 
 
 def _is_reason_call(node: ast.Call) -> bool:
@@ -45,7 +51,15 @@ def _error_keys(node: ast.Constant) -> list[str]:
     if not isinstance(text, str):
         return []
     parts = text.split('"')
-    return [p for p in parts if p.startswith(ERROR_PREFIX) and " " not in p]
+    return [p for p in parts if p.startswith(ERROR_PREFIXES) and " " not in p]
+
+
+def _plain_key(node: ast.Constant) -> list[str]:
+    """A constant that is exactly one ``wizard.*`` / ``detect.criterion.*`` key."""
+    value = node.value
+    if isinstance(value, str) and value.startswith(KEY_PREFIXES) and KEY_RE.match(value):
+        return [value]
+    return []
 
 
 def collect_keys(source: Path = SOURCE) -> dict[str, list[str]]:
@@ -60,8 +74,9 @@ def collect_keys(source: Path = SOURCE) -> dict[str, list[str]]:
             if isinstance(node, ast.Call) and _is_reason_call(node):
                 key = _reason_key(node)
                 keys = [key] if key else []
-            elif in_api and isinstance(node, ast.Constant):
-                keys = _error_keys(node)
+            elif isinstance(node, ast.Constant):
+                keys = _error_keys(node) if in_api else []
+                keys += _plain_key(node)
             for key in keys:
                 found.setdefault(key, []).append(f"{rel}:{node.lineno}")
     return found

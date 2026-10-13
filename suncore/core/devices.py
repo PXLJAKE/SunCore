@@ -21,6 +21,7 @@ from typing import Annotated, Final, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from suncore.core.site import EntityRef
+from suncore.core.validation import invalid
 
 DEVICE_ID_PATTERN: Final = r"^[a-z][a-z0-9_]{0,47}$"
 ROLE_PATTERN: Final = r"^[a-z][a-z0-9_]{0,31}$"
@@ -101,17 +102,22 @@ class PowerModel(_Frozen):
     def _consistent(self) -> Self:
         kind = self.kind
         if kind is PowerModelKind.MEASURED and self.power_role is None:
-            msg = "power_model: kind `measured` needs `power_role`"
-            raise ValueError(msg)
+            raise invalid("power_model_measured", "power_model: kind `measured` needs `power_role`")
         if kind is PowerModelKind.COUNTER_DERIVED and self.energy_role is None:
-            msg = "power_model: kind `counter_derived` needs `energy_role`"
-            raise ValueError(msg)
+            raise invalid(
+                "power_model_counter", "power_model: kind `counter_derived` needs `energy_role`"
+            )
         if kind in (PowerModelKind.NOMINAL, PowerModelKind.LEARNED) and self.nominal_w is None:
-            msg = f"power_model: kind `{kind.value}` needs `nominal_w`"
-            raise ValueError(msg)
+            raise invalid(
+                "power_model_nominal",
+                "power_model: kind `{kind}` needs `nominal_w`",
+                kind=kind.value,
+            )
         if self.counter_update_s is not None and self.energy_role is None:
-            msg = "power_model: `counter_update_s` without `energy_role`"
-            raise ValueError(msg)
+            raise invalid(
+                "counter_update_without_role",
+                "power_model: `counter_update_s` without `energy_role`",
+            )
         return self
 
 
@@ -150,8 +156,7 @@ class StepsControl(_Frozen):
     def _increasing(self) -> Self:
         powers = [s.power_w for s in self.steps]
         if any(a >= b for a, b in itertools.pairwise(powers)):
-            msg = "control.steps: `power_w` must be strictly increasing"
-            raise ValueError(msg)
+            raise invalid("steps_order", "control.steps: `power_w` must be strictly increasing")
         return self
 
 
@@ -170,14 +175,18 @@ class ContinuousControl(_Frozen):
     @model_validator(mode="after")
     def _valid(self) -> Self:
         if not self.min < self.max:
-            msg = f"control: min ({self.min}) must be below max ({self.max})"
-            raise ValueError(msg)
+            raise invalid(
+                "control_range",
+                "control: min ({min}) must be below max ({max})",
+                min=self.min,
+                max=self.max,
+            )
         if self.unit != "A" and (self.voltage_v != 230.0 or self.phases != 1):
-            msg = "control: `voltage_v` and `phases` are only valid for unit `A`"
-            raise ValueError(msg)
+            raise invalid(
+                "control_amps_only", "control: `voltage_v` and `phases` are only valid for unit `A`"
+            )
         if self.unit == "%" and self.max > 100:
-            msg = "control: unit `%` allows at most 100"
-            raise ValueError(msg)
+            raise invalid("control_percent_max", "control: unit `%` allows at most 100")
         return self
 
 
@@ -201,8 +210,7 @@ class ModeControl(_Frozen):
     def _unique(self) -> Self:
         values = [m.value for m in self.modes]
         if len(set(values)) != len(values):
-            msg = "control.modes: values must be unique"
-            raise ValueError(msg)
+            raise invalid("modes_unique", "control.modes: values must be unique")
         return self
 
 
@@ -222,8 +230,12 @@ class ComfortBand(_Frozen):
     @model_validator(mode="after")
     def _ordered(self) -> Self:
         if not self.min_c < self.max_c:
-            msg = f"comfort: min_c ({self.min_c}) must be below max_c ({self.max_c})"
-            raise ValueError(msg)
+            raise invalid(
+                "comfort_order",
+                "comfort: min_c ({min_c}) must be below max_c ({max_c})",
+                min_c=self.min_c,
+                max_c=self.max_c,
+            )
         return self
 
 
@@ -242,14 +254,11 @@ class TimeWindow(_Frozen):
     @model_validator(mode="after")
     def _valid(self) -> Self:
         if self.start == self.end:
-            msg = "window: start and end must differ"
-            raise ValueError(msg)
+            raise invalid("window_empty", "window: start and end must differ")
         if not self.days:
-            msg = "window: at least one weekday is required"
-            raise ValueError(msg)
+            raise invalid("window_no_days", "window: at least one weekday is required")
         if len(set(self.days)) != len(self.days):
-            msg = "window: weekdays must be unique"
-            raise ValueError(msg)
+            raise invalid("window_days_unique", "window: weekdays must be unique")
         return self
 
 
@@ -284,33 +293,51 @@ class DeviceConfig(_Frozen):
         seen: dict[str, str] = {}
         for role, ref in self.entities.items():
             if ref.entity_id in seen:
-                msg = f"entities: {ref.entity_id} is mapped to `{seen[ref.entity_id]}` and `{role}`"
-                raise ValueError(msg)
+                raise invalid(
+                    "entity_mapped_twice",
+                    "entities: {entity_id} is mapped to `{first}` and `{second}`",
+                    entity_id=ref.entity_id,
+                    first=seen[ref.entity_id],
+                    second=role,
+                )
             seen[ref.entity_id] = role
         if self.comfort is not None and self.kind not in THERMAL_KINDS:
-            msg = f"comfort: not applicable to kind `{self.kind.value}`"
-            raise ValueError(msg)
+            raise invalid(
+                "comfort_not_applicable",
+                "comfort: not applicable to kind `{kind}`",
+                kind=self.kind.value,
+            )
         pm = self.power_model
         for field, pm_role in (("power_role", pm.power_role), ("energy_role", pm.energy_role)):
             if pm_role is not None and pm_role not in self.entities:
-                msg = f"power_model.{field}: role `{pm_role}` is not mapped in `entities`"
-                raise ValueError(msg)
+                raise invalid(
+                    "power_role_unmapped",
+                    "power_model.{field}: role `{role}` is not mapped in `entities`",
+                    field=field,
+                    role=pm_role,
+                )
         if pm.energy_role is not None and self.entities[pm.energy_role].invert_sign:
-            msg = "power_model.energy_role: invert_sign is meaningless for a counter"
-            raise ValueError(msg)
+            raise invalid(
+                "counter_invert",
+                "power_model.energy_role: invert_sign is meaningless for a counter",
+            )
         if self.control.role not in self.entities:
-            msg = f"control.role: role `{self.control.role}` is not mapped in `entities`"
-            raise ValueError(msg)
+            raise invalid(
+                "control_role_unmapped",
+                "control.role: role `{role}` is not mapped in `entities`",
+                role=self.control.role,
+            )
         if isinstance(self.control, SetpointControl) and self.comfort is None:
-            msg = "control: kind `setpoint` needs `comfort`"
-            raise ValueError(msg)
+            raise invalid("setpoint_needs_comfort", "control: kind `setpoint` needs `comfort`")
         if (
             isinstance(self.control, ContinuousControl)
             and self.control.unit == "%"
             and pm.nominal_w is None
         ):
-            msg = "control: unit `%` is relative to `power_model.nominal_w`, which is missing"
-            raise ValueError(msg)
+            raise invalid(
+                "percent_needs_nominal",
+                "control: unit `%` is relative to `power_model.nominal_w`, which is missing",
+            )
         return self
 
     def entity_refs(self) -> list[EntityRef]:

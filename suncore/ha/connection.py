@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Final, Protocol, runtime_checkable
 
 # --- errors -----------------------------------------------------------------
 
@@ -66,6 +66,10 @@ class CommandError(HAError):
 
 class CommandTimeoutError(HAError, TimeoutError):
     """No result arrived for a command in time."""
+
+
+class ActionNotAllowedError(HAError):
+    """``call_action_response`` was asked for an action that is not on the read-only allowlist."""
 
 
 # --- value types --------------------------------------------------------------
@@ -119,6 +123,17 @@ StateListener = Callable[[ConnectionState], None]
 EntityListener = Callable[[EntityUpdate], None]
 Unsubscribe = Callable[[], None]
 
+REGISTRY_EVENT_TYPES: Final[tuple[str, ...]] = (
+    "entity_registry_updated",
+    "device_registry_updated",
+    "area_registry_updated",
+)
+"""Registry update events (verified 2026-10-13, ``docs/research/ha-websocket-api.md``)."""
+
+RegistryListener = Callable[[str], None]
+"""Called with the event type of a registry update (the event data is not needed: a refresh
+re-reads the list commands)."""
+
 
 @runtime_checkable
 class HAConnection(Protocol):
@@ -156,6 +171,50 @@ class HAConnection(Protocol):
     async def get_states(self) -> list[EntityState]: ...
 
     async def get_config(self) -> Mapping[str, Any]: ...
+
+    # --- registries and Energy dashboard (read only, Phase 2 WP5) ---------------
+
+    async def entity_registry_list_for_display(self) -> Mapping[str, Any]:
+        """``config/entity_registry/list_for_display``: ``{entity_categories, entities}``.
+
+        Compact, without disabled entities (verified, ``docs/research/ha-websocket-api.md``).
+        """
+        ...
+
+    async def device_registry_list(self) -> Sequence[Mapping[str, Any]]:
+        """``config/device_registry/list``."""
+        ...
+
+    async def area_registry_list(self) -> Sequence[Mapping[str, Any]]:
+        """``config/area_registry/list``."""
+        ...
+
+    async def energy_get_prefs(self) -> Mapping[str, Any] | None:
+        """``energy/get_prefs``; ``None`` where HA answers ``not_found`` ("No prefs")."""
+        ...
+
+    async def subscribe_registry_updates(self, listener: RegistryListener) -> Unsubscribe:
+        """Call ``listener(event_type)`` on every registry update event.
+
+        Subscribes to the three events of :data:`REGISTRY_EVENT_TYPES`; the subscriptions are
+        renewed after a reconnect. Returns the remover.
+        """
+        ...
+
+    async def call_action_response(
+        self,
+        domain: str,
+        service: str,
+        data: Mapping[str, Any] | None = None,
+        *,
+        target: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Call a read-only action with ``return_response`` and return its response.
+
+        Raises :class:`ActionNotAllowedError` unless ``domain.service`` is in
+        :data:`suncore.core.actions.READ_ONLY_ACTIONS`. This is *not* a write path.
+        """
+        ...
 
 
 @runtime_checkable

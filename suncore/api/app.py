@@ -11,31 +11,68 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 from typing import Any, Final
 
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 from starlette.websockets import WebSocketState
 
+from suncore.api.limits import BodyLimitMiddleware
 from suncore.api.models import (
+    CheckOut,
+    CheckRequest,
+    ConfigHistoryEntryOut,
     DecisionsMessage,
+    EnergyPrefsOut,
     EntityCandidateOut,
     ErrorOut,
     FlowsMessage,
     FlowsOut,
     HealthMessage,
     HealthOut,
+    HistoryRestoreOut,
     ImportResultOut,
     InfoOut,
     LiveMessage,
+    PreviewItemOut,
+    PreviewOut,
     SnapshotMessage,
+    TemplateDetailOut,
+    TemplateListOut,
+    ValidationErrorOut,
+    template_list,
 )
 from suncore.api.security import PeerCheckMiddleware
-from suncore.api.services import HAUnavailableError, Services
+from suncore.api.services import (
+    EnergyPrefsFailedError,
+    EntityQuery,
+    HAUnavailableError,
+    Services,
+    UnknownRoleError,
+    UnknownTemplateError,
+)
+from suncore.api.validation import validation_exception_handler
+from suncore.core.config import SECTION_MODELS
 from suncore.core.decisions import Decision
 from suncore.core.site import SiteConfig
-from suncore.storage.errors import ImportRejectedError
+from suncore.core.wizard import PreviewTooLargeError
+from suncore.storage.errors import (
+    ConfigCorruptError,
+    HistoryEntryNotFoundError,
+    ImportRejectedError,
+    UnknownSectionError,
+)
+from suncore.templates.models import TemplateKind
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +85,24 @@ ERR_IMPORT_TOO_LARGE: Final = "api.error.import_too_large"
 ERR_INVALID_JSON: Final = "api.error.invalid_json"
 ERR_IMPORT_REJECTED: Final = "api.error.import_rejected"
 ERR_NOT_FOUND: Final = "api.error.not_found"
+ERR_UNKNOWN_SECTION: Final = "api.error.unknown_section"
+ERR_UNKNOWN_ROLE: Final = "api.error.unknown_role"
+ERR_UNKNOWN_TEMPLATE: Final = "api.error.unknown_template"
+ERR_ROLE_REQUIRED: Final = "api.error.role_required"
+ERR_ENERGY_PREFS_FAILED: Final = "api.error.energy_prefs_failed"
+ERR_HISTORY_NOT_FOUND: Final = "api.error.history_not_found"
+ERR_HISTORY_INVALID: Final = "api.error.history_invalid"
+ERR_PREVIEW_TOO_LARGE: Final = "api.error.preview_too_large"
+ERR_BODY_TOO_LARGE: Final = "api.error.body_too_large"
+BODY_MAX_BYTES: Final = 64 * 1024
+"""Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
+SECTION_MAX_BYTES: Final = 256 * 1024
+"""Limit of ``PUT /config/<section>``."""
+BODY_LIMITS: Final = [
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/config/[^/]+"), SECTION_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/wizard/check"), BODY_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/preview"), BODY_MAX_BYTES),
+]
 SNAPSHOT_DECISIONS: Final = 20
 
 
@@ -64,7 +119,9 @@ def create_app(
         docs_url=None,
         redoc_url=None,
     )
+    app.add_middleware(BodyLimitMiddleware, rules=BODY_LIMITS)
     app.add_middleware(PeerCheckMiddleware, policy=services.peer_policy)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
     _register_http(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
@@ -85,26 +142,52 @@ def _register_http(app: FastAPI, services: Services) -> None:
             {"version": services.version, "demo": services.demo, "mode": services.mode}
         )
 
-    @app.get(f"{API_PREFIX}/config/site", response_model=SiteConfig | None)
-    async def get_site() -> SiteConfig | None:
-        return await services.get_site()
-
-    @app.put(f"{API_PREFIX}/config/site", response_model=SiteConfig)
-    async def put_site(site: SiteConfig) -> SiteConfig:
-        await services.put_site(site)
-        return site
+    _register_sections(app, services)
+    _register_history(app, services)
 
     @app.get(
         f"{API_PREFIX}/entities",
         response_model=list[EntityCandidateOut],
-        responses={503: {"model": ErrorOut}},
+        responses={
+            404: {"model": ErrorOut, "description": "Unknown role or template"},
+            400: {"model": ErrorOut, "description": "Role missing"},
+            503: {"model": ErrorOut, "description": "Home Assistant not reachable"},
+        },
     )
-    async def entities() -> list[EntityCandidateOut]:
+    async def entities(
+        role: str | None = Query(default=None, max_length=64),
+        template: str | None = Query(default=None, max_length=96),
+        device_id: str | None = Query(default=None, max_length=128),
+        include_hidden: bool = False,
+    ) -> list[EntityCandidateOut]:
+        """Entities for a site role (``role``) or a template role (``template`` + ``role``).
+
+        Without parameters: the unranked power and battery sensors of the Phase 1 picker.
+        ``include_hidden`` also lists hidden, diagnostic and config entities (ranked lower);
+        disabled entities never appear. Served from the registry snapshot and state cache,
+        never per-request from HA.
+        """
+        if template is not None and role is None:
+            raise HTTPException(status_code=400, detail=ERR_ROLE_REQUIRED)
         try:
-            found = await services.candidates()
+            found = await services.entities(
+                EntityQuery(
+                    role=role,
+                    template_id=template,
+                    device_id=device_id,
+                    include_hidden=include_hidden,
+                )
+            )
         except HAUnavailableError as exc:
             raise HTTPException(status_code=503, detail=ERR_HA_UNAVAILABLE) from exc
-        return [EntityCandidateOut.from_info(c) for c in found]
+        except UnknownRoleError as exc:
+            raise HTTPException(status_code=404, detail=ERR_UNKNOWN_ROLE) from exc
+        except UnknownTemplateError as exc:
+            raise HTTPException(status_code=404, detail=ERR_UNKNOWN_TEMPLATE) from exc
+        return [EntityCandidateOut.from_detected(c) for c in found]
+
+    _register_templates(app, services)
+    _register_wizard(app, services)
 
     @app.get(f"{API_PREFIX}/config/export")
     async def export_config() -> dict[str, Any]:
@@ -148,6 +231,157 @@ def _register_http(app: FastAPI, services: Services) -> None:
         limit: int = Query(default=100, ge=1, le=DECISIONS_MAX),
     ) -> list[Decision]:
         return await services.decisions(limit)
+
+
+def _register_sections(app: FastAPI, services: Services) -> None:
+    """``GET``/``PUT /api/v1/config/<section>`` for every section, typed by its model.
+
+    One pair of routes per section (instead of a ``{section}`` path parameter) so that the
+    OpenAPI document and the generated client carry the exact model of each section.
+    """
+    for name, model in SECTION_MODELS.items():
+        _register_section(app, services, name, model)
+
+
+def _register_section(app: FastAPI, services: Services, name: str, model: type[BaseModel]) -> None:
+    path = f"{API_PREFIX}/config/{name}"
+
+    async def get_section() -> BaseModel | None:
+        if name == "site":
+            return await services.get_site()
+        return await services.get_section(name)
+
+    async def put_section(body: BaseModel) -> BaseModel:
+        if name == "site":
+            assert isinstance(body, SiteConfig)
+            await services.put_site(body)
+            return body
+        return await services.put_section(name, body)
+
+    # FastAPI reads the body type from the annotations; they are per section, hence dynamic.
+    put_section.__annotations__ = {"body": model, "return": model}
+    app.add_api_route(
+        path,
+        get_section,
+        methods=["GET"],
+        response_model=model | None,
+        operation_id=f"get_config_{name}",
+        summary=f"Get the {name} section",
+    )
+    app.add_api_route(
+        path,
+        put_section,
+        methods=["PUT"],
+        response_model=model,
+        responses={413: {"model": ErrorOut, "description": "Body too large"}},
+        operation_id=f"put_config_{name}",
+        summary=f"Replace the {name} section",
+    )
+
+
+def _history_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, UnknownSectionError):
+        return HTTPException(status_code=404, detail=ERR_UNKNOWN_SECTION)
+    if isinstance(exc, HistoryEntryNotFoundError):
+        return HTTPException(status_code=404, detail=ERR_HISTORY_NOT_FOUND)
+    return HTTPException(status_code=409, detail=ERR_HISTORY_INVALID)
+
+
+def _register_history(app: FastAPI, services: Services) -> None:
+    @app.get(
+        f"{API_PREFIX}/config/{{section}}/history",
+        response_model=list[ConfigHistoryEntryOut],
+        responses={404: {"model": ErrorOut, "description": "Unknown section"}},
+    )
+    async def history(section: str) -> list[ConfigHistoryEntryOut]:
+        """Replaced bodies of a section, newest first (the last 20)."""
+        try:
+            entries = await services.section_history(section)
+        except UnknownSectionError as exc:
+            raise _history_error(exc) from exc
+        return [ConfigHistoryEntryOut.from_entry(e) for e in entries]
+
+    @app.post(
+        f"{API_PREFIX}/config/{{section}}/history/{{entry_id}}/restore",
+        response_model=HistoryRestoreOut,
+        responses={
+            404: {"model": ErrorOut, "description": "Unknown section or history entry"},
+            409: {"model": ErrorOut, "description": "The stored body no longer validates"},
+        },
+    )
+    async def restore(section: str, entry_id: int) -> HistoryRestoreOut:
+        """Make a history entry current again (the current body moves to the history)."""
+        try:
+            restored = await services.restore_section(section, entry_id)
+        except (UnknownSectionError, HistoryEntryNotFoundError, ConfigCorruptError) as exc:
+            raise _history_error(exc) from exc
+        return HistoryRestoreOut(
+            section=section, body=restored.model_dump(mode="json", by_alias=True)
+        )
+
+
+def _register_templates(app: FastAPI, services: Services) -> None:
+    @app.get(f"{API_PREFIX}/templates", response_model=TemplateListOut)
+    async def templates(kind: TemplateKind | None = None) -> TemplateListOut:
+        """Template gallery; ``errors`` lists user templates that failed to load."""
+        return template_list(services.templates(), kind)
+
+    @app.get(
+        f"{API_PREFIX}/templates/{{template_id}}",
+        response_model=TemplateDetailOut,
+        responses={404: {"model": ErrorOut, "description": "Unknown template"}},
+    )
+    async def template(template_id: str) -> TemplateDetailOut:
+        catalog = services.templates()
+        found = catalog.get(template_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail=ERR_UNKNOWN_TEMPLATE)
+        return TemplateDetailOut(origin=catalog.origins.get(template_id, "builtin"), template=found)
+
+
+def _register_wizard(app: FastAPI, services: Services) -> None:
+    @app.get(
+        f"{API_PREFIX}/wizard/energy-prefs",
+        response_model=EnergyPrefsOut,
+        responses={
+            502: {"model": ErrorOut, "description": "Home Assistant refused the request"},
+            503: {"model": ErrorOut, "description": "Home Assistant not reachable"},
+        },
+    )
+    async def energy_prefs() -> EnergyPrefsOut:
+        """Suggestions from the Energy dashboard; ``configured: false`` if it was never saved."""
+        try:
+            return EnergyPrefsOut.from_core(await services.energy_suggestions())
+        except HAUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=ERR_HA_UNAVAILABLE) from exc
+        except EnergyPrefsFailedError as exc:
+            raise HTTPException(status_code=502, detail=ERR_ENERGY_PREFS_FAILED) from exc
+
+    @app.post(
+        f"{API_PREFIX}/wizard/check",
+        response_model=CheckOut,
+        responses={413: {"model": ErrorOut, "description": "Body too large"}},
+    )
+    async def check(body: CheckRequest | None = None) -> CheckOut:
+        """System check of the stored site (or of ``site`` in the body) against live values."""
+        site = body.site if body is not None else None
+        return CheckOut.from_core(await services.system_check(site))
+
+    @app.post(
+        f"{API_PREFIX}/preview",
+        response_model=PreviewOut,
+        responses={
+            413: {"model": ErrorOut, "description": "Body too large"},
+            422: {"model": ErrorOut, "description": "Fragment names too many entities"},
+        },
+    )
+    async def preview(fragment: dict[str, Any]) -> PreviewOut:
+        """Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment."""
+        try:
+            items = await services.preview(fragment)
+        except PreviewTooLargeError as exc:
+            raise HTTPException(status_code=422, detail=ERR_PREVIEW_TOO_LARGE) from exc
+        return PreviewOut(items=[PreviewItemOut.from_core(i) for i in items])
 
 
 def _register_live(
@@ -337,5 +571,27 @@ def _openapi(app: FastAPI) -> dict[str, Any]:
     for name, definition in live.pop("$defs", {}).items():
         components.setdefault(name, definition)
     components["LiveMessage"] = live
+    _use_validation_error_schema(schema)
     app.openapi_schema = schema
     return schema
+
+
+def _use_validation_error_schema(schema: dict[str, Any]) -> None:
+    """Describe automatic 422 responses with our body instead of FastAPI's default one."""
+    components = schema["components"]["schemas"]
+    ours = TypeAdapter(ValidationErrorOut).json_schema(ref_template="#/components/schemas/{model}")
+    for name, definition in ours.pop("$defs", {}).items():
+        components.setdefault(name, definition)
+    components["ValidationErrorOut"] = ours
+    default_ref = "#/components/schemas/HTTPValidationError"
+    for methods in schema["paths"].values():
+        for operation in methods.values():
+            response = operation.get("responses", {}).get("422")
+            if response is None:
+                continue
+            content = response.get("content", {}).get("application/json", {})
+            if content.get("schema", {}).get("$ref") == default_ref:
+                content["schema"] = {"$ref": "#/components/schemas/ValidationErrorOut"}
+                response["description"] = "Validation error"
+    components.pop("HTTPValidationError", None)
+    components.pop("ValidationError", None)

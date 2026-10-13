@@ -117,6 +117,13 @@ ADRs relevant to your task. Keep it short; history lives in git.
   - `UNVERIFIED`: all three integration templates come from source reading
     only (no live HA or hardware); see the table below.
 
+- **Phase 2 WP5/WP6 (PR 2-B, branch `phase-2/b-api`)**: `HAConnection` registry list commands,
+  `energy/get_prefs`, registry update events and the read-only `call_action_response`
+  (allowlist `READ_ONLY_ACTIONS`); `EntityCatalogue`, role detection (`ha/detect.py`), Energy
+  dashboard import, config section/history/template/wizard endpoints, `operation` stored only
+  (boundary tests keep the gate away from it). `UNVERIFIED`: `unknown_command` when the
+  energy integration is not loaded; the older grid prefs format on a real older core.
+
 ## Open – Phase 1
 
 - Still to report by the maintainer: memory on the Pi, menu names in the
@@ -125,10 +132,11 @@ ADRs relevant to your task. Keep it short; history lives in git.
   public after the first stable build.
 - The beta app version is bumped by hand for now (HA only offers an update
   when `config.yaml` changes); automate it in the build workflow (Phase 2).
-- Phase 2 wizard: render 422 validation issues through catalogue keys
-  instead of Pydantic's English messages; serve `/api/v1/entities` from the
-  entity cache instead of a full `get_states` per request; theme bridge from
-  the ingress parent document (see `frontend/README.md`).
+- Phase 2 wizard: theme bridge from the ingress parent document (see
+  `frontend/README.md`). Done in PR 2-B: 422 issues are rendered as catalogue
+  keys (`api.validation.*`), and `/api/v1/entities` is served from the entity
+  catalogue (registry snapshot plus a state copy refreshed at most every 30 s,
+  never a `get_states` per request).
 - Python ICU library decision (ADR-0007 follow-up) deferred to Phase 6:
   in Phase 1 the backend only emits `Reason(key, args)`.
 - Phase 3 follow-ups: extend boundary rule 2 to `suncore.devices` drivers
@@ -144,9 +152,13 @@ ADRs relevant to your task. Keep it short; history lives in git.
   a settle delay instead of a full `get_states`; give the rate limiter a
   deadline/try-acquire API so stale intents are dropped; an `AuthError` on
   reconnect needs a restart (document in the UI).
-- Phase 3 follow-up (review F6): restore/import of `operation` treats a "new
-  device" by id only; base it on device identity (id + template + entities)
-  before the gate reads modes.
+- Phase 3 follow-up (review F6, A2): before the gate reads `operation`, base the "new
+  device = shadow" rule on device identity (id + `template_id` + entities) in
+  put/import/restore of `devices` **and** put/restore of `operation`, not on the id alone.
+  Decide whether an import resets the global mode to shadow (recommendation: yes).
+- Phase 4 follow-up (A3): per-(domain, service) rate limiter with try-acquire/deadline for
+  `call_action_response` before the first adapter calls it (boundary rule 7 then admits `app`
+  together with the adapter wiring).
 - Carried over from Phase 0: deleting old tags `v0.1.0`–`v0.3.0`. The
   repository is public now, CodeQL runs; `RELEASE_PLEASE_TOKEN` is set.
 

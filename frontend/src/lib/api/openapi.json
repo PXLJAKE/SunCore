@@ -1,6 +1,118 @@
 {
   "components": {
     "schemas": {
+      "ActionSeries": {
+        "additionalProperties": false,
+        "description": "Series returned by a read-only action (``return_response`` is implied).",
+        "properties": {
+          "domain": {
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Domain",
+            "type": "string"
+          },
+          "end_field": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Field"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/SeriesFields"
+          },
+          "max_horizon_h": {
+            "maximum": 336.0,
+            "minimum": 1.0,
+            "title": "Max Horizon H",
+            "type": "integer"
+          },
+          "response_path": {
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9_]+(\\.([A-Za-z0-9_]+|\\*))*$",
+            "title": "Response Path",
+            "type": "string"
+          },
+          "service": {
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Service",
+            "type": "string"
+          },
+          "source": {
+            "const": "action",
+            "title": "Source",
+            "type": "string"
+          },
+          "start_field": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Field"
+          }
+        },
+        "required": [
+          "source",
+          "domain",
+          "service",
+          "response_path",
+          "fields",
+          "max_horizon_h"
+        ],
+        "title": "ActionSeries",
+        "type": "object"
+      },
+      "AttributeSeries": {
+        "additionalProperties": false,
+        "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).",
+        "properties": {
+          "attribute": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Attribute",
+            "type": "string"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/SeriesFields"
+          },
+          "roles": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Roles",
+            "type": "array"
+          },
+          "source": {
+            "const": "attribute",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "roles",
+          "attribute",
+          "fields"
+        ],
+        "title": "AttributeSeries",
+        "type": "object"
+      },
       "BatteryConfig": {
         "additionalProperties": false,
         "description": "Battery: power (+ = charging), state of charge in percent, limits.\n\n``control`` is ``observe`` only: SunCore reads the battery; adapters that write\nset-points come in a later phase.",
@@ -90,6 +202,262 @@
         "title": "BatteryConfig",
         "type": "object"
       },
+      "BatteryTarget": {
+        "additionalProperties": false,
+        "description": "Be at ``soc_pct`` by local time ``time`` (``HH:MM``).",
+        "properties": {
+          "soc_pct": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Soc Pct",
+            "type": "number"
+          },
+          "time": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "soc_pct",
+          "time"
+        ],
+        "title": "BatteryTarget",
+        "type": "object"
+      },
+      "Capability": {
+        "description": "What a template provides.",
+        "enum": [
+          "power_measured",
+          "energy_counter",
+          "on_off",
+          "power_setpoint",
+          "temperature_setpoint",
+          "hvac_modes",
+          "preset_modes",
+          "fan_modes",
+          "price_now",
+          "price_curve",
+          "pv_curve",
+          "pv_quantiles",
+          "feed_in_tiers",
+          "negative_price_rule"
+        ],
+        "title": "Capability",
+        "type": "string"
+      },
+      "CheckItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/Reason"
+          },
+          "severity": {
+            "enum": [
+              "ok",
+              "warn",
+              "error"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          }
+        },
+        "required": [
+          "severity",
+          "reason",
+          "subject"
+        ],
+        "title": "CheckItemOut",
+        "type": "object"
+      },
+      "CheckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CheckItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "severity": {
+            "enum": [
+              "ok",
+              "warn",
+              "error"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "items"
+        ],
+        "title": "CheckOut",
+        "type": "object"
+      },
+      "CheckRequest": {
+        "additionalProperties": false,
+        "description": "Optional body of the system check: check this unsaved site instead of the stored one.",
+        "properties": {
+          "site": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SiteConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "CheckRequest",
+        "type": "object"
+      },
+      "ComfortBand": {
+        "additionalProperties": false,
+        "description": "Allowed temperature range in °C.",
+        "properties": {
+          "max_c": {
+            "maximum": 150.0,
+            "minimum": -50.0,
+            "title": "Max C",
+            "type": "number"
+          },
+          "min_c": {
+            "maximum": 150.0,
+            "minimum": -50.0,
+            "title": "Min C",
+            "type": "number"
+          }
+        },
+        "required": [
+          "min_c",
+          "max_c"
+        ],
+        "title": "ComfortBand",
+        "type": "object"
+      },
+      "ConfigHistoryEntryOut": {
+        "additionalProperties": false,
+        "description": "A replaced section body that can be restored.",
+        "properties": {
+          "body": {
+            "additionalProperties": true,
+            "title": "Body",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "replaced_at": {
+            "title": "Replaced At",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "section": {
+            "title": "Section",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "section",
+          "schema_version",
+          "replaced_at",
+          "body"
+        ],
+        "title": "ConfigHistoryEntryOut",
+        "type": "object"
+      },
+      "ContinuousControl": {
+        "additionalProperties": false,
+        "description": "A number entity in W, A or % of ``nominal_w`` between ``min`` and ``max``.",
+        "properties": {
+          "kind": {
+            "const": "continuous",
+            "title": "Kind",
+            "type": "string"
+          },
+          "max": {
+            "exclusiveMinimum": 0.0,
+            "title": "Max",
+            "type": "number"
+          },
+          "min": {
+            "minimum": 0.0,
+            "title": "Min",
+            "type": "number"
+          },
+          "phases": {
+            "default": 1,
+            "enum": [
+              1,
+              3
+            ],
+            "title": "Phases",
+            "type": "integer"
+          },
+          "role": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "title": "Role",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "unit": {
+            "enum": [
+              "W",
+              "A",
+              "%"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "voltage_v": {
+            "default": 230.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000.0,
+            "title": "Voltage V",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "role",
+          "unit",
+          "min",
+          "max"
+        ],
+        "title": "ContinuousControl",
+        "type": "object"
+      },
       "Decision": {
         "additionalProperties": false,
         "description": "The safety gate's verdict on an intent, as stored in the decision log.",
@@ -159,15 +527,534 @@
         "title": "DecisionsMessage",
         "type": "object"
       },
-      "EntityCandidateOut": {
+      "DeviceConfig": {
+        "additionalProperties": false,
+        "description": "One configured device (instance of a template).\n\n``max_switches_per_hour`` / hysteresis / ``settle_s`` ``None`` mean \"safety/controller\ndefault\", never \"unlimited\" or \"none\" (ADR-0012 item 6).",
+        "properties": {
+          "comfort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComfortBand"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "control": {
+            "discriminator": {
+              "mapping": {
+                "continuous": "#/components/schemas/ContinuousControl",
+                "mode": "#/components/schemas/ModeControl",
+                "on_off": "#/components/schemas/OnOffControl",
+                "setpoint": "#/components/schemas/SetpointControl",
+                "steps": "#/components/schemas/StepsControl"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OnOffControl"
+              },
+              {
+                "$ref": "#/components/schemas/StepsControl"
+              },
+              {
+                "$ref": "#/components/schemas/ContinuousControl"
+              },
+              {
+                "$ref": "#/components/schemas/SetpointControl"
+              },
+              {
+                "$ref": "#/components/schemas/ModeControl"
+              }
+            ],
+            "title": "Control"
+          },
+          "entities": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/EntityRef"
+              }
+            },
+            "title": "Entities",
+            "type": "object"
+          },
+          "hysteresis_delay_s": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hysteresis Delay S"
+          },
+          "hysteresis_w": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hysteresis W"
+          },
+          "id": {
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]{0,47}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DeviceKind"
+          },
+          "max_switches_per_hour": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Switches Per Hour"
+          },
+          "min_pause_s": {
+            "default": 0,
+            "maximum": 86400.0,
+            "minimum": 0.0,
+            "title": "Min Pause S",
+            "type": "integer"
+          },
+          "min_run_s": {
+            "default": 0,
+            "maximum": 86400.0,
+            "minimum": 0.0,
+            "title": "Min Run S",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "power_model": {
+            "$ref": "#/components/schemas/PowerModel"
+          },
+          "priority": {
+            "default": 0,
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "settle_s": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settle S"
+          },
+          "template_id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "windows": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TimeWindow"
+            },
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "template_id",
+          "name",
+          "kind",
+          "power_model",
+          "control"
+        ],
+        "title": "DeviceConfig",
+        "type": "object"
+      },
+      "DeviceDefaults": {
+        "additionalProperties": false,
+        "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.",
+        "properties": {
+          "comfort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComfortBand"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "control": {
+            "discriminator": {
+              "mapping": {
+                "continuous": "#/components/schemas/ContinuousControl",
+                "mode": "#/components/schemas/ModeControl",
+                "on_off": "#/components/schemas/OnOffControl",
+                "setpoint": "#/components/schemas/SetpointControl",
+                "steps": "#/components/schemas/StepsControl"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OnOffControl"
+              },
+              {
+                "$ref": "#/components/schemas/StepsControl"
+              },
+              {
+                "$ref": "#/components/schemas/ContinuousControl"
+              },
+              {
+                "$ref": "#/components/schemas/SetpointControl"
+              },
+              {
+                "$ref": "#/components/schemas/ModeControl"
+              }
+            ],
+            "title": "Control"
+          },
+          "hysteresis_delay_s": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hysteresis Delay S"
+          },
+          "hysteresis_w": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hysteresis W"
+          },
+          "max_switches_per_hour": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Switches Per Hour"
+          },
+          "min_pause_s": {
+            "default": 0,
+            "maximum": 86400.0,
+            "minimum": 0.0,
+            "title": "Min Pause S",
+            "type": "integer"
+          },
+          "min_run_s": {
+            "default": 0,
+            "maximum": 86400.0,
+            "minimum": 0.0,
+            "title": "Min Run S",
+            "type": "integer"
+          },
+          "power_model": {
+            "$ref": "#/components/schemas/PowerModelDefault"
+          },
+          "settle_s": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settle S"
+          }
+        },
+        "required": [
+          "power_model",
+          "control"
+        ],
+        "title": "DeviceDefaults",
+        "type": "object"
+      },
+      "DeviceKind": {
+        "description": "Kind of controllable device. Templates use climate, switch and number_load for now.",
+        "enum": [
+          "climate",
+          "switch",
+          "number_load",
+          "water_heater",
+          "heat_pump",
+          "wallbox",
+          "program",
+          "generic"
+        ],
+        "title": "DeviceKind",
+        "type": "string"
+      },
+      "DeviceTemplate": {
         "additionalProperties": false,
         "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "maxItems": 32,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/DeviceDefaults"
+          },
+          "device_kind": {
+            "$ref": "#/components/schemas/DeviceKind"
+          },
+          "id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "device",
+            "title": "Kind",
+            "type": "string"
+          },
+          "min_app_version": {
+            "anyOf": [
+              {
+                "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min App Version"
+          },
+          "name": {
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Name",
+            "type": "string"
+          },
+          "roles": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/RoleSpec"
+              }
+            },
+            "title": "Roles",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "minItems": 1,
+            "title": "Source",
+            "type": "array"
+          },
+          "tested_with": {
+            "items": {
+              "$ref": "#/components/schemas/TestedWith"
+            },
+            "title": "Tested With",
+            "type": "array"
+          },
+          "unverified": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Unverified",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "name",
+          "source",
+          "tested_with",
+          "capabilities",
+          "kind",
+          "device_kind",
+          "roles",
+          "defaults"
+        ],
+        "title": "DeviceTemplate",
+        "type": "object"
+      },
+      "DevicesConfig": {
+        "additionalProperties": false,
+        "description": "All configured devices.",
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceConfig"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "DevicesConfig",
+        "type": "object"
+      },
+      "EnergyPrefsOut": {
+        "additionalProperties": false,
+        "description": "Energy dashboard import: suggestions only, never applied by the server.",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "site": {
+            "additionalProperties": true,
+            "title": "Site",
+            "type": "object"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionOut"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "configured",
+          "suggestions",
+          "notes",
+          "site"
+        ],
+        "title": "EnergyPrefsOut",
+        "type": "object"
+      },
+      "EntityCandidateOut": {
+        "additionalProperties": false,
+        "description": "An entity offered for a role.\n\n``device_class`` and ``unit`` are empty strings when unknown. ``score`` is 0 and\n``criteria`` empty for the unranked Phase 1 list. ``value`` is the raw state in ``unit``\n(no conversion, no sign inversion).",
+        "properties": {
+          "area_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Id"
+          },
+          "area_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Name"
+          },
           "available": {
             "title": "Available",
             "type": "boolean"
           },
+          "criteria": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Criteria",
+            "type": "array"
+          },
           "device_class": {
             "title": "Device Class",
+            "type": "string"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          },
+          "domain": {
+            "title": "Domain",
             "type": "string"
           },
           "entity_id": {
@@ -178,13 +1065,60 @@
             "title": "Name",
             "type": "string"
           },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "quality": {
+            "enum": [
+              "ok",
+              "stale",
+              "unavailable",
+              "invalid"
+            ],
+            "title": "Quality",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "integer"
+          },
           "state": {
             "title": "State",
             "type": "string"
           },
+          "state_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State Class"
+          },
           "unit": {
             "title": "Unit",
             "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
           }
         },
         "required": [
@@ -193,9 +1127,133 @@
           "device_class",
           "unit",
           "state",
-          "available"
+          "available",
+          "domain",
+          "platform",
+          "state_class",
+          "area_id",
+          "area_name",
+          "device_id",
+          "device_name",
+          "score",
+          "criteria",
+          "value",
+          "quality"
         ],
         "title": "EntityCandidateOut",
+        "type": "object"
+      },
+      "EntityMatcher": {
+        "additionalProperties": false,
+        "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive);\n``unit_pattern`` is a regular expression matched with ``re.fullmatch`` on the stripped\nunit. ``translation_key`` / ``translation_key_pattern`` likewise. Exact and pattern\nforms exclude each other.",
+        "properties": {
+          "device_class": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Class"
+          },
+          "domain": {
+            "pattern": "^[a-z0-9_]+$",
+            "title": "Domain",
+            "type": "string"
+          },
+          "platforms": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 48,
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platforms"
+          },
+          "state_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State Class"
+          },
+          "translation_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation Key"
+          },
+          "translation_key_pattern": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation Key Pattern"
+          },
+          "unit_pattern": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Pattern"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "title": "EntityMatcher",
         "type": "object"
       },
       "EntityRef": {
@@ -231,6 +1289,138 @@
           "detail"
         ],
         "title": "ErrorOut",
+        "type": "object"
+      },
+      "ExportTariff": {
+        "additionalProperties": false,
+        "description": "Feed-in remuneration.",
+        "properties": {
+          "fixed_price": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed Price"
+          },
+          "kind": {
+            "enum": [
+              "fixed",
+              "tiered",
+              "none"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "tiers": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ExportTier"
+            },
+            "title": "Tiers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ExportTariff",
+        "type": "object"
+      },
+      "ExportTier": {
+        "additionalProperties": false,
+        "description": "Feed-in price up to ``up_to_kwp`` of installed power (``None`` = no upper bound).",
+        "properties": {
+          "price": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Price",
+            "type": "number"
+          },
+          "up_to_kwp": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Up To Kwp"
+          }
+        },
+        "required": [
+          "price"
+        ],
+        "title": "ExportTier",
+        "type": "object"
+      },
+      "FeedInTier": {
+        "additionalProperties": false,
+        "description": "Feed-in remuneration band, data only (no legal advice).\n\nBands apply to the share of the plant up to ``up_to_kwp`` (cumulative, lower bounds\nare the previous band); ``None`` = no upper bound and only allowed on the last band.",
+        "properties": {
+          "mode": {
+            "default": "surplus",
+            "enum": [
+              "surplus",
+              "full_feed_in"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "rate_per_kwh": {
+            "minimum": 0.0,
+            "title": "Rate Per Kwh",
+            "type": "number"
+          },
+          "up_to_kwp": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Up To Kwp"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "rate_per_kwh"
+        ],
+        "title": "FeedInTier",
         "type": "object"
       },
       "FlowOut": {
@@ -333,6 +1523,164 @@
           "ts"
         ],
         "title": "FlowsOut",
+        "type": "object"
+      },
+      "ForecastTemplate": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "maxItems": 32,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "forecast_kind": {
+            "enum": [
+              "pv",
+              "load"
+            ],
+            "title": "Forecast Kind",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "forecast",
+            "title": "Kind",
+            "type": "string"
+          },
+          "min_app_version": {
+            "anyOf": [
+              {
+                "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min App Version"
+          },
+          "name": {
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Name",
+            "type": "string"
+          },
+          "resolution_min": {
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Resolution Min",
+            "type": "integer"
+          },
+          "roles": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/RoleSpec"
+              }
+            },
+            "title": "Roles",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "series": {
+            "discriminator": {
+              "mapping": {
+                "action": "#/components/schemas/ActionSeries",
+                "attribute": "#/components/schemas/AttributeSeries"
+              },
+              "propertyName": "source"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AttributeSeries"
+              },
+              {
+                "$ref": "#/components/schemas/ActionSeries"
+              }
+            ],
+            "title": "Series"
+          },
+          "source": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "minItems": 1,
+            "title": "Source",
+            "type": "array"
+          },
+          "tested_with": {
+            "items": {
+              "$ref": "#/components/schemas/TestedWith"
+            },
+            "title": "Tested With",
+            "type": "array"
+          },
+          "unverified": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Unverified",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "name",
+          "source",
+          "tested_with",
+          "capabilities",
+          "kind",
+          "forecast_kind",
+          "series",
+          "resolution_min"
+        ],
+        "title": "ForecastTemplate",
+        "type": "object"
+      },
+      "GoalsConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "battery_target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "climate_before_export": {
+            "default": false,
+            "title": "Climate Before Export",
+            "type": "boolean"
+          },
+          "grid_charge_night_only": {
+            "default": true,
+            "title": "Grid Charge Night Only",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "GoalsConfig",
         "type": "object"
       },
       "GridConfig": {
@@ -447,19 +1795,6 @@
         "title": "GridConfig",
         "type": "object"
       },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
       "HealthMessage": {
         "additionalProperties": false,
         "properties": {
@@ -520,6 +1855,26 @@
         "title": "HealthOut",
         "type": "object"
       },
+      "HistoryRestoreOut": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": true,
+            "title": "Body",
+            "type": "object"
+          },
+          "section": {
+            "title": "Section",
+            "type": "string"
+          }
+        },
+        "required": [
+          "section",
+          "body"
+        ],
+        "title": "HistoryRestoreOut",
+        "type": "object"
+      },
       "ImportResultOut": {
         "additionalProperties": false,
         "properties": {
@@ -535,6 +1890,61 @@
           "imported_sections"
         ],
         "title": "ImportResultOut",
+        "type": "object"
+      },
+      "ImportTariff": {
+        "additionalProperties": false,
+        "description": "How the price of imported energy is obtained.",
+        "properties": {
+          "fixed_price": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed Price"
+          },
+          "kind": {
+            "enum": [
+              "fixed",
+              "dynamic"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "price_entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ImportTariff",
         "type": "object"
       },
       "InfoOut": {
@@ -650,6 +2060,94 @@
           }
         ]
       },
+      "Mode": {
+        "additionalProperties": false,
+        "description": "One mode of a mode-controlled device and the power it draws.",
+        "properties": {
+          "power_w": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Power W",
+            "type": "number"
+          },
+          "value": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "power_w"
+        ],
+        "title": "Mode",
+        "type": "object"
+      },
+      "ModeControl": {
+        "additionalProperties": false,
+        "description": "Select one of several modes (select entity or climate preset).",
+        "properties": {
+          "kind": {
+            "const": "mode",
+            "title": "Kind",
+            "type": "string"
+          },
+          "modes": {
+            "items": {
+              "$ref": "#/components/schemas/Mode"
+            },
+            "maxItems": 16,
+            "minItems": 2,
+            "title": "Modes",
+            "type": "array"
+          },
+          "role": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "role",
+          "modes"
+        ],
+        "title": "ModeControl",
+        "type": "object"
+      },
+      "NegativePriceRule": {
+        "description": "Feed-in remuneration during negative spot prices.",
+        "enum": [
+          "none",
+          "no_remuneration",
+          "curtailment_required"
+        ],
+        "title": "NegativePriceRule",
+        "type": "string"
+      },
+      "OnOffControl": {
+        "additionalProperties": false,
+        "description": "Switch on/off through ``role``.",
+        "properties": {
+          "kind": {
+            "const": "on_off",
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "role"
+        ],
+        "title": "OnOffControl",
+        "type": "object"
+      },
       "OperatingMode": {
         "description": "Operating mode per device and globally (BRIEF §4.11).",
         "enum": [
@@ -660,6 +2158,35 @@
         "title": "OperatingMode",
         "type": "string"
       },
+      "OperationConfig": {
+        "additionalProperties": false,
+        "description": "Stored operating modes. Not read by the safety gate before Phase 3.\n\nDevices that are new at ``devices`` put/import time lose any entry here (shadow).",
+        "properties": {
+          "device_modes": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,47}$": {
+                "$ref": "#/components/schemas/OperatingMode"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 48
+            },
+            "title": "Device Modes",
+            "type": "object"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/OperatingMode",
+            "default": "shadow"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "OperationConfig",
+        "type": "object"
+      },
       "Origin": {
         "description": "The layer that produced an intent (ADR-0011).",
         "enum": [
@@ -668,6 +2195,145 @@
           "user"
         ],
         "title": "Origin",
+        "type": "string"
+      },
+      "PowerModel": {
+        "additionalProperties": false,
+        "description": "Power source of a device; refers to roles of :attr:`DeviceConfig.entities`.\n\n* ``measured``: needs ``power_role`` (a power sensor).\n* ``counter_derived``: needs ``energy_role``; the average power is derived from counter\n  deltas (latency and quantisation apply, ``counter_update_s`` is the latency floor).\n* ``learned``: needs ``nominal_w`` as prior; ``power_role``/``energy_role`` train it.\n* ``nominal``: needs ``nominal_w``.\n\nThe unit of the counter is read from the live state (like ``core/balance.py``); a\nnon-energy unit yields quality ``invalid`` at runtime.",
+        "properties": {
+          "counter_update_s": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counter Update S"
+          },
+          "energy_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Role"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PowerModelKind"
+          },
+          "nominal_w": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nominal W"
+          },
+          "power_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Role"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "PowerModel",
+        "type": "object"
+      },
+      "PowerModelDefault": {
+        "additionalProperties": false,
+        "description": "Default power model; ``power_role``/``energy_role`` refer to roles of the template.\n\n``nominal_w`` is only a hint: a template cannot know the user's model, the wizard asks\n(the instance-level :class:`~suncore.core.devices.PowerModel` stays strict).",
+        "properties": {
+          "counter_update_s": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counter Update S"
+          },
+          "energy_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Role"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PowerModelKind"
+          },
+          "nominal_w": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nominal W"
+          },
+          "power_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Role"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "PowerModelDefault",
+        "type": "object"
+      },
+      "PowerModelKind": {
+        "description": "How a device's power is obtained (BRIEF §4.5); each kind yields an uncertain estimate.",
+        "enum": [
+          "measured",
+          "counter_derived",
+          "learned",
+          "nominal"
+        ],
+        "title": "PowerModelKind",
         "type": "string"
       },
       "PowerSetpointAction": {
@@ -689,6 +2355,135 @@
           "power_w"
         ],
         "title": "PowerSetpointAction",
+        "type": "object"
+      },
+      "PreviewItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "base_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Unit"
+          },
+          "base_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Value"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "enum": [
+                  "power",
+                  "energy",
+                  "ratio"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected"
+          },
+          "invert_sign": {
+            "title": "Invert Sign",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "quality": {
+            "enum": [
+              "ok",
+              "stale",
+              "unavailable",
+              "invalid"
+            ],
+            "title": "Quality",
+            "type": "string"
+          },
+          "raw_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Value"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "unit_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Ok"
+          }
+        },
+        "required": [
+          "path",
+          "entity_id",
+          "invert_sign",
+          "raw_value",
+          "unit",
+          "quality",
+          "base_value",
+          "base_unit",
+          "expected",
+          "unit_ok"
+        ],
+        "title": "PreviewItemOut",
+        "type": "object"
+      },
+      "PreviewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "PreviewOut",
         "type": "object"
       },
       "PvArray": {
@@ -806,6 +2601,303 @@
         "title": "Reason",
         "type": "object"
       },
+      "RegionConfig": {
+        "additionalProperties": false,
+        "description": "Region template choice, currency, time zone and UI language.",
+        "properties": {
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          },
+          "language": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "en",
+              "de"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "region_id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+            "title": "Region Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region_id",
+          "currency",
+          "timezone"
+        ],
+        "title": "RegionConfig",
+        "type": "object"
+      },
+      "RegionTemplate": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "maxItems": 32,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "country": {
+            "pattern": "^([A-Z]{2}|generic)$",
+            "title": "Country",
+            "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "feed_in_tiers": {
+            "items": {
+              "$ref": "#/components/schemas/FeedInTier"
+            },
+            "title": "Feed In Tiers",
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "region",
+            "title": "Kind",
+            "type": "string"
+          },
+          "min_app_version": {
+            "anyOf": [
+              {
+                "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min App Version"
+          },
+          "name": {
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Name",
+            "type": "string"
+          },
+          "negative_price_rule": {
+            "$ref": "#/components/schemas/NegativePriceRule",
+            "default": "none"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "minItems": 1,
+            "title": "Source",
+            "type": "array"
+          },
+          "tested_with": {
+            "items": {
+              "$ref": "#/components/schemas/TestedWith"
+            },
+            "title": "Tested With",
+            "type": "array"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "pattern": "^(UTC|[A-Za-z_]+(/[A-Za-z_+\\-0-9]+){1,2})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "unverified": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Unverified",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "name",
+          "source",
+          "tested_with",
+          "capabilities",
+          "kind",
+          "country"
+        ],
+        "title": "RegionTemplate",
+        "type": "object"
+      },
+      "RoleSpec": {
+        "additionalProperties": false,
+        "description": "One entity role of a template.",
+        "properties": {
+          "description": {
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Description",
+            "type": "string"
+          },
+          "matcher": {
+            "$ref": "#/components/schemas/EntityMatcher"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "same_device_as": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same Device As"
+          }
+        },
+        "required": [
+          "matcher",
+          "description"
+        ],
+        "title": "RoleSpec",
+        "type": "object"
+      },
+      "SeriesFields": {
+        "additionalProperties": false,
+        "description": "Names of the fields of one series point and the unit of its values.",
+        "properties": {
+          "p10_field": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P10 Field"
+          },
+          "p90_field": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P90 Field"
+          },
+          "timestamp_field": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Timestamp Field",
+            "type": "string"
+          },
+          "value_field": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Value Field",
+            "type": "string"
+          },
+          "value_unit": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Value Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestamp_field",
+          "value_field",
+          "value_unit"
+        ],
+        "title": "SeriesFields",
+        "type": "object"
+      },
+      "SetpointControl": {
+        "additionalProperties": false,
+        "description": "Shift the user's temperature set-point inside the comfort band (needs ``comfort``).",
+        "properties": {
+          "kind": {
+            "const": "setpoint",
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "title": "Role",
+            "type": "string"
+          },
+          "shift_max_c": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Shift Max C",
+            "type": "number"
+          },
+          "step_c": {
+            "default": 0.5,
+            "exclusiveMinimum": 0.0,
+            "maximum": 5.0,
+            "title": "Step C",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "role",
+          "shift_max_c"
+        ],
+        "title": "SetpointControl",
+        "type": "object"
+      },
       "SiteConfig": {
         "additionalProperties": false,
         "description": "Site description. Entity ids come from the user; none are hard-coded.",
@@ -890,6 +2982,122 @@
         "title": "SnapshotMessage",
         "type": "object"
       },
+      "SourceRef": {
+        "additionalProperties": false,
+        "description": "Documentation a template (or one of its facts) is based on.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 500,
+            "pattern": "^https?://\\S+$",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "url",
+          "date"
+        ],
+        "title": "SourceRef",
+        "type": "object"
+      },
+      "Step": {
+        "additionalProperties": false,
+        "description": "One level of a stepped load: the value written and the power it draws.",
+        "properties": {
+          "power_w": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Power W",
+            "type": "number"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "power_w"
+        ],
+        "title": "Step",
+        "type": "object"
+      },
+      "StepsControl": {
+        "additionalProperties": false,
+        "description": "Discrete power levels written to ``role`` (select option or number).",
+        "properties": {
+          "kind": {
+            "const": "steps",
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "title": "Role",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            },
+            "maxItems": 16,
+            "minItems": 2,
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "role",
+          "steps"
+        ],
+        "title": "StepsControl",
+        "type": "object"
+      },
+      "SuggestionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/Reason"
+          },
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "path",
+          "value",
+          "reason"
+        ],
+        "title": "SuggestionOut",
+        "type": "object"
+      },
       "SwitchAction": {
         "additionalProperties": false,
         "description": "Turn a device on or off.",
@@ -911,14 +3119,538 @@
         "title": "SwitchAction",
         "type": "object"
       },
-      "ValidationError": {
+      "TariffConfig": {
+        "additionalProperties": false,
+        "description": "Import/export prices and the forecast sources.",
         "properties": {
-          "ctx": {
-            "title": "Context",
+          "export": {
+            "$ref": "#/components/schemas/ExportTariff"
+          },
+          "forecast_entities": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/EntityRef"
+              }
+            },
+            "title": "Forecast Entities",
             "type": "object"
           },
-          "input": {
-            "title": "Input"
+          "forecast_template_ids": {
+            "items": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "title": "Forecast Template Ids",
+            "type": "array"
+          },
+          "import": {
+            "$ref": "#/components/schemas/ImportTariff"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "import",
+          "export"
+        ],
+        "title": "TariffConfig",
+        "type": "object"
+      },
+      "TariffTemplate": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "maxItems": 32,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "direction": {
+            "enum": [
+              "import",
+              "export"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "tariff",
+            "title": "Kind",
+            "type": "string"
+          },
+          "min_app_version": {
+            "anyOf": [
+              {
+                "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min App Version"
+          },
+          "name": {
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Name",
+            "type": "string"
+          },
+          "price_includes": {
+            "anyOf": [
+              {
+                "enum": [
+                  "spot_only",
+                  "all_in"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Includes"
+          },
+          "price_series": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "action": "#/components/schemas/ActionSeries",
+                    "attribute": "#/components/schemas/AttributeSeries"
+                  },
+                  "propertyName": "source"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/AttributeSeries"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ActionSeries"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Series"
+          },
+          "price_unit": {
+            "pattern": "^(\\{currency\\}|[A-Z]{3})/kWh$",
+            "title": "Price Unit",
+            "type": "string"
+          },
+          "resolution_min": {
+            "anyOf": [
+              {
+                "enum": [
+                  15,
+                  60
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Min"
+          },
+          "roles": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/RoleSpec"
+              }
+            },
+            "title": "Roles",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "minItems": 1,
+            "title": "Source",
+            "type": "array"
+          },
+          "tariff_type": {
+            "enum": [
+              "fixed",
+              "dynamic"
+            ],
+            "title": "Tariff Type",
+            "type": "string"
+          },
+          "tested_with": {
+            "items": {
+              "$ref": "#/components/schemas/TestedWith"
+            },
+            "title": "Tested With",
+            "type": "array"
+          },
+          "unverified": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Unverified",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "name",
+          "source",
+          "tested_with",
+          "capabilities",
+          "kind",
+          "direction",
+          "tariff_type",
+          "price_unit"
+        ],
+        "title": "TariffTemplate",
+        "type": "object"
+      },
+      "TemplateDetailOut": {
+        "additionalProperties": false,
+        "properties": {
+          "origin": {
+            "enum": [
+              "builtin",
+              "user"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "template": {
+            "discriminator": {
+              "mapping": {
+                "device": "#/components/schemas/DeviceTemplate",
+                "forecast": "#/components/schemas/ForecastTemplate",
+                "region": "#/components/schemas/RegionTemplate",
+                "tariff": "#/components/schemas/TariffTemplate"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceTemplate"
+              },
+              {
+                "$ref": "#/components/schemas/TariffTemplate"
+              },
+              {
+                "$ref": "#/components/schemas/ForecastTemplate"
+              },
+              {
+                "$ref": "#/components/schemas/RegionTemplate"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "required": [
+          "origin",
+          "template"
+        ],
+        "title": "TemplateDetailOut",
+        "type": "object"
+      },
+      "TemplateErrorOut": {
+        "additionalProperties": false,
+        "description": "A user template that failed to load. ``message`` is technical English.",
+        "properties": {
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "message"
+        ],
+        "title": "TemplateErrorOut",
+        "type": "object"
+      },
+      "TemplateListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateErrorOut"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateSummaryOut"
+            },
+            "title": "Templates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "templates",
+          "errors"
+        ],
+        "title": "TemplateListOut",
+        "type": "object"
+      },
+      "TemplateSummaryOut": {
+        "additionalProperties": false,
+        "description": "Gallery entry of a template.",
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "device_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Kind"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "device",
+              "tariff",
+              "forecast",
+              "region"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "builtin",
+              "user"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "overridden": {
+            "title": "Overridden",
+            "type": "boolean"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "tested_with": {
+            "items": {
+              "$ref": "#/components/schemas/TestedWithOut"
+            },
+            "title": "Tested With",
+            "type": "array"
+          },
+          "unverified": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unverified",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "origin",
+          "overridden",
+          "capabilities",
+          "tested_with",
+          "unverified",
+          "device_kind",
+          "roles"
+        ],
+        "title": "TemplateSummaryOut",
+        "type": "object"
+      },
+      "TestedWith": {
+        "additionalProperties": false,
+        "description": "Integration version the template was verified against.",
+        "properties": {
+          "integration": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Integration",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration",
+          "version"
+        ],
+        "title": "TestedWith",
+        "type": "object"
+      },
+      "TestedWithOut": {
+        "additionalProperties": false,
+        "properties": {
+          "integration": {
+            "title": "Integration",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration",
+          "version"
+        ],
+        "title": "TestedWithOut",
+        "type": "object"
+      },
+      "TimeWindow": {
+        "additionalProperties": false,
+        "description": "Local-time window on given weekdays (0 = Monday ... 6 = Sunday).\n\n``start`` > ``end`` wraps over midnight (e.g. 22:00-06:00). ``start == end`` is rejected.",
+        "properties": {
+          "days": {
+            "default": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "items": {
+              "maximum": 6.0,
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "end": {
+            "format": "time",
+            "title": "End",
+            "type": "string"
+          },
+          "mode": {
+            "default": "allow",
+            "enum": [
+              "allow",
+              "block"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "start": {
+            "format": "time",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "TimeWindow",
+        "type": "object"
+      },
+      "ValidationErrorOut": {
+        "additionalProperties": false,
+        "description": "422 body of a request that failed validation.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssueOut"
+            },
+            "title": "Issues",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail",
+          "issues"
+        ],
+        "title": "ValidationErrorOut",
+        "type": "object"
+      },
+      "ValidationIssueOut": {
+        "additionalProperties": false,
+        "description": "One invalid field. ``key`` is a catalogue key, ``args`` its ICU placeholders.",
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Args",
+            "type": "object"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
           },
           "loc": {
             "items": {
@@ -931,24 +3663,47 @@
                 }
               ]
             },
-            "title": "Location",
+            "title": "Loc",
             "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
           }
         },
         "required": [
           "loc",
-          "msg",
-          "type"
+          "key",
+          "args"
         ],
-        "title": "ValidationError",
+        "title": "ValidationIssueOut",
+        "type": "object"
+      },
+      "WizardState": {
+        "additionalProperties": false,
+        "properties": {
+          "completed": {
+            "default": false,
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "completed_steps": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]{0,47}$",
+              "type": "string"
+            },
+            "title": "Completed Steps",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "title": "WizardState",
         "type": "object"
       }
     }
@@ -960,6 +3715,78 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/config/devices": {
+      "get": {
+        "operationId": "get_config_devices",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DevicesConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Devices"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the devices section"
+      },
+      "put": {
+        "operationId": "put_config_devices",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicesConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevicesConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the devices section"
+      }
+    },
     "/api/v1/config/export": {
       "get": {
         "operationId": "export_config_api_v1_config_export_get",
@@ -978,6 +3805,78 @@
           }
         },
         "summary": "Export Config"
+      }
+    },
+    "/api/v1/config/goals": {
+      "get": {
+        "operationId": "get_config_goals",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/GoalsConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Goals"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the goals section"
+      },
+      "put": {
+        "operationId": "put_config_goals",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalsConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalsConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the goals section"
       }
     },
     "/api/v1/config/import": {
@@ -1018,9 +3917,153 @@
         "summary": "Import Config"
       }
     },
+    "/api/v1/config/operation": {
+      "get": {
+        "operationId": "get_config_operation",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/OperationConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Operation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the operation section"
+      },
+      "put": {
+        "operationId": "put_config_operation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the operation section"
+      }
+    },
+    "/api/v1/config/region": {
+      "get": {
+        "operationId": "get_config_region",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RegionConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Region"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the region section"
+      },
+      "put": {
+        "operationId": "put_config_region",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegionConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the region section"
+      }
+    },
     "/api/v1/config/site": {
       "get": {
-        "operationId": "get_site_api_v1_config_site_get",
+        "operationId": "get_config_site",
         "responses": {
           "200": {
             "content": {
@@ -1034,17 +4077,17 @@
                       "type": "null"
                     }
                   ],
-                  "title": "Response Get Site Api V1 Config Site Get"
+                  "title": "Response Get Config Site"
                 }
               }
             },
             "description": "Successful Response"
           }
         },
-        "summary": "Get Site"
+        "summary": "Get the site section"
       },
       "put": {
-        "operationId": "put_site_api_v1_config_site_put",
+        "operationId": "put_config_site",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1066,18 +4109,295 @@
             },
             "description": "Successful Response"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
-        "summary": "Put Site"
+        "summary": "Replace the site section"
+      }
+    },
+    "/api/v1/config/tariff": {
+      "get": {
+        "operationId": "get_config_tariff",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TariffConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Tariff"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the tariff section"
+      },
+      "put": {
+        "operationId": "put_config_tariff",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TariffConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TariffConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the tariff section"
+      }
+    },
+    "/api/v1/config/wizard": {
+      "get": {
+        "operationId": "get_config_wizard",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/WizardState"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Wizard"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the wizard section"
+      },
+      "put": {
+        "operationId": "put_config_wizard",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WizardState"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WizardState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the wizard section"
+      }
+    },
+    "/api/v1/config/{section}/history": {
+      "get": {
+        "description": "Replaced bodies of a section, newest first (the last 20).",
+        "operationId": "history_api_v1_config__section__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "section",
+            "required": true,
+            "schema": {
+              "title": "Section",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConfigHistoryEntryOut"
+                  },
+                  "title": "Response History Api V1 Config  Section  History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown section"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "History"
+      }
+    },
+    "/api/v1/config/{section}/history/{entry_id}/restore": {
+      "post": {
+        "description": "Make a history entry current again (the current body moves to the history).",
+        "operationId": "restore_api_v1_config__section__history__entry_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "section",
+            "required": true,
+            "schema": {
+              "title": "Section",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "title": "Entry Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryRestoreOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown section or history entry"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The stored body no longer validates"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Restore"
       }
     },
     "/api/v1/decisions": {
@@ -1116,11 +4436,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           }
         },
         "summary": "Decisions"
@@ -1128,7 +4448,71 @@
     },
     "/api/v1/entities": {
       "get": {
+        "description": "Entities for a site role (``role``) or a template role (``template`` + ``role``).\n\nWithout parameters: the unranked power and battery sensors of the Phase 1 picker.\n``include_hidden`` also lists hidden, diagnostic and config entities (ranked lower);\ndisabled entities never appear. Served from the registry snapshot and state cache,\nnever per-request from HA.",
         "operationId": "entities_api_v1_entities_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          },
+          {
+            "in": "query",
+            "name": "template",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 96,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Template"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_hidden",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Hidden",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1144,6 +4528,36 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Role missing"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown role or template"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -1152,7 +4566,7 @@
                 }
               }
             },
-            "description": "Service Unavailable"
+            "description": "Home Assistant not reachable"
           }
         },
         "summary": "Entities"
@@ -1174,6 +4588,254 @@
           }
         },
         "summary": "Info"
+      }
+    },
+    "/api/v1/preview": {
+      "post": {
+        "description": "Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment.",
+        "operationId": "preview_api_v1_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Fragment",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Fragment names too many entities"
+          }
+        },
+        "summary": "Preview"
+      }
+    },
+    "/api/v1/templates": {
+      "get": {
+        "description": "Template gallery; ``errors`` lists user templates that failed to load.",
+        "operationId": "templates_api_v1_templates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "device",
+                    "tariff",
+                    "forecast",
+                    "region"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Templates"
+      }
+    },
+    "/api/v1/templates/{template_id}": {
+      "get": {
+        "operationId": "template_api_v1_templates__template_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown template"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Template"
+      }
+    },
+    "/api/v1/wizard/check": {
+      "post": {
+        "description": "System check of the stored site (or of ``site`` in the body) against live values.",
+        "operationId": "check_api_v1_wizard_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CheckRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Check"
+      }
+    },
+    "/api/v1/wizard/energy-prefs": {
+      "get": {
+        "description": "Suggestions from the Energy dashboard; ``configured: false`` if it was never saved.",
+        "operationId": "energy_prefs_api_v1_wizard_energy_prefs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnergyPrefsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Home Assistant refused the request"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Home Assistant not reachable"
+          }
+        },
+        "summary": "Energy Prefs"
       }
     },
     "/health": {

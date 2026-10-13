@@ -115,6 +115,10 @@ class EntityCache:
     def get(self, entity_id: str) -> CachedEntity | None:
         return self._entries.get(entity_id)
 
+    def ids(self) -> list[str]:
+        """Entity ids currently held (insertion order)."""
+        return list(self._entries)
+
     def __contains__(self, entity_id: object) -> bool:
         return entity_id in self._entries
 

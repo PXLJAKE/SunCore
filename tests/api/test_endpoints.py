@@ -78,7 +78,7 @@ async def test_put_site_validates(services: FakeServices) -> None:
     assert services.site is None
 
 
-async def test_entities(services: FakeServices) -> None:
+async def test_entities_legacy_list_and_ha_down(services: FakeServices) -> None:
     async with client_for(create_app(services)) as client:
         ok = await client.get("/api/v1/entities")
         services.ha_down = True
@@ -91,6 +91,17 @@ async def test_entities(services: FakeServices) -> None:
             "unit": "W",
             "state": "1200",
             "available": True,
+            "domain": "sensor",
+            "platform": None,
+            "state_class": None,
+            "area_id": None,
+            "area_name": None,
+            "device_id": None,
+            "device_name": None,
+            "score": 0,
+            "criteria": [],
+            "value": 1200.0,
+            "quality": "ok",
         }
     ]
     assert down.status_code == 503

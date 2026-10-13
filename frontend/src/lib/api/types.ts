@@ -18,7 +18,27 @@ export type GridConfig = S['GridConfig'];
 export type BatteryConfig = S['BatteryConfig'];
 export type EntityRef = S['EntityRef'];
 export type EntityCandidate = S['EntityCandidateOut'];
-export type ValidationIssue = S['ValidationError'];
+export type ValidationIssue = S['ValidationIssueOut'];
+
+export type ConfigSectionName =
+  'site' | 'region' | 'tariff' | 'devices' | 'goals' | 'operation' | 'wizard';
+export type RegionConfig = S['RegionConfig'];
+export type TariffConfig = S['TariffConfig'];
+export type DevicesConfig = S['DevicesConfig'];
+export type GoalsConfig = S['GoalsConfig'];
+export type OperationConfig = S['OperationConfig'];
+export type WizardState = S['WizardState'];
+export type ConfigHistoryEntry = S['ConfigHistoryEntryOut'];
+export type HistoryRestore = S['HistoryRestoreOut'];
+export type TemplateKind = 'device' | 'tariff' | 'forecast' | 'region';
+export type TemplateList = S['TemplateListOut'];
+export type TemplateSummary = S['TemplateSummaryOut'];
+export type TemplateDetail = S['TemplateDetailOut'];
+export type EnergyPrefs = S['EnergyPrefsOut'];
+export type CheckResult = S['CheckOut'];
+export type CheckItem = S['CheckItemOut'];
+export type PreviewResult = S['PreviewOut'];
+export type PreviewItem = S['PreviewItemOut'];
 
 export type SnapshotMessage = S['SnapshotMessage'];
 export type FlowsMessage = S['FlowsMessage'];

@@ -32,6 +32,7 @@ ARG BUILD_VERSION
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     SUNCORE_STATIC_DIR=/opt/suncore/frontend/dist \
+    SUNCORE_TEMPLATES_DIR=/opt/suncore/templates \
     S6_SERVICES_GRACETIME=5000 \
     UV_SYSTEM_PYTHON=1 \
     UV_NO_CACHE=1
@@ -53,6 +54,8 @@ RUN uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 COPY --from=frontend /src/frontend/dist /opt/suncore/frontend/dist
+# Built-in templates, read at startup (SUNCORE_TEMPLATES_DIR).
+COPY templates /opt/suncore/templates
 
 COPY addon/suncore/rootfs /
 

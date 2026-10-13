@@ -27,6 +27,20 @@ Protocol facts relied upon, verified on 2026-10-12 against ``home-assistant/core
   JSON *array* of messages in one text frame.
 * Error replies: ``{"id", "type":"result", "success":false, "error":{"code","message"}}``.
 
+Verified on 2026-10-13 (Phase 2 WP5, ``home-assistant/core`` dev) in addition:
+
+* ``config/entity_registry/list_for_display``, ``config/device_registry/list``,
+  ``config/area_registry/list`` and ``energy/get_prefs`` take no fields; an unconfigured
+  Energy dashboard answers ``success: false`` with ``error.code`` ``not_found``.
+* ``websocket_api/commands.py`` ``handle_subscribe_events``: ``{"type":"subscribe_events",
+  "event_type": <str>}`` is answered with an empty result, events then arrive as
+  ``{"id": <subscribe id>, "type": "event", "event": {...}}``; the three registry events are
+  in ``SUBSCRIBE_ALLOWLIST`` (non-admin may subscribe).
+* ``handle_call_service``: ``return_response: true`` yields ``result = {"context": ...,
+  "response": <service response>}``. An action that does not support responses answers
+  ``service_validation_error`` (``UNVERIFIED``: exact code strings are only the constants in
+  ``websocket_api/const.py``, callers treat ``code`` as opaque).
+
 ``UNVERIFIED``: that the Supervisor's Core proxy forwards ``supported_features``
 unchanged (it is a transparent WebSocket proxy per ``docs/research/ha-apps.md``); a
 failing ``supported_features`` is therefore tolerated and only logged.
@@ -42,7 +56,7 @@ import contextlib
 import json
 import random
 import time
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, TypeVar, cast
@@ -50,7 +64,10 @@ from typing import Any, Final, TypeVar, cast
 import aiohttp
 import structlog
 
+from suncore.core.actions import is_read_only_action
 from suncore.ha.connection import (
+    REGISTRY_EVENT_TYPES,
+    ActionNotAllowedError,
     AuthError,
     CommandError,
     CommandTimeoutError,
@@ -63,6 +80,7 @@ from suncore.ha.connection import (
     NotConnectedError,
     ProtocolError,
     RateLimiter,
+    RegistryListener,
     ServiceCaller,
     StateListener,
     Unsubscribe,
@@ -240,6 +258,8 @@ class WebSocketConnection:
         self._connected_since: float | None = None
         self.ha_version: str | None = None
 
+        self._registry_listeners: list[RegistryListener] = []
+        self._registry_subs: dict[int, str] = {}
         self._wanted: tuple[str, ...] = ()
         self._sub_id: int | None = None
         self._states: dict[str, EntityState] = {}
@@ -309,6 +329,101 @@ class WebSocketConnection:
         """Capability for ``safety`` to write. Not used in Phase 1."""
         return ServiceCaller(self._command, self._read_state, self._write_limiter)
 
+    # --- registries, Energy dashboard, read-only actions -------------------------
+
+    async def entity_registry_list_for_display(self) -> Mapping[str, Any]:
+        result = await self._command({"type": "config/entity_registry/list_for_display"})
+        if not isinstance(result, Mapping):
+            msg = "entity_registry/list_for_display returned a non-object"
+            raise ProtocolError(msg)
+        return cast("Mapping[str, Any]", result)
+
+    async def device_registry_list(self) -> Sequence[Mapping[str, Any]]:
+        return await self._list_command("config/device_registry/list")
+
+    async def area_registry_list(self) -> Sequence[Mapping[str, Any]]:
+        return await self._list_command("config/area_registry/list")
+
+    async def _list_command(self, kind: str) -> Sequence[Mapping[str, Any]]:
+        result = await self._command({"type": kind})
+        if not isinstance(result, list):
+            msg = f"{kind} returned a non-array"
+            raise ProtocolError(msg)
+        return [item for item in result if isinstance(item, Mapping)]
+
+    async def energy_get_prefs(self) -> Mapping[str, Any] | None:
+        try:
+            result = await self._command({"type": "energy/get_prefs"})
+        except CommandError as err:
+            if err.code == "not_found":  # "No prefs": the dashboard was never saved
+                return None
+            raise
+        if not isinstance(result, Mapping):
+            msg = "energy/get_prefs returned a non-object"
+            raise ProtocolError(msg)
+        return cast("Mapping[str, Any]", result)
+
+    async def subscribe_registry_updates(self, listener: RegistryListener) -> Unsubscribe:
+        self._registry_listeners.append(listener)
+        if self._state is ConnectionState.CONNECTED:
+            await self._subscribe_registry_on_wire()
+
+        def remove() -> None:
+            with contextlib.suppress(ValueError):
+                self._registry_listeners.remove(listener)
+
+        return remove
+
+    async def _subscribe_registry_on_wire(self) -> None:
+        """Subscribe to the registry events not yet subscribed on this connection.
+
+        A failure is logged and tolerated: the registry cache then relies on its periodic
+        refresh (events are an optimisation, not a requirement).
+        """
+        for event_type in REGISTRY_EVENT_TYPES:
+            if event_type in self._registry_subs.values():
+                continue
+            mid = self._next_id  # the id _command will use; events carry it
+            self._registry_subs[mid] = event_type
+            try:
+                await self._command({"type": "subscribe_events", "event_type": event_type})
+            except (CommandError, CommandTimeoutError, NotConnectedError, ConnectionLostError) as e:
+                self._registry_subs.pop(mid, None)
+                log.warning("ha.registry_subscribe_failed", event_type=event_type, reason=str(e))
+
+    async def call_action_response(
+        self,
+        domain: str,
+        service: str,
+        data: Mapping[str, Any] | None = None,
+        *,
+        target: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Read-only action call with ``return_response``; see :class:`HAConnection`.
+
+        Deliberately not rate limited like writes (no device is touched) and not routed
+        through :class:`ServiceCaller`: the allowlist is the guard.
+        """
+        if not is_read_only_action(domain, service):
+            msg = f"{domain}.{service} is not a read-only action"
+            raise ActionNotAllowedError(msg)
+        payload: dict[str, Any] = {
+            "type": "call_service",
+            "domain": domain,
+            "service": service,
+            "return_response": True,
+        }
+        if data is not None:
+            payload["service_data"] = dict(data)
+        if target is not None:
+            payload["target"] = dict(target)
+        result = await self._command(payload)
+        response = result.get("response") if isinstance(result, Mapping) else None
+        if not isinstance(response, Mapping):
+            msg = f"{domain}.{service} returned no response object"
+            raise ProtocolError(msg)
+        return dict(response)
+
     # --- supervisor loop ------------------------------------------------------
 
     async def _run(self) -> None:
@@ -335,6 +450,7 @@ class WebSocketConnection:
             finally:
                 self._ws = None
                 self._sub_id = None
+                self._registry_subs = {}
                 self._fail_pending(ConnectionLostError("connection lost"))
             if self._closing:
                 return
@@ -433,6 +549,8 @@ class WebSocketConnection:
                 await self._resync()
             else:
                 self._states = {}
+        if self._registry_listeners:
+            await self._subscribe_registry_on_wire()
 
     # --- reading -----------------------------------------------------------
 
@@ -477,6 +595,9 @@ class WebSocketConnection:
             event = msg.get("event")
             if isinstance(event, Mapping):
                 self._on_entities_event(event)
+        elif kind == "event" and mid in self._registry_subs:
+            for listener in list(self._registry_listeners):
+                self._safely(listener, self._registry_subs[mid])
 
     # --- entity stream ---------------------------------------------------------
 
