@@ -22,7 +22,7 @@
   {#if !configured}
     <div class="card empty" data-testid="not-configured">
       <p>{t('now.not_configured')}</p>
-      <a class="btn" href="#/settings">{t('now.open_settings')}</a>
+      <a class="btn" href="#/setup">{t('now.open_settings')}</a>
     </div>
   {:else}
     <div class="card diagram">

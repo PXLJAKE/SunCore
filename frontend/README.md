@@ -1,7 +1,7 @@
 # Frontend
 
 Svelte 5 (runes) + Vite + TypeScript strict, served by the FastAPI backend
-(ADR-0002). Phase 1 ships the "Now" view and a temporary settings page.
+(ADR-0002). Views: "Now", the setup wizard (`#/setup/<step>`) and the settings overview (`#/settings`).
 
 ```bash
 cd frontend
@@ -30,20 +30,39 @@ Demo backend: `SUNCORE_DEMO=1 SUNCORE_STATIC_DIR=frontend/dist uv run python -m 
 - `.npmrc` sets `legacy-peer-deps=true`: npm 10.9 crashes (`edgesOut` of null in arborist) when
   resolving vitest's optional peer set. All peers we need are listed explicitly in `package.json`.
 
-## Theme spike (resolves the STATUS item on ingress theming)
+## Setup wizard (Phase 2)
 
-Result: **UNVERIFIED, not implemented.** The app uses its own CSS custom properties named after
-HA theme variables (`--primary-color`, `--card-background-color`, ...) with light/dark defaults
-chosen by `prefers-color-scheme`; `?theme=light|dark` forces a scheme (tests, screenshots).
+- Routes: `#/setup` resumes at the first step not in `wizard.completed_steps`; `#/setup/<step>` opens one
+  step (`region`, `energy`, `grid`, `pv`, `battery`, `tariff`, `devices`, `priorities`, `mode`,
+  `summary`; ids in `src/lib/wizard/steps.ts`). Without a completed wizard the first visit of `#/` is
+  redirected once to the wizard; leaving it is allowed.
+- `#/settings` is an overview of all sections with "Edit" links into single steps, the restore of
+  earlier versions (`/config/{section}/history`) and export/import.
+- Logic lives in plain modules (`src/lib/wizard/*.ts`: form <-> section mapping, priority reducer,
+  suggestions) with Vitest tests; `stores/wizard.svelte.ts` holds the forms and saves a section per
+  step with `PUT`. 422 issues (`{loc, key, args}`) are rendered through the `api.validation.*`
+  catalogue keys next to the field (`wizard/issues.ts`) and as a list in the shell.
+- Components: `WizardShell` (progress, back/skip/next, focus on the step heading), `RolePicker`
+  (combobox over `/entities?role=` or `?template=&role=&device_id=`, shows ranking criteria),
+  `SignCheck` (live plausibility question through `POST /preview` with one-click inversion),
+  `UnitBadge`, `NumberField`, `TemplateGallery`, `DeviceEditor`. Steps are lazy-loaded chunks.
+- The tariff section needs import and export prices; a forecast source chosen in the Solar step is
+  kept in memory until the Tariff step (or a complete tariff) stores it.
+- The operating-mode step stores all three modes; only shadow is active (the gate ignores the
+  section until Phase 3).
 
-Reasoning: under ingress the panel is an iframe that HA serves from the same origin as the HA
-frontend, so reading `window.parent.document` CSS variables is likely possible, and HA's own
-frontend defines the variables on `<html>` of the parent. This could not be verified in this
-environment (no HA frontend source or running instance with ingress available), and an iframe
-with a sandbox attribute or a different origin (direct port access) would break it. A bridge
-would need: same-origin check in a try/catch, copy of the known variable names from
-`parent.getComputedStyle(parent.document.documentElement)`, a `MutationObserver` for theme
-switches. Proposed Phase 2 task: verify against a real HA instance, then implement behind the
-safe fallback that exists today. The energy colour variable names
-(`--energy-solar-color`, ...) are likewise taken from memory of HA's energy dashboard and
-UNVERIFIED; they are only our own tokens until verified.
+## Theme bridge (BRIEF R6)
+
+`src/lib/theme/bridge.ts` runs at start (`main.ts`). Under ingress the panel is an iframe of the HA
+frontend. If `window.parent.document` is readable (same origin), the HA theme variables listed in
+`THEME_MAP` (`--primary-color`, `--primary-text-color`, `--card-background-color`, ...) are copied
+from the parent's root onto our `:root`; our tokens carry HA's names, so the mapping is the identity.
+A `MutationObserver` on the parent's `<html>` (style/class) follows theme switches, and
+`color-scheme` is derived from the background luminance. A cross-origin or sandboxed parent throws;
+that is caught and nothing changes: the defaults in `app.css` follow `prefers-color-scheme`.
+`?theme=light|dark` (`data-theme` on the root) wins over the bridge.
+
+Status: unit-tested with fake parent windows; **UNVERIFIED against a running Home Assistant** (that
+the ingress iframe is same-origin and that these variables are defined on the parent's root).
+Verify on the maintainer's HA; the energy colour variable names (`--energy-*`) are still our own
+tokens.

@@ -46,11 +46,11 @@ describe('catalogues', () => {
 
 describe('translator', () => {
   it('renders ICU plurals per locale', () => {
-    expect(tr.render('en', 'settings.pv.count', { count: 0 })).toBe('No solar sensors');
-    expect(tr.render('en', 'settings.pv.count', { count: 1 })).toBe('1 solar sensor');
-    expect(tr.render('en', 'settings.pv.count', { count: 3 })).toBe('3 solar sensors');
-    expect(tr.render('de', 'settings.pv.count', { count: 1 })).toBe('1 Solarsensor');
-    expect(tr.render('de', 'settings.pv.count', { count: 2 })).toBe('2 Solarsensoren');
+    expect(tr.render('en', 'settings.sum.devices', { count: 0 })).toBe('No devices');
+    expect(tr.render('en', 'settings.sum.devices', { count: 1 })).toBe('1 device');
+    expect(tr.render('en', 'settings.sum.devices', { count: 3 })).toBe('3 devices');
+    expect(tr.render('de', 'settings.sum.devices', { count: 1 })).toBe('1 Gerät');
+    expect(tr.render('de', 'settings.sum.devices', { count: 2 })).toBe('2 Geräte');
   });
   it('formats numbers in the message locale', () => {
     const cat = { 'x.n': 'Value {n, number}' };

@@ -3,7 +3,13 @@
 import de from './locales/de.json';
 import en from './locales/en.json';
 import { createTranslator, resolveLocale, type Locale, type MessageArgs } from './core';
-import { formatPercentValue, formatPower, formatTime } from './format';
+import {
+  formatDateTime,
+  numberFormat,
+  formatPercentValue,
+  formatPower,
+  formatTime,
+} from './format';
 
 export type MessageKey = keyof typeof en;
 
@@ -24,6 +30,11 @@ class I18n {
 }
 
 export const i18n = new I18n();
+
+/** The language preference of the region section: `auto` follows the browser. */
+export function applyLanguage(pref: 'auto' | 'en' | 'de'): void {
+  i18n.setLocale(pref === 'auto' ? initialLocale() : pref);
+}
 
 /** Typed lookup: unknown keys fail `svelte-check`. */
 export function t(key: MessageKey, args?: MessageArgs): string {
@@ -54,4 +65,13 @@ export function tPercent(pct: number): string {
 
 export function tTime(date: Date): string {
   return formatTime(date, i18n.locale);
+}
+
+export function tDateTime(date: Date): string {
+  return formatDateTime(date, i18n.locale);
+}
+
+/** Locale-aware number, e.g. `tNumber(3.5, { maximumFractionDigits: 1 })`. */
+export function tNumber(value: number, options: Intl.NumberFormatOptions = {}): string {
+  return numberFormat(i18n.locale, options).format(value);
 }

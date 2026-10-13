@@ -8,6 +8,7 @@ import type {
   EnergyPrefs,
   EntityCandidate,
   HistoryRestore,
+  ImportResult,
   Info,
   PreviewResult,
   SiteConfig,
@@ -104,6 +105,15 @@ export const api = {
   restore: (section: ConfigSectionName, id: number) =>
     request<HistoryRestore>(`${API_PREFIX}config/${section}/history/${id}/restore`, {
       method: 'POST',
+    }),
+  /** URL of the configuration export (a plain download link, resolved against the document). */
+  exportUrl: (): string => apiUrl(`${API_PREFIX}config/export`).toString(),
+  /** Import an export file (raw JSON text, validated by the server). */
+  importConfig: (text: string) =>
+    request<ImportResult>(`${API_PREFIX}config/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: text,
     }),
   templates: (kind?: TemplateKind) =>
     request<TemplateList>(`${API_PREFIX}templates${query({ kind })}`),
