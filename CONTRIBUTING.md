@@ -98,7 +98,8 @@ from commit messages.
 Templates live in `templates/<kind>/` and are validated against the JSON
 Schemas in `templates/schema/`. Every template needs a `source` (the
 documentation it was built from) and a simulator scenario. See
-`docs/user/en/contributing/templates.md` (from Phase 2).
+[`docs/user/en/device-templates.md`](docs/user/en/device-templates.md).
+Run `uv run python scripts/gen_compat.py` to regenerate the compatibility list.
 
 ## Translations
 
