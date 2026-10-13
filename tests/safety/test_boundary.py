@@ -16,6 +16,12 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    yaml/pydantic, ADR-0012).
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
+6. ``suncore.safety`` imports neither ``suncore.core.config`` nor ``suncore.storage`` and
+   mentions neither ``OperationConfig`` nor the ``operation`` section: the gate stays
+   structurally shadow-only and ignores the stored operating mode (Phase 2 WP6).
+7. ``call_action_response`` (read-only action with ``return_response``) is defined and used
+   only in ``suncore.ha`` (implementation), ``suncore.sim`` (fake) and ``suncore.app``
+   (wiring of the tariff/forecast adapters later); ``READ_ONLY_ACTIONS`` is the fixed allowlist.
 
 The scan is robust to packages that are still empty (``suncore/ha`` until
 WP3) because it only looks at the files that exist.
@@ -40,6 +46,8 @@ ACTUATOR_MODULE = "suncore.safety.actuator"
 API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
 WRITE_CAPABILITY_NAMES = frozenset({"ServiceCaller", "ServiceCallerProvider"})
+SAFETY_FORBIDDEN_IMPORTS = ("suncore.core.config", "suncore.storage")
+ACTION_RESPONSE_OWNERS = ("suncore.ha", "suncore.sim", "suncore.app")
 
 
 def module_name(path: Path) -> str:
@@ -243,6 +251,75 @@ def test_dependency_rule(path: Path) -> None:
         ),
     )
     assert not offenders, f"{module} imports outside {allowed}: {offenders}"
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_safety_does_not_read_config_or_storage(path: Path) -> None:
+    """Rule 6: no import of the config sections or the storage, no mention of ``operation``."""
+    module = module_name(path)
+    if not in_package(module, SAFETY):
+        return
+    tree = parse(path)
+    imports = fmt(
+        path,
+        (
+            line
+            for line, imported in imported_modules(path, tree)
+            if any(in_package(imported, bad) for bad in SAFETY_FORBIDDEN_IMPORTS)
+        ),
+    )
+    names = fmt(path, attribute_refs(tree, "OperationConfig"))
+    operation_strings = fmt(
+        path,
+        (
+            n.lineno
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and n.value in ("operation", "device_modes")
+        ),
+    )
+    assert not imports, f"safety imports config/storage: {imports}"
+    assert not names, f"safety references OperationConfig: {names}"
+    assert not operation_strings, f"safety mentions the operation section: {operation_strings}"
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_call_action_response_is_confined(path: Path) -> None:
+    """Rule 7: the response-returning call lives in ha (+ the fake and the app wiring)."""
+    module = module_name(path)
+    if any(in_package(module, owner) for owner in ACTION_RESPONSE_OWNERS):
+        return
+    offenders = fmt(path, attribute_refs(parse(path), "call_action_response"))
+    assert not offenders, f"call_action_response referenced outside ha/sim/app: {offenders}"
+
+
+def test_read_only_action_allowlist_is_fixed() -> None:
+    """A new read-only action needs a PR that verifies it against the integration source."""
+    from suncore.core.actions import READ_ONLY_ACTIONS, is_read_only_action  # noqa: PLC0415
+
+    assert (
+        frozenset(
+            {"tibber.get_prices", "solcast_solar.query_forecast_data", "weather.get_forecasts"}
+        )
+        == READ_ONLY_ACTIONS
+    )
+    assert not is_read_only_action("switch", "turn_on")
+    assert not is_read_only_action("tibber", "get_prices.extra")
+
+
+def test_the_safety_gate_never_sees_the_operation_section() -> None:
+    """The gate is built from a clock and a sink only; the mode is a constant."""
+    gate_source = (PACKAGE / "safety" / "gate.py").read_text(encoding="utf-8")
+    assert "OperationConfig" not in gate_source
+    assert "ConfigStore" not in gate_source
+
+
+def test_scanner_detects_action_response_refs() -> None:
+    assert list(
+        attribute_refs(_tree("await c.call_action_response('a', 'b')"), "call_action_response")
+    ) == [1]
+    assert list(
+        attribute_refs(_tree("async def call_action_response(): ..."), "call_action_response")
+    ) == [1]
 
 
 # --- Self-tests of the scanner on synthetic sources --------------------------
