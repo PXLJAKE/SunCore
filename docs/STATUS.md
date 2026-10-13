@@ -3,8 +3,8 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-13 · **Phase:** 2 in progress (PR 2-C, wizard, stacked on 2-B) ·
-**Branch:** `phase-2/*` (stacked on `main`)
+**Last update:** 2026-10-13 · **Phase:** 2 implemented, waiting for maintainer acceptance
+(PR 2-D, docs, stacked on 2-C) · **Branch:** `phase-2/*` (stacked on `main`)
 
 ## Done
 
@@ -151,6 +151,18 @@ ADRs relevant to your task. Keep it short; history lives in git.
   - `UNVERIFIED`: the theme bridge (copying HA theme variables from the ingress parent document)
     is unit-tested with fake parent windows only, not on a real HA (table below).
 
+- **Phase 2 – PR 2-D (WP10, branch `phase-2/d-docs`)**, stacked on 2-C:
+  - Docs: quick start en/de rewritten around the setup wizard (one section and
+    screenshot per step, shadow mode, settings/history/export-import,
+    troubleshooting, honest "cannot do yet"); "Contribute a device template"
+    guide en/de (`docs/user/<lang>/device-templates.md`); app `DOCS.md` (stable
+    and beta), README status and `templates/README.md` updated.
+  - Generated compatibility list `docs/user/compatibility.md` from the template
+    loader (`scripts/gen_compat.py`, `--check` in `scripts/check.sh` and the CI
+    python job, tested in `tests/test_gen_compat.py`).
+  - Beta version derivation in `build.yml` and the E2E/screenshot work were done
+    earlier in this series (see above).
+
 ## Open – Phase 1
 
 - Still to report by the maintainer: memory on the Pi, menu names in the
@@ -194,9 +206,13 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Next steps
 
-1. Merge PR 2-A, then 2-B (`ha`, `api`: metadata, detection, operating mode
-   in config), 2-C (wizard) and 2-D per `docs/plans/phase-2.md`.
-2. Release `0.2.0` (release-please PR #7) for the stable app after Phase 2.
+1. Maintainer: test the beta on HA OS (describe your system through the
+   wizard, with the Energy dashboard import, LG ThinQ, Tibber, Solcast; report
+   the `UNVERIFIED` items below), then merge in order #13 → #14 → #15 → #16
+   (2-A, 2-B, 2-C, 2-D).
+2. Release `0.2.0`/the next release-please PR for the stable app after Phase 2.
+3. Then the Phase 3 plan (`docs/plans/phase-3.md`: real-time controller and
+   safety), including the Phase 3 follow-ups above.
 
 ## Known problems and `UNVERIFIED` items
 
@@ -214,6 +230,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Section 51 EEG 2023 text could not be fetched; region `de` feed-in tiers are empty until the official BNetzA table is cited | `templates/region/de.yaml` | maintainer provides the table or a session with access to gesetze-im-internet.de |
 | Whether Tibber's `total` includes grid fees (country dependent) | `templates/tariff/tibber.price.yaml` | live check on the maintainer's Tibber account |
 | Live entity ids and LG `unique_id` property part, LG model-specific HVAC/fan modes, Tibber tomorrow-price publication time, Solcast default day-sensor count (LG, Tibber and Solcast templates are verified from source only) | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
+| Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA) | `docs/user/*/quick-start.md` | maintainer follows the quick start on HA OS |
+| Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 
