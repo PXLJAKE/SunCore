@@ -37,8 +37,14 @@ def test_release_catches_up_moves_base_to_next_minor(mod: ModuleType) -> None:
     assert mod.next_beta_version("0.3.0", "0.3.0-beta.55", 60) == "0.4.0-beta.60"
 
 
-def test_manual_base_override_is_kept(mod: ModuleType) -> None:
-    assert mod.next_beta_version("0.2.0", "1.0.0-beta.1", 8) == "1.0.0-beta.8"
+def test_base_is_always_stable_minor_plus_one(mod: ModuleType) -> None:
+    assert mod.next_beta_version("0.2.5", "0.3.0-beta.1", 8) == "0.3.0-beta.8"
+    assert mod.next_beta_version("1.4.0", "0.9.0-beta.30", 8) == "1.5.0-beta.8"
+
+
+def test_hand_edited_higher_base_is_refused(mod: ModuleType) -> None:
+    with pytest.raises(ValueError, match="backwards"):
+        mod.next_beta_version("0.2.0", "1.0.0-beta.1", 8)
 
 
 @pytest.mark.parametrize("bad", ["0.2", "0.2.0-beta", "v0.2.0", "0.2.0-rc.1"])

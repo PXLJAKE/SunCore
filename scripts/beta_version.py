@@ -9,11 +9,12 @@ needs a new, Docker-tag-safe version in `addon/suncore_beta/config.yaml`.
 
 Scheme: `<base>-beta.<n>`.
 
-- `base` is the next release: the beta config's current `x.y.z`, unless the
-  stable app has caught up with it (a release happened), then stable minor + 1.
-  Raise the base by hand to announce a different next version.
-- `n` is `max(run_number, current_n + 1)` while the base is unchanged, 1..run
-  otherwise, so versions never repeat or go backwards.
+- `base` is always derived from the stable app version: stable minor + 1.
+  Never edit `addon/suncore_beta/config.yaml` by hand; to announce a different
+  next version, change how the base is derived in a PR (e.g. a major bump).
+- `n` is `max(run_number, current_n + 1)` while the previous beta base equals
+  the new base, `run_number` otherwise. A result that would order before the
+  committed version is refused.
 
 Usage:
   beta_version.py compute --run-number N [--stable F] [--beta F]   # prints version
@@ -64,12 +65,17 @@ def next_beta_version(stable: str, current_beta: str, run_number: int) -> str:
     if run_number < 1:
         raise ValueError("run number must be >= 1")
     stable_triple = parse_stable(stable)
-    base, current_n = parse_beta(current_beta)
-    if stable_triple >= base:
-        base = (stable_triple[0], stable_triple[1] + 1, 0)
-        number = run_number
-    else:
+    base = (stable_triple[0], stable_triple[1] + 1, 0)
+    previous_base, current_n = parse_beta(current_beta)
+    if previous_base == base:
         number = max(run_number, current_n + 1)
+    elif previous_base > base:
+        raise ValueError(
+            f"refusing to go backwards: beta {current_beta} is ahead of base "
+            f"{base[0]}.{base[1]}.{base[2]}"
+        )
+    else:
+        number = run_number
     return f"{base[0]}.{base[1]}.{base[2]}-beta.{number}"
 
 
