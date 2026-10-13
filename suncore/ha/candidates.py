@@ -5,6 +5,10 @@ Only the state machine is used (no registry commands - their names are ``UNVERIF
 see ``docs/research/ha-websocket-api.md``). A candidate is a ``sensor`` whose
 ``device_class`` is ``power`` (unit W or kW) or ``battery`` (unit %). ``device_class`` and
 ``unit_of_measurement`` are standard sensor state attributes.
+
+Sensors without a ``device_class`` (template sensors, some integrations) are
+candidates too when their unit is W, kW or %; a ``device_class`` that contradicts the
+unit (e.g. ``humidity`` in %) excludes the sensor.
 """
 
 from __future__ import annotations
@@ -32,18 +36,27 @@ class EntityCandidate:
     available: bool
 
 
+_CLASS_FOR_UNIT: dict[Unit, str] = {Unit.W: "power", Unit.KW: "power", Unit.PERCENT: "battery"}
+
+
 def entity_candidates(states: Iterable[EntityState]) -> list[EntityCandidate]:
     """Power and battery sensors, sorted by entity id."""
     result: list[EntityCandidate] = []
     for s in states:
         if not s.entity_id.startswith("sensor."):
             continue
-        device_class = s.attributes.get("device_class")
+        raw_class = s.attributes.get("device_class")
         unit_text = s.attributes.get("unit_of_measurement")
-        if not isinstance(device_class, str) or device_class not in _ALLOWED:
-            continue
         unit = parse_unit(unit_text if isinstance(unit_text, str) else None)
-        if unit is None or unit not in _ALLOWED[device_class]:
+        if unit is None or unit not in _CLASS_FOR_UNIT:
+            continue
+        if raw_class is None:
+            device_class = _CLASS_FOR_UNIT[unit]
+        elif isinstance(raw_class, str) and raw_class in _ALLOWED:
+            device_class = raw_class
+        else:
+            continue
+        if unit not in _ALLOWED[device_class]:
             continue
         friendly = s.attributes.get("friendly_name")
         result.append(
