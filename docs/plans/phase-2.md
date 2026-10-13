@@ -1,6 +1,7 @@
 # Phase 2 – Setup assistant and device model
 
-Status: **draft**, waiting for maintainer approval
+Status: **approved** by the maintainer on 2026-10-13 (questions 1–2 yes,
+regions `de` + neutral international profile, defaults of §6 otherwise)
 Source of truth: [`docs/BRIEF.md`](../BRIEF.md) §4.1, §4.5 (common device
 concepts), §4.10, §4.11, §7 (extensibility), §8, §9, §10;
 [`docs/roadmap.md`](../roadmap.md) Phase 2; ADR-0004, 0005, 0006, 0007, 0011.
@@ -107,7 +108,7 @@ from the session) and record in `docs/research/`:
   power sensor → `counter_derived`), `generic.switch.yaml`,
   `generic.climate.yaml`, `generic.number_load.yaml` (W, A or %),
   `templates/tariff/tibber.yaml`, `templates/forecast/solcast.yaml`,
-  `templates/region/de.yaml` (currency EUR, negative-price rule for new
+  `templates/region/de.yaml` and `generic.yaml` (de: currency EUR, negative-price rule for new
   PV, EEG tiers as data with source links; no legal advice, BRIEF §6).
 - Simulator: entity metadata fakes for these integrations
   (`FakeHAConnection` and `tests/ha/fakes.py` learn the registry and
@@ -259,11 +260,11 @@ No Docker daemon in the session: image and smoke test run in CI only.
 
 Defaults in bold apply if unanswered.
 
-1. **Four stacked PRs (2-A … 2-D)?** **Yes**, like Phase 1.
+1. **Four stacked PRs (2-A … 2-D)?** Yes. *Answered.*
 2. **Release 0.2.0 (release-please PR #7) before Phase 2 starts?**
-   **Yes, merge it first**; Phase 2 does not depend on it.
-3. **Regions:** **only `de` plus a neutral "other" profile** in Phase 2;
-   AT/CH/BE later as community templates.
+   Yes – already merged. *Answered.*
+3. **Regions:** `de` plus a neutral international profile (`generic`,
+   English names); AT/CH/BE later as community templates. *Answered.*
 4. **Operating mode step:** **all three modes selectable and stored, but
    labelled "active from Phase 3"**; alternative: only shadow selectable
    until the controller exists.
