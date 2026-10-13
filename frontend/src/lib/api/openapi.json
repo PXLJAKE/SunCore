@@ -3763,6 +3763,16 @@
             },
             "description": "Successful Response"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3844,6 +3854,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
           },
           "422": {
             "content": {
@@ -3945,6 +3965,16 @@
             },
             "description": "Successful Response"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4006,6 +4036,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
           },
           "422": {
             "content": {
@@ -4069,6 +4109,16 @@
             },
             "description": "Successful Response"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4131,6 +4181,16 @@
             },
             "description": "Successful Response"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4192,6 +4252,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
           },
           "422": {
             "content": {
@@ -4378,7 +4448,7 @@
     },
     "/api/v1/entities": {
       "get": {
-        "description": "Entities for a site role (``role``) or a template role (``template`` + ``role``).\n\nWithout parameters: the unranked power and battery sensors of the Phase 1 picker.\nServed from the registry snapshot and state cache, never per-request from HA.",
+        "description": "Entities for a site role (``role``) or a template role (``template`` + ``role``).\n\nWithout parameters: the unranked power and battery sensors of the Phase 1 picker.\n``include_hidden`` also lists hidden, diagnostic and config entities (ranked lower);\ndisabled entities never appear. Served from the registry snapshot and state cache,\nnever per-request from HA.",
         "operationId": "entities_api_v1_entities_get",
         "parameters": [
           {
@@ -4431,6 +4501,16 @@
               ],
               "title": "Device Id"
             }
+          },
+          {
+            "in": "query",
+            "name": "include_hidden",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Hidden",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -4448,6 +4528,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Role missing"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -4462,11 +4552,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
+                  "$ref": "#/components/schemas/ValidationErrorOut"
                 }
               }
             },
-            "description": "Role missing"
+            "description": "Validation error"
           },
           "503": {
             "content": {
@@ -4723,6 +4813,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Home Assistant refused the request"
           },
           "503": {
             "content": {

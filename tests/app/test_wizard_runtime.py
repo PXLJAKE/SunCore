@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 
 from suncore.api import (
+    EnergyPrefsFailedError,
     EntityQuery,
     HAUnavailableError,
     UnknownRoleError,
@@ -20,7 +21,7 @@ from suncore.core.config import GoalsConfig, RegionConfig
 from suncore.core.signals import Quality
 from suncore.core.site import EntityRef, GridConfig, SiteConfig
 from suncore.ha import EntityCatalogue
-from suncore.ha.connection import CommandError, ConnectionState
+from suncore.ha.connection import CommandError, ConnectionState, NotConnectedError
 from suncore.sim import demo_devices as d
 from suncore.sim.fake_ha import demo_site_config
 from tests.api.conftest import client_for
@@ -168,6 +169,19 @@ async def test_energy_suggestions_not_configured_and_errors(demo_runtime: Runtim
         raise CommandError("unauthorized", "no")
 
     conn.energy_get_prefs = denied  # type: ignore[method-assign,assignment]
+    with pytest.raises(EnergyPrefsFailedError):
+        await demo_runtime.energy_suggestions()
+
+    async def not_found() -> None:
+        raise CommandError("not_found", "No prefs.")
+
+    conn.energy_get_prefs = not_found  # type: ignore[method-assign,assignment]
+    assert (await demo_runtime.energy_suggestions()).configured is False
+
+    async def unreachable() -> None:
+        raise NotConnectedError("down")
+
+    conn.energy_get_prefs = unreachable  # type: ignore[method-assign,assignment]
     with pytest.raises(HAUnavailableError):
         await demo_runtime.energy_suggestions()
 

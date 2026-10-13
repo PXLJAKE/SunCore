@@ -233,7 +233,9 @@ export interface paths {
          * @description Entities for a site role (``role``) or a template role (``template`` + ``role``).
          *
          *     Without parameters: the unranked power and battery sensors of the Phase 1 picker.
-         *     Served from the registry snapshot and state cache, never per-request from HA.
+         *     ``include_hidden`` also lists hidden, diagnostic and config entities (ranked lower);
+         *     disabled entities never appear. Served from the registry snapshot and state cache,
+         *     never per-request from HA.
          */
         get: operations["entities_api_v1_entities_get"];
         put?: never;
@@ -1760,6 +1762,15 @@ export interface operations {
                     "application/json": components["schemas"]["DevicesConfig"];
                 };
             };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -1833,6 +1844,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GoalsConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Validation error */
@@ -1926,6 +1946,15 @@ export interface operations {
                     "application/json": components["schemas"]["OperationConfig"];
                 };
             };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -1977,6 +2006,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegionConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Validation error */
@@ -2032,6 +2070,15 @@ export interface operations {
                     "application/json": components["schemas"]["SiteConfig"];
                 };
             };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -2085,6 +2132,15 @@ export interface operations {
                     "application/json": components["schemas"]["TariffConfig"];
                 };
             };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -2136,6 +2192,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WizardState"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Validation error */
@@ -2276,6 +2341,7 @@ export interface operations {
                 role?: string | null;
                 template?: string | null;
                 device_id?: string | null;
+                include_hidden?: boolean;
             };
             header?: never;
             path?: never;
@@ -2292,6 +2358,15 @@ export interface operations {
                     "application/json": components["schemas"]["EntityCandidateOut"][];
                 };
             };
+            /** @description Role missing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
             /** @description Unknown role or template */
             404: {
                 headers: {
@@ -2301,13 +2376,13 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Role missing */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorOut"];
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
             /** @description Home Assistant not reachable */
@@ -2514,6 +2589,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EnergyPrefsOut"];
+                };
+            };
+            /** @description Home Assistant refused the request */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Home Assistant not reachable */

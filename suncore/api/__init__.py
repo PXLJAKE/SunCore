@@ -3,6 +3,7 @@
 
 from suncore.api.app import create_app
 from suncore.api.services import (
+    EnergyPrefsFailedError,
     EntityQuery,
     HAUnavailableError,
     HealthReport,
@@ -13,6 +14,7 @@ from suncore.api.services import (
 )
 
 __all__ = [
+    "EnergyPrefsFailedError",
     "EntityQuery",
     "HAUnavailableError",
     "HealthReport",

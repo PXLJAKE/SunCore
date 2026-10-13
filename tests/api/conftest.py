@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from suncore.api import (
+    EnergyPrefsFailedError,
     EntityQuery,
     HAUnavailableError,
     HealthReport,
@@ -136,6 +137,7 @@ class FakeServices:
         self.history_entries: dict[str, list[HistoryEntry]] = {}
         self.restored: list[tuple[str, int]] = []
         self.energy = EnergySuggestions(configured=False)
+        self.energy_failed = False
         self.check_items: list[CheckItem] = []
         self.checked_sites: list[SiteConfig | None] = []
         self.preview_items: list[PreviewItem] = []
@@ -196,6 +198,8 @@ class FakeServices:
     async def energy_suggestions(self) -> EnergySuggestions:
         if self.ha_down:
             raise HAUnavailableError("down")
+        if self.energy_failed:
+            raise EnergyPrefsFailedError("unauthorized")
         return self.energy
 
     async def system_check(self, site: SiteConfig | None) -> list[CheckItem]:

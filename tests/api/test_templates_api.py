@@ -85,3 +85,16 @@ async def test_user_templates_and_loader_errors_are_exposed(
     assert [e["file"] for e in body["errors"]] == ["device/broken.thing.yaml"]
     assert body["errors"][0]["message"]
     assert str(tmp_path) not in r.text  # no filesystem paths on the wire
+
+
+def test_loader_messages_do_not_leak_the_data_directory(tmp_path: Path) -> None:
+    from suncore.api.models import _error_out  # noqa: PLC0415
+    from suncore.templates.loader import TemplateFileError  # noqa: PLC0415
+
+    path = tmp_path / "templates" / "device" / "a.yaml"
+    other = tmp_path / "templates" / "device" / "b.yaml"
+    err = TemplateFileError(path, f"duplicate id `x.y` (also {other}); see {path}: line 3 a/b/c")
+    out = _error_out(err)
+    assert out.file == "device/a.yaml"
+    assert str(tmp_path) not in out.message
+    assert out.message == "duplicate id `x.y` (also device/b.yaml); see device/a.yaml: line 3 a/b/c"

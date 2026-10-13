@@ -62,6 +62,8 @@ class EntityQuery:
     role: str | None = None
     template_id: str | None = None
     device_id: str | None = None
+    include_hidden: bool = False
+    """Also hidden, diagnostic and config entities (ranked lower); disabled stay excluded."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +169,10 @@ class Services(Protocol):
 
 class HAUnavailableError(RuntimeError):
     """Home Assistant cannot be reached right now."""
+
+
+class EnergyPrefsFailedError(RuntimeError):
+    """Home Assistant answered ``energy/get_prefs`` with an error (not "not configured")."""
 
 
 class UnknownRoleError(LookupError):

@@ -11,10 +11,10 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 from typing import Any, Final
 
 from fastapi import (
-    Depends,
     FastAPI,
     HTTPException,
     Query,
@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, TypeAdapter
 from starlette.websockets import WebSocketState
 
+from suncore.api.limits import BodyLimitMiddleware
 from suncore.api.models import (
     CheckOut,
     CheckRequest,
@@ -53,6 +54,7 @@ from suncore.api.models import (
 )
 from suncore.api.security import PeerCheckMiddleware
 from suncore.api.services import (
+    EnergyPrefsFailedError,
     EntityQuery,
     HAUnavailableError,
     Services,
@@ -87,12 +89,20 @@ ERR_UNKNOWN_SECTION: Final = "api.error.unknown_section"
 ERR_UNKNOWN_ROLE: Final = "api.error.unknown_role"
 ERR_UNKNOWN_TEMPLATE: Final = "api.error.unknown_template"
 ERR_ROLE_REQUIRED: Final = "api.error.role_required"
+ERR_ENERGY_PREFS_FAILED: Final = "api.error.energy_prefs_failed"
 ERR_HISTORY_NOT_FOUND: Final = "api.error.history_not_found"
 ERR_HISTORY_INVALID: Final = "api.error.history_invalid"
 ERR_PREVIEW_TOO_LARGE: Final = "api.error.preview_too_large"
 ERR_BODY_TOO_LARGE: Final = "api.error.body_too_large"
 BODY_MAX_BYTES: Final = 64 * 1024
 """Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
+SECTION_MAX_BYTES: Final = 256 * 1024
+"""Limit of ``PUT /config/<section>``."""
+BODY_LIMITS: Final = [
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/config/[^/]+"), SECTION_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/wizard/check"), BODY_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/preview"), BODY_MAX_BYTES),
+]
 SNAPSHOT_DECISIONS: Final = 20
 
 
@@ -109,6 +119,7 @@ def create_app(
         docs_url=None,
         redoc_url=None,
     )
+    app.add_middleware(BodyLimitMiddleware, rules=BODY_LIMITS)
     app.add_middleware(PeerCheckMiddleware, policy=services.peer_policy)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     _register_http(app, services)
@@ -139,7 +150,7 @@ def _register_http(app: FastAPI, services: Services) -> None:
         response_model=list[EntityCandidateOut],
         responses={
             404: {"model": ErrorOut, "description": "Unknown role or template"},
-            422: {"model": ErrorOut, "description": "Role missing"},
+            400: {"model": ErrorOut, "description": "Role missing"},
             503: {"model": ErrorOut, "description": "Home Assistant not reachable"},
         },
     )
@@ -147,17 +158,25 @@ def _register_http(app: FastAPI, services: Services) -> None:
         role: str | None = Query(default=None, max_length=64),
         template: str | None = Query(default=None, max_length=96),
         device_id: str | None = Query(default=None, max_length=128),
+        include_hidden: bool = False,
     ) -> list[EntityCandidateOut]:
         """Entities for a site role (``role``) or a template role (``template`` + ``role``).
 
         Without parameters: the unranked power and battery sensors of the Phase 1 picker.
-        Served from the registry snapshot and state cache, never per-request from HA.
+        ``include_hidden`` also lists hidden, diagnostic and config entities (ranked lower);
+        disabled entities never appear. Served from the registry snapshot and state cache,
+        never per-request from HA.
         """
         if template is not None and role is None:
-            raise HTTPException(status_code=422, detail=ERR_ROLE_REQUIRED)
+            raise HTTPException(status_code=400, detail=ERR_ROLE_REQUIRED)
         try:
             found = await services.entities(
-                EntityQuery(role=role, template_id=template, device_id=device_id)
+                EntityQuery(
+                    role=role,
+                    template_id=template,
+                    device_id=device_id,
+                    include_hidden=include_hidden,
+                )
             )
         except HAUnavailableError as exc:
             raise HTTPException(status_code=503, detail=ERR_HA_UNAVAILABLE) from exc
@@ -254,6 +273,7 @@ def _register_section(app: FastAPI, services: Services, name: str, model: type[B
         put_section,
         methods=["PUT"],
         response_model=model,
+        responses={413: {"model": ErrorOut, "description": "Body too large"}},
         operation_id=f"put_config_{name}",
         summary=f"Replace the {name} section",
     )
@@ -319,17 +339,14 @@ def _register_templates(app: FastAPI, services: Services) -> None:
         return TemplateDetailOut(origin=catalog.origins.get(template_id, "builtin"), template=found)
 
 
-async def _small_body(request: Request) -> None:
-    declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > BODY_MAX_BYTES:
-        raise HTTPException(status_code=413, detail=ERR_BODY_TOO_LARGE)
-
-
 def _register_wizard(app: FastAPI, services: Services) -> None:
     @app.get(
         f"{API_PREFIX}/wizard/energy-prefs",
         response_model=EnergyPrefsOut,
-        responses={503: {"model": ErrorOut, "description": "Home Assistant not reachable"}},
+        responses={
+            502: {"model": ErrorOut, "description": "Home Assistant refused the request"},
+            503: {"model": ErrorOut, "description": "Home Assistant not reachable"},
+        },
     )
     async def energy_prefs() -> EnergyPrefsOut:
         """Suggestions from the Energy dashboard; ``configured: false`` if it was never saved."""
@@ -337,11 +354,12 @@ def _register_wizard(app: FastAPI, services: Services) -> None:
             return EnergyPrefsOut.from_core(await services.energy_suggestions())
         except HAUnavailableError as exc:
             raise HTTPException(status_code=503, detail=ERR_HA_UNAVAILABLE) from exc
+        except EnergyPrefsFailedError as exc:
+            raise HTTPException(status_code=502, detail=ERR_ENERGY_PREFS_FAILED) from exc
 
     @app.post(
         f"{API_PREFIX}/wizard/check",
         response_model=CheckOut,
-        dependencies=[Depends(_small_body)],
         responses={413: {"model": ErrorOut, "description": "Body too large"}},
     )
     async def check(body: CheckRequest | None = None) -> CheckOut:
@@ -352,7 +370,6 @@ def _register_wizard(app: FastAPI, services: Services) -> None:
     @app.post(
         f"{API_PREFIX}/preview",
         response_model=PreviewOut,
-        dependencies=[Depends(_small_body)],
         responses={
             413: {"model": ErrorOut, "description": "Body too large"},
             422: {"model": ErrorOut, "description": "Fragment names too many entities"},

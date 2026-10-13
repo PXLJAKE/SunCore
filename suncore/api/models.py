@@ -8,6 +8,7 @@ derives its TypeScript types from it (``scripts/export_openapi.py``). Reasons tr
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -259,9 +260,21 @@ def _summary(template: Template, catalog: TemplateCatalog) -> TemplateSummaryOut
     )
 
 
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.\-/\\])(?:[A-Za-z]:)?(?:[\\/][^\\/\s:`'\"<>|,;()]+){2,}")
+
+
+def _short_path(match: re.Match[str]) -> str:
+    parts = re.split(r"[\\/]", match.group(0))
+    return "/".join(parts[-2:])
+
+
 def _error_out(err: TemplateFileError) -> TemplateErrorOut:
-    # Only the last two path parts (<kind>/<id>.yaml): the data directory is nobody's business.
-    return TemplateErrorOut(file="/".join(err.path.parts[-2:]), message=err.message)
+    # Only the last two path parts (<kind>/<id>.yaml): the data directory is nobody's business,
+    # neither in `file` nor in loader messages that quote paths (e.g. "also /data/...").
+    return TemplateErrorOut(
+        file="/".join(err.path.parts[-2:]),
+        message=_ABSOLUTE_PATH.sub(_short_path, err.message),
+    )
 
 
 def template_list(catalog: TemplateCatalog, kind: str | None = None) -> TemplateListOut:

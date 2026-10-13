@@ -7,6 +7,7 @@
   "activity.importing": "Bezug",
   "activity.producing": "Erzeugt",
   "api.error.body_too_large": "Die Anfrage ist zu groß.",
+  "api.error.energy_prefs_failed": "Home Assistant konnte die Einstellungen des Energie-Dashboards nicht liefern.",
   "api.error.forbidden": "Zugriff verweigert. Öffne SunCore über Home Assistant.",
   "api.error.ha_unavailable": "Home Assistant ist gerade nicht erreichbar.",
   "api.error.history_invalid": "Diese frühere Version kann nicht mehr geladen werden.",

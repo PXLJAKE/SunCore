@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
+import pytest
+
 from suncore.api import EntityQuery, create_app
 from suncore.core.decisions import Reason
 from suncore.core.detection import EnergySuggestions, Suggestion
@@ -51,7 +55,7 @@ async def test_entities_errors(services: FakeServices) -> None:
         bad_template = await client.get(
             "/api/v1/entities", params={"template": "nope.nope", "role": "x"}
         )
-    assert (no_role.status_code, no_role.json()) == (422, {"detail": "api.error.role_required"})
+    assert (no_role.status_code, no_role.json()) == (400, {"detail": "api.error.role_required"})
     assert (bad_role.status_code, bad_role.json()) == (404, {"detail": "api.error.unknown_role"})
     assert bad_template.status_code == 404
     assert bad_template.json() == {"detail": "api.error.unknown_template"}
@@ -187,3 +191,63 @@ async def test_preview(services: FakeServices) -> None:
     assert big.status_code == 422
     assert big.json() == {"detail": "api.error.preview_too_large"}
     assert not_object.status_code == 422
+
+
+async def test_entities_include_hidden_flag(services: FakeServices) -> None:
+    async with client_for(create_app(services)) as client:
+        await client.get(
+            "/api/v1/entities", params={"role": "grid_power", "include_hidden": "true"}
+        )
+        await client.get("/api/v1/entities", params={"role": "grid_power"})
+    assert services.queries == [
+        EntityQuery(role="grid_power", include_hidden=True),
+        EntityQuery(role="grid_power"),
+    ]
+
+
+async def test_energy_prefs_failure_is_a_502(services: FakeServices) -> None:
+    services.energy_failed = True
+    async with client_for(create_app(services)) as client:
+        r = await client.get("/api/v1/wizard/energy-prefs")
+    assert (r.status_code, r.json()) == (502, {"detail": "api.error.energy_prefs_failed"})
+
+
+async def _chunks(total: int) -> AsyncIterator[bytes]:
+    for _ in range(total // 1024):
+        yield b" " * 1024
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "limit"),
+    [
+        ("PUT", "/api/v1/config/tariff", 256 * 1024),
+        ("POST", "/api/v1/wizard/check", 64 * 1024),
+        ("POST", "/api/v1/preview", 64 * 1024),
+    ],
+)
+async def test_streamed_bodies_are_capped_without_content_length(
+    services: FakeServices, method: str, path: str, limit: int
+) -> None:
+    async with client_for(create_app(services)) as client:
+        too_big = await client.request(
+            method,
+            path,
+            content=_chunks(limit + 1024),
+            headers={"content-type": "application/json"},
+        )
+    assert "content-length" not in too_big.request.headers
+    assert (too_big.status_code, too_big.json()) == (413, {"detail": "api.error.body_too_large"})
+
+
+async def test_section_body_cap_is_checked_against_content_length_too(
+    services: FakeServices,
+) -> None:
+    async with client_for(create_app(services)) as client:
+        r = await client.put(
+            "/api/v1/config/site",
+            content=b" " * (256 * 1024 + 1),
+            headers={"content-type": "application/json"},
+        )
+        ok = await client.put("/api/v1/config/tariff", json={"schema_version": 1})
+    assert r.status_code == 413
+    assert ok.status_code != 413

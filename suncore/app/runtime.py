@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from suncore import __version__
 from suncore.api.services import (
+    EnergyPrefsFailedError,
     EntityQuery,
     HAUnavailableError,
     HealthReport,
@@ -251,13 +252,20 @@ class Runtime:
             spec = roles.get(query.role) if query.role is not None else None
             if spec is None:
                 raise UnknownRoleError(str(query.role))
-            matches = detect_template_role(spec, metas, same_device_id=query.device_id)
+            matches = detect_template_role(
+                spec, metas, same_device_id=query.device_id, include_hidden=query.include_hidden
+            )
             return describe(matches, live=self.cache, catalogue=self.catalogue)
         if query.role is None:
-            return legacy_entities(metas, live=self.cache, catalogue=self.catalogue)
+            return legacy_entities(
+                metas,
+                live=self.cache,
+                catalogue=self.catalogue,
+                include_hidden=query.include_hidden,
+            )
         if query.role not in SITE_ROLES:
             raise UnknownRoleError(query.role)
-        site_matches = detect_site_role(query.role, metas)
+        site_matches = detect_site_role(query.role, metas, include_hidden=query.include_hidden)
         return describe(site_matches, live=self.cache, catalogue=self.catalogue)
 
     def templates(self) -> TemplateCatalog:
@@ -279,9 +287,10 @@ class Runtime:
         try:
             prefs = await self.connection.energy_get_prefs()
         except CommandError as exc:
-            if exc.code != "unknown_command":  # energy integration not loaded (UNVERIFIED code)
-                raise HAUnavailableError(str(exc)) from exc
-            prefs = None
+            if exc.code not in ("not_found", "unknown_command"):
+                log.warning("ha.energy_prefs_failed", code=exc.code)
+                raise EnergyPrefsFailedError(exc.code) from exc
+            prefs = None  # dashboard never saved / energy integration not loaded (UNVERIFIED)
         except (HAError, TimeoutError) as exc:
             raise HAUnavailableError(str(exc)) from exc
         await self.catalogue.ensure_fresh()
