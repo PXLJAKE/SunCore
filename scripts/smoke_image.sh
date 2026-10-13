@@ -43,6 +43,11 @@ fail() {
   } >> "${SUMMARY}"
   echo "----- container logs -----"
   docker logs "${NAME}" 2>&1 | tail -n 200 || true
+  # The tail again as one annotation: readable through the checks API even
+  # when the raw job log is not reachable.
+  local tail_lines
+  tail_lines="$(docker logs "${NAME}" 2>&1 | tail -n 40 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')" || true
+  echo "::warning title=smoke container log tail::${tail_lines}"
   exit 1
 }
 
