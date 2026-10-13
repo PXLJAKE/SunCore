@@ -32,9 +32,9 @@ Demo backend: `SUNCORE_DEMO=1 SUNCORE_STATIC_DIR=frontend/dist uv run python -m 
 
 ## Setup wizard (Phase 2)
 
-- Routes: `#/setup` resumes at the first step not in `wizard.completed_steps`; `#/setup/<step>` opens one
-  step (`region`, `energy`, `grid`, `pv`, `battery`, `tariff`, `devices`, `priorities`, `mode`,
-  `summary`; ids in `src/lib/wizard/steps.ts`). Without a completed wizard the first visit of `#/` is
+- Routes: `#/setup` resumes at the first step not in `wizard.completed_steps`;
+  `#/setup/<step>` opens one step (`region`, `energy`, `grid`, `pv`, `battery`,
+  `tariff`, `devices`, `priorities`, `mode`, `summary`; ids in `src/lib/wizard/steps.ts`). Without a completed wizard the first visit of `#/` is
   redirected once to the wizard; leaving it is allowed.
 - `#/settings` is an overview of all sections with "Edit" links into single steps, the restore of
   earlier versions (`/config/{section}/history`) and export/import.
