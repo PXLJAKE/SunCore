@@ -180,7 +180,19 @@ async def test_call_action_response_uses_return_response(
 
 @pytest.mark.parametrize(
     ("domain", "service"),
-    [("switch", "turn_on"), ("tibber", "set_price"), ("light", "turn_off"), ("", "")],
+    [
+        ("switch", "turn_on"),
+        ("tibber", "set_price"),
+        ("light", "turn_off"),
+        ("", ""),
+        # near-misses of the allowlisted `tibber.get_prices`: exact match only
+        ("Tibber", "get_prices"),
+        ("tibber ", "get_prices"),
+        ("tibber", "get_prices\n"),
+        ("tibber.get_prices", ""),
+        ("", "tibber.get_prices"),
+        ("tibber", "get_prices.extra"),
+    ],
 )
 async def test_call_action_response_refuses_everything_off_the_allowlist(
     conn: WebSocketConnection, ha: FakeHA, domain: str, service: str

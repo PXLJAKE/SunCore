@@ -47,7 +47,7 @@ API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
 WRITE_CAPABILITY_NAMES = frozenset({"ServiceCaller", "ServiceCallerProvider"})
 SAFETY_FORBIDDEN_IMPORTS = ("suncore.core.config", "suncore.storage")
-ACTION_RESPONSE_OWNERS = ("suncore.ha", "suncore.sim", "suncore.app")
+ACTION_RESPONSE_OWNERS = ("suncore.ha", "suncore.sim")
 
 
 def module_name(path: Path) -> str:
@@ -284,12 +284,12 @@ def test_safety_does_not_read_config_or_storage(path: Path) -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_call_action_response_is_confined(path: Path) -> None:
-    """Rule 7: the response-returning call lives in ha (+ the fake and the app wiring)."""
+    """Rule 7: the response-returning call lives in ha (+ the fake); app joins later."""
     module = module_name(path)
     if any(in_package(module, owner) for owner in ACTION_RESPONSE_OWNERS):
         return
     offenders = fmt(path, attribute_refs(parse(path), "call_action_response"))
-    assert not offenders, f"call_action_response referenced outside ha/sim/app: {offenders}"
+    assert not offenders, f"call_action_response referenced outside ha/sim: {offenders}"
 
 
 def test_read_only_action_allowlist_is_fixed() -> None:
