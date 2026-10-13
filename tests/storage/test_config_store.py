@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict
 
+from suncore.core.site import SiteConfig, migrate_site_v1_to_v2
 from suncore.storage import (
     ConfigCorruptError,
     ConfigStore,
@@ -100,7 +101,7 @@ async def test_export_import_round_trip(db: Database, tmp_path: Any) -> None:
     assert exported["suncore_export"] == 1
     assert exported["db_schema_version"] == latest_version()
     assert exported["app_version"]
-    assert exported["sections"]["site"]["schema_version"] == 1
+    assert exported["sections"]["site"]["schema_version"] == 2
     exported = json.loads(json.dumps(exported))  # plain JSON
 
     async with await Database.open(tmp_path / "other.db") as other_db:
@@ -123,9 +124,9 @@ async def test_import_migrates_older_sections(db: Database) -> None:
 
 
 async def test_import_replaces_existing_sections(db: Database) -> None:
-    store = ConfigStore(db, {**DEMO, "site": SectionSpec(type(make_site()))})
+    store = ConfigStore(db, {**DEMO, "site": SectionSpec(SiteConfig, (migrate_site_v1_to_v2,))})
     await store.put_site(make_site())
-    await store.import_json({"suncore_export": 1, "db_schema_version": 1, "sections": {}})
+    await store.import_json({"suncore_export": 1, "db_schema_version": 2, "sections": {}})
     assert await store.get_site() is None
 
 
@@ -135,7 +136,7 @@ def _valid_export() -> dict[str, Any]:
         "app_version": "1",
         "db_schema_version": latest_version(),
         "sections": {
-            "site": {"schema_version": 1, "body": make_site("sensor.new").model_dump(mode="json")}
+            "site": {"schema_version": 2, "body": make_site("sensor.new").model_dump(mode="json")}
         },
     }
 

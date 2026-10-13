@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from suncore.core.site import BatteryConfig, EntityRef, GridConfig, SiteConfig
+from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.storage import Database
 
 
@@ -22,7 +22,7 @@ async def db(tmp_path: Path) -> AsyncIterator[Database]:
 def make_site(grid: str = "sensor.grid_power") -> SiteConfig:
     return SiteConfig(
         grid=GridConfig(power=EntityRef(entity_id=grid)),
-        pv=[EntityRef(entity_id="sensor.pv_power")],
+        pv=[PvArray(name="PV", power=EntityRef(entity_id="sensor.pv_power"))],
         battery=BatteryConfig(
             power=EntityRef(entity_id="sensor.bat_power"),
             soc=EntityRef(entity_id="sensor.bat_soc"),

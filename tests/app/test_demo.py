@@ -15,6 +15,9 @@ from websockets.asyncio.client import ClientConnection, connect
 from suncore.api import create_app
 from suncore.app.main import build_runtime
 from suncore.app.runtime import Runtime
+from suncore.core.config import DevicesConfig, OperationConfig, WizardState
+from suncore.core.decisions import OperatingMode
+from suncore.core.devices import ControlKind, DeviceConfig, DeviceKind, PowerModel, PowerModelKind
 from suncore.core.site import EntityRef
 from suncore.ha.connection import CommandTimeoutError
 from suncore.sim.fake_ha import SIM_ENTITY_IDS, FakeHAConnection, demo_site_config
@@ -123,9 +126,12 @@ async def test_export_import_roundtrip_resubscribes(demo_runtime: Runtime) -> No
     assert isinstance(conn, RecordingConnection)
     async with client_for(create_app(demo_runtime)) as client:
         exported = (await client.get("/api/v1/config/export")).json()
-        assert exported["sections"]["site"]["body"]["pv"][0]["entity_id"] == "sensor.sim_pv_power"
+        assert (
+            exported["sections"]["site"]["body"]["pv"][0]["power"]["entity_id"]
+            == "sensor.sim_pv_power"
+        )
         exported["sections"]["site"]["body"]["pv"] = [
-            EntityRef(entity_id="sensor.sim_pv_power", invert_sign=False).model_dump()
+            {"name": "Roof", "power": EntityRef(entity_id="sensor.sim_pv_power").model_dump()}
         ]
         before = len(conn.subscriptions)
         r = await client.post("/api/v1/config/import", json=exported)
@@ -227,3 +233,61 @@ async def test_demo_starts_at_the_configured_time_of_day(tmp_path: Path) -> None
         assert conn.sim_time.hour == 12
     finally:
         await runtime.stop()
+
+
+# --- generic sections (WP4) -------------------------------------------------------
+
+
+def _switch(dev_id: str) -> DeviceConfig:
+    return DeviceConfig(
+        id=dev_id,
+        template_id="generic.switch",
+        name=dev_id,
+        kind=DeviceKind.SWITCH,
+        entities={"switch": EntityRef(entity_id=f"switch.{dev_id}")},
+        power_model=PowerModel(
+            kind=PowerModelKind.MEASURED, power=EntityRef(entity_id=f"sensor.{dev_id}_power")
+        ),
+        control=ControlKind.ON_OFF,
+    )
+
+
+async def test_put_devices_resubscribes_and_shadows_new_ones(demo_runtime: Runtime) -> None:
+    conn = demo_runtime.connection
+    assert isinstance(conn, RecordingConnection)
+    auto = OperatingMode.AUTOMATIC
+    await demo_runtime.put_section("operation", OperationConfig(device_modes={"heater": auto}))
+    stored = await demo_runtime.put_section("devices", DevicesConfig(devices=[_switch("heater")]))
+    assert isinstance(stored, DevicesConfig)
+    assert await demo_runtime.get_section("operation") == OperationConfig()
+    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) | {
+        "switch.heater",
+        "sensor.heater_power",
+    }
+    assert await demo_runtime.get_section("devices") == stored
+
+
+async def test_other_sections_do_not_resubscribe_nor_touch_the_gate(demo_runtime: Runtime) -> None:
+    conn = demo_runtime.connection
+    assert isinstance(conn, RecordingConnection)
+    before = len(conn.subscriptions)
+    assert await demo_runtime.get_section("operation") is None
+    await demo_runtime.put_section(
+        "operation",
+        OperationConfig(mode=OperatingMode.AUTOMATIC, device_modes={"x": OperatingMode.AUTOMATIC}),
+    )
+    await demo_runtime.put_section("wizard", WizardState(completed=True))
+    assert len(conn.subscriptions) == before
+    assert demo_runtime.mode == "shadow"
+    assert demo_runtime.gate.mode is OperatingMode.SHADOW
+
+
+async def test_import_reloads_devices(demo_runtime: Runtime) -> None:
+    conn = demo_runtime.connection
+    assert isinstance(conn, RecordingConnection)
+    await demo_runtime.put_section("devices", DevicesConfig(devices=[_switch("heater")]))
+    exported = await demo_runtime.export_config()
+    exported["sections"]["devices"]["body"]["devices"] = []
+    await demo_runtime.import_config(exported)
+    assert demo_runtime.devices == DevicesConfig()
+    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS)

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Settings form model <-> SiteConfig, and the live preview of a picked entity.
-import type { EntityCandidate, EntityRef, SiteConfig } from './api/types';
+import type { EntityCandidate, EntityRef, PvArray, SiteConfig } from './api/types';
 
 export interface RefField {
   entity_id: string;
@@ -19,13 +19,15 @@ export interface SiteForm {
   batteryPower: RefField;
   batterySoc: RefField;
   house: RefField;
+  /** The loaded document: fields the form does not edit (kwp, limits, ...) are kept on save. */
+  base: SiteConfig | null;
 }
 
 export const emptyRef = (): RefField => ({ entity_id: '', invert_sign: false });
 
 export function emptyForm(): SiteForm {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     gridMode: 'single',
     gridPower: emptyRef(),
     gridImport: emptyRef(),
@@ -35,6 +37,7 @@ export function emptyForm(): SiteForm {
     batteryPower: emptyRef(),
     batterySoc: emptyRef(),
     house: emptyRef(),
+    base: null,
   };
 }
 
@@ -49,7 +52,7 @@ const toRef = (f: RefField): EntityRef | null => {
 export function formFromSite(site: SiteConfig | null): SiteForm {
   if (!site) return emptyForm();
   const pair = !site.grid.power && (!!site.grid.import_power || !!site.grid.export_power);
-  const pv = site.pv ?? [];
+  const pv = (site.pv ?? []).map((a) => a.power);
   return {
     schemaVersion: site.schema_version,
     gridMode: pair ? 'pair' : 'single',
@@ -61,6 +64,7 @@ export function formFromSite(site: SiteConfig | null): SiteForm {
     batteryPower: fromRef(site.battery?.power),
     batterySoc: fromRef(site.battery?.soc),
     house: fromRef(site.house),
+    base: site,
   };
 }
 
@@ -97,11 +101,22 @@ export function siteFromForm(form: SiteForm): SiteConfig {
         };
   const power = toRef(form.batteryPower);
   const soc = toRef(form.batterySoc);
+  const basePv = form.base?.pv ?? [];
+  const pv: PvArray[] = [];
+  form.pv.forEach((field, i) => {
+    const ref = toRef(field);
+    if (ref === null) return;
+    const kept = basePv[i];
+    pv.push({ ...kept, name: kept?.name ?? `PV ${i + 1}`, power: ref });
+  });
   return {
     schema_version: form.schemaVersion,
-    grid,
-    pv: form.pv.map(toRef).filter((r): r is EntityRef => r !== null),
-    battery: form.batteryEnabled && power && soc ? { power, soc } : null,
+    grid: { para14a: false, ...form.base?.grid, ...grid },
+    pv,
+    battery:
+      form.batteryEnabled && power && soc
+        ? { control: 'observe' as const, ...form.base?.battery, power, soc }
+        : null,
     house: toRef(form.house),
   };
 }

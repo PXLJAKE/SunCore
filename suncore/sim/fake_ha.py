@@ -31,7 +31,7 @@ from collections.abc import Awaitable, Callable, Collection, Mapping
 from datetime import datetime
 from typing import Any, Final
 
-from suncore.core.site import BatteryConfig, EntityRef, GridConfig, SiteConfig
+from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.ha.connection import (
     ConnectionState,
     EntityListener,
@@ -76,7 +76,7 @@ def demo_site_config() -> SiteConfig:
     """Site configuration mapping the simulator entities (signed grid, one PV, battery)."""
     return SiteConfig(
         grid=GridConfig(power=EntityRef(entity_id=GRID_ID)),
-        pv=[EntityRef(entity_id=PV_ID)],
+        pv=[PvArray(name="PV", power=EntityRef(entity_id=PV_ID))],
         battery=BatteryConfig(
             power=EntityRef(entity_id=BATTERY_ID), soc=EntityRef(entity_id=SOC_ID)
         ),

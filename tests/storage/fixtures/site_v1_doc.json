@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "grid": {
+    "power": {"entity_id": "sensor.grid_power", "invert_sign": true},
+    "import_power": null,
+    "export_power": null
+  },
+  "pv": [
+    {"entity_id": "sensor.pv_east", "invert_sign": false},
+    {"entity_id": "sensor.pv_west", "invert_sign": true}
+  ],
+  "battery": {
+    "power": {"entity_id": "sensor.bat_power", "invert_sign": false},
+    "soc": {"entity_id": "sensor.bat_soc", "invert_sign": false}
+  },
+  "house": {"entity_id": "sensor.house_power", "invert_sign": false}
+}

@@ -13,11 +13,13 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from pydantic import BaseModel
 
 from suncore import __version__
 from suncore.api.services import CandidateInfo, HAUnavailableError, HealthReport, PeerPolicy
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
+from suncore.core.config import DevicesConfig
 from suncore.core.decisions import Decision
 from suncore.core.site import SiteConfig
 from suncore.ha import (
@@ -53,6 +55,7 @@ class Runtime:
     demo: bool
     supervised: bool
     site: SiteConfig | None = None
+    devices: DevicesConfig | None = None
     _listeners: list[Callable[[], None]] = field(default_factory=list)
     _health_listeners: list[Callable[[], None]] = field(default_factory=list)
     _last_update: datetime | None = None
@@ -69,11 +72,17 @@ class Runtime:
         503), so ``connect()`` runs as a task; its failure is logged, and the state is
         visible through the connection.
         """
-        self.site = await self.config.get_site()
+        await self._load_live_sections()
         self._unsubscribers.append(self.connection.add_entity_listener(self._on_entities))
         self._unsubscribers.append(self.connection.add_state_listener(self._on_state))
         await self._resubscribe()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
+
+    async def _load_live_sections(self) -> None:
+        self.site = await self.config.get_site()
+        devices = await self.config.get("devices")
+        assert devices is None or isinstance(devices, DevicesConfig)
+        self.devices = devices
 
     async def _connect(self) -> None:
         try:
@@ -122,7 +131,10 @@ class Runtime:
                 log.exception("health listener failed")
 
     async def _resubscribe(self) -> None:
-        ids = [r.entity_id for r in self.site.entity_refs()] if self.site else []
+        refs = list(self.site.entity_refs()) if self.site else []
+        if self.devices is not None:
+            refs.extend(self.devices.entity_refs())
+        ids = list(dict.fromkeys(r.entity_id for r in refs))
         try:
             await self.connection.subscribe_entities(ids)
         except (HAError, TimeoutError) as exc:
@@ -178,10 +190,30 @@ class Runtime:
         return self.site
 
     async def put_site(self, site: SiteConfig) -> None:
-        await self.config.put_site(site)
-        self.site = site
-        await self._resubscribe()
+        await self.put_section("site", site)
+
+    async def get_section(self, name: str) -> BaseModel | None:
+        """Stored section (``None`` if never stored); raises ``UnknownSectionError``."""
+        return await self.config.get(name)
+
+    async def put_section(self, name: str, model: BaseModel) -> BaseModel:
+        """Store any config section; ``site`` and ``devices`` also resubscribe entities.
+
+        Returns what was stored. Putting ``devices`` drops the stored non-shadow mode of
+        new devices from ``operation`` (they start in shadow).
+        Other sections are stored only: ``operation`` is never read by the safety gate.
+        """
+        stored = await self.config.put(name, model)
+        if name == "site":
+            assert isinstance(stored, SiteConfig)
+            self.site = stored
+        elif name == "devices":
+            assert isinstance(stored, DevicesConfig)
+            self.devices = stored
+        if name in ("site", "devices"):
+            await self._resubscribe()
         self._notify()
+        return stored
 
     async def candidates(self) -> Sequence[CandidateInfo]:
         try:
@@ -214,7 +246,7 @@ class Runtime:
 
     async def import_config(self, data: object) -> list[str]:
         sections = await self.config.import_json(data)
-        self.site = await self.config.get_site()
+        await self._load_live_sections()
         await self._resubscribe()
         self._notify()
         return sections

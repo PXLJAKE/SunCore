@@ -1,0 +1,21 @@
+{
+  "suncore_export": 1,
+  "app_version": "0.2.0-beta.1",
+  "db_schema_version": 1,
+  "sections": {
+    "site": {
+      "schema_version": 1,
+      "body": {
+        "schema_version": 1,
+        "grid": {
+          "power": null,
+          "import_power": {"entity_id": "sensor.grid_import", "invert_sign": false},
+          "export_power": {"entity_id": "sensor.grid_export", "invert_sign": false}
+        },
+        "pv": [{"entity_id": "sensor.pv_total", "invert_sign": false}],
+        "battery": null,
+        "house": null
+      }
+    }
+  }
+}

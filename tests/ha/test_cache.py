@@ -164,7 +164,7 @@ def test_samples_feed_compute_flows() -> None:
     site = SiteConfig.model_validate(
         {
             "grid": {"power": {"entity_id": "sensor.grid"}},
-            "pv": [{"entity_id": "sensor.pv"}],
+            "pv": [{"name": "PV", "power": {"entity_id": "sensor.pv"}}],
             "battery": {"power": {"entity_id": "sensor.bat"}, "soc": {"entity_id": "sensor.soc"}},
         }
     )

@@ -106,7 +106,7 @@ def compute_flows(site: SiteConfig, samples: Mapping[str, Sample]) -> FlowSnapsh
             grid = Flow(net_grid_w(imp.value, exp.value), quality)
 
     # PV
-    pv = _sum([read_flow(r, samples, power) for r in site.pv])
+    pv = _sum([read_flow(r, samples, power) for r in site.pv_power_refs])
 
     # Battery
     if site.battery is None:

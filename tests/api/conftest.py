@@ -14,6 +14,7 @@ import httpx
 import pytest
 import uvicorn
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 from suncore.api import CandidateInfo, HAUnavailableError, HealthReport, PeerPolicy
 from suncore.core.balance import Flow, FlowSnapshot
@@ -27,7 +28,7 @@ from suncore.core.decisions import (
     SwitchAction,
 )
 from suncore.core.signals import Quality
-from suncore.core.site import EntityRef, GridConfig, SiteConfig
+from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.storage import ImportRejectedError
 
 NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
@@ -36,7 +37,7 @@ NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
 def make_site() -> SiteConfig:
     return SiteConfig(
         grid=GridConfig(power=EntityRef(entity_id="sensor.grid")),
-        pv=[EntityRef(entity_id="sensor.pv")],
+        pv=[PvArray(name="PV", power=EntityRef(entity_id="sensor.pv"))],
     )
 
 
@@ -83,6 +84,7 @@ class FakeServices:
         self.ha_state = "connected"
         self.db_ok = True
         self.site: SiteConfig | None = None
+        self.sections: dict[str, BaseModel] = {}
         self.flow: FlowSnapshot | None = make_flows()
         self.decision_list: list[Decision] = [make_decision(1)]
         self.candidate_list: list[CandidateInfo] = [
@@ -104,6 +106,13 @@ class FakeServices:
 
     async def put_site(self, site: SiteConfig) -> None:
         self.site = site
+
+    async def get_section(self, name: str) -> BaseModel | None:
+        return self.sections.get(name)
+
+    async def put_section(self, name: str, model: BaseModel) -> BaseModel:
+        self.sections[name] = model
+        return model
 
     async def candidates(self) -> Sequence[CandidateInfo]:
         if self.ha_down:

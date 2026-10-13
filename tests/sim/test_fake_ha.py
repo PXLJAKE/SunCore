@@ -344,7 +344,7 @@ def test_demo_site_config_is_valid() -> None:
     assert not site.grid.is_pair
     assert site.battery is not None
     assert site.house is not None
-    assert [r.entity_id for r in site.pv] == [PV_ID]
+    assert [r.entity_id for r in site.pv_power_refs] == [PV_ID]
     assert site.battery.power.entity_id == BATTERY_ID
     s = EntityState(entity_id=PV_ID, state="1.0")
     assert s.entity_id in SIM_ENTITY_IDS

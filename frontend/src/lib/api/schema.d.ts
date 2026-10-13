@@ -130,9 +130,28 @@ export interface components {
     schemas: {
         /**
          * BatteryConfig
-         * @description Battery: power (+ = charging) and state of charge in percent.
+         * @description Battery: power (+ = charging), state of charge in percent, limits.
+         *
+         *     ``control`` is ``observe`` only: SunCore reads the battery; adapters that write
+         *     set-points come in a later phase.
          */
         BatteryConfig: {
+            /** Capacity Wh */
+            capacity_wh?: number | null;
+            /**
+             * Control
+             * @default observe
+             * @constant
+             */
+            control: "observe";
+            /** Max Charge W */
+            max_charge_w?: number | null;
+            /** Max Discharge W */
+            max_discharge_w?: number | null;
+            /** Max Soc Pct */
+            max_soc_pct?: number | null;
+            /** Min Soc Pct */
+            min_soc_pct?: number | null;
             power: components["schemas"]["EntityRef"];
             soc: components["schemas"]["EntityRef"];
         };
@@ -241,11 +260,25 @@ export interface components {
         };
         /**
          * GridConfig
-         * @description Grid connection: one signed sensor (+ = import) OR an import/export pair.
+         * @description Grid connection: one signed sensor (+ = import) OR an import/export pair, plus limits.
          */
         GridConfig: {
+            energy_export?: components["schemas"]["EntityRef"] | null;
+            energy_import?: components["schemas"]["EntityRef"] | null;
+            /** Export Limit Pct Kwp */
+            export_limit_pct_kwp?: number | null;
+            /** Export Limit W */
+            export_limit_w?: number | null;
             export_power?: components["schemas"]["EntityRef"] | null;
+            /** Import Limit W */
+            import_limit_w?: number | null;
             import_power?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Para14A
+             * @default false
+             */
+            para14a: boolean;
+            para14a_signal?: components["schemas"]["EntityRef"] | null;
             power?: components["schemas"]["EntityRef"] | null;
         };
         /** HTTPValidationError */
@@ -342,6 +375,23 @@ export interface components {
             power_w: number;
         };
         /**
+         * PvArray
+         * @description One PV array (roof plane / inverter input). Everything but ``name`` is optional.
+         */
+        PvArray: {
+            /** Azimuth Deg */
+            azimuth_deg?: number | null;
+            /** Inverter */
+            inverter?: string | null;
+            /** Kwp */
+            kwp?: number | null;
+            /** Name */
+            name: string;
+            power?: components["schemas"]["EntityRef"] | null;
+            /** Tilt Deg */
+            tilt_deg?: number | null;
+        };
+        /**
          * Reason
          * @description A structured, translatable explanation.
          *
@@ -365,10 +415,10 @@ export interface components {
             grid: components["schemas"]["GridConfig"];
             house?: components["schemas"]["EntityRef"] | null;
             /** Pv */
-            pv?: components["schemas"]["EntityRef"][];
+            pv?: components["schemas"]["PvArray"][];
             /**
              * Schema Version
-             * @default 1
+             * @default 2
              */
             schema_version: number;
         };

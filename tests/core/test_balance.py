@@ -27,7 +27,10 @@ def r(eid: str, invert: bool = False) -> dict[str, object]:
 def full_site(*, house: bool = False, invert_grid: bool = False) -> SiteConfig:
     cfg: dict[str, object] = {
         "grid": {"power": r("sensor.grid", invert_grid)},
-        "pv": [r("sensor.pv1"), r("sensor.pv2")],
+        "pv": [
+            {"name": "A", "power": r("sensor.pv1")},
+            {"name": "B", "power": r("sensor.pv2")},
+        ],
         "battery": {"power": r("sensor.bat"), "soc": r("sensor.soc")},
     }
     if house:
