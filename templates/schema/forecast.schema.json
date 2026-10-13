@@ -1,0 +1,336 @@
+{
+  "$defs": {
+    "EntityMatcher": {
+      "additionalProperties": false,
+      "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive).",
+      "properties": {
+        "device_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Class"
+        },
+        "domain": {
+          "pattern": "^[a-z_]+$",
+          "title": "Domain",
+          "type": "string"
+        },
+        "platform": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Platform"
+        },
+        "state_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Class"
+        },
+        "translation_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translation Key"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "title": "EntityMatcher",
+      "type": "object"
+    },
+    "ForecastAttributeMap": {
+      "additionalProperties": false,
+      "description": "Where quantiles and timestamps live in the entity attributes.\n\n``series_attribute`` names the attribute holding the list of points; each point\nis a mapping with the given field names. ``None`` quantile fields are not offered.",
+      "properties": {
+        "p10_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P10 Field"
+        },
+        "p50_field": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "P50 Field",
+          "type": "string"
+        },
+        "p90_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P90 Field"
+        },
+        "series_attribute": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Series Attribute",
+          "type": "string"
+        },
+        "timestamp_field": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Timestamp Field",
+          "type": "string"
+        },
+        "value_unit": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Value Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "series_attribute",
+        "timestamp_field",
+        "p50_field",
+        "value_unit"
+      ],
+      "title": "ForecastAttributeMap",
+      "type": "object"
+    },
+    "RoleSpec": {
+      "additionalProperties": false,
+      "description": "One entity role of a template.",
+      "properties": {
+        "description": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Description",
+          "type": "string"
+        },
+        "matcher": {
+          "$ref": "#/$defs/EntityMatcher"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "matcher",
+        "description"
+      ],
+      "title": "RoleSpec",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "Documentation a template (or one of its facts) is based on.",
+      "properties": {
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 500,
+          "pattern": "^https?://\\S+$",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "date"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "TestedWith": {
+      "additionalProperties": false,
+      "description": "Integration version the template was verified against.",
+      "properties": {
+        "integration": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Integration",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "integration",
+        "version"
+      ],
+      "title": "TestedWith",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/pxljake/suncore/main/templates/schema/forecast.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attributes": {
+      "$ref": "#/$defs/ForecastAttributeMap"
+    },
+    "capabilities": {
+      "items": {
+        "maxLength": 48,
+        "pattern": "^[a-z][a-z0-9_]*$",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "forecast_kind": {
+      "enum": [
+        "pv",
+        "load",
+        "price"
+      ],
+      "title": "Forecast Kind",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "forecast",
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "title": "Name",
+      "type": "string"
+    },
+    "resolution_min": {
+      "maximum": 1440,
+      "minimum": 1,
+      "title": "Resolution Min",
+      "type": "integer"
+    },
+    "roles": {
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,31}$": {
+          "$ref": "#/$defs/RoleSpec"
+        }
+      },
+      "title": "Roles",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source": {
+      "items": {
+        "$ref": "#/$defs/SourceRef"
+      },
+      "minItems": 1,
+      "title": "Source",
+      "type": "array"
+    },
+    "tested_with": {
+      "items": {
+        "$ref": "#/$defs/TestedWith"
+      },
+      "title": "Tested With",
+      "type": "array"
+    },
+    "unverified": {
+      "items": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Unverified",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "schema_version",
+    "name",
+    "source",
+    "tested_with",
+    "capabilities",
+    "kind",
+    "forecast_kind",
+    "roles",
+    "attributes",
+    "resolution_min"
+  ],
+  "title": "ForecastTemplate",
+  "type": "object"
+}

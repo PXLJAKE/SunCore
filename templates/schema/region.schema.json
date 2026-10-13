@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "FeedInTier": {
+      "additionalProperties": false,
+      "description": "Feed-in remuneration band, data only (no legal advice).\n\nBands apply to the share of the plant up to ``up_to_kwp`` (cumulative, lower bounds\nare the previous band); ``None`` = no upper bound and only allowed on the last band.",
+      "properties": {
+        "mode": {
+          "default": "surplus",
+          "enum": [
+            "surplus",
+            "full_feed_in"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "rate_per_kwh": {
+          "minimum": 0,
+          "title": "Rate Per Kwh",
+          "type": "number"
+        },
+        "up_to_kwp": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Up To Kwp"
+        },
+        "valid_from": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid From"
+        },
+        "valid_until": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid Until"
+        }
+      },
+      "required": [
+        "rate_per_kwh"
+      ],
+      "title": "FeedInTier",
+      "type": "object"
+    },
+    "NegativePriceRule": {
+      "description": "Feed-in remuneration during negative spot prices.",
+      "enum": [
+        "none",
+        "no_remuneration",
+        "curtailment_required"
+      ],
+      "title": "NegativePriceRule",
+      "type": "string"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "Documentation a template (or one of its facts) is based on.",
+      "properties": {
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 500,
+          "pattern": "^https?://\\S+$",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "date"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "TestedWith": {
+      "additionalProperties": false,
+      "description": "Integration version the template was verified against.",
+      "properties": {
+        "integration": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Integration",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "integration",
+        "version"
+      ],
+      "title": "TestedWith",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/pxljake/suncore/main/templates/schema/region.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "items": {
+        "maxLength": 48,
+        "pattern": "^[a-z][a-z0-9_]*$",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "country": {
+      "pattern": "^([A-Z]{2}|generic)$",
+      "title": "Country",
+      "type": "string"
+    },
+    "currency": {
+      "pattern": "^[A-Z]{3}$",
+      "title": "Currency",
+      "type": "string"
+    },
+    "feed_in_tiers": {
+      "items": {
+        "$ref": "#/$defs/FeedInTier"
+      },
+      "title": "Feed In Tiers",
+      "type": "array"
+    },
+    "id": {
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "region",
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "title": "Name",
+      "type": "string"
+    },
+    "negative_price_rule": {
+      "$ref": "#/$defs/NegativePriceRule",
+      "default": "none"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source": {
+      "items": {
+        "$ref": "#/$defs/SourceRef"
+      },
+      "minItems": 1,
+      "title": "Source",
+      "type": "array"
+    },
+    "tested_with": {
+      "items": {
+        "$ref": "#/$defs/TestedWith"
+      },
+      "title": "Tested With",
+      "type": "array"
+    },
+    "timezone": {
+      "anyOf": [
+        {
+          "pattern": "^(UTC|[A-Za-z_]+(/[A-Za-z_+\\-0-9]+){1,2})$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Timezone"
+    },
+    "unverified": {
+      "items": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Unverified",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "schema_version",
+    "name",
+    "source",
+    "tested_with",
+    "capabilities",
+    "kind",
+    "country",
+    "currency"
+  ],
+  "title": "RegionTemplate",
+  "type": "object"
+}

@@ -1,0 +1,281 @@
+{
+  "$defs": {
+    "EntityMatcher": {
+      "additionalProperties": false,
+      "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive).",
+      "properties": {
+        "device_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Class"
+        },
+        "domain": {
+          "pattern": "^[a-z_]+$",
+          "title": "Domain",
+          "type": "string"
+        },
+        "platform": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Platform"
+        },
+        "state_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Class"
+        },
+        "translation_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translation Key"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "title": "EntityMatcher",
+      "type": "object"
+    },
+    "RoleSpec": {
+      "additionalProperties": false,
+      "description": "One entity role of a template.",
+      "properties": {
+        "description": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Description",
+          "type": "string"
+        },
+        "matcher": {
+          "$ref": "#/$defs/EntityMatcher"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "matcher",
+        "description"
+      ],
+      "title": "RoleSpec",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "Documentation a template (or one of its facts) is based on.",
+      "properties": {
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 500,
+          "pattern": "^https?://\\S+$",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "date"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "TestedWith": {
+      "additionalProperties": false,
+      "description": "Integration version the template was verified against.",
+      "properties": {
+        "integration": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Integration",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "integration",
+        "version"
+      ],
+      "title": "TestedWith",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/pxljake/suncore/main/templates/schema/tariff.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "items": {
+        "maxLength": 48,
+        "pattern": "^[a-z][a-z0-9_]*$",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "direction": {
+      "enum": [
+        "import",
+        "export"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "tariff",
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "title": "Name",
+      "type": "string"
+    },
+    "price_unit": {
+      "pattern": "^(\\{currency\\}|[A-Z]{3})/kWh$",
+      "title": "Price Unit",
+      "type": "string"
+    },
+    "resolution_min": {
+      "enum": [
+        15,
+        60
+      ],
+      "title": "Resolution Min",
+      "type": "integer"
+    },
+    "roles": {
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,31}$": {
+          "$ref": "#/$defs/RoleSpec"
+        }
+      },
+      "title": "Roles",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source": {
+      "items": {
+        "$ref": "#/$defs/SourceRef"
+      },
+      "minItems": 1,
+      "title": "Source",
+      "type": "array"
+    },
+    "tariff_type": {
+      "enum": [
+        "fixed",
+        "dynamic"
+      ],
+      "title": "Tariff Type",
+      "type": "string"
+    },
+    "tested_with": {
+      "items": {
+        "$ref": "#/$defs/TestedWith"
+      },
+      "title": "Tested With",
+      "type": "array"
+    },
+    "unverified": {
+      "items": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Unverified",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "schema_version",
+    "name",
+    "source",
+    "tested_with",
+    "capabilities",
+    "kind",
+    "direction",
+    "tariff_type",
+    "price_unit",
+    "resolution_min"
+  ],
+  "title": "TariffTemplate",
+  "type": "object"
+}

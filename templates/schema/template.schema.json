@@ -1,0 +1,921 @@
+{
+  "$defs": {
+    "ComfortBand": {
+      "additionalProperties": false,
+      "description": "Allowed temperature range in °C.",
+      "properties": {
+        "max_c": {
+          "maximum": 150,
+          "minimum": -50,
+          "title": "Max C",
+          "type": "number"
+        },
+        "min_c": {
+          "maximum": 150,
+          "minimum": -50,
+          "title": "Min C",
+          "type": "number"
+        }
+      },
+      "required": [
+        "min_c",
+        "max_c"
+      ],
+      "title": "ComfortBand",
+      "type": "object"
+    },
+    "ControlKind": {
+      "description": "How a device is driven.",
+      "enum": [
+        "on_off",
+        "steps",
+        "continuous",
+        "setpoint",
+        "mode"
+      ],
+      "title": "ControlKind",
+      "type": "string"
+    },
+    "DeviceDefaults": {
+      "additionalProperties": false,
+      "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.",
+      "properties": {
+        "comfort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComfortBand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "control": {
+          "$ref": "#/$defs/ControlKind"
+        },
+        "max_switches_per_hour": {
+          "anyOf": [
+            {
+              "maximum": 3600,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Switches Per Hour"
+        },
+        "min_pause_s": {
+          "default": 0,
+          "maximum": 86400,
+          "minimum": 0,
+          "title": "Min Pause S",
+          "type": "integer"
+        },
+        "min_run_s": {
+          "default": 0,
+          "maximum": 86400,
+          "minimum": 0,
+          "title": "Min Run S",
+          "type": "integer"
+        },
+        "power_model": {
+          "$ref": "#/$defs/PowerModelDefault"
+        }
+      },
+      "required": [
+        "power_model",
+        "control"
+      ],
+      "title": "DeviceDefaults",
+      "type": "object"
+    },
+    "DeviceKind": {
+      "description": "Kind of controllable device. Templates use climate, switch and number_load for now.",
+      "enum": [
+        "climate",
+        "switch",
+        "number_load",
+        "water_heater",
+        "heat_pump",
+        "wallbox",
+        "program",
+        "generic"
+      ],
+      "title": "DeviceKind",
+      "type": "string"
+    },
+    "DeviceTemplate": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "defaults": {
+          "$ref": "#/$defs/DeviceDefaults"
+        },
+        "device_kind": {
+          "$ref": "#/$defs/DeviceKind"
+        },
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "device",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "roles": {
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,31}$": {
+              "$ref": "#/$defs/RoleSpec"
+            }
+          },
+          "title": "Roles",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "minItems": 1,
+          "title": "Source",
+          "type": "array"
+        },
+        "tested_with": {
+          "items": {
+            "$ref": "#/$defs/TestedWith"
+          },
+          "title": "Tested With",
+          "type": "array"
+        },
+        "unverified": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Unverified",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "schema_version",
+        "name",
+        "source",
+        "tested_with",
+        "capabilities",
+        "kind",
+        "device_kind",
+        "roles",
+        "defaults"
+      ],
+      "title": "DeviceTemplate",
+      "type": "object"
+    },
+    "EntityMatcher": {
+      "additionalProperties": false,
+      "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive).",
+      "properties": {
+        "device_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Class"
+        },
+        "domain": {
+          "pattern": "^[a-z_]+$",
+          "title": "Domain",
+          "type": "string"
+        },
+        "platform": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Platform"
+        },
+        "state_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Class"
+        },
+        "translation_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translation Key"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "title": "EntityMatcher",
+      "type": "object"
+    },
+    "FeedInTier": {
+      "additionalProperties": false,
+      "description": "Feed-in remuneration band, data only (no legal advice).\n\nBands apply to the share of the plant up to ``up_to_kwp`` (cumulative, lower bounds\nare the previous band); ``None`` = no upper bound and only allowed on the last band.",
+      "properties": {
+        "mode": {
+          "default": "surplus",
+          "enum": [
+            "surplus",
+            "full_feed_in"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "rate_per_kwh": {
+          "minimum": 0,
+          "title": "Rate Per Kwh",
+          "type": "number"
+        },
+        "up_to_kwp": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Up To Kwp"
+        },
+        "valid_from": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid From"
+        },
+        "valid_until": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid Until"
+        }
+      },
+      "required": [
+        "rate_per_kwh"
+      ],
+      "title": "FeedInTier",
+      "type": "object"
+    },
+    "ForecastAttributeMap": {
+      "additionalProperties": false,
+      "description": "Where quantiles and timestamps live in the entity attributes.\n\n``series_attribute`` names the attribute holding the list of points; each point\nis a mapping with the given field names. ``None`` quantile fields are not offered.",
+      "properties": {
+        "p10_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P10 Field"
+        },
+        "p50_field": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "P50 Field",
+          "type": "string"
+        },
+        "p90_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P90 Field"
+        },
+        "series_attribute": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Series Attribute",
+          "type": "string"
+        },
+        "timestamp_field": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Timestamp Field",
+          "type": "string"
+        },
+        "value_unit": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Value Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "series_attribute",
+        "timestamp_field",
+        "p50_field",
+        "value_unit"
+      ],
+      "title": "ForecastAttributeMap",
+      "type": "object"
+    },
+    "ForecastTemplate": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "$ref": "#/$defs/ForecastAttributeMap"
+        },
+        "capabilities": {
+          "items": {
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "forecast_kind": {
+          "enum": [
+            "pv",
+            "load",
+            "price"
+          ],
+          "title": "Forecast Kind",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "forecast",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "resolution_min": {
+          "maximum": 1440,
+          "minimum": 1,
+          "title": "Resolution Min",
+          "type": "integer"
+        },
+        "roles": {
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,31}$": {
+              "$ref": "#/$defs/RoleSpec"
+            }
+          },
+          "title": "Roles",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "minItems": 1,
+          "title": "Source",
+          "type": "array"
+        },
+        "tested_with": {
+          "items": {
+            "$ref": "#/$defs/TestedWith"
+          },
+          "title": "Tested With",
+          "type": "array"
+        },
+        "unverified": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Unverified",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "schema_version",
+        "name",
+        "source",
+        "tested_with",
+        "capabilities",
+        "kind",
+        "forecast_kind",
+        "roles",
+        "attributes",
+        "resolution_min"
+      ],
+      "title": "ForecastTemplate",
+      "type": "object"
+    },
+    "NegativePriceRule": {
+      "description": "Feed-in remuneration during negative spot prices.",
+      "enum": [
+        "none",
+        "no_remuneration",
+        "curtailment_required"
+      ],
+      "title": "NegativePriceRule",
+      "type": "string"
+    },
+    "PowerModelDefault": {
+      "additionalProperties": false,
+      "description": "Default power model; ``power_role``/``energy_role`` refer to roles of the template.",
+      "properties": {
+        "energy_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy Role"
+        },
+        "kind": {
+          "$ref": "#/$defs/PowerModelKind"
+        },
+        "nominal_w": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 1000000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nominal W"
+        },
+        "power_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Power Role"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "PowerModelDefault",
+      "type": "object"
+    },
+    "PowerModelKind": {
+      "description": "How a device's power is obtained (BRIEF §4.5); each kind yields an uncertain estimate.",
+      "enum": [
+        "measured",
+        "counter_derived",
+        "learned",
+        "nominal"
+      ],
+      "title": "PowerModelKind",
+      "type": "string"
+    },
+    "RegionTemplate": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "country": {
+          "pattern": "^([A-Z]{2}|generic)$",
+          "title": "Country",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "feed_in_tiers": {
+          "items": {
+            "$ref": "#/$defs/FeedInTier"
+          },
+          "title": "Feed In Tiers",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "region",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "negative_price_rule": {
+          "$ref": "#/$defs/NegativePriceRule",
+          "default": "none"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "minItems": 1,
+          "title": "Source",
+          "type": "array"
+        },
+        "tested_with": {
+          "items": {
+            "$ref": "#/$defs/TestedWith"
+          },
+          "title": "Tested With",
+          "type": "array"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "pattern": "^(UTC|[A-Za-z_]+(/[A-Za-z_+\\-0-9]+){1,2})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timezone"
+        },
+        "unverified": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Unverified",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "schema_version",
+        "name",
+        "source",
+        "tested_with",
+        "capabilities",
+        "kind",
+        "country",
+        "currency"
+      ],
+      "title": "RegionTemplate",
+      "type": "object"
+    },
+    "RoleSpec": {
+      "additionalProperties": false,
+      "description": "One entity role of a template.",
+      "properties": {
+        "description": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Description",
+          "type": "string"
+        },
+        "matcher": {
+          "$ref": "#/$defs/EntityMatcher"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "matcher",
+        "description"
+      ],
+      "title": "RoleSpec",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "Documentation a template (or one of its facts) is based on.",
+      "properties": {
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 500,
+          "pattern": "^https?://\\S+$",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "date"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "TariffTemplate": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "direction": {
+          "enum": [
+            "import",
+            "export"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "tariff",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "price_unit": {
+          "pattern": "^(\\{currency\\}|[A-Z]{3})/kWh$",
+          "title": "Price Unit",
+          "type": "string"
+        },
+        "resolution_min": {
+          "enum": [
+            15,
+            60
+          ],
+          "title": "Resolution Min",
+          "type": "integer"
+        },
+        "roles": {
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,31}$": {
+              "$ref": "#/$defs/RoleSpec"
+            }
+          },
+          "title": "Roles",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "minItems": 1,
+          "title": "Source",
+          "type": "array"
+        },
+        "tariff_type": {
+          "enum": [
+            "fixed",
+            "dynamic"
+          ],
+          "title": "Tariff Type",
+          "type": "string"
+        },
+        "tested_with": {
+          "items": {
+            "$ref": "#/$defs/TestedWith"
+          },
+          "title": "Tested With",
+          "type": "array"
+        },
+        "unverified": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Unverified",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "schema_version",
+        "name",
+        "source",
+        "tested_with",
+        "capabilities",
+        "kind",
+        "direction",
+        "tariff_type",
+        "price_unit",
+        "resolution_min"
+      ],
+      "title": "TariffTemplate",
+      "type": "object"
+    },
+    "TestedWith": {
+      "additionalProperties": false,
+      "description": "Integration version the template was verified against.",
+      "properties": {
+        "integration": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Integration",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "integration",
+        "version"
+      ],
+      "title": "TestedWith",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/pxljake/suncore/main/templates/schema/template.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "device": "#/$defs/DeviceTemplate",
+      "forecast": "#/$defs/ForecastTemplate",
+      "region": "#/$defs/RegionTemplate",
+      "tariff": "#/$defs/TariffTemplate"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/DeviceTemplate"
+    },
+    {
+      "$ref": "#/$defs/TariffTemplate"
+    },
+    {
+      "$ref": "#/$defs/ForecastTemplate"
+    },
+    {
+      "$ref": "#/$defs/RegionTemplate"
+    }
+  ],
+  "title": "SunCore template v1"
+}
