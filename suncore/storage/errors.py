@@ -33,3 +33,7 @@ class ConfigCorruptError(StorageError):
 
 class ImportRejectedError(StorageError):
     """An import file was rejected; nothing was changed."""
+
+
+class HistoryEntryNotFoundError(StorageError):
+    """No such history entry for the section."""

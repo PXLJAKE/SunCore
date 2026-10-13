@@ -13,6 +13,7 @@ export type OperatingMode = S['OperatingMode'];
 export type Decision = S['Decision'];
 export type Reason = S['Reason'];
 export type SiteConfig = S['SiteConfig'];
+export type PvArray = S['PvArray'];
 export type GridConfig = S['GridConfig'];
 export type BatteryConfig = S['BatteryConfig'];
 export type EntityRef = S['EntityRef'];

@@ -23,13 +23,19 @@ const cand = (over: Partial<EntityCandidate> = {}): EntityCandidate => ({
 
 describe('site form round trip', () => {
   const site: SiteConfig = {
-    schema_version: 1,
-    grid: { power: { entity_id: 'sensor.grid', invert_sign: true } },
+    schema_version: 2,
+    grid: { para14a: false, power: { entity_id: 'sensor.grid', invert_sign: true } },
     pv: [
-      { entity_id: 'sensor.pv1', invert_sign: false },
-      { entity_id: 'sensor.pv2', invert_sign: false },
+      {
+        name: 'East',
+        power: { entity_id: 'sensor.pv1', invert_sign: false },
+        kwp: 4.5,
+        tilt_deg: 30,
+      },
+      { name: 'West', power: { entity_id: 'sensor.pv2', invert_sign: false } },
     ],
     battery: {
+      control: 'observe',
       power: { entity_id: 'sensor.bp', invert_sign: false },
       soc: { entity_id: 'sensor.soc', invert_sign: false },
     },
@@ -38,19 +44,42 @@ describe('site form round trip', () => {
   it('keeps everything the server sent', () => {
     const out = siteFromForm(formFromSite(site));
     expect(out.grid.power).toEqual(site.grid.power);
-    expect(out.pv).toEqual(site.pv);
+    expect(out.pv).toEqual(site.pv); // kwp, tilt and names survive
     expect(out.battery).toEqual(site.battery);
     expect(out.house).toBeNull();
-    expect(out.schema_version).toBe(1);
+    expect(out.schema_version).toBe(2);
+  });
+  it('keeps attributes with their array when an earlier row is removed', () => {
+    const three: SiteConfig = {
+      ...site,
+      pv: [
+        { name: 'A', power: { entity_id: 'sensor.a', invert_sign: false }, kwp: 1 },
+        { name: 'B', power: { entity_id: 'sensor.b', invert_sign: false }, kwp: 2, tilt_deg: 20 },
+        { name: 'C', power: { entity_id: 'sensor.c', invert_sign: false }, kwp: 3, tilt_deg: 40 },
+      ],
+    };
+    const f = formFromSite(three);
+    f.pv.splice(1, 1); // remove row 1 (B)
+    const out = siteFromForm(f);
+    const pv = out.pv ?? [];
+    expect(pv.map((a) => a.name)).toEqual(['A', 'C']);
+    expect(pv[1]).toMatchObject({ kwp: 3, tilt_deg: 40 });
+    expect(pv[1]?.power?.entity_id).toBe('sensor.c');
+  });
+  it('gives new rows a name that does not collide', () => {
+    const f = formFromSite({ ...site, pv: [{ name: 'PV 2', power: site.pv![0]!.power }] });
+    f.pv.push({ entity_id: 'sensor.new', invert_sign: false });
+    expect((siteFromForm(f).pv ?? []).map((a) => a.name)).toEqual(['PV 2', 'PV 3']);
   });
   it('detects an import/export pair', () => {
     const f = formFromSite({
       grid: {
+        para14a: false,
         import_power: { entity_id: 'sensor.i', invert_sign: false },
         export_power: { entity_id: 'sensor.e', invert_sign: false },
       },
       pv: [],
-      schema_version: 1,
+      schema_version: 2,
     });
     expect(f.gridMode).toBe('pair');
     const out = siteFromForm(f);
@@ -63,7 +92,9 @@ describe('site form round trip', () => {
     f.batteryPower.entity_id = 'sensor.bp'; // SoC missing
     f.pv.push({ entity_id: ' sensor.pv ', invert_sign: false });
     const out = siteFromForm(f);
-    expect(out.pv).toEqual([{ entity_id: 'sensor.pv', invert_sign: false }]);
+    expect(out.pv).toEqual([
+      { name: 'PV 1', power: { entity_id: 'sensor.pv', invert_sign: false } },
+    ]);
     expect(out.battery).toBeNull();
   });
   it('starts empty without a stored config', () => {

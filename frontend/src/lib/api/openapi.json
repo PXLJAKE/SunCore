@@ -3,8 +3,79 @@
     "schemas": {
       "BatteryConfig": {
         "additionalProperties": false,
-        "description": "Battery: power (+ = charging) and state of charge in percent.",
+        "description": "Battery: power (+ = charging), state of charge in percent, limits.\n\n``control`` is ``observe`` only: SunCore reads the battery; adapters that write\nset-points come in a later phase.",
         "properties": {
+          "capacity_wh": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Wh"
+          },
+          "control": {
+            "const": "observe",
+            "default": "observe",
+            "title": "Control",
+            "type": "string"
+          },
+          "max_charge_w": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Charge W"
+          },
+          "max_discharge_w": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Discharge W"
+          },
+          "max_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Soc Pct"
+          },
+          "min_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Soc Pct"
+          },
           "power": {
             "$ref": "#/components/schemas/EntityRef"
           },
@@ -132,7 +203,7 @@
         "description": "Reference to a HA entity. ``invert_sign`` flips a source with opposite polarity.",
         "properties": {
           "entity_id": {
-            "pattern": "^[a-z_]+\\.[a-z0-9_]+$",
+            "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*\\.[a-z0-9]+(?:_[a-z0-9]+)*$",
             "title": "Entity Id",
             "type": "string"
           },
@@ -266,8 +337,54 @@
       },
       "GridConfig": {
         "additionalProperties": false,
-        "description": "Grid connection: one signed sensor (+ = import) OR an import/export pair.",
+        "description": "Grid connection: one signed sensor (+ = import) OR an import/export pair, plus limits.",
         "properties": {
+          "energy_export": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "energy_import": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "export_limit_pct_kwp": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Limit Pct Kwp"
+          },
+          "export_limit_w": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Limit W"
+          },
           "export_power": {
             "anyOf": [
               {
@@ -278,7 +395,35 @@
               }
             ]
           },
+          "import_limit_w": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Limit W"
+          },
           "import_power": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "para14a": {
+            "default": false,
+            "title": "Para14A",
+            "type": "boolean"
+          },
+          "para14a_signal": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/EntityRef"
@@ -546,6 +691,85 @@
         "title": "PowerSetpointAction",
         "type": "object"
       },
+      "PvArray": {
+        "additionalProperties": false,
+        "description": "One PV array (roof plane / inverter input). Everything but ``name`` is optional.",
+        "properties": {
+          "azimuth_deg": {
+            "anyOf": [
+              {
+                "maximum": 360.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Azimuth Deg"
+          },
+          "inverter": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inverter"
+          },
+          "kwp": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kwp"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "power": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tilt_deg": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tilt Deg"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PvArray",
+        "type": "object"
+      },
       "Reason": {
         "additionalProperties": false,
         "description": "A structured, translatable explanation.\n\n``key`` addresses a message in the ICU catalogue; ``args`` are the\nplaceholders of that message. Free text is not allowed anywhere.",
@@ -611,13 +835,13 @@
           },
           "pv": {
             "items": {
-              "$ref": "#/components/schemas/EntityRef"
+              "$ref": "#/components/schemas/PvArray"
             },
             "title": "Pv",
             "type": "array"
           },
           "schema_version": {
-            "default": 1,
+            "default": 2,
             "title": "Schema Version",
             "type": "integer"
           }

@@ -15,7 +15,7 @@ def ref(eid: str, invert: bool = False) -> dict[str, Any]:
 
 def test_minimal_signed_grid() -> None:
     site = SiteConfig.model_validate({"grid": {"power": ref("sensor.g")}})
-    assert site.schema_version == 1
+    assert site.schema_version == 2
     assert site.pv == []
     assert site.battery is None
     assert site.house is None
@@ -27,7 +27,10 @@ def test_pair_grid_and_full() -> None:
     site = SiteConfig.model_validate(
         {
             "grid": {"import_power": ref("sensor.i"), "export_power": ref("sensor.e")},
-            "pv": [ref("sensor.p1"), ref("sensor.p2", True)],
+            "pv": [
+                {"name": "A", "power": ref("sensor.p1")},
+                {"name": "B", "power": ref("sensor.p2", True)},
+            ],
             "battery": {"power": ref("sensor.bp"), "soc": ref("sensor.bs")},
             "house": ref("sensor.h"),
         }
@@ -63,9 +66,44 @@ def test_entity_id_pattern(bad: str) -> None:
         EntityRef(entity_id=bad)
 
 
+@pytest.mark.parametrize(
+    "good",
+    [
+        "sensor.1st_floor",
+        "1wire.x",
+        "1.a",
+        "a.1",
+        "input_boolean.hello_world_0123",
+        "light.1kitchen",
+    ],
+)
+def test_entity_id_pattern_accepts_ha_valid_ids(good: str) -> None:
+    assert EntityRef(entity_id=good).entity_id == good
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "sensor._x",
+        "sensor.x_",
+        "sensor.a__b",
+        "_x.y",
+        "x_.y",
+        "a__b.c",
+        "Light.kitchen",
+        "sensor.é",
+    ],
+)
+def test_entity_id_pattern_rejects_ha_invalid_ids(bad: str) -> None:
+    with pytest.raises(ValidationError):
+        EntityRef(entity_id=bad)
+
+
 def test_duplicate_entity_rejected() -> None:
     with pytest.raises(ValidationError, match="more than once"):
-        SiteConfig.model_validate({"grid": {"power": ref("sensor.a")}, "pv": [ref("sensor.a")]})
+        SiteConfig.model_validate(
+            {"grid": {"power": ref("sensor.a")}, "pv": [{"name": "A", "power": ref("sensor.a")}]}
+        )
 
 
 def test_soc_invert_rejected_and_extra_forbidden() -> None:

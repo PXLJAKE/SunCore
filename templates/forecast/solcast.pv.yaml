@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=../schema/forecast.schema.json
+# Solcast PV Forecast (HACS `BJReplay/ha-solcast-solar`, domain `solcast_solar`).
+# The day sensors carry the half-hour curve in the attribute `detailedForecast`
+# (average power in kW per slot, P50 / P10 / P90).
+id: solcast.pv
+kind: forecast
+schema_version: 1
+name: template.solcast.pv.name
+source:
+  - title: "ha-solcast-solar forecast.py (detailedForecast slots, kW average power)"
+    url: "https://github.com/BJReplay/ha-solcast-solar/blob/3ae22af/custom_components/solcast_solar/forecast.py"
+    date: 2026-10-13
+  - title: "ha-solcast-solar sensor.py (day sensors, units, device classes)"
+    url: "https://github.com/BJReplay/ha-solcast-solar/blob/3ae22af/custom_components/solcast_solar/sensor.py"
+    date: 2026-10-13
+  - title: "ha-solcast-solar const.py (attribute and field names)"
+    url: "https://github.com/BJReplay/ha-solcast-solar/blob/3ae22af/custom_components/solcast_solar/const.py"
+    date: 2026-10-13
+tested_with: []
+capabilities: [pv_curve, pv_quantiles]
+unverified:
+  - "Read from the integration source (version 4.6.2, main 3ae22af) only; not observed on a running Home Assistant."
+  - "`detailedForecast` is only present when the option is on (default on); extra keys in the slots may appear with advanced options."
+  - "Day 3 to 7 sensors exist depending on an option and are not used by this template; the default number of day sensors is unknown."
+  - "Values are dampened when dampening is enabled in the integration."
+forecast_kind: pv
+roles:
+  forecast_today:
+    matcher:
+      domain: sensor
+      platforms: [solcast_solar]
+      translation_key: total_kwh_forecast_today
+      device_class: energy
+      units: [kWh]
+    description: template.solcast.pv.role.forecast_today
+  forecast_tomorrow:
+    matcher:
+      domain: sensor
+      platforms: [solcast_solar]
+      translation_key: total_kwh_forecast_tomorrow
+      device_class: energy
+      units: [kWh]
+    description: template.solcast.pv.role.forecast_tomorrow
+series:
+  source: attribute
+  roles: [forecast_today, forecast_tomorrow]
+  attribute: detailedForecast
+  fields:
+    timestamp_field: period_start
+    value_field: pv_estimate
+    p10_field: pv_estimate10
+    p90_field: pv_estimate90
+    value_unit: kW
+resolution_min: 30

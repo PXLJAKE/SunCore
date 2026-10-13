@@ -43,6 +43,11 @@ fail() {
   } >> "${SUMMARY}"
   echo "----- container logs -----"
   docker logs "${NAME}" 2>&1 | tail -n 200 || true
+  # The tail again as one annotation: readable through the checks API even
+  # when the raw job log is not reachable.
+  local tail_lines
+  tail_lines="$(docker logs "${NAME}" 2>&1 | tail -n 40 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')" || true
+  echo "::warning title=smoke container log tail::${tail_lines}"
   exit 1
 }
 
@@ -99,7 +104,10 @@ code="$(docker inspect -f '{{.State.ExitCode}}' "${NAME}")"
 if [ "${code}" != "0" ]; then
   fail "container exit code ${code} after docker stop, expected 0"
 fi
-if ! docker logs "${NAME}" 2>&1 | grep -q "app.stopped"; then
+# Read the whole log first: `grep -q` exits on the first match, which can
+# SIGPIPE `docker logs` and fail the pipeline under `pipefail`.
+logs="$(docker logs "${NAME}" 2>&1)"
+if ! grep -q "app.stopped" <<<"${logs}"; then
   fail "log line 'app.stopped' missing: SIGTERM did not reach python"
 fi
 echo "- Clean shutdown: exit code 0, \"app.stopped\" logged" >> "${SUMMARY}"

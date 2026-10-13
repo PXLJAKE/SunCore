@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=../schema/tariff.schema.json
+# Tibber (core integration `tibber`, cloud polling). The price sensor only holds the current
+# slot; the curve of today and tomorrow comes from the read-only action `tibber.get_prices`.
+id: tibber.price
+kind: tariff
+schema_version: 1
+name: template.tibber.price.name
+source:
+  - title: "home-assistant/core tibber sensor.py (electricity_price, unit, state)"
+    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/tibber/sensor.py"
+    date: 2026-10-13
+  - title: "home-assistant/core tibber services.py (get_prices, response shape)"
+    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/tibber/services.py"
+    date: 2026-10-13
+  - title: "home-assistant/core tibber services.yaml (start, end fields)"
+    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/tibber/services.yaml"
+    date: 2026-10-13
+tested_with: []
+capabilities: [price_now, price_curve]
+unverified:
+  - "Whether grid fees (network charges) are included in Tibber's `total` price is country dependent; SunCore treats the value as all-in (`price_includes: all_in`) without checking."
+  - "Read from the integration source (core 14f093e, pyTibber 0.37.6) only; not observed on a running Home Assistant."
+  - "Exact entity id (derived from the home nickname) and the time Tibber publishes tomorrow's prices."
+  - "Slot length is not part of the response: 15 min with pyTibber 0.37, hourly with older libraries (resolution derived from the timestamps)."
+direction: import
+tariff_type: dynamic
+roles:
+  price:
+    matcher:
+      domain: sensor
+      platforms: [tibber]
+      translation_key: electricity_price
+      unit_pattern: '^[A-Z]{3}/kWh$'
+    description: template.tibber.price.role.price
+price_unit: "{currency}/kWh"
+price_includes: all_in
+price_series:
+  source: action
+  domain: tibber
+  service: get_prices
+  start_field: start
+  end_field: end
+  response_path: "prices.*"
+  fields:
+    timestamp_field: start_time
+    value_field: price
+    value_unit: "{currency}/kWh"
+  max_horizon_h: 48

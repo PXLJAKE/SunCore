@@ -1,0 +1,10 @@
+template: generic.number_load
+sim_scenario: summer_day
+user_input:
+  nominal_w: 3000
+roles:
+  number:
+    entity: number.sim_heating_rod_limit
+    criteria: [domain]
+  power:
+    none: true

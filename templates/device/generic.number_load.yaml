@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# A load whose power is set through a `number` entity (wallbox current, heating rod
+# controller, inverter-like limiter). The default is a power limit in W.
+# Variants (edit `defaults.control` in a user template or in the wizard):
+#   unit: A   -> current in ampere, add `voltage_v: 230` and `phases: 1` or `3`
+#   unit: "%" -> share of the nominal power (the nominal power becomes mandatory)
+id: generic.number_load
+kind: device
+schema_version: 1
+name: template.generic.number_load.name
+source:
+  - title: "home-assistant/core number/__init__.py and const.py (set_value, value, min, max, step; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/number/__init__.py"
+    date: 2026-10-13
+  - title: "developers.home-assistant docs/core/entity/number.md (GitHub mirror)"
+    url: "https://github.com/home-assistant/developers.home-assistant/blob/master/docs/core/entity/number.md"
+    date: 2026-10-13
+tested_with: []
+capabilities: [power_setpoint, power_measured]
+unverified:
+  - "Generic template, exercised in the simulator only."
+  - "min, max and step below are placeholders; a number entity publishes its own limits (min/max/step attributes) which the wizard must use. Not verified here."
+  - "Whether the load may be switched fully off through the number (value 0) is device specific."
+device_kind: number_load
+roles:
+  number:
+    matcher:
+      domain: number
+    description: template.generic.number_load.role.number
+  power:
+    required: false
+    same_device_as: number
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.number_load.role.power
+defaults:
+  power_model:
+    kind: nominal
+  control:
+    kind: continuous
+    role: number
+    unit: W
+    min: 0
+    max: 3000
+    step: 100
+  settle_s: 5
+  hysteresis_w: 100
+  hysteresis_delay_s: 30

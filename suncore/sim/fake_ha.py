@@ -31,7 +31,8 @@ from collections.abc import Awaitable, Callable, Collection, Mapping
 from datetime import datetime
 from typing import Any, Final
 
-from suncore.core.site import BatteryConfig, EntityRef, GridConfig, SiteConfig
+from suncore.core.entities import EntityMeta
+from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.ha.connection import (
     ConnectionState,
     EntityListener,
@@ -41,6 +42,8 @@ from suncore.ha.connection import (
     StateListener,
     Unsubscribe,
 )
+from suncore.sim import registry
+from suncore.sim.demo_devices import SIM_DEVICE_ENTITY_IDS, DemoDevices
 from suncore.sim.house import House, HouseState
 from suncore.sim.scenario import Scenario, SimSignal
 
@@ -53,6 +56,9 @@ SOC_ID: Final = "sensor.sim_battery_soc"
 HOUSE_ID: Final = "sensor.sim_house_power"
 
 SIM_ENTITY_IDS: Final[tuple[str, ...]] = (GRID_ID, PV_ID, BATTERY_ID, SOC_ID, HOUSE_ID)
+
+ALL_SIM_ENTITY_IDS: Final[tuple[str, ...]] = (*SIM_ENTITY_IDS, *SIM_DEVICE_ENTITY_IDS)
+"""The site sensors plus the demo devices, price, forecast and energy counters."""
 
 _SIGNAL_ENTITY: Final[Mapping[SimSignal, str]] = {
     "grid_power": GRID_ID,
@@ -76,7 +82,7 @@ def demo_site_config() -> SiteConfig:
     """Site configuration mapping the simulator entities (signed grid, one PV, battery)."""
     return SiteConfig(
         grid=GridConfig(power=EntityRef(entity_id=GRID_ID)),
-        pv=[EntityRef(entity_id=PV_ID)],
+        pv=[PvArray(name="PV", power=EntityRef(entity_id=PV_ID))],
         battery=BatteryConfig(
             power=EntityRef(entity_id=BATTERY_ID), soc=EntityRef(entity_id=SOC_ID)
         ),
@@ -107,6 +113,20 @@ class FakeHAConnection:
         sleep: injected sleep; called with ``step_s / speed`` between steps.
         speed: acceleration factor (> 0); 1.0 plays in real time.
         loop_scenario: restart the scenario when it ends.
+        start_offset_s: fast-forward this far into the scenario on connect.
+        energy_prefs_configured: whether the fake Energy dashboard has preferences
+            (``False`` = ``energy/get_prefs`` would answer ``not_found``).
+
+    Besides the :class:`HAConnection` protocol the fake offers accessors for the registry and
+    Energy dashboard data that WP5 wires to the WebSocket commands of the same name (all
+    raise :class:`NotConnectedError` while not connected, like the real commands would):
+
+    * :meth:`entity_registry_list_for_display` - ``config/entity_registry/list_for_display``
+    * :meth:`entity_registry_list` - ``config/entity_registry/list``
+    * :meth:`device_registry_list` - ``config/device_registry/list``
+    * :meth:`area_registry_list` - ``config/area_registry/list``
+    * :meth:`energy_get_prefs` - ``energy/get_prefs`` (``None`` = not configured)
+    * :meth:`entity_metas` - registry joined with the current states as ``EntityMeta``
     """
 
     def __init__(
@@ -118,6 +138,7 @@ class FakeHAConnection:
         speed: float = 1.0,
         loop_scenario: bool = True,
         start_offset_s: float = 0.0,
+        energy_prefs_configured: bool = True,
     ) -> None:
         if speed <= 0:
             msg = "speed must be positive"
@@ -140,6 +161,8 @@ class FakeHAConnection:
         self._step_index = 0
         self._task: asyncio.Task[None] | None = None
         self._house_state: HouseState | None = None
+        self._demo: DemoDevices | None = None
+        self._energy_prefs_configured = energy_prefs_configured
 
     # --- HAConnection ---------------------------------------------------------
 
@@ -168,10 +191,11 @@ class FakeHAConnection:
         self._house = self._scenario.build_house()
         self._step_index = 0
         self._published = {}
+        self._demo = DemoDevices(self._scenario)
         # Fast-forward silently so the house state (e.g. battery SoC) evolves
         # as if the scenario had run since its start.
         for _ in range(self._start_steps):
-            self._house.step()
+            self._demo.step(self._house.step())
             self._step_index += 1
         self._apply_step(emit=False)
         self._set_state(ConnectionState.CONNECTED)
@@ -217,6 +241,59 @@ class FakeHAConnection:
             "latitude": self._scenario.house.pv.latitude,
             "longitude": self._scenario.house.pv.longitude,
         }
+
+    # --- registries and Energy dashboard (WP5 wires these to the WS commands) ------
+
+    async def entity_registry_list_for_display(self) -> dict[str, Any]:
+        """Payload of ``config/entity_registry/list_for_display``."""
+        self._require_connected()
+        return registry.entity_registry_list_for_display()
+
+    async def entity_registry_list(self) -> list[dict[str, Any]]:
+        """Payload of ``config/entity_registry/list``."""
+        self._require_connected()
+        return registry.entity_registry_list()
+
+    async def device_registry_list(self) -> list[dict[str, Any]]:
+        """Payload of ``config/device_registry/list``."""
+        self._require_connected()
+        return registry.device_registry_list()
+
+    async def area_registry_list(self) -> list[dict[str, Any]]:
+        """Payload of ``config/area_registry/list``."""
+        self._require_connected()
+        return registry.area_registry_list()
+
+    async def energy_get_prefs(self) -> dict[str, Any] | None:
+        """Payload of ``energy/get_prefs``; ``None`` where HA answers ``not_found`` ("No prefs")."""
+        self._require_connected()
+        if not self._energy_prefs_configured:
+            return None
+        return registry.energy_prefs(self._scenario.house.battery.capacity_wh / 1000)
+
+    def entity_metas(self) -> list[EntityMeta]:
+        """Registry entries joined with the published states (what detection ranks)."""
+        self._require_connected()
+        metas: list[EntityMeta] = []
+        for entry in registry.ENTITIES:
+            state = self._published.get(entry.entity_id)
+            attrs = {} if state is None else state.attributes
+            unit = attrs.get("unit_of_measurement")
+            device_class = attrs.get("device_class")
+            state_class = attrs.get("state_class")
+            metas.append(
+                EntityMeta.of(
+                    entry.entity_id,
+                    platform=entry.platform,
+                    device_class=device_class if isinstance(device_class, str) else None,
+                    unit=unit if isinstance(unit, str) else None,
+                    translation_key=entry.translation_key,
+                    state_class=state_class if isinstance(state_class, str) else None,
+                    area_id=entry.area_id,
+                    device_id=entry.device_id,
+                )
+            )
+        return metas
 
     # --- internals ------------------------------------------------------------
 
@@ -289,21 +366,28 @@ class FakeHAConnection:
 
         now = self._clock().timestamp()
         changed: dict[str, EntityState] = {}
+        rows: list[tuple[str, str, dict[str, Any]]] = []
         for entity_id, value in _values(house_state).items():
             if entity_id in stale and entity_id in self._published:
                 continue
-            text = "unavailable" if entity_id in unavailable else _format(value)
-            previous = self._published.get(entity_id)
             unit, device_class, name = _META[entity_id]
+            text = "unavailable" if entity_id in unavailable else _format(value)
+            attributes = {
+                "unit_of_measurement": unit,
+                "device_class": device_class,
+                "state_class": "measurement",
+                "friendly_name": name,
+            }
+            rows.append((entity_id, text, attributes))
+        assert self._demo is not None
+        self._demo.step(house_state)
+        rows.extend((e.entity_id, e.state, e.attributes) for e in self._demo.entities())
+        for entity_id, text, attributes in rows:
+            previous = self._published.get(entity_id)
             new = EntityState(
                 entity_id=entity_id,
                 state=text,
-                attributes={
-                    "unit_of_measurement": unit,
-                    "device_class": device_class,
-                    "state_class": "measurement",
-                    "friendly_name": name,
-                },
+                attributes=attributes,
                 last_changed=previous.last_changed
                 if previous is not None and previous.state == text
                 else now,

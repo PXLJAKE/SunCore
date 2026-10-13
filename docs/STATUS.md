@@ -3,8 +3,8 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-13 · **Phase:** 1 done, Phase 2 next ·
-**Branch:** `main`
+**Last update:** 2026-10-13 · **Phase:** 2 in progress (PR 2-A) ·
+**Branch:** `phase-2/*` (stacked on `main`)
 
 ## Done
 
@@ -88,6 +88,35 @@ ADRs relevant to your task. Keep it short; history lives in git.
 - R1 cleared: every planned Python dependency has cp313 musllinux wheels
   for aarch64 and x86_64 or is pure Python.
 
+- **Phase 2 – PR 2-A** (WP1–WP4, branch `phase-2/a-foundation`):
+  - Research (WP1): HA interfaces verified against `home-assistant/core` dev
+    `14f093e` (registry list commands and shapes, registry update events,
+    `energy/get_prefs`, entity id regex), LG ThinQ, Tibber, Solcast; notes in
+    `research/ha-websocket-api.md` and `research/device-integrations.md`.
+  - ADR-0012 (accepted): template schema v1 reviewed before freeze
+    (compatibility policy and "Schema v1 changelog" in `templates/README.md`).
+  - Device model (`suncore/core/devices.py`) and template schema v1
+    (`suncore/templates/`: models, loader, matcher; JSON Schemas generated
+    into `templates/schema/`). Templates are plain YAML, anchors/aliases are
+    rejected. `DeviceConfig.mode` removed: the `operation` section is the
+    only store of the mode of operation.
+  - 8 templates: `lg.thinq_climate`, `generic.switch`, `generic.climate`,
+    `generic.number_load`, `tibber.price`, `solcast.pv`, regions `de` and
+    `generic`; each with a conformance scenario in `tests/scenarios/`.
+  - `sim`: registry (entity, device, area, Energy-dashboard data) and demo
+    devices (LG-like AC with hourly Wh counter, pool plug, Tibber-like price,
+    Solcast-like forecast) served by `FakeHAConnection`.
+  - Storage (WP4): site v2 (`PvArray`, v1 → v2 migration), 7 config sections
+    (`site`, `region`, `tariff`, `devices`, `goals`, `operation`, `wizard`),
+    `config_history` (migration 0002) → DB schema version 2: 0.2.0 refuses a
+    newer DB; `ConfigStore.get_section`/`put_section`; `TariffConfig.import_`
+    is stored as `import` (old key still loads).
+  - Review fixes: PV rows keep their array in the settings form, YAML alias
+    rejection, template sources re-fetched from GitHub mirrors, one shared
+    region id pattern.
+  - `UNVERIFIED`: all three integration templates come from source reading
+    only (no live HA or hardware); see the table below.
+
 ## Open – Phase 1
 
 - Still to report by the maintainer: memory on the Pi, menu names in the
@@ -115,15 +144,17 @@ ADRs relevant to your task. Keep it short; history lives in git.
   a settle delay instead of a full `get_states`; give the rate limiter a
   deadline/try-acquire API so stale intents are dropped; an `AuthError` on
   reconnect needs a restart (document in the UI).
+- Phase 3 follow-up (review F6): restore/import of `operation` treats a "new
+  device" by id only; base it on device identity (id + template + entities)
+  before the gate reads modes.
 - Carried over from Phase 0: deleting old tags `v0.1.0`–`v0.3.0`. The
   repository is public now, CodeQL runs; `RELEASE_PLEASE_TOKEN` is set.
 
 ## Next steps
 
-1. Release `0.2.0` (release-please PR #7) for the stable app.
-2. Phase 2 plan (`docs/plans/phase-2.md`): setup wizard, device model,
-   template schema.
-3. Phase 2 plan (`docs/plans/phase-2.md`).
+1. Merge PR 2-A, then 2-B (`ha`, `api`: metadata, detection, operating mode
+   in config), 2-C and 2-D per `docs/plans/phase-2.md`.
+2. Release `0.2.0` (release-please PR #7) for the stable app after Phase 2.
 
 ## Known problems and `UNVERIFIED` items
 
@@ -137,7 +168,10 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
-| Registry list WebSocket command names; `power_config` shape in energy prefs | `research/ha-websocket-api.md` | Phase 1/2, read `components/config/*.py` |
+| Registry and energy-prefs shapes on cores older than dev (single `config_entry_id` on devices, unified grid source); `unknown_command` code without the `energy` integration; Supervisor proxy passes registry commands | `research/ha-websocket-api.md` | first run on HA OS; parsers tolerate both shapes |
+| Section 51 EEG 2023 text could not be fetched; region `de` feed-in tiers are empty until the official BNetzA table is cited | `templates/region/de.yaml` | maintainer provides the table or a session with access to gesetze-im-internet.de |
+| Whether Tibber's `total` includes grid fees (country dependent) | `templates/tariff/tibber.price.yaml` | live check on the maintainer's Tibber account |
+| Live entity ids and LG `unique_id` property part, LG model-specific HVAC/fan modes, Tibber tomorrow-price publication time, Solcast default day-sensor count (LG, Tibber and Solcast templates are verified from source only) | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 

@@ -1,0 +1,7 @@
+template: tibber.price
+sim_scenario: summer_day
+roles:
+  price:
+    entity: sensor.sim_electricity_price
+    unit: EUR/kWh
+    criteria: [domain, translation_key, platforms, unit_pattern]

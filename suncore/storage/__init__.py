@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
-from suncore.storage.config_store import ConfigStore, SectionSpec
+from suncore.storage.config_store import ConfigStore, HistoryEntry, SectionSpec
 from suncore.storage.db import Database
 from suncore.storage.decisions import DecisionLog
 from suncore.storage.errors import (
     ConfigCorruptError,
+    HistoryEntryNotFoundError,
     ImportRejectedError,
     MigrationError,
     SchemaTooNewError,
@@ -20,6 +21,8 @@ __all__ = [
     "ConfigStore",
     "Database",
     "DecisionLog",
+    "HistoryEntry",
+    "HistoryEntryNotFoundError",
     "ImportRejectedError",
     "MigrationError",
     "SchemaTooNewError",

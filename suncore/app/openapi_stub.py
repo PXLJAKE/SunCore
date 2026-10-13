@@ -7,6 +7,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from suncore import __version__
 from suncore.api.services import CandidateInfo, HealthReport, PeerPolicy
 from suncore.core.balance import FlowSnapshot
@@ -29,6 +31,12 @@ class StubServices:
         return None
 
     async def put_site(self, site: SiteConfig) -> None: ...
+
+    async def get_section(self, name: str) -> BaseModel | None:  # noqa: ARG002
+        return None
+
+    async def put_section(self, name: str, model: BaseModel) -> BaseModel:  # noqa: ARG002
+        return model
 
     async def candidates(self) -> Sequence[CandidateInfo]:
         return []

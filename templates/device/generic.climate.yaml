@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# Any `climate` entity: SunCore shifts the set-point inside the comfort band.
+id: generic.climate
+kind: device
+schema_version: 1
+name: template.generic.climate.name
+source:
+  - title: "home-assistant/core climate/__init__.py and const.py (set_temperature, hvac_modes, target_temp_step; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/climate/__init__.py"
+    date: 2026-10-13
+  - title: "home-assistant/core climate/services.yaml (set_temperature fields)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/climate/services.yaml"
+    date: 2026-10-13
+  - title: "developers.home-assistant docs/core/entity/climate.md (GitHub mirror)"
+    url: "https://github.com/home-assistant/developers.home-assistant/blob/master/docs/core/entity/climate.md"
+    date: 2026-10-13
+tested_with: []
+capabilities: [temperature_setpoint, hvac_modes, power_measured, energy_counter]
+unverified:
+  - "Generic template, exercised in the simulator only; not tested with a physical climate device."
+  - "The supported set-point step differs per integration (`target_temp_step`); the 0.5 °C default must be reconciled with the entity attribute at runtime."
+  - "min_run_s and min_pause_s are compressor-protective design defaults, not manufacturer data."
+device_kind: climate
+roles:
+  climate:
+    matcher:
+      domain: climate
+    description: template.generic.climate.role.climate
+  power:
+    required: false
+    same_device_as: climate
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.climate.role.power
+  energy:
+    required: false
+    same_device_as: climate
+    matcher:
+      domain: sensor
+      device_class: energy
+      units: [Wh, kWh]
+    description: template.generic.climate.role.energy
+defaults:
+  # `measured` when a power sensor is mapped, `counter_derived` or `nominal` otherwise: the
+  # wizard decides from the mapped roles and asks for the nominal power.
+  power_model:
+    kind: nominal
+  control:
+    kind: setpoint
+    role: climate
+    shift_max_c: 2
+    step_c: 0.5
+  settle_s: 10
+  min_run_s: 600
+  min_pause_s: 300

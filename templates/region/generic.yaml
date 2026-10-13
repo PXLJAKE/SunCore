@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../schema/region.schema.json
+# Neutral international profile: no jurisdiction-specific rules or tariffs.
+# `currency` and `timezone` are left out on purpose: the wizard takes both from the Home
+# Assistant configuration (WebSocket `get_config`: `currency`, `time_zone`) at runtime.
+id: generic
+kind: region
+schema_version: 1
+name: template.generic.name
+source:
+  - title: "home-assistant/core websocket_api/commands.py (get_config returns hass.config.as_dict())"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/websocket_api/commands.py"
+    date: 2026-10-13
+  - title: "home-assistant/core core_config.py (as_dict: currency, time_zone)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/core_config.py"
+    date: 2026-10-13
+tested_with: []
+capabilities: []
+unverified:
+  - "Neutral profile without legal or tariff data, so there is nothing to verify beyond the Home Assistant configuration keys currency and time_zone."
+country: generic
+negative_price_rule: none

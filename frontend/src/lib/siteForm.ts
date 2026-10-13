@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Settings form model <-> SiteConfig, and the live preview of a picked entity.
-import type { EntityCandidate, EntityRef, SiteConfig } from './api/types';
+import type { EntityCandidate, EntityRef, PvArray, SiteConfig } from './api/types';
 
 export interface RefField {
   entity_id: string;
   invert_sign: boolean;
+}
+/** A PV row keeps the array it was loaded from, so removing a row never shifts attributes. */
+export interface PvRow extends RefField {
+  origin?: PvArray;
 }
 export type GridMode = 'single' | 'pair';
 
@@ -14,18 +18,20 @@ export interface SiteForm {
   gridPower: RefField;
   gridImport: RefField;
   gridExport: RefField;
-  pv: RefField[];
+  pv: PvRow[];
   batteryEnabled: boolean;
   batteryPower: RefField;
   batterySoc: RefField;
   house: RefField;
+  /** The loaded document: fields the form does not edit (kwp, limits, ...) are kept on save. */
+  base: SiteConfig | null;
 }
 
 export const emptyRef = (): RefField => ({ entity_id: '', invert_sign: false });
 
 export function emptyForm(): SiteForm {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     gridMode: 'single',
     gridPower: emptyRef(),
     gridImport: emptyRef(),
@@ -35,6 +41,7 @@ export function emptyForm(): SiteForm {
     batteryPower: emptyRef(),
     batterySoc: emptyRef(),
     house: emptyRef(),
+    base: null,
   };
 }
 
@@ -49,18 +56,19 @@ const toRef = (f: RefField): EntityRef | null => {
 export function formFromSite(site: SiteConfig | null): SiteForm {
   if (!site) return emptyForm();
   const pair = !site.grid.power && (!!site.grid.import_power || !!site.grid.export_power);
-  const pv = site.pv ?? [];
+  const pv: PvRow[] = (site.pv ?? []).map((a) => ({ ...fromRef(a.power), origin: a }));
   return {
     schemaVersion: site.schema_version,
     gridMode: pair ? 'pair' : 'single',
     gridPower: fromRef(site.grid.power),
     gridImport: fromRef(site.grid.import_power),
     gridExport: fromRef(site.grid.export_power),
-    pv: pv.length > 0 ? pv.map(fromRef) : [emptyRef()],
+    pv: pv.length > 0 ? pv : [emptyRef()],
     batteryEnabled: !!site.battery,
     batteryPower: fromRef(site.battery?.power),
     batterySoc: fromRef(site.battery?.soc),
     house: fromRef(site.house),
+    base: site,
   };
 }
 
@@ -97,11 +105,28 @@ export function siteFromForm(form: SiteForm): SiteConfig {
         };
   const power = toRef(form.batteryPower);
   const soc = toRef(form.batterySoc);
+  const pv: PvArray[] = [];
+  const used = new Set(form.pv.flatMap((f) => (f.origin ? [f.origin.name] : [])));
+  form.pv.forEach((field) => {
+    const ref = toRef(field);
+    if (ref === null) return;
+    if (field.origin) {
+      pv.push({ ...field.origin, power: ref });
+      return;
+    }
+    let n = pv.length + 1;
+    while (used.has(`PV ${n}`)) n += 1;
+    used.add(`PV ${n}`);
+    pv.push({ name: `PV ${n}`, power: ref });
+  });
   return {
     schema_version: form.schemaVersion,
-    grid,
-    pv: form.pv.map(toRef).filter((r): r is EntityRef => r !== null),
-    battery: form.batteryEnabled && power && soc ? { power, soc } : null,
+    grid: { para14a: false, ...form.base?.grid, ...grid },
+    pv,
+    battery:
+      form.batteryEnabled && power && soc
+        ? { control: 'observe' as const, ...form.base?.battery, power, soc }
+        : null,
     house: toRef(form.house),
   };
 }

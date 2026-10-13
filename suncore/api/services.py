@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Protocol
 
+from pydantic import BaseModel
+
 from suncore.core.balance import FlowSnapshot
 from suncore.core.decisions import Decision
 from suncore.core.site import SiteConfig
@@ -93,6 +95,14 @@ class Services(Protocol):
 
     async def put_site(self, site: SiteConfig) -> None:
         """Store the site configuration and resubscribe the entities."""
+        ...
+
+    async def get_section(self, name: str) -> BaseModel | None:
+        """Any config section by name; ``None`` if never stored."""
+        ...
+
+    async def put_section(self, name: str, model: BaseModel) -> BaseModel:
+        """Store a config section, return what was stored (see ``Runtime.put_section``)."""
         ...
 
     async def candidates(self) -> Sequence[CandidateInfo]:

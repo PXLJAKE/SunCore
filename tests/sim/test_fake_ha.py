@@ -20,6 +20,7 @@ from suncore.ha.connection import (
     NotConnectedError,
 )
 from suncore.sim.fake_ha import (
+    ALL_SIM_ENTITY_IDS,
     BATTERY_ID,
     GRID_ID,
     HOUSE_ID,
@@ -124,7 +125,10 @@ async def test_snapshot_then_diffs(conn: FakeHAConnection, ticker: Ticker) -> No
     assert set(diff.changed) == set(SIM_ENTITY_IDS)
     assert diff.changed[HOUSE_ID].last_updated == ticker.now.timestamp()
     states = await conn.get_states()
-    assert {s.entity_id: s.state for s in states} == {e: s.state for e, s in diff.changed.items()}
+    assert {s.entity_id: s.state for s in states if s.entity_id in SIM_ENTITY_IDS} == {
+        e: s.state for e, s in diff.changed.items()
+    }
+    assert {s.entity_id for s in states} == set(ALL_SIM_ENTITY_IDS)
 
 
 async def test_only_subscribed_entities_are_emitted(conn: FakeHAConnection, ticker: Ticker) -> None:
@@ -251,7 +255,7 @@ async def test_disconnect_fault_and_resnapshot(conn: FakeHAConnection, ticker: T
     resync = rec.updates[-1]
     assert resync.full
     assert set(resync.changed) == set(SIM_ENTITY_IDS)
-    assert len(await conn.get_states()) == 5
+    assert len(await conn.get_states()) == len(ALL_SIM_ENTITY_IDS)
 
 
 async def test_cache_survives_reconnect(conn: FakeHAConnection, ticker: Ticker) -> None:
@@ -344,7 +348,7 @@ def test_demo_site_config_is_valid() -> None:
     assert not site.grid.is_pair
     assert site.battery is not None
     assert site.house is not None
-    assert [r.entity_id for r in site.pv] == [PV_ID]
+    assert [r.entity_id for r in site.pv_power_refs] == [PV_ID]
     assert site.battery.power.entity_id == BATTERY_ID
     s = EntityState(entity_id=PV_ID, state="1.0")
     assert s.entity_id in SIM_ENTITY_IDS

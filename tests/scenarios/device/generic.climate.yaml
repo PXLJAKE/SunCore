@@ -1,0 +1,14 @@
+template: generic.climate
+sim_scenario: summer_day
+user_input:
+  nominal_w: 900
+  comfort: {min_c: 22, max_c: 26}
+roles:
+  climate:
+    entity: climate.sim_living_room_ac
+    criteria: [domain]
+  power:
+    none: true            # the demo AC has no power sensor (like LG ThinQ)
+  energy:
+    tied: [sensor.sim_living_room_ac_energy_today, sensor.sim_living_room_ac_energy_yesterday]
+    unit: Wh
