@@ -1,6 +1,6 @@
 [project]
 name = "suncore"
-version = "0.1.0"
+version = "0.2.0"
 description = "Energy management for Home Assistant: forecasts, planner and real-time surplus control in one app."
 readme = "README.md"
 license = "Apache-2.0"

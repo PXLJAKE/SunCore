@@ -22,8 +22,14 @@ DEFAULT_OUTPUT = (
 )
 
 
+# The committed document must not change with every release: the app version is
+# replaced by a fixed marker (the running app still reports its real version).
+EXPORTED_VERSION = "unversioned"
+
+
 def render() -> str:
     schema = create_app(StubServices()).openapi()
+    schema["info"]["version"] = EXPORTED_VERSION
     return json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
