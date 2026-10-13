@@ -9,6 +9,7 @@ primary source are marked `UNVERIFIED` and listed in
 |---|---|
 | [`ha-apps.md`](ha-apps.md) | App (formerly add-on) repository layout, `config.yaml`, ingress, Supervisor API, build and publish tooling, linter, architectures |
 | [`ha-websocket-api.md`](ha-websocket-api.md) | WebSocket API commands, entity subscription format, energy preferences, long-term statistics, weather forecasts |
+| [`device-integrations.md`](device-integrations.md) | Phase 2 template facts read from source: entity id regex, LG ThinQ climate and energy sensors, Tibber price sensor and `get_prices`, Solcast sensors and `detailedForecast` |
 | [`mqtt-discovery.md`](mqtt-discovery.md) | MQTT discovery payloads, device-based discovery, broker credentials via Supervisor |
 | [`competitors.md`](competitors.md) | evcc, EMHASS, Predbat: concepts, limits, licences, what SunCore adopts |
 | [`integrations.md`](integrations.md) | Solcast, Forecast.Solar, Open-Meteo Solar Forecast, Tibber, Nord Pool, ENTSO-E, EPEX Spot, Octopus, LG ThinQ, Kostal Plenticore (REST), SunSpec |

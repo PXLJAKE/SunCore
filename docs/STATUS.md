@@ -88,6 +88,14 @@ ADRs relevant to your task. Keep it short; history lives in git.
 - R1 cleared: every planned Python dependency has cp313 musllinux wheels
   for aarch64 and x86_64 or is pure Python.
 
+- **Phase 2 WP1** (HA interfaces verified against `home-assistant/core` dev
+  `14f093e`, 2026-10-13): registry list commands and shapes, registry
+  update events (allowlisted, non-admin may subscribe), `energy/get_prefs`
+  incl. `power_config`/`stat_rate`, HA entity id regex (`ENTITY_ID_PATTERN` in
+  `suncore/core/site.py` is not stricter than HA, see
+  `research/device-integrations.md`), LG ThinQ, Tibber, Solcast. Notes:
+  `research/ha-websocket-api.md`, `research/device-integrations.md`.
+
 ## Open – Phase 1
 
 - Still to report by the maintainer: memory on the Pi, menu names in the
@@ -137,7 +145,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
-| Registry list WebSocket command names; `power_config` shape in energy prefs | `research/ha-websocket-api.md` | Phase 1/2, read `components/config/*.py` |
+| Registry and energy-prefs shapes on cores older than dev (single `config_entry_id` on devices, unified grid source); `unknown_command` code without the `energy` integration; Supervisor proxy passes registry commands | `research/ha-websocket-api.md` | first run on HA OS; parsers tolerate both shapes |
+| Live entity ids and LG `unique_id` property part, LG model-specific HVAC/fan modes, Tibber tomorrow-price publication time, Solcast default day-sensor count | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 
