@@ -52,7 +52,8 @@ falls dein Land nicht aufgeführt ist.
 
 Hast du das Energie-Dashboard von Home Assistant eingerichtet, liest
 SunCore es und schlägt Sensoren für Netz, PV und Batterie vor. Hake die
-gewünschten Vorschläge an und wähle **Vorschläge übernehmen und weiter**.
+gewünschten Vorschläge an und wähle **N Vorschläge übernehmen und weiter** (N ist die Zahl der
+angehakten; bei einem heißt es "Vorschlag").
 Ohne deine Auswahl wird nichts übernommen, und du kannst alles in den
 nächsten Schritten ändern. Oft enthält das Dashboard nur Energiezähler
 (kWh) und keine Leistungssensoren; dann sagt SunCore das, und du wählst den
@@ -68,7 +69,7 @@ wird er aus Netz, PV und Batterie berechnet), Grenzen für Bezug und
 Einspeisung und das Signal des Netzbetreibers nach § 14a EnWG
 (Deutschland).
 
-Der **Vorzeichen-Check** fragt zum Beispiel, ob der Netzanschluss gerade
+Der Bereich **Vorzeichen prüfen** fragt zum Beispiel, ob der Netzanschluss gerade
 Bezug oder Einspeisung zeigt, und ob das stimmt. Antworte **Ja, stimmt**
 oder **Nein, Vorzeichen umkehren**. Fließt gerade fast nichts, prüfe später
 noch einmal, wenn deutlich etwas fließt.
@@ -119,7 +120,7 @@ Fehlt dein Gerät? Siehe
 
 ### Prioritäten und Ziele
 
-Ziehe die Geräte am Griff oder nutze die Pfeiltasten, um festzulegen, wer
+Ziehe die Geräte am Griff oder nutze die Pfeil-Schaltflächen oder die Pfeiltasten, um festzulegen, wer
 den Überschuss zuerst bekommt. Position 1 wird zuerst bedient. Ziele
 (Ziel-Ladestand der Batterie zu einer Uhrzeit, Klimagerät vor der
 Einspeisung, nur nachts aus dem Netz laden) werden jetzt gespeichert und in

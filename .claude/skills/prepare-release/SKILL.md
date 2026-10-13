@@ -43,6 +43,8 @@ Every merge to `main` that touches the app publishes
 the `bump-beta` job commits that version to `addon/suncore_beta/config.yaml`
 (`chore(beta): bump app version … [skip ci]`), so HA offers the update
 (ADR-0009 addendum, `scripts/beta_version.py`). After a stable release the
-base moves to the next minor automatically. Check that the bump commit
-landed on `main`; if the job failed (branch protection), run
-`python3 scripts/beta_version.py write <version>` and push by hand.
+base moves to the next minor automatically (always stable minor + 1).
+Never edit `addon/suncore_beta/config.yaml` by hand; to announce a different
+next version, change how the base is derived in a PR (e.g. a major bump) –
+not the file. Check that the bump commit landed on `main`; if the job failed
+(branch protection), fix the push permission and re-run the job.

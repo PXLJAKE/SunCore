@@ -48,7 +48,8 @@ profile if your country is not listed.
 
 If you already set up Home Assistant's Energy dashboard, SunCore reads it
 and suggests sensors for grid, solar and battery. Tick the suggestions you
-want and choose **Apply suggestions and continue**. Nothing is applied
+want and choose **Apply N suggestions and continue** (N is the number you
+ticked; with one it reads "suggestion"). Nothing is applied
 without your choice, and you can change everything in the next steps. The
 dashboard often has only energy counters (kWh), no power sensors; then
 SunCore says so and you pick the power sensor yourself. Not set up? Skip
@@ -63,7 +64,7 @@ Optional: a house consumption sensor (otherwise it is calculated from grid,
 solar and battery), limits for import and feed-in, and the grid operator
 signal for section 14a EnWG (Germany).
 
-The **sign check** asks, for example, "The grid connection is importing
+The **Check the sign** panel asks, for example, "The grid connection is importing
 … right now. Is that correct?" Answer **Yes, correct** or **No, invert the
 sign**. Idle at the moment? Check again when something clearly flows.
 

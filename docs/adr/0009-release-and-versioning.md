@@ -91,9 +91,14 @@ Decision: `build.yml` derives the version on every push to `main` and commits
 it back.
 
 - Scheme `<base>-beta.<n>` (SemVer pre-release, Docker-tag-safe: no `+`).
-  `base` is the beta config's `x.y.z`; once stable reaches it (a release),
-  it becomes stable minor + 1. Raise it by hand to announce another next
-  version. `n = max(github.run_number, previous n + 1)`.
+  `base` is always the next minor of the stable app version (stable minor
+  plus one), never taken from the beta config. `n = max(github.run_number,
+  previous n + 1)` while the previous base equals the new base, otherwise
+  `github.run_number`; a result that would go backwards is refused. The
+  config `version` is written only by the `bump-beta` bot. Never edit
+  `addon/suncore_beta/config.yaml` by hand; to announce a different next
+  version, change how the base is derived in a PR (e.g. a major bump) – not
+  the file.
   Logic and tests: `scripts/beta_version.py`, `tests/test_beta_version.py`.
 - `prepare` computes the version and uses it as image tag (and as the
   `app_version` tag). After the per-arch builds, smoke tests and the
@@ -109,6 +114,10 @@ it back.
 - release-please is unaffected: only `addon/suncore/config.yaml` is an extra
   file; `chore` commits are hidden in the changelog and do not create a
   release.
+- Merging the release PR changes `addon/suncore/config.yaml` and therefore
+  also triggers a beta build of the release commit (the base jumps to the
+  next minor); this is intended. The bot commit's `[skip ci]` also skips
+  app-lint and release-please for that one commit.
 - Stable is unchanged (`release: published`, version from `config.yaml`).
 - Rejected: a separate `beta` branch (users would need a branch-qualified
   repository URL, two repository URLs for one project) and `+sha` build
@@ -119,6 +128,6 @@ If `main` is protected, either allow `github-actions[bot]` to bypass, or
 make `RELEASE_PLEASE_TOKEN` (already used by release-please) belong to a user
 or app that may bypass; the job prefers that secret and falls back to
 `GITHUB_TOKEN`. If neither can push, the job fails after the image is
-published (beta users are not offered the update until it is committed by hand
-with `python3 scripts/beta_version.py write <version>`); the alternative is a
+published (beta users are not offered the update until the bump is committed,
+e.g. by re-running the job once the permission exists); the alternative is a
 `beta` branch channel, to be decided then.

@@ -161,7 +161,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
     loader (`scripts/gen_compat.py`, `--check` in `scripts/check.sh` and the CI
     python job, tested in `tests/test_gen_compat.py`).
   - Beta version derivation in `build.yml` and the E2E/screenshot work were done
-    earlier in this series (see above).
+    in PR 2-D, see Open – Phase 1.
 
 ## Open – Phase 1
 
@@ -232,6 +232,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Live entity ids and LG `unique_id` property part, LG model-specific HVAC/fan modes, Tibber tomorrow-price publication time, Solcast default day-sensor count (LG, Tibber and Solcast templates are verified from source only) | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
 | Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA) | `docs/user/*/quick-start.md` | maintainer follows the quick start on HA OS |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
+| `bump-beta` job pushes the version commit to `main` (needs push permission for `github-actions[bot]` or `RELEASE_PLEASE_TOKEN` with bypass) | `.github/workflows/build.yml`, ADR-0009 addendum | maintainer: first run on `main` |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 

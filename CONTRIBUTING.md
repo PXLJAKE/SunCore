@@ -130,7 +130,9 @@ The beta app needs no manual version bump: every push to `main` that changes
 the app publishes `ghcr.io/pxljake/suncore-beta:<next>-beta.<n>` and a bot
 commit (`chore(beta): bump app version … [skip ci]`) writes that version to
 `addon/suncore_beta/config.yaml`, which is what makes Home Assistant offer
-the update (ADR-0009 addendum). Do not edit that version by hand, except to
-raise the `x.y.z` base. Pull the bot commit (`git pull --rebase`) before
+the update (ADR-0009 addendum). The base is always the stable version's
+next minor. Never edit `addon/suncore_beta/config.yaml` by hand; to
+announce a different next version, change how the base is derived in a PR
+(e.g. a major bump) – not the file. Pull the bot commit (`git pull --rebase`) before
 pushing to `main`-based work. The bump needs permission to push to `main`
 (allow `github-actions[bot]` or use `RELEASE_PLEASE_TOKEN` of a bypass user).
