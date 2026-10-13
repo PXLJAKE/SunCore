@@ -36,6 +36,9 @@ from suncore.templates import EntityMatcher, RoleSpec, matched_criteria, rank_en
 from suncore.templates.matcher import WEIGHTS
 
 NAME_WEIGHT: Final = 15
+HIDDEN_MALUS: Final = 100
+"""Subtracted from the score of hidden, diagnostic and config entities when they are included
+(``include_hidden``): they rank below any proper candidate but stay selectable."""
 
 CRITERION_KEYS: Final[Mapping[str, str]] = {
     "domain": "detect.criterion.domain",
@@ -181,9 +184,16 @@ class Match:
     """Matcher criterion names (plus ``name``); see :data:`CRITERION_KEYS`."""
 
 
-def is_candidate(meta: EntityMeta) -> bool:
-    """Exclude disabled, hidden and config/diagnostic entities."""
-    return not (meta.disabled or meta.hidden or meta.entity_category is not None)
+def is_hidden(meta: EntityMeta) -> bool:
+    """Hidden, or a config/diagnostic entity (not listed on a default dashboard)."""
+    return meta.hidden or meta.entity_category is not None
+
+
+def is_candidate(meta: EntityMeta, *, include_hidden: bool = False) -> bool:
+    """Exclude disabled entities, and hidden and config/diagnostic ones unless asked for."""
+    if meta.disabled:
+        return False
+    return include_hidden or not is_hidden(meta)
 
 
 def _keyword_hit(meta: EntityMeta, keywords: tuple[str, ...]) -> bool:
@@ -192,12 +202,14 @@ def _keyword_hit(meta: EntityMeta, keywords: tuple[str, ...]) -> bool:
     return any(k in haystack for k in keywords)
 
 
-def detect_site_role(role_key: str, metas: Iterable[EntityMeta]) -> list[Match]:
+def detect_site_role(
+    role_key: str, metas: Iterable[EntityMeta], *, include_hidden: bool = False
+) -> list[Match]:
     """Ranked matches for a site role; raises ``KeyError`` for an unknown role."""
     role = SITE_ROLES[role_key]
     best: dict[str, Match] = {}
     for meta in metas:
-        if not is_candidate(meta):
+        if not is_candidate(meta, include_hidden=include_hidden):
             continue
         hit = _keyword_hit(meta, role.keywords)
         if role.require_keyword and not hit:
@@ -209,6 +221,8 @@ def detect_site_role(role_key: str, metas: Iterable[EntityMeta]) -> list[Match]:
             if criteria is None:
                 continue
             score = sum(WEIGHTS[c] for c in criteria)
+            if is_hidden(meta):
+                score -= HIDDEN_MALUS
             names = criteria
             if hit and role.keywords:
                 score += NAME_WEIGHT
@@ -220,12 +234,25 @@ def detect_site_role(role_key: str, metas: Iterable[EntityMeta]) -> list[Match]:
 
 
 def detect_template_role(
-    role: RoleSpec, metas: Iterable[EntityMeta], *, same_device_id: str | None = None
+    role: RoleSpec,
+    metas: Iterable[EntityMeta],
+    *,
+    same_device_id: str | None = None,
+    include_hidden: bool = False,
 ) -> list[Match]:
     """Ranked matches for a template role (``same_device_id`` = device of the base role)."""
-    candidates = [m for m in metas if is_candidate(m)]
+    candidates = [m for m in metas if is_candidate(m, include_hidden=include_hidden)]
     ranked = rank_entities(role.matcher, candidates, same_device_id=same_device_id)
-    return [Match(meta, score, _criteria(role, meta, same_device_id)) for meta, score in ranked]
+    matches = [
+        Match(
+            meta,
+            score - (HIDDEN_MALUS if is_hidden(meta) else 0),
+            _criteria(role, meta, same_device_id),
+        )
+        for meta, score in ranked
+    ]
+    matches.sort(key=lambda m: (-m.score, m.meta.entity_id))
+    return matches
 
 
 def _criteria(role: RoleSpec, meta: EntityMeta, same_device_id: str | None) -> tuple[str, ...]:
@@ -280,13 +307,18 @@ def describe(
 
 
 def legacy_entities(
-    metas: Iterable[EntityMeta], *, live: EntityCache, catalogue: EntityCatalogue
+    metas: Iterable[EntityMeta],
+    *,
+    live: EntityCache,
+    catalogue: EntityCatalogue,
+    include_hidden: bool = False,
 ) -> list[DetectedEntity]:
     """Phase 1 picker: every power (W, kW) and battery (%) sensor, sorted by entity id.
 
-    Hidden/diagnostic/disabled entities are left out now that the registry is known.
+    Hidden/diagnostic/disabled entities are left out now that the registry is known
+    (``include_hidden`` keeps the first two kinds).
     """
-    allowed = {m.entity_id: m for m in metas if is_candidate(m)}
+    allowed = {m.entity_id: m for m in metas if is_candidate(m, include_hidden=include_hidden)}
     states = [
         cached.state
         for entity_id in allowed

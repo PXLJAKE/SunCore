@@ -13,6 +13,7 @@ from suncore.ha.cache import EntityCache
 from suncore.ha.connection import EntityState
 from suncore.ha.detect import (
     CRITERION_KEYS,
+    HIDDEN_MALUS,
     SITE_ROLES,
     criteria_keys,
     describe,
@@ -59,6 +60,33 @@ def test_site_roles_cover_the_documented_set() -> None:
         "house_power",
         "para14a_signal",
     }
+
+
+def test_include_hidden_adds_hidden_kinds_with_a_malus_but_never_disabled() -> None:
+    metas = [
+        power("sensor.good"),
+        power("sensor.hidden", hidden=True),
+        power("sensor.diag", entity_category="diagnostic"),
+        power("sensor.off", disabled=True),
+    ]
+    default = detect_site_role("grid_power", metas)
+    assert [m.meta.entity_id for m in default] == ["sensor.good"]
+    wide = detect_site_role("grid_power", metas, include_hidden=True)
+    assert [m.meta.entity_id for m in wide] == ["sensor.good", "sensor.diag", "sensor.hidden"]
+    assert wide[0].score - wide[1].score == HIDDEN_MALUS
+    assert is_candidate(power("a", hidden=True), include_hidden=True)
+    assert not is_candidate(power("a", disabled=True), include_hidden=True)
+
+
+def test_include_hidden_for_template_roles() -> None:
+    role = RoleSpec.model_validate(
+        {"description": "role.test.x", "matcher": {"domain": "sensor", "device_class": "power"}}
+    )
+    metas = [power("sensor.good"), power("sensor.hidden", hidden=True)]
+    assert [m.meta.entity_id for m in detect_template_role(role, metas)] == ["sensor.good"]
+    wide = detect_template_role(role, metas, include_hidden=True)
+    assert [m.meta.entity_id for m in wide] == ["sensor.good", "sensor.hidden"]
+    assert wide[0].score - wide[1].score == HIDDEN_MALUS
 
 
 def test_exclusions_hidden_disabled_diagnostic_config() -> None:
@@ -275,3 +303,5 @@ def test_legacy_entities_keep_phase_1_rules() -> None:
         ("sensor.soc", "battery", "%"),
     ]
     assert all(e.score == 0 and e.criteria == () for e in got)
+    wide = legacy_entities(metas, live=live, catalogue=catalogue, include_hidden=True)
+    assert [e.entity_id for e in wide] == ["sensor.hidden", "sensor.pv", "sensor.soc"]

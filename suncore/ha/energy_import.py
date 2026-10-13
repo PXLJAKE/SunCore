@@ -177,13 +177,12 @@ def _grid(sources: list[Mapping[str, Any]], b: _Builder, known: Collection[str] 
             else "wizard.energy.reason.grid_rate"
         )
         b.add("grid.power", _ref(entity_id, invert=opposite), Reason(key=key))
+    elif sensor_from is not None and sensor_to is not None:
+        reason = Reason(key="wizard.energy.reason.grid_pair")
+        b.add("grid.import_power", _ref(sensor_from), reason)
+        b.add("grid.export_power", _ref(sensor_to), reason)
     else:
-        if sensor_from is not None and sensor_to is not None:
-            reason = Reason(key="wizard.energy.reason.grid_pair")
-            b.add("grid.import_power", _ref(sensor_from), reason)
-            b.add("grid.export_power", _ref(sensor_to), reason)
-        else:
-            b.note("wizard.energy.note.no_power_sensor", source="grid")
+        b.note("wizard.energy.note.no_power_sensor", source="grid")
     imported = b.statistic(import_stat, "grid")
     if imported is not None:
         b.add(
