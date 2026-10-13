@@ -108,26 +108,40 @@ def _first_mapping(value: object) -> Mapping[str, Any]:
     return {}
 
 
-def _rate(entry: Mapping[str, Any], b: _Builder, source: str) -> tuple[str, bool] | None:
-    """Power sensor of a source and whether it is the *opposite* of HA's convention.
+def _candidates(entry: Mapping[str, Any], b: _Builder, source: str) -> list[tuple[str, bool]]:
+    """Power sensors of a source in preference order, each with "opposite to HA's convention".
 
-    The top-level ``stat_rate`` is always HA's convention. Without it the raw sensor of
-    ``power_config`` is used: ``stat_rate`` is HA's convention, ``stat_rate_inverted`` is not.
+    The top-level ``stat_rate`` is always HA's convention (for a configured ``power_config``
+    it is a generated template sensor). The raw sensors of ``power_config`` follow:
+    ``stat_rate`` is HA's convention, ``stat_rate_inverted`` is the opposite.
     """
+    result: list[tuple[str, bool]] = []
     top = b.statistic(entry.get("stat_rate"), source)
     if top is not None:
-        return top, False
+        result.append((top, False))
     config = _mapping(entry.get("power_config"))
-    standard = _entity(config.get("stat_rate"))
-    if standard is not None:
-        return standard, False
-    inverted = _entity(config.get("stat_rate_inverted"))
-    if inverted is not None:
-        return inverted, True
+    if (standard := _entity(config.get("stat_rate"))) is not None:
+        result.append((standard, False))
+    if (inverted := _entity(config.get("stat_rate_inverted"))) is not None:
+        result.append((inverted, True))
+    return result
+
+
+def _pick(
+    candidates: list[tuple[str, bool]], known: Collection[str] | None
+) -> tuple[str, bool] | None:
+    """First candidate Home Assistant has a state for; without ``known`` simply the first.
+
+    The generated template sensor behind ``power_config`` may not exist (yet) while the raw
+    sensor does; then the raw sensor is suggested, with its own polarity.
+    """
+    for candidate in candidates:
+        if known is None or candidate[0] in known:
+            return candidate
     return None
 
 
-def _grid(sources: list[Mapping[str, Any]], b: _Builder) -> None:
+def _grid(sources: list[Mapping[str, Any]], b: _Builder, known: Collection[str] | None) -> None:
     if not sources:
         return
     if len(sources) > 1:
@@ -143,7 +157,18 @@ def _grid(sources: list[Mapping[str, Any]], b: _Builder) -> None:
             **_first_mapping(entry.get("power")),
             **{k: v for k, v in entry.items() if k != "power"},
         }
-    rate = _rate(power, b, "grid")
+    candidates = _candidates(power, b, "grid")
+    config = _mapping(power.get("power_config"))
+    sensor_from = _entity(config.get("stat_rate_from"))
+    sensor_to = _entity(config.get("stat_rate_to"))
+    pair_known = (
+        sensor_from is not None
+        and sensor_to is not None
+        and (known is None or (sensor_from in known and sensor_to in known))
+    )
+    rate = _pick(candidates, known)
+    if rate is None and not pair_known:
+        rate = candidates[0] if candidates else None  # nothing known: keep the HA-side id
     if rate is not None:
         entity_id, opposite = rate
         key = (
@@ -153,9 +178,6 @@ def _grid(sources: list[Mapping[str, Any]], b: _Builder) -> None:
         )
         b.add("grid.power", _ref(entity_id, invert=opposite), Reason(key=key))
     else:
-        config = _mapping(power.get("power_config"))
-        sensor_from = _entity(config.get("stat_rate_from"))
-        sensor_to = _entity(config.get("stat_rate_to"))
         if sensor_from is not None and sensor_to is not None:
             reason = Reason(key="wizard.energy.reason.grid_pair")
             b.add("grid.import_power", _ref(sensor_from), reason)
@@ -178,7 +200,13 @@ def _grid(sources: list[Mapping[str, Any]], b: _Builder) -> None:
         )
 
 
-def _solar(sources: list[Mapping[str, Any]], b: _Builder) -> None:
+def _first(
+    candidates: list[tuple[str, bool]], known: Collection[str] | None
+) -> tuple[str, bool] | None:
+    return _pick(candidates, known) or (candidates[0] if candidates else None)
+
+
+def _solar(sources: list[Mapping[str, Any]], b: _Builder, known: Collection[str] | None) -> None:
     used: set[str] = set()
     index = 0
     for number, entry in enumerate(sources, start=1):
@@ -189,7 +217,7 @@ def _solar(sources: list[Mapping[str, Any]], b: _Builder) -> None:
         name = name or f"PV {number}"
         if name in used:
             name = f"{name[: _NAME_MAX - 4]} #{number}"
-        rate = _rate(entry, b, "solar")
+        rate = _first(_candidates(entry, b, "solar"), known)
         if rate is None:
             b.note("wizard.energy.note.no_power_sensor", source="solar", name=name)
             continue
@@ -202,13 +230,13 @@ def _solar(sources: list[Mapping[str, Any]], b: _Builder) -> None:
         index += 1
 
 
-def _battery(sources: list[Mapping[str, Any]], b: _Builder) -> None:
+def _battery(sources: list[Mapping[str, Any]], b: _Builder, known: Collection[str] | None) -> None:
     if not sources:
         return
     if len(sources) > 1:
         b.note("wizard.energy.note.multiple_battery", count=len(sources))
     entry = sources[0]
-    rate = _rate(entry, b, "battery")
+    rate = _first(_candidates(entry, b, "battery"), known)
     if rate is not None:
         entity_id, opposite = rate
         # HA: + = discharging. SunCore: + = charging. The HA-convention sensor needs a flip,
@@ -256,11 +284,11 @@ def suggest_from_prefs(
             if isinstance(source, Mapping) and source.get("type") in by_type:
                 by_type[str(source["type"])].append(source)
     b = _Builder()
-    _grid(by_type["grid"], b)
-    _solar(by_type["solar"], b)
-    _battery(by_type["battery"], b)
-    if known_entity_ids is not None:
-        known = set(known_entity_ids)
+    known = set(known_entity_ids) if known_entity_ids is not None else None
+    _grid(by_type["grid"], b, known)
+    _solar(by_type["solar"], b, known)
+    _battery(by_type["battery"], b, known)
+    if known is not None:
         for s in b.suggestions:
             value = s.value
             if isinstance(value, dict) and value.get("entity_id") not in known:

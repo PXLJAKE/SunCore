@@ -266,3 +266,64 @@ def test_invalid_fragment_would_be_rejected_by_the_model() -> None:
     result = suggest_from_prefs({"energy_sources": [{"type": "battery", "stat_rate": "sensor.b"}]})
     with pytest.raises(ValidationError):
         SiteConfig.model_validate({"schema_version": 2, **result.site})
+
+
+def _bat(**extra: Any) -> dict[str, Any]:
+    return {"energy_sources": [{"type": "battery", **extra}]}
+
+
+def _grid_prefs(**extra: Any) -> dict[str, Any]:
+    return {"energy_sources": [{"type": "grid", **extra}]}
+
+
+def test_unknown_generated_sensor_falls_back_to_raw_inverted_battery_sensor() -> None:
+    prefs = _bat(stat_rate="sensor.gen_inverted", power_config={"stat_rate_inverted": "sensor.raw"})
+    result = suggest_from_prefs(prefs, known_entity_ids={"sensor.raw"})
+    assert by_path(result)["battery.power"].value == {
+        "entity_id": "sensor.raw",
+        "invert_sign": False,
+    }
+    assert result.notes == ()
+
+
+def test_unknown_generated_sensor_falls_back_to_raw_standard_battery_sensor() -> None:
+    prefs = _bat(stat_rate="sensor.gen", power_config={"stat_rate": "sensor.raw"})
+    result = suggest_from_prefs(prefs, known_entity_ids={"sensor.raw"})
+    assert by_path(result)["battery.power"].value == {
+        "entity_id": "sensor.raw",
+        "invert_sign": True,
+    }
+
+
+def test_known_top_level_rate_wins_over_power_config() -> None:
+    prefs = _bat(stat_rate="sensor.gen", power_config={"stat_rate_inverted": "sensor.raw"})
+    known = {"sensor.gen", "sensor.raw"}
+    value = by_path(suggest_from_prefs(prefs, known_entity_ids=known))["battery.power"].value
+    assert value == {"entity_id": "sensor.gen", "invert_sign": True}
+
+
+def test_nothing_known_keeps_the_top_level_rate_and_notes_it() -> None:
+    prefs = _bat(stat_rate="sensor.gen", power_config={"stat_rate_inverted": "sensor.raw"})
+    result = suggest_from_prefs(prefs, known_entity_ids={"sensor.other"})
+    assert by_path(result)["battery.power"].value["entity_id"] == "sensor.gen"
+    assert [n.args["entity_id"] for n in result.notes] == ["sensor.gen"]
+
+
+def test_unknown_generated_grid_sensor_falls_back_with_polarity() -> None:
+    inverted = _grid_prefs(stat_rate="sensor.gen", power_config={"stat_rate_inverted": "sensor.g"})
+    value = by_path(suggest_from_prefs(inverted, known_entity_ids={"sensor.g"}))["grid.power"].value
+    assert value == {"entity_id": "sensor.g", "invert_sign": True}
+    standard = _grid_prefs(stat_rate="sensor.gen", power_config={"stat_rate": "sensor.g"})
+    value = by_path(suggest_from_prefs(standard, known_entity_ids={"sensor.g"}))["grid.power"].value
+    assert value == {"entity_id": "sensor.g", "invert_sign": False}
+
+
+def test_unknown_generated_grid_sensor_falls_back_to_the_pair() -> None:
+    prefs = _grid_prefs(
+        stat_rate="sensor.gen",
+        power_config={"stat_rate_from": "sensor.imp", "stat_rate_to": "sensor.exp"},
+    )
+    sug = by_path(suggest_from_prefs(prefs, known_entity_ids={"sensor.imp", "sensor.exp"}))
+    assert sug["grid.import_power"].value["entity_id"] == "sensor.imp"
+    assert sug["grid.export_power"].value["entity_id"] == "sensor.exp"
+    assert "grid.power" not in sug

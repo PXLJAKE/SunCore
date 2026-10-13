@@ -143,10 +143,14 @@ async def test_energy_suggestions_from_the_demo_dashboard(demo_runtime: Runtime)
     result = await demo_runtime.energy_suggestions()
     assert result.configured is True
     paths = {s.path: s for s in result.suggestions}
-    assert paths["battery.power"].value["invert_sign"] is True
     assert paths["grid.power"].value["entity_id"] == "sensor.sim_grid_power"
-    # The demo's generated inverted battery sensor does not exist as an entity.
-    assert [n.args["entity_id"] for n in result.notes] == ["sensor.sim_battery_power_inverted"]
+    # The generated template sensor does not exist in the demo; the raw sensor behind
+    # `stat_rate_inverted` does and already counts charging as positive.
+    assert paths["battery.power"].value == {
+        "entity_id": "sensor.sim_battery_power",
+        "invert_sign": False,
+    }
+    assert result.notes == ()
 
 
 async def test_energy_suggestions_not_configured_and_errors(demo_runtime: Runtime) -> None:
