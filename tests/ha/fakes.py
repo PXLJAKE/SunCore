@@ -107,6 +107,13 @@ class FakeHA:
         self.connections: list[web.WebSocketResponse] = []
         self.subscriptions: dict[web.WebSocketResponse, tuple[int, set[str]]] = {}
         self.config: dict[str, Any] = {"unit_system": {"temperature": "°C"}, "version": "2026.11.0"}
+        # Registries and Energy dashboard (shapes: docs/research/ha-websocket-api.md).
+        self.entity_registry: dict[str, Any] = {"entity_categories": {}, "entities": []}
+        self.device_registry: list[dict[str, Any]] = []
+        self.area_registry: list[dict[str, Any]] = []
+        self.energy_prefs: dict[str, Any] | None = None  # None = "No prefs" (not_found)
+        self.service_response: Callable[[dict[str, Any]], Any] = lambda msg: {"echo": msg}
+        self.event_subscriptions: dict[web.WebSocketResponse, dict[int, str]] = {}
         self._server: TestServer | None = None
 
     # --- lifecycle -----------------------------------------------------------
@@ -146,6 +153,16 @@ class FakeHA:
     async def send_raw(self, payload: Any) -> None:
         for ws in list(self.subscriptions):
             await ws.send_str(json.dumps(payload))
+
+    async def push_registry_event(
+        self, event_type: str, data: dict[str, Any] | None = None
+    ) -> None:
+        """Send a registry update event to every subscriber of ``event_type``."""
+        for ws, subs in list(self.event_subscriptions.items()):
+            for sub_id, subscribed in subs.items():
+                if subscribed == event_type:
+                    event = {"event_type": event_type, "data": data or {}, "origin": "LOCAL"}
+                    await ws.send_str(json.dumps({"id": sub_id, "type": "event", "event": event}))
 
     async def push_event(self, event: dict[str, Any]) -> None:
         for ws, (sub_id, _) in list(self.subscriptions.items()):
@@ -199,6 +216,7 @@ class FakeHA:
                     await self._on_message(ws, json.loads(msg.data))
         finally:
             self.subscriptions.pop(ws, None)
+            self.event_subscriptions.pop(ws, None)
             with suppress(ValueError):
                 self.connections.remove(ws)
         return ws
@@ -210,7 +228,9 @@ class FakeHA:
             for message in messages:
                 await ws.send_str(json.dumps(message))
 
-    async def _on_message(self, ws: web.WebSocketResponse, msg: dict[str, Any]) -> None:
+    async def _on_message(  # noqa: PLR0912
+        self, ws: web.WebSocketResponse, msg: dict[str, Any]
+    ) -> None:
         self.received.append(msg)
         mid, kind = msg["id"], msg["type"]
 
@@ -239,11 +259,30 @@ class FakeHA:
                 await self._reply(ws, ok())
             else:
                 await self._reply(ws, ok(), {"id": mid, "type": "event", "event": init})
+        elif kind == "config/entity_registry/list_for_display":
+            await self._reply(ws, ok(self.entity_registry))
+        elif kind == "config/device_registry/list":
+            await self._reply(ws, ok(self.device_registry))
+        elif kind == "config/area_registry/list":
+            await self._reply(ws, ok(self.area_registry))
+        elif kind == "energy/get_prefs":
+            if self.energy_prefs is None:
+                error = {"code": "not_found", "message": "No prefs"}
+                await self._reply(
+                    ws, {"id": mid, "type": "result", "success": False, "error": error}
+                )
+            else:
+                await self._reply(ws, ok(self.energy_prefs))
+        elif kind == "subscribe_events":
+            self.event_subscriptions.setdefault(ws, {})[mid] = msg["event_type"]
+            await self._reply(ws, ok())
         elif kind == "unsubscribe_events":
             self.subscriptions.pop(ws, None)
             await self._reply(ws, ok())
         elif kind == "call_service":
-            await self._reply(ws, ok({"context": {"id": "ctx"}, "response": {"echo": msg}}))
+            await self._reply(
+                ws, ok({"context": {"id": "ctx"}, "response": self.service_response(msg)})
+            )
         else:
             error = {"code": "unknown_command", "message": "Unknown command."}
             await self._reply(ws, {"id": mid, "type": "result", "success": False, "error": error})

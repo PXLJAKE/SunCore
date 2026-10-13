@@ -13,6 +13,8 @@ from suncore.core.balance import compute_flows
 from suncore.core.signals import Quality
 from suncore.ha.cache import EntityCache
 from suncore.ha.connection import (
+    ActionNotAllowedError,
+    CommandError,
     ConnectionState,
     EntityState,
     EntityUpdate,
@@ -372,3 +374,34 @@ async def test_start_offset_fast_forwards_the_house(ticker: Ticker) -> None:
 def test_start_offset_outside_scenario_is_rejected(ticker: Ticker, offset: float) -> None:
     with pytest.raises(ValueError, match="start_offset_s"):
         FakeHAConnection(load_scenario("summer_day"), clock=ticker.clock, start_offset_s=offset)
+
+
+# --- registry events and read-only actions (Phase 2 WP5) ------------------------------------
+
+
+async def test_fake_registry_events_and_error_knob(conn: FakeHAConnection) -> None:
+    await conn.connect()
+    seen: list[str] = []
+    remove = await conn.subscribe_registry_updates(seen.append)
+    conn.fire_registry_event("area_registry_updated")
+    remove()
+    conn.fire_registry_event("entity_registry_updated")
+    assert seen == ["area_registry_updated"]
+    assert (await conn.entity_registry_list_for_display())["entities"]
+    conn.registry_error = CommandError("unknown_command", "x")
+    with pytest.raises(CommandError):
+        await conn.area_registry_list()
+
+
+async def test_fake_read_only_actions(conn: FakeHAConnection) -> None:
+    await conn.connect()
+    prices = await conn.call_action_response("tibber", "get_prices")
+    slots = prices["prices"]["Home"]
+    assert len(slots) == 96
+    assert {"start_time", "price"} == set(slots[0])
+    forecast = await conn.call_action_response("solcast_solar", "query_forecast_data")
+    assert isinstance(forecast["data"], list)
+    with pytest.raises(CommandError):
+        await conn.call_action_response("weather", "get_forecasts")
+    with pytest.raises(ActionNotAllowedError):
+        await conn.call_action_response("switch", "turn_on")

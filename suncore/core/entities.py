@@ -25,6 +25,14 @@ class EntityMeta:
     area_id: str | None = None
     device_id: str | None = None
     """Registry device the entity belongs to (``di``/``device_id``), if known."""
+    entity_category: str | None = None
+    """``config`` or ``diagnostic`` (registry), ``None`` for a primary entity."""
+    hidden: bool = False
+    """Hidden in the registry (by the user or the integration)."""
+    disabled: bool = False
+    """Disabled in the registry (only the full ``list`` command reports it)."""
+    name: str | None = None
+    """Display name (friendly name from the state, else the registry name)."""
 
     @classmethod
     def of(
@@ -38,6 +46,10 @@ class EntityMeta:
         state_class: str | None = None,
         area_id: str | None = None,
         device_id: str | None = None,
+        entity_category: str | None = None,
+        hidden: bool = False,
+        disabled: bool = False,
+        name: str | None = None,
     ) -> EntityMeta:
         """Build metadata and derive ``domain`` from the entity id."""
         return cls(
@@ -50,4 +62,8 @@ class EntityMeta:
             state_class=state_class,
             area_id=area_id,
             device_id=device_id,
+            entity_category=entity_category,
+            hidden=hidden,
+            disabled=disabled,
+            name=name,
         )
