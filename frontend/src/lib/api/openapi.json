@@ -732,7 +732,7 @@
   "info": {
     "description": "SunCore HTTP API. Live updates: WebSocket `api/v1/live` (see LiveMessage).",
     "title": "SunCore API",
-    "version": "0.1.0"
+    "version": "unversioned"
   },
   "openapi": "3.1.0",
   "paths": {
