@@ -93,6 +93,7 @@
   "settings.saved": "Settings saved.",
   "settings.saving": "Saving…",
   "settings.title": "Settings",
+  "template.error.action_not_allowed": "This template names an action SunCore may not call. Only read-only price and forecast actions are allowed.",
   "unit.kw": "{value} kW",
   "unit.percent": "{value} %",
   "unit.w": "{value} W"

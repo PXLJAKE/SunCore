@@ -123,7 +123,7 @@ class ConfigStore:
 
     @staticmethod
     def _dump(model: BaseModel) -> str:
-        return model.model_dump_json()
+        return model.model_dump_json(by_alias=True)
 
     async def get(self, section: str) -> BaseModel | None:
         """Return the validated (and migrated) section, or ``None`` if never stored."""

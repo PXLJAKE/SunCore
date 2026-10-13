@@ -1,5 +1,26 @@
 {
   "$defs": {
+    "Capability": {
+      "description": "What a template provides.",
+      "enum": [
+        "power_measured",
+        "energy_counter",
+        "on_off",
+        "power_setpoint",
+        "temperature_setpoint",
+        "hvac_modes",
+        "preset_modes",
+        "fan_modes",
+        "price_now",
+        "price_curve",
+        "pv_curve",
+        "pv_quantiles",
+        "feed_in_tiers",
+        "negative_price_rule"
+      ],
+      "title": "Capability",
+      "type": "string"
+    },
     "ComfortBand": {
       "additionalProperties": false,
       "description": "Allowed temperature range in °C.",
@@ -24,17 +45,78 @@
       "title": "ComfortBand",
       "type": "object"
     },
-    "ControlKind": {
-      "description": "How a device is driven.",
-      "enum": [
-        "on_off",
-        "steps",
-        "continuous",
-        "setpoint",
-        "mode"
+    "ContinuousControl": {
+      "additionalProperties": false,
+      "description": "A number entity in W, A or % of ``nominal_w`` between ``min`` and ``max``.",
+      "properties": {
+        "kind": {
+          "const": "continuous",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max": {
+          "exclusiveMinimum": 0,
+          "title": "Max",
+          "type": "number"
+        },
+        "min": {
+          "minimum": 0,
+          "title": "Min",
+          "type": "number"
+        },
+        "phases": {
+          "default": 1,
+          "enum": [
+            1,
+            3
+          ],
+          "title": "Phases",
+          "type": "integer"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        },
+        "unit": {
+          "enum": [
+            "W",
+            "A",
+            "%"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "voltage_v": {
+          "default": 230.0,
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "title": "Voltage V",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "unit",
+        "min",
+        "max"
       ],
-      "title": "ControlKind",
-      "type": "string"
+      "title": "ContinuousControl",
+      "type": "object"
     },
     "DeviceDefaults": {
       "additionalProperties": false,
@@ -52,7 +134,62 @@
           "default": null
         },
         "control": {
-          "$ref": "#/$defs/ControlKind"
+          "discriminator": {
+            "mapping": {
+              "continuous": "#/$defs/ContinuousControl",
+              "mode": "#/$defs/ModeControl",
+              "on_off": "#/$defs/OnOffControl",
+              "setpoint": "#/$defs/SetpointControl",
+              "steps": "#/$defs/StepsControl"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OnOffControl"
+            },
+            {
+              "$ref": "#/$defs/StepsControl"
+            },
+            {
+              "$ref": "#/$defs/ContinuousControl"
+            },
+            {
+              "$ref": "#/$defs/SetpointControl"
+            },
+            {
+              "$ref": "#/$defs/ModeControl"
+            }
+          ],
+          "title": "Control"
+        },
+        "hysteresis_delay_s": {
+          "anyOf": [
+            {
+              "maximum": 3600,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hysteresis Delay S"
+        },
+        "hysteresis_w": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hysteresis W"
         },
         "max_switches_per_hour": {
           "anyOf": [
@@ -84,6 +221,20 @@
         },
         "power_model": {
           "$ref": "#/$defs/PowerModelDefault"
+        },
+        "settle_s": {
+          "anyOf": [
+            {
+              "maximum": 600,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Settle S"
         }
       },
       "required": [
@@ -110,7 +261,7 @@
     },
     "EntityMatcher": {
       "additionalProperties": false,
-      "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive).",
+      "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive);\n``unit_pattern`` is a regular expression matched with ``re.fullmatch`` on the stripped\nunit. ``translation_key`` / ``translation_key_pattern`` likewise. Exact and pattern\nforms exclude each other.",
       "properties": {
         "device_class": {
           "anyOf": [
@@ -125,21 +276,28 @@
           "title": "Device Class"
         },
         "domain": {
-          "pattern": "^[a-z_]+$",
+          "pattern": "^[a-z0-9_]+$",
           "title": "Domain",
           "type": "string"
         },
-        "platform": {
+        "platforms": {
           "anyOf": [
             {
-              "type": "string"
+              "items": {
+                "maxLength": 48,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Platform"
+          "title": "Platforms"
         },
         "state_class": {
           "anyOf": [
@@ -164,6 +322,34 @@
           ],
           "default": null,
           "title": "Translation Key"
+        },
+        "translation_key_pattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translation Key Pattern"
+        },
+        "unit_pattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit Pattern"
         },
         "units": {
           "anyOf": [
@@ -191,10 +377,102 @@
       "title": "EntityMatcher",
       "type": "object"
     },
+    "Mode": {
+      "additionalProperties": false,
+      "description": "One mode of a mode-controlled device and the power it draws.",
+      "properties": {
+        "power_w": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Power W",
+          "type": "number"
+        },
+        "value": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "power_w"
+      ],
+      "title": "Mode",
+      "type": "object"
+    },
+    "ModeControl": {
+      "additionalProperties": false,
+      "description": "Select one of several modes (select entity or climate preset).",
+      "properties": {
+        "kind": {
+          "const": "mode",
+          "title": "Kind",
+          "type": "string"
+        },
+        "modes": {
+          "items": {
+            "$ref": "#/$defs/Mode"
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Modes",
+          "type": "array"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "modes"
+      ],
+      "title": "ModeControl",
+      "type": "object"
+    },
+    "OnOffControl": {
+      "additionalProperties": false,
+      "description": "Switch on/off through ``role``.",
+      "properties": {
+        "kind": {
+          "const": "on_off",
+          "title": "Kind",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "role"
+      ],
+      "title": "OnOffControl",
+      "type": "object"
+    },
     "PowerModelDefault": {
       "additionalProperties": false,
-      "description": "Default power model; ``power_role``/``energy_role`` refer to roles of the template.",
+      "description": "Default power model; ``power_role``/``energy_role`` refer to roles of the template.\n\n``nominal_w`` is only a hint: a template cannot know the user's model, the wizard asks\n(the instance-level :class:`~suncore.core.devices.PowerModel` stays strict).",
       "properties": {
+        "counter_update_s": {
+          "anyOf": [
+            {
+              "maximum": 86400,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Counter Update S"
+        },
         "energy_role": {
           "anyOf": [
             {
@@ -273,6 +551,19 @@
           "default": true,
           "title": "Required",
           "type": "boolean"
+        },
+        "same_device_as": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Same Device As"
         }
       },
       "required": [
@@ -280,6 +571,42 @@
         "description"
       ],
       "title": "RoleSpec",
+      "type": "object"
+    },
+    "SetpointControl": {
+      "additionalProperties": false,
+      "description": "Shift the user's temperature set-point inside the comfort band (needs ``comfort``).",
+      "properties": {
+        "kind": {
+          "const": "setpoint",
+          "title": "Kind",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "shift_max_c": {
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "title": "Shift Max C",
+          "type": "number"
+        },
+        "step_c": {
+          "default": 0.5,
+          "exclusiveMinimum": 0,
+          "maximum": 5,
+          "title": "Step C",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "shift_max_c"
+      ],
+      "title": "SetpointControl",
       "type": "object"
     },
     "SourceRef": {
@@ -310,6 +637,70 @@
         "date"
       ],
       "title": "SourceRef",
+      "type": "object"
+    },
+    "Step": {
+      "additionalProperties": false,
+      "description": "One level of a stepped load: the value written and the power it draws.",
+      "properties": {
+        "power_w": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Power W",
+          "type": "number"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "power_w"
+      ],
+      "title": "Step",
+      "type": "object"
+    },
+    "StepsControl": {
+      "additionalProperties": false,
+      "description": "Discrete power levels written to ``role`` (select option or number).",
+      "properties": {
+        "kind": {
+          "const": "steps",
+          "title": "Kind",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "steps"
+      ],
+      "title": "StepsControl",
       "type": "object"
     },
     "TestedWith": {
@@ -343,9 +734,7 @@
   "properties": {
     "capabilities": {
       "items": {
-        "maxLength": 48,
-        "pattern": "^[a-z][a-z0-9_]*$",
-        "type": "string"
+        "$ref": "#/$defs/Capability"
       },
       "maxItems": 32,
       "title": "Capabilities",
@@ -367,6 +756,19 @@
       "const": "device",
       "title": "Kind",
       "type": "string"
+    },
+    "min_app_version": {
+      "anyOf": [
+        {
+          "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min App Version"
     },
     "name": {
       "maxLength": 120,

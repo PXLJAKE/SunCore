@@ -17,7 +17,13 @@ from suncore.app.main import build_runtime
 from suncore.app.runtime import Runtime
 from suncore.core.config import DevicesConfig, OperationConfig, WizardState
 from suncore.core.decisions import OperatingMode
-from suncore.core.devices import ControlKind, DeviceConfig, DeviceKind, PowerModel, PowerModelKind
+from suncore.core.devices import (
+    DeviceConfig,
+    DeviceKind,
+    OnOffControl,
+    PowerModel,
+    PowerModelKind,
+)
 from suncore.core.site import EntityRef
 from suncore.ha.connection import CommandTimeoutError
 from suncore.sim.fake_ha import SIM_ENTITY_IDS, FakeHAConnection, demo_site_config
@@ -244,11 +250,12 @@ def _switch(dev_id: str) -> DeviceConfig:
         template_id="generic.switch",
         name=dev_id,
         kind=DeviceKind.SWITCH,
-        entities={"switch": EntityRef(entity_id=f"switch.{dev_id}")},
-        power_model=PowerModel(
-            kind=PowerModelKind.MEASURED, power=EntityRef(entity_id=f"sensor.{dev_id}_power")
-        ),
-        control=ControlKind.ON_OFF,
+        entities={
+            "switch": EntityRef(entity_id=f"switch.{dev_id}"),
+            "power": EntityRef(entity_id=f"sensor.{dev_id}_power"),
+        },
+        power_model=PowerModel(kind=PowerModelKind.MEASURED, power_role="power"),
+        control=OnOffControl(kind="on_off", role="switch"),
     )
 
 

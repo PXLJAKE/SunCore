@@ -1,5 +1,26 @@
 {
   "$defs": {
+    "Capability": {
+      "description": "What a template provides.",
+      "enum": [
+        "power_measured",
+        "energy_counter",
+        "on_off",
+        "power_setpoint",
+        "temperature_setpoint",
+        "hvac_modes",
+        "preset_modes",
+        "fan_modes",
+        "price_now",
+        "price_curve",
+        "pv_curve",
+        "pv_quantiles",
+        "feed_in_tiers",
+        "negative_price_rule"
+      ],
+      "title": "Capability",
+      "type": "string"
+    },
     "FeedInTier": {
       "additionalProperties": false,
       "description": "Feed-in remuneration band, data only (no legal advice).\n\nBands apply to the share of the plant up to ``up_to_kwp`` (cumulative, lower bounds\nare the previous band); ``None`` = no upper bound and only allowed on the last band.",
@@ -135,9 +156,7 @@
   "properties": {
     "capabilities": {
       "items": {
-        "maxLength": 48,
-        "pattern": "^[a-z][a-z0-9_]*$",
-        "type": "string"
+        "$ref": "#/$defs/Capability"
       },
       "maxItems": 32,
       "title": "Capabilities",
@@ -149,9 +168,17 @@
       "type": "string"
     },
     "currency": {
-      "pattern": "^[A-Z]{3}$",
-      "title": "Currency",
-      "type": "string"
+      "anyOf": [
+        {
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Currency"
     },
     "feed_in_tiers": {
       "items": {
@@ -170,6 +197,19 @@
       "const": "region",
       "title": "Kind",
       "type": "string"
+    },
+    "min_app_version": {
+      "anyOf": [
+        {
+          "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min App Version"
     },
     "name": {
       "maxLength": 120,
@@ -232,8 +272,7 @@
     "tested_with",
     "capabilities",
     "kind",
-    "country",
-    "currency"
+    "country"
   ],
   "title": "RegionTemplate",
   "type": "object"

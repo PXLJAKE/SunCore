@@ -10,7 +10,7 @@ from types import ModuleType
 
 import pytest
 
-from tests.devices.conftest import device_doc, write_template
+from tests.templates.conftest import device_doc, write_template
 
 ROOT = Path(__file__).resolve().parents[2]
 

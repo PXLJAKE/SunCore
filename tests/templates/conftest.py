@@ -21,7 +21,7 @@ def _header(kind: str, tid: str) -> dict[str, Any]:
         "name": f"template.{tid}.name",
         "source": copy.deepcopy(SOURCE),
         "tested_with": [{"integration": "demo", "version": "1.0"}],
-        "capabilities": ["demo"],
+        "capabilities": [],
     }
 
 
@@ -31,7 +31,7 @@ def device_doc(tid: str = "acme.heater") -> dict[str, Any]:
         "device_kind": "climate",
         "roles": {
             "climate": {
-                "matcher": {"domain": "climate", "platform": "acme"},
+                "matcher": {"domain": "climate", "platforms": ["acme"]},
                 "description": f"template.{tid}.role.climate",
             },
             "energy": {
@@ -47,7 +47,7 @@ def device_doc(tid: str = "acme.heater") -> dict[str, Any]:
         },
         "defaults": {
             "power_model": {"kind": "counter_derived", "energy_role": "energy"},
-            "control": "setpoint",
+            "control": {"kind": "setpoint", "role": "climate", "shift_max_c": 2},
             "min_run_s": 300,
             "min_pause_s": 180,
             "comfort": {"min_c": 21, "max_c": 24},
@@ -62,12 +62,27 @@ def tariff_doc(tid: str = "acme.dynamic") -> dict[str, Any]:
         "tariff_type": "dynamic",
         "roles": {
             "price": {
-                "matcher": {"domain": "sensor", "platform": "acme", "device_class": "monetary"},
+                "matcher": {"domain": "sensor", "platforms": ["acme"], "device_class": "monetary"},
                 "description": f"template.{tid}.role.price",
             }
         },
         "price_unit": "{currency}/kWh",
         "resolution_min": 15,
+        "price_includes": "all_in",
+        "price_series": {
+            "source": "action",
+            "domain": "tibber",
+            "service": "get_prices",
+            "start_field": "start",
+            "end_field": "end",
+            "response_path": "prices.*",
+            "fields": {
+                "timestamp_field": "start_time",
+                "value_field": "price",
+                "value_unit": "{currency}/kWh",
+            },
+            "max_horizon_h": 48,
+        },
     }
 
 
@@ -77,17 +92,21 @@ def forecast_doc(tid: str = "acme.solar") -> dict[str, Any]:
         "forecast_kind": "pv",
         "roles": {
             "today": {
-                "matcher": {"domain": "sensor", "platform": "acme", "device_class": "energy"},
+                "matcher": {"domain": "sensor", "platforms": ["acme"], "device_class": "energy"},
                 "description": f"template.{tid}.role.today",
             }
         },
-        "attributes": {
-            "series_attribute": "detailed",
-            "timestamp_field": "period_start",
-            "p50_field": "p50",
-            "p10_field": "p10",
-            "p90_field": "p90",
-            "value_unit": "kW",
+        "series": {
+            "source": "attribute",
+            "roles": ["today"],
+            "attribute": "detailed",
+            "fields": {
+                "timestamp_field": "period_start",
+                "value_field": "p50",
+                "p10_field": "p10",
+                "p90_field": "p90",
+                "value_unit": "kW",
+            },
         },
         "resolution_min": 30,
     }

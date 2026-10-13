@@ -9,6 +9,7 @@ so a bad user template never takes the app down.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,9 +18,10 @@ from typing import Final, Literal
 import yaml
 from pydantic import ValidationError
 
-from suncore.devices.templates.models import (
+from suncore.templates.models import (
     TEMPLATE_ADAPTER,
     TEMPLATE_KINDS,
+    VERSION_PATTERN,
     DeviceTemplate,
     ForecastTemplate,
     RegionTemplate,
@@ -28,6 +30,7 @@ from suncore.devices.templates.models import (
 )
 
 MAX_FILE_BYTES: Final = 256 * 1024
+KINDS_TEXT: Final = ", ".join(TEMPLATE_KINDS)
 
 Origin = Literal["builtin", "user"]
 
@@ -96,8 +99,44 @@ def _is_union_tag(part: str | int) -> bool:
     }
 
 
-def parse_template(path: Path, expected_kind: str | None = None) -> Template:
+_VERSION_RE: Final = re.compile(VERSION_PATTERN)
+_PRE_RANK: Final = {"dev": 0, "a": 1, "b": 2, "rc": 3}
+
+
+def version_key(text: str) -> tuple[tuple[int, ...], int, int]:
+    """Sort key for the PEP 440 subset of ``VERSION_PATTERN`` (release, pre-release rank, number).
+
+    Release segments are zero-padded to four; ``1.2a1 < 1.2rc1 < 1.2``; post releases are
+    treated as the release itself.
+    """
+    match = re.match(r"^(\d+(?:\.\d+)*)(?:(a|b|rc)(\d+))?", text)
+    if match is None:
+        msg = f"not a version: {text!r}"
+        raise ValueError(msg)
+    release = tuple(int(p) for p in match.group(1).split("."))
+    release += (0,) * (4 - len(release))
+    pre = _PRE_RANK[match.group(2)] if match.group(2) else 9
+    dev = ".dev" in text and match.group(2) is None
+    return release, 0 if dev else pre, int(match.group(3) or 0)
+
+
+def _check_min_version(raw: dict[str, object], app_version: str | None) -> None:
+    required = raw.get("min_app_version")
+    if app_version is None or not isinstance(required, str) or not _VERSION_RE.match(required):
+        return  # a malformed value is reported by the schema validation
+    if not _VERSION_RE.match(app_version):
+        return  # unknown app version (source checkout): do not block
+    if version_key(app_version) < version_key(required):
+        msg = f"needs SunCore >= {required} (this is {app_version})"
+        raise ValueError(msg)
+
+
+def parse_template(
+    path: Path, expected_kind: str | None = None, *, app_version: str | None = None
+) -> Template:
     """Parse and validate one YAML file.
+
+    ``app_version`` enables the ``min_app_version`` check, reported before any field error.
 
     Raises:
         ValueError: with a readable message for every problem (I/O, YAML, schema, naming).
@@ -120,6 +159,7 @@ def parse_template(path: Path, expected_kind: str | None = None) -> Template:
     if not isinstance(raw, dict):
         msg = "top level must be a mapping"
         raise ValueError(msg)
+    _check_min_version(raw, app_version)
     try:
         template = TEMPLATE_ADAPTER.validate_python(raw)
     except ValidationError as exc:
@@ -133,24 +173,42 @@ def parse_template(path: Path, expected_kind: str | None = None) -> Template:
     return template
 
 
-def _scan(root: Path) -> tuple[list[tuple[Path, Template]], list[TemplateFileError]]:
+def _scan(
+    root: Path, app_version: str | None
+) -> tuple[list[tuple[Path, Template]], list[TemplateFileError]]:
     found: list[tuple[Path, Template]] = []
     errors: list[TemplateFileError] = []
+    if root.is_dir():
+        for sub in sorted(p for p in root.iterdir() if p.is_dir() and p.name not in TEMPLATE_KINDS):
+            if sub.name == "schema":
+                continue
+            errors.extend(
+                TemplateFileError(
+                    path, f"unknown template kind directory `{sub.name}` (known: {KINDS_TEXT})"
+                )
+                for path in sorted(sub.glob("*.yaml"))
+            )
     for kind in TEMPLATE_KINDS:
         directory = root / kind
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.yaml")):
             try:
-                found.append((path, parse_template(path, kind)))
+                found.append((path, parse_template(path, kind, app_version=app_version)))
             except ValueError as exc:
                 errors.append(TemplateFileError(path, str(exc)))
     return found, errors
 
 
-def scan_directory(root: Path) -> tuple[list[tuple[Path, Template]], list[TemplateFileError]]:
-    """Validate all templates under ``root`` (used by the CI lint), including duplicates."""
-    found, errors = _scan(root)
+def scan_directory(
+    root: Path, *, app_version: str | None = None
+) -> tuple[list[tuple[Path, Template]], list[TemplateFileError]]:
+    """Validate all templates under ``root`` (used by the CI lint), including duplicates.
+
+    ``*.yaml`` files in sub directories that are no known kind (e.g. ``battery/`` before
+    that kind exists) are errors, not silently ignored (ADR-0012 item 11).
+    """
+    found, errors = _scan(root, app_version)
     seen: dict[str, Path] = {}
     unique: list[tuple[Path, Template]] = []
     for path, template in found:
@@ -164,13 +222,15 @@ def scan_directory(root: Path) -> tuple[list[tuple[Path, Template]], list[Templa
     return unique, errors
 
 
-def load_templates(builtin_dir: Path, user_dir: Path | None = None) -> TemplateCatalog:
+def load_templates(
+    builtin_dir: Path, user_dir: Path | None = None, *, app_version: str | None = None
+) -> TemplateCatalog:
     """Load built-in templates, then apply user templates (same id replaces the built-in).
 
     Raises:
         BuiltinTemplateError: if any built-in template is invalid or ids collide.
     """
-    builtin, builtin_errors = scan_directory(builtin_dir)
+    builtin, builtin_errors = scan_directory(builtin_dir, app_version=app_version)
     if builtin_errors:
         raise BuiltinTemplateError(tuple(builtin_errors))
     templates: dict[str, Template] = {t.id: t for _, t in builtin}
@@ -180,7 +240,7 @@ def load_templates(builtin_dir: Path, user_dir: Path | None = None) -> TemplateC
     errors: list[TemplateFileError] = []
 
     if user_dir is not None and user_dir.is_dir():
-        user, user_errors = scan_directory(user_dir)
+        user, user_errors = scan_directory(user_dir, app_version=app_version)
         errors.extend(user_errors)
         for path, template in user:
             current = templates.get(template.id)

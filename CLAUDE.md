@@ -17,7 +17,7 @@ device passes a safety layer; shadow mode is the default. Apache-2.0.
 
 ```text
 suncore/        Python package: core, ha, forecast, tariff, planner,
-                controller, safety, devices, api, storage, sim, app
+                controller, safety, templates, devices, api, storage, sim, app
 frontend/       Svelte 5 + Vite SPA (from Phase 1)
 addon/          HA app folders: suncore (stable), suncore_beta
 templates/      YAML templates + generated JSON Schema (ADR-0006)

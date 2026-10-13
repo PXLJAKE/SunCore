@@ -25,7 +25,13 @@ from suncore.core.config import (
     WizardState,
 )
 from suncore.core.decisions import OperatingMode
-from suncore.core.devices import ControlKind, DeviceConfig, DeviceKind, PowerModel, PowerModelKind
+from suncore.core.devices import (
+    DeviceConfig,
+    DeviceKind,
+    OnOffControl,
+    PowerModel,
+    PowerModelKind,
+)
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.storage import (
     ConfigCorruptError,
@@ -174,9 +180,8 @@ def _devices(draw: st.DrawFn) -> DevicesConfig:
                 kind=DeviceKind.SWITCH,
                 entities={"switch": EntityRef(entity_id=f"switch.{i}")},
                 power_model=PowerModel(kind=PowerModelKind.NOMINAL, nominal_w=draw(_pos)),
-                control=ControlKind.ON_OFF,
+                control=OnOffControl(kind="on_off", role="switch"),
                 priority=draw(st.integers(0, 100)),
-                mode=OperatingMode.SHADOW,
             )
             for i in ids
         ]
@@ -347,7 +352,7 @@ def _device(dev_id: str) -> DeviceConfig:
         kind=DeviceKind.SWITCH,
         entities={"switch": EntityRef(entity_id=f"switch.{dev_id}")},
         power_model=PowerModel(kind=PowerModelKind.NOMINAL, nominal_w=100),
-        control=ControlKind.ON_OFF,
+        control=OnOffControl(kind="on_off", role="switch"),
     )
 
 
@@ -419,3 +424,23 @@ async def test_import_without_devices_drops_all_device_modes(db: Database) -> No
     }
     await store.import_json(data)
     assert await store.get("operation") == OperationConfig()
+
+
+async def test_tariff_stored_with_import_key_and_legacy_key_still_loads(db: Database) -> None:
+    store = ConfigStore(db)
+    tariff = TariffConfig(
+        import_=ImportTariff(kind="fixed", fixed_price=0.3), export=ExportTariff(kind="none")
+    )
+    await store.put("tariff", tariff)
+    row = await db.fetchone("SELECT body FROM config_doc WHERE section = 'tariff'")
+    assert row is not None
+    body = json.loads(str(row[0]))
+    assert "import" in body
+    assert "import_" not in body
+    exported = await store.export_json()
+    assert "import" in exported["sections"]["tariff"]["body"]
+    legacy = {k: v for k, v in body.items() if k != "import"} | {"import_": body["import"]}
+    await db.execute(
+        "UPDATE config_doc SET body = ? WHERE section = 'tariff'", (json.dumps(legacy),)
+    )
+    assert await store.get("tariff") == tariff

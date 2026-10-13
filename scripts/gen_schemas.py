@@ -3,7 +3,7 @@
 """Generate the template JSON Schemas into ``templates/schema/``.
 
 Writes ``{device,tariff,forecast,region}.schema.json`` and ``template.schema.json``
-(the discriminated union) from the Pydantic models in ``suncore.devices.templates``.
+(the discriminated union) from the Pydantic models in ``suncore.templates``.
 Run via ``uv run python scripts/gen_schemas.py [--check] [output_dir]``; ``--check`` exits 1
 if a committed file is missing, outdated or stale (CI drift guard).
 """
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from suncore.devices.templates.models import KIND_MODELS, TEMPLATE_ADAPTER
+from suncore.templates.models import KIND_MODELS, TEMPLATE_ADAPTER
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "templates" / "schema"
 SCHEMA_ID_BASE = "https://raw.githubusercontent.com/pxljake/suncore/main/templates/schema"

@@ -12,7 +12,8 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    for imports or references of ``ServiceCaller`` / ``ServiceCallerProvider``.
 4. Dependency rule (docs/architecture.md §2): ``suncore.core`` imports no
    sibling package; ``suncore.safety`` imports only ``suncore.core`` and
-   itself.
+   itself; ``suncore.templates`` imports only ``suncore.core`` and itself (plus
+   yaml/pydantic, ADR-0012).
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
 
@@ -34,6 +35,7 @@ PACKAGE = ROOT / "suncore"
 SAFETY = "suncore.safety"
 HA = "suncore.ha"
 CORE = "suncore.core"
+TEMPLATES = "suncore.templates"
 ACTUATOR_MODULE = "suncore.safety.actuator"
 API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
@@ -221,12 +223,14 @@ def test_api_does_not_import_write_side_packages(path: Path) -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_dependency_rule(path: Path) -> None:
-    """Rule 4: core imports no sibling; safety imports only core and itself."""
+    """Rule 4: core imports no sibling; safety and templates import only core and itself."""
     module = module_name(path)
     if in_package(module, CORE):
         allowed = (CORE,)
     elif in_package(module, SAFETY):
         allowed = (CORE, SAFETY)
+    elif in_package(module, TEMPLATES):
+        allowed = (CORE, TEMPLATES)
     else:
         return
     offenders = fmt(
@@ -321,3 +325,20 @@ def test_import_scan_reports_submodule_imports() -> None:
     tree = ast.parse(src)
     found = {imported for _, imported in imported_modules(tmp, tree)}
     assert "suncore.safety.actuator" in found
+
+
+def test_templates_package_exists_and_old_location_is_gone() -> None:
+    assert (PACKAGE / "templates" / "models.py").is_file()
+    assert not (PACKAGE / "devices" / "templates").exists()
+
+
+def test_templates_rule_rejects_siblings() -> None:
+    tmp = PACKAGE / "templates" / "_synthetic.py"
+    src = "from suncore.ha import x\nfrom suncore.core import site\nimport suncore.devices\n"
+    bad = {
+        line
+        for line, imported in imported_modules(tmp, _tree(src))
+        if in_package(imported, "suncore")
+        and not any(in_package(imported, pkg) for pkg in (CORE, TEMPLATES))
+    }
+    assert bad == {1, 3}

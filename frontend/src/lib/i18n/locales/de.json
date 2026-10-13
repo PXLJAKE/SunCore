@@ -93,6 +93,7 @@
   "settings.saved": "Einstellungen gespeichert.",
   "settings.saving": "Speichere…",
   "settings.title": "Einstellungen",
+  "template.error.action_not_allowed": "Diese Vorlage nennt eine Aktion, die SunCore nicht aufrufen darf. Erlaubt sind nur lesende Preis- und Prognose-Aktionen.",
   "unit.kw": "{value} kW",
   "unit.percent": "{value} %",
   "unit.w": "{value} W"

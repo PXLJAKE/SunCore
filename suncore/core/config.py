@@ -132,8 +132,15 @@ class ExportTariff(_Frozen):
 class TariffConfig(_Frozen):
     """Import/export prices and the forecast sources."""
 
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+    """``import`` is a Python keyword: the JSON key is ``import``, ``import_`` is accepted too.
+
+    Always dump with ``by_alias=True`` (ConfigStore and the API do); documents stored
+    before the alias existed (key ``import_``) still load.
+    """
+
     schema_version: int = 1
-    import_: ImportTariff
+    import_: ImportTariff = Field(alias="import")
     export: ExportTariff
     forecast_template_ids: list[TemplateId] = Field(default_factory=list)
     forecast_entities: dict[RoleName, EntityRef] = Field(default_factory=dict)

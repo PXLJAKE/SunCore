@@ -402,3 +402,16 @@ template. Field names are normative; validation is described, not coded.
 Accept with the required list applied before the first template is
 written; `battery` stays out of v1 and is added in Phase 4 as a
 v1-compatible new kind.
+
+## Implementation notes (2026-10-13)
+
+Maintainer decisions on the open questions: (1) the mode lives only in the `operation`
+section, `DeviceConfig.mode` is removed; (2) the hard read-only action allowlist applies
+(`suncore/core/actions.py`, `READ_ONLY_ACTIONS`; the `call_action_response` side belongs to
+WP5); (3) the `battery` kind follows in Phase 4; (4) the template package moved from
+`suncore/devices/templates/` to `suncore/templates/` (depends on `core` only, enforced by
+`tests/safety/test_boundary.py`). Items 1–12 and the compatibility policy are implemented
+as specified; `templates/README.md` carries the policy text and the "Schema v1 changelog".
+Additions beyond the list, all v1-compatible: `region.currency` is optional for
+`country: generic`; the capability vocabulary is checked against evidence where a
+validator can (see README).

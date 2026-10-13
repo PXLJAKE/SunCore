@@ -87,7 +87,7 @@ from the session) and record in `docs/research/`:
   `ControlKind` (on_off | steps | continuous | setpoint | mode), priority,
   min run/pause, max switches per hour, comfort band, time windows,
   per-device `OperatingMode` (default shadow).
-- `suncore/devices/templates/` – Pydantic models per template kind
+- `suncore/templates/` – Pydantic models per template kind
   (`DeviceTemplate`, `TariffTemplate`, `ForecastTemplate`, `RegionTemplate`)
   with common header (`id`, `kind`, `schema_version: 1`, `name` key,
   `source`, `tested_with`, `capabilities`, `unverified` markers);

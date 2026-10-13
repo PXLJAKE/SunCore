@@ -1,8 +1,143 @@
 {
   "$defs": {
+    "ActionSeries": {
+      "additionalProperties": false,
+      "description": "Series returned by a read-only action (``return_response`` is implied).",
+      "properties": {
+        "domain": {
+          "maxLength": 48,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Domain",
+          "type": "string"
+        },
+        "end_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Field"
+        },
+        "fields": {
+          "$ref": "#/$defs/SeriesFields"
+        },
+        "max_horizon_h": {
+          "maximum": 336,
+          "minimum": 1,
+          "title": "Max Horizon H",
+          "type": "integer"
+        },
+        "response_path": {
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9_]+(\\.([A-Za-z0-9_]+|\\*))*$",
+          "title": "Response Path",
+          "type": "string"
+        },
+        "service": {
+          "maxLength": 48,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Service",
+          "type": "string"
+        },
+        "source": {
+          "const": "action",
+          "title": "Source",
+          "type": "string"
+        },
+        "start_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Field"
+        }
+      },
+      "required": [
+        "source",
+        "domain",
+        "service",
+        "response_path",
+        "fields",
+        "max_horizon_h"
+      ],
+      "title": "ActionSeries",
+      "type": "object"
+    },
+    "AttributeSeries": {
+      "additionalProperties": false,
+      "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).",
+      "properties": {
+        "attribute": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Attribute",
+          "type": "string"
+        },
+        "fields": {
+          "$ref": "#/$defs/SeriesFields"
+        },
+        "roles": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Roles",
+          "type": "array"
+        },
+        "source": {
+          "const": "attribute",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "roles",
+        "attribute",
+        "fields"
+      ],
+      "title": "AttributeSeries",
+      "type": "object"
+    },
+    "Capability": {
+      "description": "What a template provides.",
+      "enum": [
+        "power_measured",
+        "energy_counter",
+        "on_off",
+        "power_setpoint",
+        "temperature_setpoint",
+        "hvac_modes",
+        "preset_modes",
+        "fan_modes",
+        "price_now",
+        "price_curve",
+        "pv_curve",
+        "pv_quantiles",
+        "feed_in_tiers",
+        "negative_price_rule"
+      ],
+      "title": "Capability",
+      "type": "string"
+    },
     "EntityMatcher": {
       "additionalProperties": false,
-      "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive).",
+      "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive);\n``unit_pattern`` is a regular expression matched with ``re.fullmatch`` on the stripped\nunit. ``translation_key`` / ``translation_key_pattern`` likewise. Exact and pattern\nforms exclude each other.",
       "properties": {
         "device_class": {
           "anyOf": [
@@ -17,21 +152,28 @@
           "title": "Device Class"
         },
         "domain": {
-          "pattern": "^[a-z_]+$",
+          "pattern": "^[a-z0-9_]+$",
           "title": "Domain",
           "type": "string"
         },
-        "platform": {
+        "platforms": {
           "anyOf": [
             {
-              "type": "string"
+              "items": {
+                "maxLength": 48,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Platform"
+          "title": "Platforms"
         },
         "state_class": {
           "anyOf": [
@@ -56,6 +198,34 @@
           ],
           "default": null,
           "title": "Translation Key"
+        },
+        "translation_key_pattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translation Key Pattern"
+        },
+        "unit_pattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit Pattern"
         },
         "units": {
           "anyOf": [
@@ -100,6 +270,19 @@
           "default": true,
           "title": "Required",
           "type": "boolean"
+        },
+        "same_device_as": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Same Device As"
         }
       },
       "required": [
@@ -107,6 +290,65 @@
         "description"
       ],
       "title": "RoleSpec",
+      "type": "object"
+    },
+    "SeriesFields": {
+      "additionalProperties": false,
+      "description": "Names of the fields of one series point and the unit of its values.",
+      "properties": {
+        "p10_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P10 Field"
+        },
+        "p90_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P90 Field"
+        },
+        "timestamp_field": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Timestamp Field",
+          "type": "string"
+        },
+        "value_field": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Value Field",
+          "type": "string"
+        },
+        "value_unit": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Value Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp_field",
+        "value_field",
+        "value_unit"
+      ],
+      "title": "SeriesFields",
       "type": "object"
     },
     "SourceRef": {
@@ -170,9 +412,7 @@
   "properties": {
     "capabilities": {
       "items": {
-        "maxLength": 48,
-        "pattern": "^[a-z][a-z0-9_]*$",
-        "type": "string"
+        "$ref": "#/$defs/Capability"
       },
       "maxItems": 32,
       "title": "Capabilities",
@@ -197,11 +437,66 @@
       "title": "Kind",
       "type": "string"
     },
+    "min_app_version": {
+      "anyOf": [
+        {
+          "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min App Version"
+    },
     "name": {
       "maxLength": 120,
       "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
       "title": "Name",
       "type": "string"
+    },
+    "price_includes": {
+      "anyOf": [
+        {
+          "enum": [
+            "spot_only",
+            "all_in"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Price Includes"
+    },
+    "price_series": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "action": "#/$defs/ActionSeries",
+              "attribute": "#/$defs/AttributeSeries"
+            },
+            "propertyName": "source"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AttributeSeries"
+            },
+            {
+              "$ref": "#/$defs/ActionSeries"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Price Series"
     },
     "price_unit": {
       "pattern": "^(\\{currency\\}|[A-Z]{3})/kWh$",
@@ -209,12 +504,20 @@
       "type": "string"
     },
     "resolution_min": {
-      "enum": [
-        15,
-        60
+      "anyOf": [
+        {
+          "enum": [
+            15,
+            60
+          ],
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
       ],
-      "title": "Resolution Min",
-      "type": "integer"
+      "default": null,
+      "title": "Resolution Min"
     },
     "roles": {
       "patternProperties": {
@@ -273,8 +576,7 @@
     "kind",
     "direction",
     "tariff_type",
-    "price_unit",
-    "resolution_min"
+    "price_unit"
   ],
   "title": "TariffTemplate",
   "type": "object"

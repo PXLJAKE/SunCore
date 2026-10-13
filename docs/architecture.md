@@ -54,7 +54,8 @@ flowchart TB
         planner["planner/<br/>LP/MILP model, heuristic,<br/>explanations"]
         controller["controller/<br/>surplus distribution,<br/>peak shaving, export limit"]
         safety["safety/<br/>invariants, guards,<br/>watchdogs, modes"]
-        devices["devices/<br/>templates, generic drivers,<br/>power models"]
+        templates["templates/<br/>schema v1, loader,<br/>role matcher"]
+        devices["devices/<br/>generic drivers,<br/>power models"]
     end
     subgraph infra["Infrastructure"]
         storage["storage/<br/>SQLite config + timeseries,<br/>decision log, migrations"]
@@ -75,6 +76,11 @@ flowchart TB
     controller --> devices
     safety --> devices
     devices --> ha
+    devices --> templates
+    tariff --> templates
+    forecast --> templates
+    api --> templates
+    templates --> core
     mqttpub --> core
     storage --> core
     sim -. replaces .-> ha
@@ -94,13 +100,14 @@ Package map (ADR-0001):
 |---|---|---|
 | `suncore/core` | Domain model: `Site`, `Asset` (grid, pv, battery, device), `Signal` (typed time series with unit and quality), `Capability`, `Plan`, `Intent`, `Decision`, `Reason`, units and sign conventions | stdlib, pydantic |
 | `suncore/ha` | `HAConnection` (Supervisor or Direct transport), entity subscription with staleness tracking, service calls with read-back, write rate limiter, registry queries, MQTT discovery publisher | core, aiohttp |
-| `suncore/forecast` | Adapter protocol + Solcast, Forecast.Solar, Open-Meteo, generic-attribute, built-in model; blending by measured skill; bias calibration; load profiles | core, ha |
-| `suncore/tariff` | Import/export price sources (Tibber, Nord Pool, ENTSO-E/EPEX via HACS, fixed, HT/NT), price formula, region profiles, negative-price rules | core, ha |
+| `suncore/forecast` | Adapter protocol + Solcast, Forecast.Solar, Open-Meteo, generic-attribute, built-in model; blending by measured skill; bias calibration; load profiles | core, ha, templates |
+| `suncore/tariff` | Import/export price sources (Tibber, Nord Pool, ENTSO-E/EPEX via HACS, fixed, HT/NT), price formula, region profiles, negative-price rules | core, ha, templates |
 | `suncore/planner` | Model builder, HiGHS solver worker, heuristic fallback, plan explanation, what-if | core, highspy, numpy |
 | `suncore/controller` | Surplus computation, priority allocation, hysteresis state machines, peak shaving, export limiting, §14a limit | core |
 | `suncore/safety` | Invariant checks, operating modes, override detection, watchdogs, fail-safe transitions; the only caller of actuators | core, devices |
-| `suncore/devices` | Template loader + schema, generic drivers (HA entity, Modbus via HA, MQTT/evcc), power models (measured, counter-derived, learned, nominal), battery adapters | core, ha |
-| `suncore/api` | FastAPI app, auth (ingress headers or token), REST, WebSocket live feed, OpenAPI | core, storage |
+| `suncore/templates` | Template schema v1 (device, tariff, forecast, region; battery from Phase 4), loader with user overrides, role matcher, read-only action allowlist check (ADR-0012) | core, yaml, pydantic |
+| `suncore/devices` | Generic drivers (HA entity, Modbus via HA, MQTT/evcc), power models (measured, counter-derived, learned, nominal), battery adapters | core, ha, templates |
+| `suncore/api` | FastAPI app, auth (ingress headers or token), REST, WebSocket live feed, OpenAPI | core, storage, templates |
 | `suncore/storage` | SQLite repositories, migrations, downsampling, export/import | core, aiosqlite |
 | `suncore/sim` | Virtual house physics, scenario files, fake `HAConnection`, backtest runner | core |
 | `suncore/app` | Composition root: settings, scheduler, wiring, health endpoint | all |

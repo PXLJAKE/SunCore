@@ -16,7 +16,8 @@ import json
 import sys
 from pathlib import Path
 
-from suncore.devices.templates.loader import scan_directory
+from suncore import __version__
+from suncore.templates.loader import scan_directory
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "templates"
@@ -25,7 +26,7 @@ LOCALES = ROOT / "frontend" / "src" / "lib" / "i18n" / "locales"
 
 def validate(templates: Path = TEMPLATES, locales: Path = LOCALES) -> tuple[int, list[str]]:
     """Return ``(number of valid templates, problems)``."""
-    found, errors = scan_directory(templates)
+    found, errors = scan_directory(templates, app_version=__version__)
     problems = [str(e) for e in errors]
     catalogues = {
         name: json.loads((locales / f"{name}.json").read_text(encoding="utf-8"))

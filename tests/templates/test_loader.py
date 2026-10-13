@@ -8,13 +8,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from suncore.devices.templates import (
+from suncore.templates import (
     BuiltinTemplateError,
     DeviceTemplate,
     load_templates,
     parse_template,
 )
-from tests.devices.conftest import DOCS, device_doc, tariff_doc, write_template
+from suncore.templates.loader import version_key
+from tests.templates.conftest import DOCS, device_doc, tariff_doc, write_template
 
 
 def test_loads_all_kinds(builtin: Path) -> None:
@@ -129,3 +130,44 @@ def test_validation_message_names_the_field(tmp_path: Path) -> None:
         parse_template(write_template(tmp_path, DOCS["region"]("yy")), "device")
     with pytest.raises(ValueError, match="cannot read"):
         parse_template(tmp_path / "region" / "nope.yaml")
+
+
+def test_unknown_kind_directory_is_an_error(builtin: Path) -> None:
+    battery = builtin / "battery"
+    battery.mkdir()
+    (battery / "kostal.plenticore.yaml").write_text("id: x\n", encoding="utf-8")
+    with pytest.raises(BuiltinTemplateError, match="unknown template kind directory `battery`"):
+        load_templates(builtin)
+
+
+def test_min_app_version_reported_before_field_errors(tmp_path: Path) -> None:
+    doc = device_doc("acme.future")
+    doc["min_app_version"] = "9.1.0"
+    doc["brand_new_field"] = 1  # would fail on an older SunCore too
+    path = write_template(tmp_path, doc)
+    with pytest.raises(ValueError, match=r"needs SunCore >= 9\.1\.0 \(this is 0\.2\.0\)"):
+        parse_template(path, app_version="0.2.0")
+    doc.pop("brand_new_field")
+    path = write_template(tmp_path, doc)
+    assert parse_template(path, app_version="9.1.0").id == "acme.future"
+    assert parse_template(path, app_version="10.0").id == "acme.future"
+    assert parse_template(path).id == "acme.future"  # no app version: not checked
+
+
+def test_user_template_needing_newer_app_is_skipped(builtin: Path, tmp_path: Path) -> None:
+    user = tmp_path / "user"
+    doc = device_doc("me.future")
+    doc["min_app_version"] = "3.0"
+    write_template(user, doc)
+    catalog = load_templates(builtin, user, app_version="0.2.0")
+    assert catalog.get("me.future") is None
+    assert "needs SunCore >= 3.0" in str(catalog.errors[0])
+
+
+@pytest.mark.parametrize(
+    ("app", "required", "ok"),
+    [("0.2.0", "0.2", True), ("0.2.0rc1", "0.2.0", False), ("0.2.1", "0.2.0", True),
+     ("1.0.0.dev0", "1.0", False), ("0.10.0", "0.9.9", True), ("0.2.0", "0.2.0rc1", True)],
+)  # fmt: skip
+def test_version_ordering(app: str, required: str, ok: bool) -> None:
+    assert (version_key(app) >= version_key(required)) is ok

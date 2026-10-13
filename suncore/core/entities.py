@@ -23,6 +23,8 @@ class EntityMeta:
     translation_key: str | None = None
     state_class: str | None = None
     area_id: str | None = None
+    device_id: str | None = None
+    """Registry device the entity belongs to (``di``/``device_id``), if known."""
 
     @classmethod
     def of(
@@ -35,6 +37,7 @@ class EntityMeta:
         translation_key: str | None = None,
         state_class: str | None = None,
         area_id: str | None = None,
+        device_id: str | None = None,
     ) -> EntityMeta:
         """Build metadata and derive ``domain`` from the entity id."""
         return cls(
@@ -46,4 +49,5 @@ class EntityMeta:
             translation_key=translation_key,
             state_class=state_class,
             area_id=area_id,
+            device_id=device_id,
         )

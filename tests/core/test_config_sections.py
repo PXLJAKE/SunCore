@@ -21,7 +21,13 @@ from suncore.core.config import (
     WizardState,
 )
 from suncore.core.decisions import OperatingMode
-from suncore.core.devices import ControlKind, DeviceConfig, DeviceKind, PowerModel, PowerModelKind
+from suncore.core.devices import (
+    DeviceConfig,
+    DeviceKind,
+    OnOffControl,
+    PowerModel,
+    PowerModelKind,
+)
 from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 
 G = {"power": {"entity_id": "sensor.g"}}
@@ -206,8 +212,9 @@ def dev(dev_id: str, priority: int = 0) -> DeviceConfig:
         template_id="generic.switch",
         name=dev_id,
         kind=DeviceKind.SWITCH,
+        entities={"switch": EntityRef(entity_id=f"switch.{dev_id}")},
         power_model=PowerModel(kind=PowerModelKind.NOMINAL, nominal_w=100),
-        control=ControlKind.ON_OFF,
+        control=OnOffControl(kind="on_off", role="switch"),
         priority=priority,
     )
 
@@ -277,3 +284,18 @@ def test_safety_package_does_not_import_config_sections() -> None:
         assert "core.config" not in text, path
         assert "OperationConfig" not in text, path
         assert "suncore.storage" not in text, path
+
+
+def test_tariff_import_is_serialised_as_import_and_both_keys_load() -> None:
+    tariff = TariffConfig(
+        import_=ImportTariff(kind="fixed", fixed_price=0.3),
+        export=ExportTariff(kind="none"),
+    )
+    dumped = tariff.model_dump(mode="json", by_alias=True)
+    assert "import" in dumped
+    assert "import_" not in dumped
+    assert '"import":' in tariff.model_dump_json(by_alias=True)
+    current = dict(dumped)
+    legacy = {k: v for k, v in dumped.items() if k != "import"} | {"import_": dumped["import"]}
+    assert TariffConfig.model_validate(legacy) == tariff  # documents stored before the alias
+    assert TariffConfig.model_validate(current) == tariff
