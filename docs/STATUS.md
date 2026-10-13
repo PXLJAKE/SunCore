@@ -152,9 +152,13 @@ ADRs relevant to your task. Keep it short; history lives in git.
   a settle delay instead of a full `get_states`; give the rate limiter a
   deadline/try-acquire API so stale intents are dropped; an `AuthError` on
   reconnect needs a restart (document in the UI).
-- Phase 3 follow-up (review F6): restore/import of `operation` treats a "new
-  device" by id only; base it on device identity (id + template + entities)
-  before the gate reads modes.
+- Phase 3 follow-up (review F6, A2): before the gate reads `operation`, base the "new
+  device = shadow" rule on device identity (id + `template_id` + entities) in
+  put/import/restore of `devices` **and** put/restore of `operation`, not on the id alone.
+  Decide whether an import resets the global mode to shadow (recommendation: yes).
+- Phase 4 follow-up (A3): per-(domain, service) rate limiter with try-acquire/deadline for
+  `call_action_response` before the first adapter calls it (boundary rule 7 then admits `app`
+  together with the adapter wiring).
 - Carried over from Phase 0: deleting old tags `v0.1.0`–`v0.3.0`. The
   repository is public now, CodeQL runs; `RELEASE_PLEASE_TOKEN` is set.
 
