@@ -3,11 +3,16 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-12 · **Phase:** 1 (app skeleton) ·
-**Branches:** `phase-1/app-skeleton` (#3) → `phase-1/ha-api-sim` (#4) →
-`phase-1/frontend` (#5) → `phase-1/app-build`
+**Last update:** 2026-10-13 · **Phase:** 1 (app skeleton) – merged, waiting
+for the maintainer's install test · **Branch:** `main`
 
 ## Done
+
+- **Phase 1 merged** (#3, #4, #5, #6, 2026-10-13). The beta image
+  `ghcr.io/pxljake/suncore-beta:0.1.0-beta.0` is published for amd64 and
+  aarch64; the smoke test on `main` passed on both (`/health` 200 after
+  2–3 s, 49.9 MiB container memory after 60 s idle, clean SIGTERM stop).
+  `hassio_api` removed until MQTT needs it (Phase 6).
 
 - Phase 0 merged (PR #1): brief, research, ADRs 0001–0011 accepted,
   architecture, roadmap, scaffold, CI, agent team.
@@ -78,10 +83,13 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Open – Phase 1
 
-- First beta release (`0.2.0-beta.x`) after the PRs are merged: needs the
-  release-please flow on `main` (see `RELEASE_PLEASE_TOKEN`), then the
-  maintainer installs the beta app on HA OS (Phase 1 exit check), measures
-  RSS on the Pi and tests the ingress theme.
+- **Exit check (maintainer):** make the repository and the GHCR packages
+  `suncore-beta`, `aarch64-suncore-beta`, `amd64-suncore-beta` public
+  (HA OS cannot clone private repositories or pull private images), install
+  **SunCore (beta)**, map the sensors, check live flows, memory on the Pi,
+  menu names and the ingress theme.
+- release-please PR #7 (`0.2.0`, stable channel) is open; merge it when the
+  beta test passes – it triggers the stable image build.
 - Phase 2 wizard: render 422 validation issues through catalogue keys
   instead of Pydantic's English messages; serve `/api/v1/entities` from the
   entity cache instead of a full `get_states` per request; theme bridge from
@@ -101,13 +109,14 @@ ADRs relevant to your task. Keep it short; history lives in git.
   a settle delay instead of a full `get_states`; give the rate limiter a
   deadline/try-acquire API so stale intents are dropped; an `AuthError` on
   reconnect needs a restart (document in the UI).
-- Carried over from Phase 0: `RELEASE_PLEASE_TOKEN` secret, CodeQL while
-  the repository is private, deleting old tags `v0.1.0`–`v0.3.0`.
+- Carried over from Phase 0: CodeQL runs once the repository is public;
+  deleting old tags `v0.1.0`–`v0.3.0`. (`RELEASE_PLEASE_TOKEN` is set.)
 
 ## Next steps
 
-1. Maintainer reviews and merges #3 → #4 → #5 → PR 1-D in this order.
-2. First beta release, installation on the maintainer's HA OS (exit check).
+1. Maintainer installs the beta on HA OS (exit check above) and reports
+   findings.
+2. Fix what the test finds; then merge release PR #7.
 3. Phase 2 plan (`docs/plans/phase-2.md`).
 
 ## Known problems and `UNVERIFIED` items
