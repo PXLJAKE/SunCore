@@ -45,7 +45,11 @@
   const def = $derived(STEPS[index]!);
   const prev = $derived(prevStep(step));
   const next = $derived(nextStep(step));
-  const doneCount = $derived(wizard.completedSteps.filter((s) => s !== 'summary').length);
+  // The summary counts as done once the whole setup is finished, so a finished wizard
+  // reads "10 of 10" and matches "Step n of 10".
+  const doneCount = $derived(
+    wizard.completedSteps.filter((s) => s !== 'summary').length + (wizard.completed ? 1 : 0),
+  );
 
   let heading: HTMLHeadingElement | undefined = $state();
   let listOpen = $state(false);
@@ -150,7 +154,7 @@
       {/each}
     </ol>
     <p class="done-count">
-      {t('wizard.progress.done_count', { done: doneCount, total: STEPS.length - 1 })}
+      {t('wizard.progress.done_count', { done: doneCount, total: STEPS.length })}
     </p>
   </aside>
 
