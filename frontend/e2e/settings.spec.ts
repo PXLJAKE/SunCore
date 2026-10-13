@@ -42,8 +42,9 @@ test.describe('Settings overview', () => {
   });
 
   test('history: restore the previous version of a section', async ({ page, request }) => {
+    // the demo has `climate_before_export: true`; the replaced version is the one to get back
     await request.put('/api/v1/config/goals', {
-      data: { schema_version: 1, climate_before_export: true, grid_charge_night_only: true },
+      data: { schema_version: 1, climate_before_export: false, grid_charge_night_only: true },
     });
     await page.reload();
     await page.getByLabel('Section').selectOption({ label: 'Goals' });
@@ -57,7 +58,7 @@ test.describe('Settings overview', () => {
     await history.getByRole('button', { name: 'Really restore' }).click();
     await expect(page.getByText('The earlier version was restored.')).toBeVisible();
     expect((await (await request.get('/api/v1/config/goals')).json()).climate_before_export).toBe(
-      false,
+      true,
     );
   });
 
@@ -66,7 +67,7 @@ test.describe('Settings overview', () => {
     expect(href).toMatch(/api\/v1\/config\/export$/);
     const exported = await (await request.get('/api/v1/config/export')).text();
     await request.put('/api/v1/config/goals', {
-      data: { schema_version: 1, climate_before_export: true, grid_charge_night_only: false },
+      data: { schema_version: 1, climate_before_export: false, grid_charge_night_only: false },
     });
     await page.getByTestId('import-file').setInputFiles({
       name: 'suncore-config.json',
@@ -75,7 +76,7 @@ test.describe('Settings overview', () => {
     });
     await expect(page.getByTestId('import-result')).toContainText('Imported');
     expect((await (await request.get('/api/v1/config/goals')).json()).climate_before_export).toBe(
-      false,
+      true,
     );
   });
 

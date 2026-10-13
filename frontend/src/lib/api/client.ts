@@ -84,12 +84,19 @@ export const api = {
     }),
   entities: () => request<EntityCandidate[]>(`${API_PREFIX}entities`),
   /** Ranked entities for a site role (`grid_power`, `battery_soc`, ...). */
-  entitiesForRole: (role: string) =>
-    request<EntityCandidate[]>(`${API_PREFIX}entities${query({ role })}`),
-  /** Ranked entities for a template role; `deviceId` scopes `same_device_as` roles. */
-  entitiesForTemplate: (template: string, role: string, deviceId?: string) =>
+  entitiesForRole: (role: string, includeHidden = false) =>
     request<EntityCandidate[]>(
-      `${API_PREFIX}entities${query({ template, role, device_id: deviceId })}`,
+      `${API_PREFIX}entities${query({ role, include_hidden: includeHidden ? 'true' : undefined })}`,
+    ),
+  /** Ranked entities for a template role; `deviceId` scopes `same_device_as` roles. */
+  entitiesForTemplate: (template: string, role: string, deviceId?: string, includeHidden = false) =>
+    request<EntityCandidate[]>(
+      `${API_PREFIX}entities${query({
+        template,
+        role,
+        device_id: deviceId,
+        include_hidden: includeHidden ? 'true' : undefined,
+      })}`,
     ),
   /** A config section; `null` while it was never stored. */
   getSection: <T>(section: ConfigSectionName) =>

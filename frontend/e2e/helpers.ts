@@ -2,34 +2,41 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
-const ref = (entity_id: string) => ({ entity_id, invert_sign: false });
+import { readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-export const DEMO_SITE = {
-  schema_version: 2,
-  grid: { power: ref('sensor.sim_grid_power'), import_power: null, export_power: null },
-  pv: [{ name: 'PV', power: ref('sensor.sim_pv_power') }],
-  battery: { power: ref('sensor.sim_battery_power'), soc: ref('sensor.sim_battery_soc') },
-  house: ref('sensor.sim_house_power'),
-};
+/** Where global setup keeps the demo's initial export (the demo starts fully configured). */
+export const SNAPSHOT_FILE = join(
+  tmpdir(),
+  `suncore-e2e-demo-${process.env.SUNCORE_E2E_PORT ?? 8099}.json`,
+);
 
 async function put(request: APIRequestContext, section: string, data: unknown): Promise<void> {
   const res = await request.put(`/api/v1/config/${section}`, { data });
   expect(res.ok(), `PUT ${section}: ${res.status()}`).toBe(true);
 }
 
-/** The demo as the other specs expect it: configured, wizard finished, no devices. */
+/**
+ * Back to the demo as it starts: fully configured, wizard finished. With `wizardDone: false` the
+ * wizard is fresh: no devices, default goals and mode, no step done (region, tariff, site and
+ * forecast keep the demo values; steps overwrite them).
+ */
 export async function resetDemo(
   request: APIRequestContext,
   opts: { wizardDone: boolean } = { wizardDone: true },
 ): Promise<void> {
-  await put(request, 'site', DEMO_SITE);
+  const snapshot = JSON.parse(readFileSync(SNAPSHOT_FILE, 'utf-8')) as unknown;
+  const res = await request.post('/api/v1/config/import', { data: snapshot });
+  expect(res.ok(), `import: ${res.status()}`).toBe(true);
+  if (opts.wizardDone) return;
   await put(request, 'devices', { schema_version: 1, devices: [] });
   await put(request, 'goals', { schema_version: 1 });
   await put(request, 'operation', { schema_version: 1, mode: 'shadow', device_modes: {} });
   await put(request, 'wizard', {
     schema_version: 1,
-    completed: opts.wizardDone,
-    completed_steps: opts.wizardDone ? ['region', 'grid', 'battery'] : [],
+    completed: false,
+    completed_steps: [],
     version: 1,
   });
 }

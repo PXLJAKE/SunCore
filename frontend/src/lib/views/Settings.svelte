@@ -5,7 +5,7 @@
   import { describeError } from '../api/errors';
   import type { ConfigHistoryEntry, ConfigSectionName } from '../api/types';
   import { t, tDateTime, tDynamic, tNumber, type MessageKey } from '../i18n/index.svelte';
-  import { stepHash } from '../router.svelte';
+  import { router, stepHash } from '../router.svelte';
   import { clearCandidateCache } from '../stores/candidates';
   import { app } from '../stores/app.svelte';
   import { wizard } from '../stores/wizard.svelte';
@@ -16,15 +16,41 @@
     'site',
     'region',
     'tariff',
+    'forecast',
     'devices',
     'goals',
     'operation',
   ];
 
+  // Reload to pick up changes made elsewhere, but never over unsaved edits of the assistant.
   onMount(() => {
+    if (wizard.loaded && wizard.dirty().length > 0) return;
     wizard.invalidate();
     void wizard.ensureLoaded();
   });
+
+  const unsaved = $derived(wizard.dirty().length > 0);
+
+  async function discard(): Promise<void> {
+    await wizard.discard();
+  }
+
+  let restarting = $state(false);
+  let restartError = $state<string | null>(null);
+
+  /** "Run setup again": the steps count as not done again, the configuration stays. */
+  async function rerun(): Promise<void> {
+    restarting = true;
+    restartError = null;
+    try {
+      await wizard.restart();
+      router.go(stepHash('region'));
+    } catch (e) {
+      restartError = describeError(e).key;
+    } finally {
+      restarting = false;
+    }
+  }
 
   const s = $derived(wizard.saved);
   const rows = $derived.by((): { step: StepId; text: string }[] => {
@@ -167,15 +193,43 @@
     </p>
   {/if}
 
+  {#if unsaved}
+    <div class="notice warn" role="status" data-testid="unsaved-notice">
+      <p>{t('settings.unsaved')}</p>
+      <div class="row">
+        <a class="btn small" href="#/setup">{t('settings.unsaved.resume')}</a>
+        <button
+          type="button"
+          class="btn secondary small"
+          data-testid="unsaved-discard"
+          onclick={() => void discard()}>{t('settings.unsaved.discard')}</button
+        >
+      </div>
+    </div>
+  {/if}
+
   <div class="card stack" data-testid="wizard-status">
     <h3>{t('settings.wizard.title')}</h3>
     <p>
       {wizard.completed ? t('settings.wizard.done') : t('settings.wizard.open')}
     </p>
+    {#if restartError}
+      <p class="notice error" role="alert">
+        {tDynamic(restartError, undefined, 'api.error.unknown')}
+      </p>
+    {/if}
     <div class="row">
-      <a class="btn" href="#/setup" data-testid="open-wizard">
-        {wizard.completed ? t('settings.wizard.rerun') : t('settings.wizard.continue')}
-      </a>
+      {#if wizard.completed}
+        <button
+          type="button"
+          class="btn"
+          data-testid="open-wizard"
+          disabled={restarting}
+          onclick={() => void rerun()}>{t('settings.wizard.rerun')}</button
+        >
+      {:else}
+        <a class="btn" href="#/setup" data-testid="open-wizard">{t('settings.wizard.continue')}</a>
+      {/if}
     </div>
   </div>
 
@@ -289,6 +343,10 @@
   .settings {
     display: grid;
     gap: var(--sc-gap);
+  }
+  .notice p {
+    margin: 0 0 8px;
+    color: var(--primary-text-color);
   }
   .intro {
     margin: 0;

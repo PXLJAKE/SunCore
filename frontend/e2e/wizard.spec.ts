@@ -69,6 +69,8 @@ test.describe('setup wizard', () => {
 
     // 6 tariff
     await expect(page).toHaveURL(/#\/setup\/tariff$/);
+    // the demo is set up with a dynamic tariff: switch to a fixed price
+    await page.getByRole('group', { name: 'Import price' }).getByLabel('Fixed price').check();
     await page
       .getByRole('group', { name: 'Import price' })
       .getByLabel(/^Price per kWh/)
@@ -133,8 +135,8 @@ test.describe('setup wizard', () => {
     expect(await get('tariff')).toMatchObject({
       import: { kind: 'fixed', fixed_price: 0.32 },
       export: { kind: 'fixed', fixed_price: 0.08 },
-      forecast_template_ids: ['solcast.pv'],
     });
+    expect(await get('forecast')).toMatchObject({ forecast_template_ids: ['solcast.pv'] });
     const devices = (await get('devices')).devices;
     expect(devices).toHaveLength(1);
     expect(devices[0]).toMatchObject({ template_id: 'generic.switch', priority: 0 });

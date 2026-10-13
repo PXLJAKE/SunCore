@@ -43,7 +43,7 @@ test.describe('devices and priorities', () => {
     await page.getByRole('button', { name: /^Choose.*Switch or smart plug/ }).click();
     const editor = page.getByTestId('device-editor');
     await page.getByTestId('device-save').click();
-    await expect(page.getByTestId('device-errors')).toContainText('Select the entity');
+    await expect(page.getByTestId('device-errors')).toContainText('Entity still missing');
 
     await editor.getByLabel('The switch to turn on and off').fill('switch.sim_pool_pump');
     await page.keyboard.press('Escape');

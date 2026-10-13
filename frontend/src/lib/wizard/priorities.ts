@@ -38,6 +38,13 @@ export function dropIndexWhileDragging(
 }
 
 /** Devices in priority order (lower first, ties by id) as the list shows them. */
+/** Priority of a new device: after every existing one (lower = served first), `0` for the first. */
+export function nextPriority(devices: readonly Pick<DeviceConfig, 'priority'>[]): number {
+  return devices.length === 0
+    ? 0
+    : Math.min(10_000, Math.max(...devices.map((d) => d.priority)) + 1);
+}
+
 export function orderedDevices(devices: readonly DeviceConfig[]): DeviceConfig[] {
   return [...devices].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
 }
