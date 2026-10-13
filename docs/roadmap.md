@@ -19,7 +19,7 @@ Goal: an approved, verifiable plan. No feature code.
 
 Exit: both PRs merged, open questions answered.
 
-## Phase 1 – App skeleton that shows live data 🟨
+## Phase 1 – App skeleton that shows live data ✅
 
 Goal: installable app that connects to HA and shows the "Now" view in shadow
 mode.

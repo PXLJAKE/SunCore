@@ -3,10 +3,17 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-13 · **Phase:** 1 (app skeleton) – merged, waiting
-for the maintainer's install test · **Branch:** `main`
+**Last update:** 2026-10-13 · **Phase:** 1 done, Phase 2 next ·
+**Branch:** `main`
 
 ## Done
+
+- **Phase 1 accepted** (2026-10-13): the maintainer installed the beta on
+  HA OS, mapped grid, PV, battery (SunSpec Modbus) and house sensors and
+  sees live flows. Finding from the test fixed in #9: sensors without a
+  `device_class` (e.g. SunSpec state of charge, unit `%`) were missing in
+  the picker; the picker is now a searchable combobox filtered by unit.
+  Beta app version `0.2.0-beta.1`.
 
 - **Phase 1 merged** (#3, #4, #5, #6, 2026-10-13). The beta image
   `ghcr.io/pxljake/suncore-beta:0.1.0-beta.0` is published for amd64 and
@@ -83,13 +90,12 @@ for the maintainer's install test · **Branch:** `main`
 
 ## Open – Phase 1
 
-- **Exit check (maintainer):** make the repository and the GHCR packages
-  `suncore-beta`, `aarch64-suncore-beta`, `amd64-suncore-beta` public
-  (HA OS cannot clone private repositories or pull private images), install
-  **SunCore (beta)**, map the sensors, check live flows, memory on the Pi,
-  menu names and the ingress theme.
-- release-please PR #7 (`0.2.0`, stable channel) is open; merge it when the
-  beta test passes – it triggers the stable image build.
+- Still to report by the maintainer: memory on the Pi, menu names in the
+  HA UI, whether the panel follows the HA theme. The GHCR packages of the
+  stable app (`suncore`, `aarch64-suncore`, `amd64-suncore`) must be made
+  public after the first stable build.
+- The beta app version is bumped by hand for now (HA only offers an update
+  when `config.yaml` changes); automate it in the build workflow (Phase 2).
 - Phase 2 wizard: render 422 validation issues through catalogue keys
   instead of Pydantic's English messages; serve `/api/v1/entities` from the
   entity cache instead of a full `get_states` per request; theme bridge from
@@ -109,14 +115,14 @@ for the maintainer's install test · **Branch:** `main`
   a settle delay instead of a full `get_states`; give the rate limiter a
   deadline/try-acquire API so stale intents are dropped; an `AuthError` on
   reconnect needs a restart (document in the UI).
-- Carried over from Phase 0: CodeQL runs once the repository is public;
-  deleting old tags `v0.1.0`–`v0.3.0`. (`RELEASE_PLEASE_TOKEN` is set.)
+- Carried over from Phase 0: deleting old tags `v0.1.0`–`v0.3.0`. The
+  repository is public now, CodeQL runs; `RELEASE_PLEASE_TOKEN` is set.
 
 ## Next steps
 
-1. Maintainer installs the beta on HA OS (exit check above) and reports
-   findings.
-2. Fix what the test finds; then merge release PR #7.
+1. Release `0.2.0` (release-please PR #7) for the stable app.
+2. Phase 2 plan (`docs/plans/phase-2.md`): setup wizard, device model,
+   template schema.
 3. Phase 2 plan (`docs/plans/phase-2.md`).
 
 ## Known problems and `UNVERIFIED` items
