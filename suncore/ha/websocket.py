@@ -374,6 +374,7 @@ class WebSocketConnection:
                     asyncio.create_task(self._periodic_resync(), name="suncore-ha-resync")
                 )
             self._set_state(ConnectionState.CONNECTED)
+            log.info("ha.connected", transport=self._transport.name)
             if self._first is not None and not self._first.done():
                 self._first.set_result(None)
             done, _ = await asyncio.wait(background, return_when=asyncio.FIRST_COMPLETED)

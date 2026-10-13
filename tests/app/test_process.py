@@ -53,10 +53,31 @@ async def test_serve_stops_cleanly_on_event(tmp_path: Path) -> None:
             await asyncio.sleep(0.05)
     assert status == 200
     stop.set()
-    await asyncio.wait_for(task, 5)
+    assert await asyncio.wait_for(task, 5) is True
     assert conn.state.value == "closed"
     with pytest.raises(Exception, match=r"closed|Cannot operate"):
         await runtime.db.fetchone("SELECT 1")
+
+
+class _EndsOnItsOwn:
+    """A server stand-in whose ``serve`` returns without a stop signal."""
+
+    should_exit = False
+
+    async def serve(self) -> None:
+        await asyncio.sleep(0)
+
+
+async def test_server_ending_without_stop_is_not_clean(tmp_path: Path) -> None:
+    runtime = await build_runtime(
+        demo_settings(tmp_path), env={}, connection=RecordingConnection(speed=6000.0)
+    )
+    clean = await serve(
+        runtime,
+        install_signals=False,
+        server_factory=lambda _rt: _EndsOnItsOwn(),  # type: ignore[arg-type,return-value]
+    )
+    assert clean is False
 
 
 def test_sigterm_exits_zero(tmp_path: Path) -> None:

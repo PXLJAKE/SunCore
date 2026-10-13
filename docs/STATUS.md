@@ -5,7 +5,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 **Last update:** 2026-10-12 · **Phase:** 1 (app skeleton) ·
 **Branches:** `phase-1/app-skeleton` (#3) → `phase-1/ha-api-sim` (#4) →
-`phase-1/frontend`
+`phase-1/frontend` (#5) → `phase-1/app-build`
 
 ## Done
 
@@ -60,19 +60,28 @@ ADRs relevant to your task. Keep it short; history lives in git.
     phone, tablet; axe WCAG 2.1 AA), CI job `frontend`.
   - Demo starts at `SUNCORE_DEMO_START_TIME` (default 10:00); screenshots
     in `docs/assets/screenshots/` come from the real demo.
+- **PR 1-D** (WP9, WP10), stacked on 1-C:
+  - Image: Node stage builds the SPA (`node:22-alpine` pinned by digest),
+    Python stage installs the locked set from PyPI and serves
+    `frontend/dist`; s6 service (`/etc/services.d/suncore`) execs
+    `python3 -m suncore`; `HEALTHCHECK` polls `/health` over loopback.
+  - Smoke test (`scripts/smoke_image.sh`): demo mode, `/health` within
+    90 s, idle container memory ≤ 300 MiB after 60 s, clean stop (exit 0,
+    `app.stopped`); PRs on amd64, `main` per architecture after the push.
+  - App option `demo_mode` (en/de). Verified against Supervisor source:
+    `panel_admin` and `ingress_port` defaults, ingress gateway
+    `172.30.32.2`, ingress path always has a trailing slash.
+  - Docs: app `DOCS.md`, quick start en/de with screenshots,
+    `CONTRIBUTING.md` (frontend, local stack), README status.
 - R1 cleared: every planned Python dependency has cp313 musllinux wheels
   for aarch64 and x86_64 or is pure Python.
 
 ## Open – Phase 1
 
-- PR 1-D (image, smoke test, docs, beta release).
-- WP9: Dockerfile `HEALTHCHECK`/`CMD` still call `--version`; switch to
-  `/health` and the s6 service. Smoke test must reach `/health` from inside
-  the container (loopback) or set `SUNCORE_ALLOW_ANY_PEER=1`. Decide
-  `panel_admin: true` with `verify-ha-api` (the skeleton test currently
-  rejects it as a redundant default).
-- WP9: redirect to a trailing slash when the ingress path arrives without
-  one (relative asset URLs, UNVERIFIED whether Supervisor ever does that).
+- First beta release (`0.2.0-beta.x`) after the PRs are merged: needs the
+  release-please flow on `main` (see `RELEASE_PLEASE_TOKEN`), then the
+  maintainer installs the beta app on HA OS (Phase 1 exit check), measures
+  RSS on the Pi and tests the ingress theme.
 - Phase 2 wizard: render 422 validation issues through catalogue keys
   instead of Pydantic's English messages; serve `/api/v1/entities` from the
   entity cache instead of a full `get_states` per request; theme bridge from
@@ -97,8 +106,9 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Next steps
 
-1. Maintainer reviews and merges PR 1-A, 1-B, 1-C in this order.
-2. WP9 image/s6/health/smoke test, WP10 docs, first beta → PR 1-D.
+1. Maintainer reviews and merges #3 → #4 → #5 → PR 1-D in this order.
+2. First beta release, installation on the maintainer's HA OS (exit check).
+3. Phase 2 plan (`docs/plans/phase-2.md`).
 
 ## Known problems and `UNVERIFIED` items
 
@@ -110,7 +120,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Forecast.Solar / Open-Meteo Solar Forecast attribute names; Octopus attributes | `research/integrations.md` | Phase 4, read integration source |
 | Theme variable inheritance inside ingress iframe (spike: not verifiable without a running HA; fallback `prefers-color-scheme`) | `frontend/README.md` | Phase 2, on the maintainer's HA |
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
-| Ingress gateway peer `172.30.32.2` (from research note, not from Supervisor source) | `suncore/app/settings.py` | WP9 `verify-ha-api` |
+| HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
 | Registry list WebSocket command names; `power_config` shape in energy prefs | `research/ha-websocket-api.md` | Phase 1/2, read `components/config/*.py` |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |

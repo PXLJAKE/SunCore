@@ -4,8 +4,14 @@
 planner and a real-time surplus controller in one app – explainable, safe
 by default, set up in minutes.**
 
-> Status: **pre-alpha, Phase 0 (blueprint)**. Nothing is installable yet.
-> See the [roadmap](docs/roadmap.md) and [status](docs/STATUS.md).
+> Status: **pre-alpha, Phase 1 (app skeleton)**. A beta app with a live
+> energy-flow view is available once the first beta is released. It runs in
+> shadow mode and switches nothing. See the [roadmap](docs/roadmap.md) and
+> [status](docs/STATUS.md).
+
+![SunCore "Now" view: live energy flow between solar, grid, battery and house](docs/assets/screenshots/now-tablet-light-en.png)
+
+*Screenshot from the built-in demo mode (simulated data).*
 
 SunCore runs as a Home Assistant app (formerly add-on) on Home Assistant
 OS. It reads your PV, battery, grid and consumer entities, forecasts
@@ -50,14 +56,21 @@ young: see the roadmap.
 - [Brief](docs/BRIEF.md) – the product and engineering specification
 - [Architecture](docs/architecture.md) · [ADRs](docs/adr/) ·
   [Research notes](docs/research/)
+- [Quick start](docs/user/en/quick-start.md) ·
+  [Schnellstart](docs/user/de/quick-start.md)
 - [Roadmap](docs/roadmap.md) · [Status](docs/STATUS.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) ·
   [Code of Conduct](CODE_OF_CONDUCT.md)
 
-## Installing (not yet)
+## Installing
 
-Once Phase 1 ships a beta image, this repository can be added as an app
-repository in Home Assistant. Until then there is nothing to install.
+Once the first beta is released, add `https://github.com/pxljake/suncore`
+as an app repository in Home Assistant (Settings → Apps → App store →
+menu → Repositories) and install **SunCore (beta)**. Phase 1 only shows the
+live energy flow; there are no forecasts, planner or device control yet.
+Start with the [quick start](docs/user/en/quick-start.md)
+([Deutsch](docs/user/de/quick-start.md)). Menu names differ between Home
+Assistant versions (older ones say "Add-ons" and "Add-on store").
 
 ## Licence
 

@@ -63,6 +63,7 @@ def test_app_config_matches_package(app: str) -> None:
     assert set(config["arch"]) == {"aarch64", "amd64"}
     assert config["ingress"] is True
     # The app linter rejects keys that repeat Supervisor defaults.
+    # ingress_port (8099) and panel_admin (true) defaults verified 2026-10-12.
     redundant = {"startup", "boot", "ingress_port", "panel_admin", "hassio_role", "backup"}
     redundant.add("watchdog")  # obsolete, HEALTHCHECK instead
     assert not redundant & config.keys()

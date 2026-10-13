@@ -7,8 +7,9 @@ ingress proxy at ``172.30.32.2`` may talk to it (``docs/research/ha-apps.md``, I
 inside the container.
 
 Authorization note: this layer authenticates the *peer*, not the user. Write endpoints
-(``PUT /api/v1/config/site``, ``POST /api/v1/config/import``) rely on ``panel_admin: true``
-in the app's ``config.yaml`` (WP9), which restricts the whole ingress panel to admins.
+(``PUT /api/v1/config/site``, ``POST /api/v1/config/import``) rely on the Supervisor
+default ``panel_admin: true`` (omitted from ``config.yaml`` as a redundant default,
+verified 2026-10-12), which restricts the whole ingress panel to admins.
 """
 
 from __future__ import annotations
