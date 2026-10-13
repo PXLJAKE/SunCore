@@ -63,6 +63,39 @@ def test_entity_id_pattern(bad: str) -> None:
         EntityRef(entity_id=bad)
 
 
+@pytest.mark.parametrize(
+    "good",
+    [
+        "sensor.1st_floor",
+        "1wire.x",
+        "1.a",
+        "a.1",
+        "input_boolean.hello_world_0123",
+        "light.1kitchen",
+    ],
+)
+def test_entity_id_pattern_accepts_ha_valid_ids(good: str) -> None:
+    assert EntityRef(entity_id=good).entity_id == good
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "sensor._x",
+        "sensor.x_",
+        "sensor.a__b",
+        "_x.y",
+        "x_.y",
+        "a__b.c",
+        "Light.kitchen",
+        "sensor.é",
+    ],
+)
+def test_entity_id_pattern_rejects_ha_invalid_ids(bad: str) -> None:
+    with pytest.raises(ValidationError):
+        EntityRef(entity_id=bad)
+
+
 def test_duplicate_entity_rejected() -> None:
     with pytest.raises(ValidationError, match="more than once"):
         SiteConfig.model_validate({"grid": {"power": ref("sensor.a")}, "pv": [ref("sensor.a")]})

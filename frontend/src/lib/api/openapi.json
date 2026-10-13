@@ -132,7 +132,7 @@
         "description": "Reference to a HA entity. ``invert_sign`` flips a source with opposite polarity.",
         "properties": {
           "entity_id": {
-            "pattern": "^[a-z_]+\\.[a-z0-9_]+$",
+            "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*\\.[a-z0-9]+(?:_[a-z0-9]+)*$",
             "title": "Entity Id",
             "type": "string"
           },

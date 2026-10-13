@@ -7,8 +7,10 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-# Stricter than HA's VALID_ENTITY_ID on purpose (no digits in the domain).
-ENTITY_ID_PATTERN = r"^[a-z_]+\.[a-z0-9_]+$"
+# Equivalent to HA's ``valid_entity_id`` (research/device-integrations.md): lowercase
+# letters and digits in domain and object id, single underscores only between
+# characters, no look-arounds so the Rust regex engine behind Pydantic accepts it.
+ENTITY_ID_PATTERN = r"^[a-z0-9]+(?:_[a-z0-9]+)*\.[a-z0-9]+(?:_[a-z0-9]+)*$"
 
 EntityId = Annotated[str, StringConstraints(pattern=ENTITY_ID_PATTERN)]
 
