@@ -54,3 +54,20 @@ def test_reports_missing_keys(mod: ModuleType, tmp_path: Path) -> None:
     (tmp_path / "de.json").write_text(json.dumps({}))
     gaps = mod.missing_keys({"a.one": ["f:1"]}, tmp_path)
     assert gaps == {"de": ["a.one"]}
+
+
+def test_collects_wizard_and_criterion_keys_outside_api(mod: ModuleType, tmp_path: Path) -> None:
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "z.py").write_text(
+        'A = "wizard.check.one"\nB = "detect.criterion.name"\nC = "wizard check"\n'
+        'D = "api.error.only_in_api"\nE = "wizard.has space"\nF = "wizard."\n'
+    )
+    assert set(mod.collect_keys(pkg)) == {"wizard.check.one", "detect.criterion.name"}
+
+
+def test_collects_validation_keys_in_api(mod: ModuleType, tmp_path: Path) -> None:
+    pkg = tmp_path / "pkg"
+    (pkg / "api").mkdir(parents=True)
+    (pkg / "api" / "v.py").write_text('K = "api.validation.missing"\n')
+    assert set(mod.collect_keys(pkg)) == {"api.validation.missing"}

@@ -27,6 +27,18 @@ from suncore.ha.connection import (
     ServiceCallerProvider,
     ServiceResult,
 )
+from suncore.ha.detect import (
+    CRITERION_KEYS,
+    SITE_ROLES,
+    Match,
+    SiteRole,
+    describe,
+    detect_site_role,
+    detect_template_role,
+    is_candidate,
+    legacy_entities,
+)
+from suncore.ha.energy_import import suggest_from_prefs
 from suncore.ha.registry import (
     EntityCatalogue,
     RegistryDevice,
@@ -47,7 +59,9 @@ from suncore.ha.transport import (
 from suncore.ha.websocket import Backoff, WebSocketConnection
 
 __all__ = [
+    "CRITERION_KEYS",
     "REGISTRY_EVENT_TYPES",
+    "SITE_ROLES",
     "ActionNotAllowedError",
     "AuthError",
     "Backoff",
@@ -65,6 +79,7 @@ __all__ = [
     "HAConnection",
     "HAError",
     "HeartbeatTimeoutError",
+    "Match",
     "NotConnectedError",
     "ProtocolError",
     "RateLimiter",
@@ -75,14 +90,21 @@ __all__ = [
     "ServiceCaller",
     "ServiceCallerProvider",
     "ServiceResult",
+    "SiteRole",
     "SupervisorTransport",
     "Transport",
     "TransportConfigError",
     "WebSocketConnection",
     "build_meta",
+    "describe",
+    "detect_site_role",
+    "detect_template_role",
     "entity_candidates",
+    "is_candidate",
+    "legacy_entities",
     "parse_area_registry",
     "parse_device_registry",
     "parse_entity_registry",
+    "suggest_from_prefs",
     "transport_from_env",
 ]
