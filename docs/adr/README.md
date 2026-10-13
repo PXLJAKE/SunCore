@@ -17,3 +17,4 @@ the status line; a new ADR supersedes an old one. Template:
 | [0009](0009-release-and-versioning.md) | Release and versioning | accepted | release-please, SemVer, stable + beta app, GHCR |
 | [0010](0010-target-platform.md) | Target platform | accepted | HA OS app on aarch64/amd64, HA connection abstracted |
 | [0011](0011-two-control-layers.md) | Two control layers and safety boundary | accepted | Planner → Controller → Safety (single writer) → Actuators |
+| [0012](0012-template-schema-v1.md) | Template schema v1 – review before freeze | proposed | Required changes (matcher regex/lists, same-device role, `ControlSpec`, series source, capability enum) before freeze; `battery` kind added later under the v1 compatibility policy |
