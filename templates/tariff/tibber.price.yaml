@@ -18,6 +18,7 @@ source:
 tested_with: []
 capabilities: [price_now, price_curve]
 unverified:
+  - "Whether grid fees (network charges) are included in Tibber's `total` price is country dependent; SunCore treats the value as all-in (`price_includes: all_in`) without checking."
   - "Read from the integration source (core 14f093e, pyTibber 0.37.6) only; not observed on a running Home Assistant."
   - "Exact entity id (derived from the home nickname) and the time Tibber publishes tomorrow's prices."
   - "Slot length is not part of the response: 15 min with pyTibber 0.37, hourly with older libraries (resolution derived from the timestamps)."

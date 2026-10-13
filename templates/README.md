@@ -42,6 +42,8 @@ capabilities: [energy_counter]     # closed vocabulary, see below
 unverified: []                     # facts you could not verify; required if tested_with is empty
 ```
 
+- Plain YAML only: no anchors or aliases (`&a` / `*a`); the loader rejects them (alias
+  expansion could turn a few bytes into millions of nodes).
 - Never write entity ids. Describe **roles** with a matcher; the wizard ranks the user's
   entities against it. Matcher criteria (all given ones must hold): `domain` (mandatory),
   `platforms` (list), `device_class`, `units` *or* `unit_pattern`, `translation_key` *or*

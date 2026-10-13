@@ -189,5 +189,7 @@ def migrate_site_v1_to_v2(body: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(pv, list):
         msg = "site v1: `pv` must be a list"
         raise TypeError(msg)
+    # Decision: "PV n" is language-neutral data, not a UI string: it is stored, must be unique
+    # per site and the UI shows the stored name, so it is not run through the i18n catalogue.
     body["pv"] = [{"name": f"PV {i}", "power": ref} for i, ref in enumerate(pv, start=1)]
     return body

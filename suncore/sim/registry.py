@@ -46,7 +46,7 @@ class RegEntity:
 
     entity_id: str
     platform: str
-    name: str
+    name: str | None
     device_id: str | None = None
     area_id: str | None = None
     translation_key: str | None = None
@@ -67,9 +67,8 @@ ENTITIES: Final[tuple[RegEntity, ...]] = (
     _sim(d.PV_KWH_ID, "PV energy"),
     _sim(d.BATTERY_IN_KWH_ID, "Battery energy in"),
     _sim(d.BATTERY_OUT_KWH_ID, "Battery energy out"),
-    RegEntity(
-        d.AC_ID, "lg_thinq", "Living room AC", DEV_AC, AREA_LIVING, "climate_air_conditioner"
-    ),
+    # The LG climate entity is the device's main feature: name None (research), so no `en` key.
+    RegEntity(d.AC_ID, "lg_thinq", None, DEV_AC, AREA_LIVING, "climate_air_conditioner"),
     RegEntity(
         d.AC_ENERGY_TODAY_ID, "lg_thinq", "Energy today", DEV_AC, AREA_LIVING, "energy_usage_today"
     ),
@@ -136,7 +135,8 @@ def entity_registry_list_for_display(*, include: set[str] | None = None) -> dict
         if e.translation_key is not None:
             row["tk"] = e.translation_key
         row["hn"] = True
-        row["en"] = e.name
+        if e.name is not None:
+            row["en"] = e.name
         rows.append(row)
     return {"entity_categories": dict(ENTITY_CATEGORIES), "entities": rows}
 

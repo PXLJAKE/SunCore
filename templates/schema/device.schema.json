@@ -266,6 +266,7 @@
         "device_class": {
           "anyOf": [
             {
+              "maxLength": 64,
               "type": "string"
             },
             {
@@ -314,6 +315,7 @@
         "translation_key": {
           "anyOf": [
             {
+              "maxLength": 128,
               "type": "string"
             },
             {

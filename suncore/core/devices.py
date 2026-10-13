@@ -27,8 +27,8 @@ ROLE_PATTERN: Final = r"^[a-z][a-z0-9_]{0,31}$"
 TEMPLATE_ID_PATTERN: Final = r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$"
 """``<vendor>.<model>``, lowercase, e.g. ``lg.thinq_climate``, ``generic.switch``."""
 
-DeviceId = Annotated[str, StringConstraints(pattern=DEVICE_ID_PATTERN)]
-TemplateId = Annotated[str, StringConstraints(pattern=TEMPLATE_ID_PATTERN)]
+DeviceId = Annotated[str, StringConstraints(pattern=DEVICE_ID_PATTERN, max_length=48)]
+TemplateId = Annotated[str, StringConstraints(pattern=TEMPLATE_ID_PATTERN, max_length=64)]
 RoleName = Annotated[str, StringConstraints(pattern=ROLE_PATTERN)]
 
 

@@ -202,7 +202,7 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
         TariffConfig,
         import_=st.one_of(
             st.builds(ImportTariff, kind=st.just("fixed"), fixed_price=st.floats(0, 2)),
-            st.builds(ImportTariff, kind=st.just("dynamic"), template_id=st.just("tibber.prices")),
+            st.builds(ImportTariff, kind=st.just("dynamic"), template_id=st.just("tibber.price")),
         ),
         export=st.one_of(
             st.builds(ExportTariff, kind=st.just("none")),

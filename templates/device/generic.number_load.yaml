@@ -9,8 +9,11 @@ kind: device
 schema_version: 1
 name: template.generic.number_load.name
 source:
-  - title: "Home Assistant developer docs: Number entity"
-    url: "https://developers.home-assistant.io/docs/core/entity/number/"
+  - title: "home-assistant/core number/__init__.py and const.py (set_value, value, min, max, step; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/number/__init__.py"
+    date: 2026-10-13
+  - title: "developers.home-assistant docs/core/entity/number.md (GitHub mirror)"
+    url: "https://github.com/home-assistant/developers.home-assistant/blob/master/docs/core/entity/number.md"
     date: 2026-10-13
 tested_with: []
 capabilities: [power_setpoint, power_measured]

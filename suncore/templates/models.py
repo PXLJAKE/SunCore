@@ -30,6 +30,7 @@ from pydantic import (
 
 from suncore.core.actions import ERR_ACTION_NOT_ALLOWED, is_read_only_action
 from suncore.core.capabilities import Capability
+from suncore.core.config import REGION_ID_PATTERN
 from suncore.core.decisions import REASON_KEY_PATTERN
 from suncore.core.devices import (
     TEMPLATE_ID_PATTERN,
@@ -47,8 +48,6 @@ from suncore.core.devices import (
 from suncore.core.units import Unit, parse_unit
 
 SCHEMA_VERSION: Final = 1
-REGION_ID_PATTERN: Final = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$"
-"""Region ids may be a single segment (``de``, ``generic``) or ``<country>.<variant>``."""
 VERSION_PATTERN: Final = r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$"
 """PEP 440 subset accepted for ``min_app_version`` (no epochs, no local versions)."""
 
@@ -112,10 +111,10 @@ class EntityMatcher(_Frozen):
 
     domain: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]+$")]
     platforms: Annotated[list[Slug], Field(min_length=1, max_length=8)] | None = None
-    device_class: str | None = None
+    device_class: Annotated[str, StringConstraints(max_length=64)] | None = None
     units: Annotated[list[Text], Field(min_length=1, max_length=8)] | None = None
     unit_pattern: RegexText | None = None
-    translation_key: str | None = None
+    translation_key: Annotated[str, StringConstraints(max_length=128)] | None = None
     translation_key_pattern: RegexText | None = None
     state_class: str | None = None
 
