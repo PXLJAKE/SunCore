@@ -8,9 +8,8 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {
-          "type": "yaml",
-          "path": "addon/suncore/config.yaml",
-          "jsonpath": "$.version"
+          "type": "generic",
+          "path": "addon/suncore/config.yaml"
         }
       ]
     }
