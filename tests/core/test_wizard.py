@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 
 import pytest
 
+from suncore.core.config import DevicesConfig
+from suncore.core.devices import DeviceConfig
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import (
     BatteryConfig,
@@ -18,6 +20,7 @@ from suncore.core.site import (
 from suncore.core.units import Unit
 from suncore.core.wizard import (
     PREVIEW_MAX_REFS,
+    CheckItem,
     PreviewTooLargeError,
     collect_refs,
     expected_dimension,
@@ -290,3 +293,87 @@ def test_preview_without_usable_value() -> None:
         },
     )
     assert [i.base_value for i in items] == [None, None]
+
+
+# --- duplicate unit --------------------------------------------------------------------
+
+
+def _ac(device_id: str, name: str, entity_id: str, kind: str = "climate") -> DeviceConfig:
+    climate = kind == "climate"
+    return DeviceConfig.model_validate(
+        {
+            "id": device_id,
+            "template_id": "generic.climate",
+            "name": name,
+            "kind": kind,
+            "entities": {"climate": {"entity_id": entity_id}},
+            "power_model": {"kind": "nominal", "nominal_w": 900},
+            "control": (
+                {"kind": "setpoint", "role": "climate", "shift_max_c": 2}
+                if climate
+                else {"kind": "on_off", "role": "climate"}
+            ),
+            "comfort": {"min_c": 20, "max_c": 26} if climate else None,
+        }
+    )
+
+
+REGISTRY = {
+    "climate.a": ("dev_a", "Schlafen Jake Klimaanlage"),
+    "climate.b": ("dev_b", "  schlafen   jake klimaanlage "),
+    "climate.c": ("dev_c", "Wohnzimmer"),
+    "climate.d": ("dev_a", "Schlafen Jake Klimaanlage"),  # same registry device as `a`
+}
+
+
+def duplicates(*devices: DeviceConfig) -> list[CheckItem]:
+    items = run_system_check(None, {}, PRESENT, DevicesConfig(devices=list(devices)), REGISTRY.get)
+    return [i for i in items if i.reason.key == "wizard.check.duplicate_unit"]
+
+
+def test_two_integrations_for_one_unit_are_a_warning() -> None:
+    found = duplicates(_ac("ac1", "AC via LG", "climate.a"), _ac("ac2", "AC via ST", "climate.b"))
+    assert [(i.severity, i.subject) for i in found] == [("warn", "ac2")]
+    assert found[0].reason.args == {
+        "device_a": "AC via LG",
+        "device_b": "AC via ST",
+        "unit_name": "Schlafen Jake Klimaanlage",
+    }
+    assert worst_severity(found) == "warn"  # a warning, never an error
+
+
+def test_the_same_entity_twice_is_a_duplicate_for_every_kind() -> None:
+    found = duplicates(
+        _ac("ac1", "One", "climate.c"), _ac("ac2", "Two", "climate.c", kind="generic")
+    )
+    assert [i.subject for i in found] == ["ac2"]
+    assert found[0].reason.args["unit_name"] == "climate.c"
+
+
+def test_no_duplicate_for_different_names_one_registry_device_or_unknown_registry() -> None:
+    assert duplicates(_ac("ac1", "One", "climate.a"), _ac("ac2", "Two", "climate.c")) == []
+    # two climate entities of ONE registry device are not two integrations
+    assert duplicates(_ac("ac1", "One", "climate.a"), _ac("ac2", "Two", "climate.d")) == []
+    # without registry data only the same-entity check can run
+    items = run_system_check(
+        None,
+        {},
+        PRESENT,
+        DevicesConfig(devices=[_ac("ac1", "One", "climate.a"), _ac("ac2", "Two", "climate.b")]),
+    )
+    assert not any(i.reason.key == "wizard.check.duplicate_unit" for i in items)
+    # non-climate devices are not compared by name (default names such as "Smart plug" repeat)
+    registry = {"climate.a": ("x", "Smart plug"), "climate.b": ("y", "Smart plug")}
+    plugs = run_system_check(
+        None,
+        {},
+        PRESENT,
+        DevicesConfig(
+            devices=[
+                _ac("p1", "P1", "climate.a", kind="generic"),
+                _ac("p2", "P2", "climate.b", kind="generic"),
+            ]
+        ),
+        registry.get,
+    )
+    assert not any(i.reason.key == "wizard.check.duplicate_unit" for i in plugs)

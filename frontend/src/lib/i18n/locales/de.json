@@ -540,6 +540,7 @@
   "wizard.check.battery_sign_plausible": "Das Batterie-Vorzeichen wirkt plausibel.",
   "wizard.check.battery_sign_soc": "Die Batterie lädt mit {battery_w} W, obwohl sie bei {soc_pct} % steht (oder entlädt im leeren Zustand). Das Vorzeichen könnte vertauscht sein.",
   "wizard.check.entities_fresh": "{count, plural, one {# Sensor liefert} other {# Sensoren liefern}} aktuelle Werte.",
+  "wizard.check.duplicate_unit": "„{device_a}“ und „{device_b}“ steuern dasselbe Gerät „{unit_name}“ (zwei Integrationen oder dieselbe Entity doppelt). Steuere ein Gerät nur einmal.",
   "wizard.check.entity_invalid": "{entity_id} liefert keine Zahl.",
   "wizard.check.entity_missing": "{entity_id} existiert in Home Assistant nicht.",
   "wizard.check.entity_stale": "{entity_id} wurde seit einiger Zeit nicht aktualisiert.",

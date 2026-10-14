@@ -118,7 +118,7 @@ test.describe('devices and priorities', () => {
     await editor.getByLabel('Name').fill('Living room AC');
     await page.getByTestId('device-save').click();
     await expect(page.getByTestId('devices-notice')).toContainText('was added');
-    const stored = (await (await request.get('/api/v1/config/devices')).json()).devices;
+    let stored = (await (await request.get('/api/v1/config/devices')).json()).devices;
     expect(stored[0]).toMatchObject({
       template_id: 'lg.thinq_climate',
       entities: {
@@ -127,6 +127,33 @@ test.describe('devices and priorities', () => {
       },
       power_model: { kind: 'measured', power_role: 'power', energy_role: null },
     });
+
+    // the same air conditioner through the other integration: hint, never a block
+    await page.getByTestId('add-device').click();
+    await page.getByRole('button', { name: /^Choose.*Generic climate device/ }).click();
+    const second = page.getByTestId('device-editor');
+    await expect(page.getByTestId('duplicate-unit-hint')).toHaveCount(0);
+    await second.getByLabel('The climate entity').fill('climate.sim_living_room_ac_smartthinq');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('duplicate-unit-hint')).toContainText(
+      'configured already via another integration',
+    );
+    await second.getByLabel('Nominal power').fill('900');
+    await second.getByLabel('Name').fill('Living room AC (SmartThinQ)');
+    await page.getByTestId('device-save').click();
+    await expect(page.getByTestId('devices-notice')).toContainText('was added');
+    stored = (await (await request.get('/api/v1/config/devices')).json()).devices;
+    expect(stored).toHaveLength(2);
+
+    // the system check of the summary warns (and does not block)
+    const check = await (await request.post('/api/v1/wizard/check', { data: {} })).json();
+    const dup = check.items.filter(
+      (i: { reason: { key: string } }) => i.reason.key === 'wizard.check.duplicate_unit',
+    );
+    expect(dup).toHaveLength(1);
+    expect(dup[0].severity).toBe('warn');
+    await openStep(page, 'summary');
+    await expect(page.getByText(/control the same unit/)).toBeVisible();
   });
 
   test('two devices of one template get unique ids', async ({ page, request }) => {

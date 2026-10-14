@@ -273,6 +273,14 @@ class Runtime:
         site_matches = detect_site_role(query.role, metas, include_hidden=query.include_hidden)
         return describe(site_matches, live=self.cache, catalogue=self.catalogue)
 
+    def _unit_of_entity(self, entity_id: str) -> tuple[str, str] | None:
+        """Registry ``(device id, device name)`` of an entity, if the registry knows both."""
+        entity = self.catalogue.snapshot.entities.get(entity_id)
+        device = self.catalogue.device(entity.device_id if entity is not None else None)
+        if entity is None or device is None or device.name is None:
+            return None
+        return device.device_id, device.name
+
     def _device_name(self, device_id: str | None) -> str | None:
         device = self.catalogue.device(device_id)
         return device.name if device is not None else None
@@ -322,7 +330,9 @@ class Runtime:
         ids = [r.entity_id for r in site.entity_refs()] if site is not None else []
         await self._browse_if_needed(ids)
         present = await self.config.stored_sections()
-        return run_system_check(site, self._samples(ids), present)
+        return run_system_check(
+            site, self._samples(ids), present, self.devices, self._unit_of_entity
+        )
 
     async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
         ids = list(dict.fromkeys(entity_id for _, entity_id, _ in collect_refs(fragment)))

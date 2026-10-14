@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 
 from suncore.core.balance import FlowSnapshot, compute_flows
+from suncore.core.config import DevicesConfig
 from suncore.core.decisions import Reason
+from suncore.core.devices import DeviceConfig, DeviceKind
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import ENTITY_ID_PATTERN, EntityRef, SiteConfig
 from suncore.core.units import Dimension, apply_invert, to_base
@@ -278,11 +280,72 @@ def _check_battery_and_pv_signs(site: SiteConfig, flows: FlowSnapshot) -> list[C
     return items
 
 
-def run_system_check(
-    site: SiteConfig | None, samples: Mapping[str, Sample], present_sections: Collection[str]
+def normalise_name(name: str) -> str:
+    """Case- and whitespace-insensitive form of a device name."""
+    return " ".join(name.casefold().split())
+
+
+def _control_entity(device: DeviceConfig) -> str | None:
+    ref = device.entities.get(device.control.role)
+    return ref.entity_id if ref is not None else None
+
+
+def _check_duplicate_units(
+    devices: DevicesConfig, unit_of: Callable[[str], tuple[str, str] | None]
 ) -> list[CheckItem]:
-    """All findings, most basic first. ``samples`` are by entity id (the live cache)."""
+    """Warn when two configured devices control the same physical unit.
+
+    Two devices count as the same unit when their control entity is the same entity, or (for
+    air conditioners, which commonly exist twice through two integrations) when the control
+    entities belong to *different* Home Assistant devices with the same name (ignoring case
+    and whitespace). ``unit_of`` maps an entity id to ``(registry device id, device name)``;
+    other kinds are not compared by name because default names ("Smart plug") repeat.
+    """
+    items: list[CheckItem] = []
+    controlled = [(d, e) for d in devices.devices if (e := _control_entity(d)) is not None]
+    for index, (first, first_entity) in enumerate(controlled):
+        for second, second_entity in controlled[index + 1 :]:
+            unit_name: str | None = None
+            if first_entity == second_entity:
+                unit_name = first_entity
+            elif first.kind is DeviceKind.CLIMATE and second.kind is DeviceKind.CLIMATE:
+                a, b = unit_of(first_entity), unit_of(second_entity)
+                if (
+                    a is not None
+                    and b is not None
+                    and a[0] != b[0]
+                    and normalise_name(a[1]) == normalise_name(b[1])
+                ):
+                    unit_name = a[1]
+            if unit_name is not None:
+                items.append(
+                    _item(
+                        "warn",
+                        "wizard.check.duplicate_unit",
+                        second.id,
+                        device_a=first.name,
+                        device_b=second.name,
+                        unit_name=unit_name,
+                    )
+                )
+    return items
+
+
+def run_system_check(
+    site: SiteConfig | None,
+    samples: Mapping[str, Sample],
+    present_sections: Collection[str],
+    devices: DevicesConfig | None = None,
+    unit_of: Callable[[str], tuple[str, str] | None] | None = None,
+) -> list[CheckItem]:
+    """All findings, most basic first. ``samples`` are by entity id (the live cache).
+
+    ``devices`` are the configured devices; ``unit_of`` resolves an entity id to its registry
+    ``(device id, device name)`` (``None`` = unknown, then only the same-entity check runs).
+    """
     items = _check_sections(site, present_sections)
+    if devices is not None:
+        items.extend(_check_duplicate_units(devices, unit_of or (lambda _entity_id: None)))
     if site is None:
         return items
     refs = _typed_refs(site)

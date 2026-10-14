@@ -540,6 +540,7 @@
   "wizard.check.battery_sign_plausible": "The battery sign looks plausible.",
   "wizard.check.battery_sign_soc": "The battery charges at {battery_w} W although it is at {soc_pct} % (or discharges while empty). The sign may be inverted.",
   "wizard.check.entities_fresh": "All {count, plural, one {# sensor delivers} other {# sensors deliver}} current values.",
+  "wizard.check.duplicate_unit": "“{device_a}” and “{device_b}” control the same unit “{unit_name}” (two integrations or the same entity twice). Control a unit only once.",
   "wizard.check.entity_invalid": "{entity_id} does not deliver a number.",
   "wizard.check.entity_missing": "{entity_id} does not exist in Home Assistant.",
   "wizard.check.entity_stale": "{entity_id} has not updated for a while.",
