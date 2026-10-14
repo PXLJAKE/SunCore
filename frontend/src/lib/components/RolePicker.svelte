@@ -6,6 +6,7 @@
     candidateValueText,
     criterionKeys,
     filterCandidates,
+    measuring,
     resolveCandidate,
   } from '../entityFormat';
   import { t, tDynamic } from '../i18n/index.svelte';
@@ -264,8 +265,10 @@
       {:else if candidate}
         <strong>{candidate.name}</strong>
         <span class="state">{candidateValueText(candidate)}</span>
-        <UnitBadge unit={candidate.unit} />
-        {#if candidate.quality !== 'ok'}
+        {#if measuring(candidate)}
+          <UnitBadge unit={candidate.unit} />
+        {/if}
+        {#if candidate.quality !== 'ok' && (measuring(candidate) || candidate.quality !== 'invalid')}
           <span class="quality"
             >{tDynamic(`quality.${candidate.quality}`, undefined, 'reason.unknown')}</span
           >
