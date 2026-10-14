@@ -88,13 +88,23 @@ export const api = {
     request<EntityCandidate[]>(
       `${API_PREFIX}entities${query({ role, include_hidden: includeHidden ? 'true' : undefined })}`,
     ),
-  /** Ranked entities for a template role; `deviceId` scopes `same_device_as` roles. */
-  entitiesForTemplate: (template: string, role: string, deviceId?: string, includeHidden = false) =>
+  /**
+   * Ranked entities for a template role; `deviceId` scopes `same_device_as` roles, `deviceName`
+   * (name of the device already mapped) only ranks same-named candidates first.
+   */
+  entitiesForTemplate: (
+    template: string,
+    role: string,
+    deviceId?: string,
+    includeHidden = false,
+    deviceName?: string,
+  ) =>
     request<EntityCandidate[]>(
       `${API_PREFIX}entities${query({
         template,
         role,
         device_id: deviceId,
+        device_name: deviceName,
         include_hidden: includeHidden ? 'true' : undefined,
       })}`,
     ),

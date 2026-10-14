@@ -158,13 +158,15 @@ def _register_http(app: FastAPI, services: Services) -> None:
         role: str | None = Query(default=None, max_length=64),
         template: str | None = Query(default=None, max_length=96),
         device_id: str | None = Query(default=None, max_length=128),
+        device_name: str | None = Query(default=None, max_length=128),
         include_hidden: bool = False,
     ) -> list[EntityCandidateOut]:
         """Entities for a site role (``role``) or a template role (``template`` + ``role``).
 
         Without parameters: the unranked power and battery sensors of the Phase 1 picker.
         ``include_hidden`` also lists hidden, diagnostic and config entities (ranked lower);
-        disabled entities never appear. Served from the registry snapshot and state cache,
+        disabled entities never appear. ``device_name`` (template roles) ranks candidates of a
+        device with that name first. Served from the registry snapshot and state cache,
         never per-request from HA.
         """
         if template is not None and role is None:
@@ -175,6 +177,7 @@ def _register_http(app: FastAPI, services: Services) -> None:
                     role=role,
                     template_id=template,
                     device_id=device_id,
+                    device_name=device_name,
                     include_hidden=include_hidden,
                 )
             )

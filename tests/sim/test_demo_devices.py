@@ -238,3 +238,29 @@ async def test_energy_prefs_not_configured_is_none(scenario: Scenario) -> None:
         assert await c.device_registry_list()
     finally:
         await c.close()
+
+
+def test_second_integration_power_sensor_is_polled_every_five_minutes(scenario: Scenario) -> None:
+    _, history = _run(scenario, 24 * 60)
+    values = [float(h[d.AC_B_POWER_ID].state) for h in history]
+    changes = [i for i in range(1, len(values)) if values[i] != values[i - 1]]
+    assert changes
+    assert all(i % 5 == 0 for i in changes)  # sample and hold: changes only on 5 min slots
+    assert max(values) == d.AC_POWER_W
+    assert min(values) == d.AC_STANDBY_W
+    attrs = history[0][d.AC_B_POWER_ID].attributes
+    assert (attrs["unit_of_measurement"], attrs["device_class"], attrs["state_class"]) == (
+        "W",
+        "power",
+        "measurement",
+    )
+
+
+def test_second_integration_is_another_device_with_the_same_name() -> None:
+    rows = {r["id"]: r for r in registry.device_registry_list()}
+    assert registry.DEV_AC != registry.DEV_AC_B
+    assert rows[registry.DEV_AC]["name"] == rows[registry.DEV_AC_B]["name"]
+    by_id = {e.entity_id: e for e in registry.ENTITIES}
+    assert by_id[d.AC_B_ID].device_id == by_id[d.AC_B_POWER_ID].device_id == registry.DEV_AC_B
+    assert by_id[d.AC_B_POWER_ID].platform == "smartthinq_sensors"
+    assert by_id[d.AC_ID].device_id == registry.DEV_AC  # the lg_thinq ids stay as they were

@@ -6,7 +6,8 @@ states what the demo installation must resolve to. The test loads the real templ
 the fake connection's registry and states (``FakeHAConnection.entity_metas``), then checks:
 
 * every required role has candidates, and exactly one *top-ranked* candidate unless the
-  scenario says the tie is intended (``tied``) or the role has no candidate (``none``);
+  scenario says the tie is intended (``tied``; a required role then names the user's choice in
+  ``pick``) or the role has no candidate (``none``);
 * the criteria that matched (the "reason" shown in the wizard) are the expected ones;
 * ``same_device_as`` roles are resolved against the device of the chosen base entity;
 * units of matched entities parse (power/energy) and equal the expected unit;
@@ -62,6 +63,8 @@ class RoleExpectation(BaseModel):
 
     entity: str | None = None
     tied: list[str] = Field(default_factory=list)
+    pick: str | None = None
+    """A required role may be tied if the user has to choose; ``pick`` is that choice."""
     none: bool = False
     unit: str | None = None
     criteria: list[str] | None = None
@@ -137,6 +140,23 @@ def _top(ranked: list[tuple[EntityMeta, int]]) -> list[EntityMeta]:
     return [m for m, s in ranked if s == best]
 
 
+def _check_tied(
+    name: str,
+    expected: RoleExpectation,
+    top: list[EntityMeta],
+    *,
+    required: bool,
+    resolved: dict[str, EntityMeta],
+    by_id: Mapping[str, EntityMeta],
+) -> None:
+    assert {m.entity_id for m in top} == set(expected.tied), name
+    if required:  # the user has to choose between the tied candidates
+        assert expected.pick in expected.tied, f"{name}: a required role needs a pick"
+        resolved[name] = by_id[expected.pick]  # type: ignore[index]
+    else:
+        assert expected.pick is None, f"{name}: pick is only for required roles"
+
+
 @pytest.mark.parametrize("template_id", sorted(FILES))
 async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> None:
     scenario = _load(FILES[template_id])
@@ -156,8 +176,7 @@ async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> No
             assert not spec.required, f"{name}: a required role cannot be unresolved"
             continue
         if expected.tied:
-            assert {m.entity_id for m in top} == set(expected.tied), name
-            assert not spec.required, f"{name}: a required role must be unambiguous"
+            _check_tied(name, expected, top, required=spec.required, resolved=resolved, by_id=by_id)
         else:
             assert [m.entity_id for m in top] == [expected.entity], f"{name}: {ranked[name]}"
             resolved[name] = top[0]

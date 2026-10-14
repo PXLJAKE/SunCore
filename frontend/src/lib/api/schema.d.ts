@@ -252,7 +252,8 @@ export interface paths {
          *
          *     Without parameters: the unranked power and battery sensors of the Phase 1 picker.
          *     ``include_hidden`` also lists hidden, diagnostic and config entities (ranked lower);
-         *     disabled entities never appear. Served from the registry snapshot and state cache,
+         *     disabled entities never appear. ``device_name`` (template roles) ranks candidates of a
+         *     device with that name first. Served from the registry snapshot and state cache,
          *     never per-request from HA.
          */
         get: operations["entities_api_v1_entities_get"];
@@ -2434,6 +2435,7 @@ export interface operations {
                 role?: string | null;
                 template?: string | null;
                 device_id?: string | null;
+                device_name?: string | null;
                 include_hidden?: boolean;
             };
             header?: never;

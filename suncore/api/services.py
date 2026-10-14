@@ -62,6 +62,8 @@ class EntityQuery:
     role: str | None = None
     template_id: str | None = None
     device_id: str | None = None
+    device_name: str | None = None
+    """Name of the device of an entity already chosen; ranks same-named candidates first."""
     include_hidden: bool = False
     """Also hidden, diagnostic and config entities (ranked lower); disabled stay excluded."""
 

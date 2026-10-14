@@ -27,6 +27,8 @@ export interface DeviceForm {
   entities: Record<string, RefField>;
   /** Registry device of the chosen entity per role (scopes `same_device_as` roles). */
   deviceIds: Record<string, string | null>;
+  /** Registry device name of the chosen entity per role (ranking hint, duplicate warning). */
+  deviceNames: Record<string, string | null>;
   powerKind: PowerModelKind;
   nominalW: number | null;
   /** Fields of the power model the form does not edit. */
@@ -92,17 +94,19 @@ export function powerModelOptions(
   ];
 }
 
-/** The preferred kind for the mapped roles: the template default if usable, else the best fit. */
+/** The preferred kind for the mapped roles: measured if a power sensor is mapped, else the template default. */
 export function preferredPowerKind(
   template: Pick<DeviceTemplate, 'roles' | 'defaults'>,
   entities: Record<string, RefField>,
 ): PowerModelKind {
   const options = powerModelOptions(template, entities);
   const ok = (k: PowerModelKind) => options.find((o) => o.kind === k)?.available ?? false;
+  // A mapped power sensor beats the template default (learned from a counter, nominal): it is
+  // the only model that measures. It may come from another device (`power` role of the climate
+  // templates) and may lag (smartthinq_sensors polls every 5 minutes); the user can still switch.
+  if (ok('measured')) return 'measured';
   const wanted = template.defaults.power_model.kind;
   if (wanted !== 'nominal' && ok(wanted)) return wanted;
-  if (ok('measured')) return 'measured';
-  if (wanted === 'learned') return 'learned';
   if (ok('counter_derived')) return 'counter_derived';
   return 'nominal';
 }
@@ -124,6 +128,7 @@ export function newDeviceForm(
     kind: template.device_kind,
     entities,
     deviceIds: {},
+    deviceNames: {},
     powerKind: d.power_model.kind,
     nominalW: d.power_model.nominal_w ?? null,
     powerRoles: {
@@ -162,6 +167,7 @@ export function deviceFormFromConfig(
     kind: cfg.kind,
     entities,
     deviceIds: {},
+    deviceNames: {},
     powerKind: pm.kind,
     nominalW: pm.nominal_w ?? null,
     powerRoles: {
@@ -279,6 +285,47 @@ export function validateDeviceForm(form: DeviceForm, template: DeviceTemplate): 
     errors.push({ key: 'comfort_order' });
   }
   return errors;
+}
+
+/** Registry device of an entity, as the climate candidates list it. */
+export interface UnitInfo {
+  deviceId: string | null;
+  deviceName: string | null;
+}
+
+/** Case- and whitespace-insensitive device name (same rule as the backend system check). */
+export const normaliseName = (name: string | null | undefined): string =>
+  (name ?? '').toLocaleLowerCase().split(/\s+/).filter(Boolean).join(' ');
+
+/**
+ * Whether the chosen control entity looks like a unit that another configured climate device
+ * already controls: the same entity, or an entity of another registry device with the same
+ * device name (two integrations for one air conditioner). Only a hint; never blocks saving.
+ */
+export function seemsConfiguredAlready(
+  form: Pick<DeviceForm, 'id' | 'kind' | 'entities' | 'control'>,
+  others: readonly DeviceConfig[],
+  lookup: ReadonlyMap<string, UnitInfo>,
+): boolean {
+  if (form.kind !== 'climate') return false;
+  const chosen = toRef(form.entities[form.control.role] ?? emptyRef())?.entity_id;
+  if (!chosen) return false;
+  const mine = lookup.get(chosen);
+  return others.some((d) => {
+    if (d.id === form.id || d.kind !== 'climate') return false;
+    const other = d.entities?.[d.control.role]?.entity_id;
+    if (!other) return false;
+    if (other === chosen) return true;
+    const theirs = lookup.get(other);
+    const name = normaliseName(mine?.deviceName);
+    return (
+      name !== '' &&
+      theirs !== undefined &&
+      mine !== undefined &&
+      theirs.deviceId !== mine.deviceId &&
+      normaliseName(theirs.deviceName) === name
+    );
+  });
 }
 
 /** Device id for a new device: slug of the name, unique among `taken`. */

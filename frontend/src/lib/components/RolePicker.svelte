@@ -22,6 +22,8 @@
     template?: string;
     /** Scopes a `same_device_as` role to the registry device of the primary entity. */
     deviceId?: string | null;
+    /** Ranks candidates of a device with this name first (does not filter). */
+    deviceName?: string | null;
     /** Show the sign switch. */
     signed?: boolean;
     hint?: string;
@@ -37,6 +39,7 @@
     role,
     template,
     deviceId,
+    deviceName,
     signed = false,
     hint,
     optional = false,
@@ -60,7 +63,7 @@
   let includeHidden = $state(false);
 
   $effect(() => {
-    const query = { role, template, deviceId, includeHidden };
+    const query = { role, template, deviceId, deviceName, includeHidden };
     let stale = false;
     loadCandidates(query).then(
       (list) => {

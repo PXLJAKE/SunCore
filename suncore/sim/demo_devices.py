@@ -6,6 +6,11 @@ They give the setup wizard and the template conformance tests real content:
 * an LG-ThinQ-like air conditioner ``climate.sim_living_room_ac`` with an hourly quantised
   Wh counter (``sensor.sim_living_room_ac_energy_today``, reset at local midnight) and the
   previous day's total (``..._energy_yesterday``, updated at midnight);
+* the same unit a second time, as the HACS integration ``smartthinq_sensors`` creates it (another
+  registry device with the same device name): a second climate entity
+  ``climate.sim_living_room_ac_smartthinq`` and a measured power sensor
+  ``sensor.sim_living_room_ac_energy_current`` (W) driven by the air conditioner's power and
+  refreshed only every 5 minutes, like the real polling (see ``device-integrations.md``);
 * a plug ``switch.sim_pool_pump`` with ``sensor.sim_pool_pump_power`` and an energy counter;
 * a number entity ``number.sim_heating_rod_limit`` (W limit of a load);
 * a Tibber-like price sensor ``sensor.sim_electricity_price`` (``EUR/kWh``, 15 min slots);
@@ -33,6 +38,8 @@ from suncore.sim.scenario import Scenario
 AC_ID: Final = "climate.sim_living_room_ac"
 AC_ENERGY_TODAY_ID: Final = "sensor.sim_living_room_ac_energy_today"
 AC_ENERGY_YESTERDAY_ID: Final = "sensor.sim_living_room_ac_energy_yesterday"
+AC_B_ID: Final = "climate.sim_living_room_ac_smartthinq"
+AC_B_POWER_ID: Final = "sensor.sim_living_room_ac_energy_current"
 POOL_SWITCH_ID: Final = "switch.sim_pool_pump"
 POOL_POWER_ID: Final = "sensor.sim_pool_pump_power"
 POOL_ENERGY_ID: Final = "sensor.sim_pool_pump_energy"
@@ -50,6 +57,8 @@ SIM_DEVICE_ENTITY_IDS: Final[tuple[str, ...]] = (
     AC_ID,
     AC_ENERGY_TODAY_ID,
     AC_ENERGY_YESTERDAY_ID,
+    AC_B_ID,
+    AC_B_POWER_ID,
     POOL_SWITCH_ID,
     POOL_POWER_ID,
     POOL_ENERGY_ID,
@@ -66,6 +75,9 @@ SIM_DEVICE_ENTITY_IDS: Final[tuple[str, ...]] = (
 """All additional demo entities (the five site sensors are ``SIM_ENTITY_IDS``)."""
 
 AC_POWER_W: Final = 900.0
+AC_B_POLL_S: Final = 300
+"""The ``smartthinq_sensors`` power sensor is polled every 5 minutes."""
+AC_STANDBY_W: Final = 5.0
 """Electrical power of the demo air conditioner while it cools."""
 POOL_PUMP_POWER_W: Final = 750.0
 PRICE_CURRENCY: Final = "EUR"
@@ -103,6 +115,8 @@ class _Counters:
     ac_yesterday_wh: int = 0
     ac_hour: tuple[date, int] | None = None
     ac_day: date | None = None
+    ac_b_slot: int | None = None
+    ac_b_power_w: float = AC_STANDBY_W
     pool_kwh: float = 0.0
     grid_import_kwh: float = 0.0
     grid_export_kwh: float = 0.0
@@ -154,6 +168,10 @@ class DemoDevices:
             c.ac_hour = (day, state.time.hour)
         if self.ac_on(state):
             c.ac_wh += AC_POWER_W * hours
+        slot = int(state.time.timestamp() // AC_B_POLL_S)
+        if c.ac_b_slot != slot:  # sample and hold: the sensor only polls every 5 minutes
+            c.ac_b_slot = slot
+            c.ac_b_power_w = AC_POWER_W if self.ac_on(state) else AC_STANDBY_W
         if self.pool_on(state):
             c.pool_kwh += POOL_PUMP_POWER_W * hours / 1000
         c.grid_import_kwh += max(state.grid_w, 0.0) * hours / 1000
@@ -187,6 +205,29 @@ class DemoDevices:
                     "target_temp_step": 1,
                     "temperature": 24,
                     "current_temperature": round(22 + 6 * min(1.0, state.pv_w / 6000), 1),
+                },
+            ),
+            DemoEntity(
+                AC_B_ID,
+                "cool" if ac_on else "off",
+                {
+                    "friendly_name": "Sim living room AC (SmartThinQ)",
+                    "hvac_modes": ["off", "cool", "heat_cool", "fan_only"],
+                    "min_temp": 16,
+                    "max_temp": 30,
+                    "target_temp_step": 1,
+                    "temperature": 24,
+                    "current_temperature": round(22 + 6 * min(1.0, state.pv_w / 6000), 1),
+                },
+            ),
+            DemoEntity(
+                AC_B_POWER_ID,
+                f"{c.ac_b_power_w:.0f}",
+                {
+                    "friendly_name": "Sim living room AC energy current",
+                    "unit_of_measurement": "W",
+                    "device_class": "power",
+                    "state_class": "measurement",
                 },
             ),
             DemoEntity(

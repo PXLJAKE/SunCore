@@ -34,6 +34,7 @@ from suncore.core.devices import (
 from suncore.core.site import EntityRef
 from suncore.ha.connection import CommandTimeoutError
 from suncore.sim.demo_config import WIZARD_STEPS
+from suncore.sim.demo_devices import AC_ID
 from suncore.sim.fake_ha import SIM_ENTITY_IDS, FakeHAConnection, demo_site_config
 from suncore.templates import DeviceTemplate
 from tests.api.conftest import client_for, serving
@@ -68,10 +69,12 @@ async def test_demo_health_and_info(demo_runtime: Runtime) -> None:
     assert info.json()["demo"] is True
     assert info.json()["mode"] == "shadow"
     assert site.json() == demo_site_config().model_dump(mode="json")
-    # The picker offers power and battery sensors: the site sensors plus the pool pump plug.
+    # The picker offers power and battery sensors: the site sensors, the pool pump plug and the
+    # polled power sensor of the second AC integration.
     assert {c["entity_id"] for c in entities.json()} == {
         *SIM_ENTITY_IDS,
         "sensor.sim_pool_pump_power",
+        "sensor.sim_living_room_ac_energy_current",
     }
 
 
@@ -104,6 +107,7 @@ DEMO_DEVICE_ENTITIES = frozenset(
         "climate.sim_living_room_ac",
         "sensor.sim_living_room_ac_energy_today",
         "sensor.sim_living_room_ac_energy_yesterday",
+        "sensor.sim_living_room_ac_energy_current",
         "switch.sim_pool_pump",
         "sensor.sim_pool_pump_power",
         "number.sim_heating_rod_limit",
@@ -153,7 +157,13 @@ async def test_demo_devices_follow_the_templates(demo_runtime: Runtime) -> None:
     assert isinstance(lg, DeviceTemplate)
     assert ac.settle_s == lg.defaults.settle_s
     assert ac.min_run_s == lg.defaults.min_run_s
-    assert ac.power_model.kind.value == "learned"
+    # The power sensor of the second integration (smartthinq-like device) is mapped: measured.
+    assert ac.power_model.kind.value == "measured"
+    assert ac.power_model.power_role == "power"
+    assert ac.entities["power"].entity_id == "sensor.sim_living_room_ac_energy_current"
+    assert ac.power_model.energy_role is None
+    assert ac.control.role == "climate"
+    assert ac.entities["climate"].entity_id == AC_ID
     assert ac.comfort is not None
     assert pump.power_model.kind.value == "measured"
     assert pump.power_model.power_role == "power"

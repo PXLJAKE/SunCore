@@ -301,3 +301,26 @@ async def test_the_wizard_endpoints_over_the_real_runtime(demo_runtime: Runtime)
     assert put.status_code == 200
     assert len(goals_history.json()) == 1  # the seeded goals were replaced
     _ = cast("dict[str, Any]", {})
+
+
+async def test_power_role_ranks_the_sensor_of_the_same_named_device_first(
+    demo_runtime: Runtime,
+) -> None:
+    await connected(demo_runtime)
+    plain = await demo_runtime.entities(EntityQuery(template_id="lg.thinq_climate", role="power"))
+    assert d.AC_B_POWER_ID in {e.entity_id for e in plain}
+    assert not any("detect.criterion.name_affinity" in e.criteria for e in plain)
+    # "Living room AC" is the name of the lg_thinq device AND of the smartthinq-like device
+    hinted = await demo_runtime.entities(
+        EntityQuery(template_id="lg.thinq_climate", role="power", device_name="living room  ac")
+    )
+    assert hinted[0].entity_id == d.AC_B_POWER_ID
+    assert hinted[0].device_name == "Living room AC"
+    assert hinted[0].criteria[-1] == "detect.criterion.name_affinity"
+    assert {e.entity_id for e in hinted} == {e.entity_id for e in plain}
+    assert d.AC_B_POWER_ID not in {
+        e.entity_id
+        for e in await demo_runtime.entities(
+            EntityQuery(template_id="lg.thinq_climate", role="energy_today")
+        )
+    }  # the energy roles stay on the lg_thinq device

@@ -22,7 +22,7 @@ It does **not** mean that the device is controlled yet: until the controller arr
 | `generic.climate` | device | Generic climate device | any | `energy_counter`, `hvac_modes`, `power_measured`, `temperature_setpoint` | not tested on hardware | 3 |
 | `generic.number_load` | device | Load with a number entity | any | `power_measured`, `power_setpoint` | not tested on hardware | 3 |
 | `generic.switch` | device | Switch or smart plug | any | `on_off`, `power_measured` | not tested on hardware | 2 |
-| `lg.thinq_climate` | device | LG ThinQ air conditioner | `lg_thinq` | `energy_counter`, `fan_modes`, `hvac_modes`, `preset_modes`, `temperature_setpoint` | lg_thinq 2026.10.1 | 6 |
+| `lg.thinq_climate` | device | LG ThinQ air conditioner | `lg_thinq` | `energy_counter`, `fan_modes`, `hvac_modes`, `power_measured`, `preset_modes`, `temperature_setpoint` | lg_thinq 2026.10.1 | 7 |
 
 ## Tariffs
 

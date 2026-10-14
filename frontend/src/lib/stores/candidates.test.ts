@@ -27,7 +27,16 @@ describe('candidate queries', () => {
       ['pv_power', false],
       ['pv_power', true],
     ]);
-    expect(tpl.mock.calls).toEqual([['generic.switch', 'switch', undefined, true]]);
+    expect(tpl.mock.calls).toEqual([['generic.switch', 'switch', undefined, true, undefined]]);
+  });
+  it('passes the device name hint and keeps hinted lists apart', async () => {
+    const tpl = vi.spyOn(api, 'entitiesForTemplate').mockResolvedValue([]);
+    await loadCandidates({ role: 'power', template: 'lg.thinq_climate', deviceName: 'Living AC' });
+    await loadCandidates({ role: 'power', template: 'lg.thinq_climate' });
+    expect(tpl.mock.calls).toEqual([
+      ['lg.thinq_climate', 'power', undefined, false, 'Living AC'],
+      ['lg.thinq_climate', 'power', undefined, false, undefined],
+    ]);
   });
   it('serves the same query from the cache', async () => {
     const role = vi.spyOn(api, 'entitiesForRole').mockResolvedValue([]);

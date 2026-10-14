@@ -8,8 +8,10 @@ the user are exactly the ones that decided the ranking:
 
 ``detect.criterion.<name>`` with ``<name>`` one of ``domain``, ``device_class``, ``units``,
 ``unit_pattern``, ``platforms``, ``translation_key``, ``translation_key_pattern``,
-``state_class``, ``same_device`` (matcher criteria) and ``name`` (a role keyword occurs in the
-entity name or id; a weak tie-breaker only).
+``state_class``, ``same_device`` (matcher criteria), ``name`` (a role keyword occurs in the
+entity name or id; a weak tie-breaker only) and ``name_affinity`` (template roles only: the
+candidate's device name or friendly name contains the name of the device the user already
+mapped, see :func:`detect_template_role`).
 
 Entities that are disabled, hidden or of entity category ``config``/``diagnostic`` never
 appear: a diagnostic "grid power" mirror or a hidden duplicate is not what a user wants to
@@ -22,7 +24,7 @@ sensors, used when no role is given).
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Final
 
@@ -36,6 +38,9 @@ from suncore.templates import EntityMatcher, RoleSpec, matched_criteria, rank_en
 from suncore.templates.matcher import WEIGHTS
 
 NAME_WEIGHT: Final = 15
+NAME_AFFINITY_WEIGHT: Final = 25
+"""Bonus for a candidate that shares the name of the device the user already mapped (below a
+device class match, above a unit match); it only reorders candidates that match anyway."""
 HIDDEN_MALUS: Final = 100
 """Subtracted from the score of hidden, diagnostic and config entities when they are included
 (``include_hidden``): they rank below any proper candidate but stay selectable."""
@@ -51,6 +56,7 @@ CRITERION_KEYS: Final[Mapping[str, str]] = {
     "state_class": "detect.criterion.state_class",
     "same_device": "detect.criterion.same_device",
     "name": "detect.criterion.name",
+    "name_affinity": "detect.criterion.name_affinity",
 }
 """Matcher criterion name to catalogue key; the frontend renders the keys."""
 
@@ -238,26 +244,49 @@ def detect_site_role(
     return sorted(best.values(), key=lambda m: (-m.score, m.meta.entity_id))
 
 
+def normalise_name(name: str | None) -> str:
+    """Case- and whitespace-insensitive form of a device or entity name."""
+    return " ".join((name or "").casefold().split())
+
+
 def detect_template_role(
     role: RoleSpec,
     metas: Iterable[EntityMeta],
     *,
     same_device_id: str | None = None,
     include_hidden: bool = False,
+    name_hint: str | None = None,
+    device_name_of: Callable[[str | None], str | None] | None = None,
 ) -> list[Match]:
-    """Ranked matches for a template role (``same_device_id`` = device of the base role)."""
+    """Ranked matches for a template role (``same_device_id`` = device of the base role).
+
+    ``name_hint`` is the device name of an entity the user already chose (the climate entity);
+    for a role without ``same_device_as`` (a power sensor of another integration) candidates
+    whose device name equals it, or whose friendly name contains it, rank first
+    (``name_affinity``). This is only a ranking hint: nothing is dropped, and no template
+    schema feature is involved.
+    """
     candidates = [m for m in metas if is_candidate(m, include_hidden=include_hidden)]
     ranked = rank_entities(role.matcher, candidates, same_device_id=same_device_id)
-    matches = [
-        Match(
-            meta,
-            score - (HIDDEN_MALUS if is_hidden(meta) else 0),
-            _criteria(role, meta, same_device_id),
-        )
-        for meta, score in ranked
-    ]
+    hint = normalise_name(name_hint)
+    matches: list[Match] = []
+    for meta, score in ranked:
+        criteria = _criteria(role, meta, same_device_id)
+        bonus = 0
+        if hint and _shares_name(meta, hint, device_name_of):
+            bonus = NAME_AFFINITY_WEIGHT
+            criteria = (*criteria, "name_affinity")
+        malus = HIDDEN_MALUS if is_hidden(meta) else 0
+        matches.append(Match(meta, score + bonus - malus, criteria))
     matches.sort(key=lambda m: (-m.score, m.meta.entity_id))
     return matches
+
+
+def _shares_name(
+    meta: EntityMeta, hint: str, device_name_of: Callable[[str | None], str | None] | None
+) -> bool:
+    device = normalise_name(device_name_of(meta.device_id) if device_name_of else None)
+    return device == hint or hint in normalise_name(meta.name)
 
 
 def _criteria(role: RoleSpec, meta: EntityMeta, same_device_id: str | None) -> tuple[str, ...]:

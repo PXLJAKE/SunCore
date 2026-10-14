@@ -253,7 +253,12 @@ class Runtime:
             if spec is None:
                 raise UnknownRoleError(str(query.role))
             matches = detect_template_role(
-                spec, metas, same_device_id=query.device_id, include_hidden=query.include_hidden
+                spec,
+                metas,
+                same_device_id=query.device_id,
+                include_hidden=query.include_hidden,
+                name_hint=query.device_name,
+                device_name_of=self._device_name,
             )
             return describe(matches, live=self.cache, catalogue=self.catalogue)
         if query.role is None:
@@ -267,6 +272,10 @@ class Runtime:
             raise UnknownRoleError(query.role)
         site_matches = detect_site_role(query.role, metas, include_hidden=query.include_hidden)
         return describe(site_matches, live=self.cache, catalogue=self.catalogue)
+
+    def _device_name(self, device_id: str | None) -> str | None:
+        device = self.catalogue.device(device_id)
+        return device.name if device is not None else None
 
     def templates(self) -> TemplateCatalog:
         return self.template_catalog
