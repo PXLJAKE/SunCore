@@ -498,7 +498,12 @@ class Allocator:
             m.reset(now, rs.plain(rs.STATE_UNKNOWN))
             return
         estimate = inputs.estimates.get(device.id)
-        base = m.base_setpoint_c if m.synced and m.level > 0 else None
+        # The user's base set-point is kept while the unit is shifted *or a shift is in flight*:
+        # a cloud integration (lg_thinq) pushes the new set-point before the gate confirms the
+        # write, and rebasing onto it would turn every shift into a new base (a ratchet).
+        base = (
+            m.base_setpoint_c if m.synced and (m.level > 0 or m.in_flight_id is not None) else None
+        )
         table = build_levels(
             device,
             state,
@@ -517,8 +522,13 @@ class Allocator:
             and m.in_flight_id is None
             and len(table.levels) != len(m.table.levels)
         ):
-            # The table changed shape (climate switched on/off, quantiser): start over.
+            # The table changed shape (climate switched on/off, quantiser): start over. A unit
+            # SunCore switched on stays ours: its set-point becomes known only after the
+            # switch-on (a cloud integration reports none while the unit is off), which adds
+            # the shift levels - forgetting the flag would leave the unit with no way off.
+            ours = m.switched_on_by_us and table.switchable
             m.reset(now, rs.plain(rs.IDLE))
+            m.switched_on_by_us = ours
         observed = observed_level(table, device, state)
         was_synced = m.synced
         m.sync(now, table, observed)

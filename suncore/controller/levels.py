@@ -317,7 +317,14 @@ def _climate_levels(
         if not device.allow_switch_on:
             return None
         levels.append(Level(0, 0.0, SwitchAction(on=False)))
-        levels.append(Level(1, nominal, SwitchAction(on=True), setpoint_c=base))
+        # An unit that is already on is brought back to the user's base set-point (the way
+        # down from a shift runs through this level); only an unit that is off is switched on.
+        on_action: Action = (
+            SetpointAction(setpoint_c=base, base_c=base)
+            if is_on and base is not None
+            else SwitchAction(on=True)
+        )
+        levels.append(Level(1, nominal, on_action, setpoint_c=base))
         switchable = True
     else:
         if base is None or not comfort.min_c <= base <= comfort.max_c:
