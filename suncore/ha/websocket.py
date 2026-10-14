@@ -18,8 +18,8 @@ Protocol facts relied upon, verified on 2026-10-12 against ``home-assistant/core
   ``a`` (added: full compressed state), ``c`` (changed: ``{"+": additions, "-":
   {"a": [removed attribute keys]}}``) and ``r`` (removed: list of ids). In a diff ``lc``
   is present only if ``last_changed`` changed, ``lu`` only if ``last_updated`` changed
-  while ``last_changed`` did not; context (``c``) is ignored by SunCore. Additions hold
-  only changed attributes (``a``) and a changed state (``s``).
+  while ``last_changed`` did not. Additions hold only changed attributes (``a``), a changed
+  state (``s``) and a changed context (``c``).
 * ``const.py`` (``homeassistant``) - ``COMPRESSED_STATE_*`` = ``s``, ``a``, ``c``,
   ``lc``, ``lu``; ``websocket_api/const.py`` - ``FEATURE_COALESCE_MESSAGES =
   "coalesce_messages"``.
@@ -44,6 +44,14 @@ Verified on 2026-10-13 (Phase 2 WP5, ``home-assistant/core`` dev) in addition:
 ``UNVERIFIED``: that the Supervisor's Core proxy forwards ``supported_features``
 unchanged (it is a transparent WebSocket proxy per ``docs/research/ha-apps.md``); a
 failing ``supported_features`` is therefore tolerated and only logged.
+
+Verified on 2026-10-14 (Phase 3 WP9, research/ha-websocket-api.md "Context in
+``subscribe_entities``", ``websocket_api/messages.py`` ``_state_diff_event``): the context key
+``c`` is a string (the context id) when ``parent_id`` and ``user_id`` are both ``None``, else a
+dict ``{id, parent_id, user_id}``; in a ``c`` diff it carries only what differs from the old
+state's context (a bare string = a new ``id`` with ``parent_id``/``user_id`` unchanged), so the
+client merges it onto the previous context (:func:`merge_context`). ``get_states`` items carry
+``context`` as the full ``{id, parent_id, user_id}`` dict.
 
 Time is injected (``clock`` monotonic seconds, ``sleep``, ``rng``) so back-off,
 heartbeat and command timeouts are testable with a fake clock.
@@ -83,6 +91,7 @@ from suncore.ha.connection import (
     RateLimiter,
     RegistryListener,
     ServiceCaller,
+    StateContext,
     StateListener,
     Unsubscribe,
 )
@@ -93,11 +102,15 @@ log = structlog.get_logger(__name__)
 
 T = TypeVar("T")
 
+DEFAULT_RESYNC_INTERVAL_S: Final = 60.0
+"""Period of the full ``get_states`` resync. It is also the real freshness of a sensor whose
+value does not change: the stream is silent, the resync sees its ``last_reported`` move."""
+
 MAX_MESSAGE_BYTES: Final = 32 * 1024 * 1024
 """A full ``get_states`` of a large installation exceeds aiohttp's 4 MiB default."""
 
 # Compressed state keys (homeassistant/const.py COMPRESSED_STATE_*).
-_S, _A, _LC, _LU = "s", "a", "lc", "lu"
+_S, _A, _C, _LC, _LU = "s", "a", "c", "lc", "lu"
 # Diff keys (websocket_api/messages.py STATE_DIFF_ADDITIONS/REMOVALS).
 _ADD, _REMOVE = "+", "-"
 
@@ -150,6 +163,57 @@ def _float_or_none(value: Any) -> float | None:
     return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
+def _opt_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def context_from_wire(value: Any) -> StateContext | None:
+    """A context as ``subscribe_entities`` (``c``: string or dict) or ``get_states``
+    (``context`` dict) carries it; ``None`` if there is no usable id."""
+    if isinstance(value, str):
+        return StateContext(id=value) if value else None
+    if isinstance(value, Mapping):
+        context_id = _opt_str(value.get("id"))
+        if context_id is None:
+            return None
+        return StateContext(
+            id=context_id,
+            user_id=_opt_str(value.get("user_id")),
+            parent_id=_opt_str(value.get("parent_id")),
+        )
+    return None
+
+
+def merge_context(previous: StateContext | None, diff: Any) -> StateContext | None:
+    """Apply a context from a ``c`` diff to the previous state's context.
+
+    A string replaces ``id`` only (``user_id``/``parent_id`` are unchanged, not ``None``); a dict
+    overrides the keys it contains (a key set to ``null`` clears it). Without a previous context
+    only a complete id can be built.
+    """
+    if isinstance(diff, str):
+        if not diff:
+            return previous
+        if previous is None:
+            return StateContext(id=diff)
+        return StateContext(id=diff, user_id=previous.user_id, parent_id=previous.parent_id)
+    if not isinstance(diff, Mapping):
+        return previous
+    base = previous
+    context_id = _opt_str(diff.get("id")) or (base.id if base is not None else None)
+    if context_id is None:
+        return None  # a diff without an id and nothing to merge onto
+    return StateContext(
+        id=context_id,
+        user_id=_opt_str(diff["user_id"])
+        if "user_id" in diff
+        else (base.user_id if base is not None else None),
+        parent_id=_opt_str(diff["parent_id"])
+        if "parent_id" in diff
+        else (base.parent_id if base is not None else None),
+    )
+
+
 def state_from_compressed(entity_id: str, data: Mapping[str, Any]) -> EntityState:
     """Build a state from a full compressed state (``a`` entries / initial snapshot)."""
     last_changed = _float_or_none(data.get(_LC))
@@ -165,6 +229,7 @@ def state_from_compressed(entity_id: str, data: Mapping[str, Any]) -> EntityStat
         # HA sets last_reported = last_updated on a new state (core.py State.__init__);
         # the stream carries no last_reported, so mirror that to compare like with like.
         last_reported=resolved_updated,
+        context=context_from_wire(data.get(_C)),
     )
 
 
@@ -191,6 +256,9 @@ def apply_diff(previous: EntityState, diff: Mapping[str, Any]) -> EntityState:
         last_changed=last_changed,
         last_updated=last_updated,
         last_reported=last_updated,  # see state_from_compressed
+        context=merge_context(previous.context, additions[_C])
+        if _C in additions
+        else previous.context,
     )
 
 
@@ -206,6 +274,7 @@ def state_from_full(data: Mapping[str, Any]) -> EntityState | None:
         last_changed=_iso_to_epoch(data.get("last_changed")),
         last_updated=_iso_to_epoch(data.get("last_updated")),
         last_reported=_iso_to_epoch(data.get("last_reported")),
+        context=context_from_wire(data.get("context")),
     )
 
 
@@ -225,7 +294,7 @@ class WebSocketConnection:
         heartbeat_timeout: float = 10.0,
         command_timeout: float = 30.0,
         connect_timeout: float = 10.0,
-        resync_interval: float = 60.0,
+        resync_interval: float = DEFAULT_RESYNC_INTERVAL_S,
         stable_after: float = 30.0,
         write_interval: float = DEFAULT_WRITE_INTERVAL_S,
         secrets: SecretRegistry = DEFAULT_REGISTRY,

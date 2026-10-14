@@ -28,6 +28,7 @@ from suncore.ha.connection import (
     NotConnectedError,
     RateLimiter,
     ServiceCallerProvider,
+    StateContext,
 )
 from suncore.ha.redact import RedactingFilter, SecretRegistry, redact_processor
 from suncore.ha.transport import DirectTransport
@@ -308,6 +309,7 @@ async def test_get_states_and_config(ha: FakeHA, make: Make) -> None:
         last_changed=1000.0,
         last_updated=1000.0,
         last_reported=1000.0,
+        context=StateContext(id="ctx"),
     )
     assert (await conn.get_config())["version"] == "2026.11.0"
 
@@ -725,3 +727,40 @@ async def test_token_never_appears_in_logs(
         assert TOKEN not in text
         assert "wrong-token-value" not in text
     assert "probe" in stdlib.getvalue()
+
+
+# --- contexts (Phase 3 WP9) ------------------------------------------------------------
+
+
+async def test_contexts_from_the_stream_and_the_resync(ha: FakeHA, make: Make) -> None:
+    """``c`` is a string id in the snapshot, merged across diffs; ``get_states`` has a dict."""
+    conn = make()
+    updates = record(conn)
+    await conn.subscribe_entities(["sensor.a"])
+    await up(conn)
+    first = updates[0].changed["sensor.a"]
+    assert first.context == StateContext(id="ctx")
+
+    # a UI change by a user: dict with the keys that differ (id and user_id)
+    await ha.change("sensor.a", state="1", c={"id": "ui-1", "user_id": "alice"}, lc=1010.0)
+    await wait_until(lambda: updates[-1].changed.get("sensor.a", first).state == "1")
+    assert updates[-1].changed["sensor.a"].context == StateContext(id="ui-1", user_id="alice")
+
+    # the same human again: a bare string - user_id is unchanged, not None
+    await ha.change("sensor.a", state="2", c="ui-2", lc=1020.0)
+    await wait_until(lambda: updates[-1].changed["sensor.a"].state == "2")
+    assert updates[-1].changed["sensor.a"].context == StateContext(id="ui-2", user_id="alice")
+
+    # an integration push afterwards: user_id cleared, new id
+    await ha.change("sensor.a", state="3", c={"user_id": None, "id": "push-1"}, lc=1030.0)
+    await wait_until(lambda: updates[-1].changed["sensor.a"].state == "3")
+    assert updates[-1].changed["sensor.a"].context == StateContext(id="push-1")
+
+    # a change without a context key keeps the context
+    await ha.change("sensor.a", state="4", lc=1040.0)
+    await wait_until(lambda: updates[-1].changed["sensor.a"].state == "4")
+    assert updates[-1].changed["sensor.a"].context == StateContext(id="push-1")
+
+    # get_states carries the full dict
+    states = await conn.get_states()
+    assert next(s for s in states if s.entity_id == "sensor.a").context == StateContext(id="ctx")

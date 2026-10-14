@@ -106,9 +106,10 @@ class EntityState:
 
     Timestamps are epoch seconds (HA's own compressed format uses floats). A value is
     ``None`` when the source does not carry it: the compressed stream has no
-    ``last_reported``; ``get_states`` has all three. ``context`` is ``None`` where the source
-    does not carry it (the WebSocket client does not parse the ``c`` key yet; only the
-    simulator fills it).
+    ``last_reported``; ``get_states`` has all three. ``context`` is the HA context of the change
+    that produced the state: parsed from the ``c`` key of ``subscribe_entities`` (a string id or
+    a dict, merged across diffs) and from the ``context`` dict of ``get_states``; ``None`` where
+    the source carries none.
     """
 
     entity_id: str
