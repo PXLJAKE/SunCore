@@ -411,9 +411,7 @@ class SafetyGate:
             if verdict.late_confirm:
                 await self._late_confirm(device, runtime, observed, now)
             elif verdict.override:
-                updated = overrides.apply_verdict(
-                    runtime, verdict, now, device.override_policy, self._tz
-                )
+                updated = self._apply_override(device, runtime, verdict, now)
                 # What the user left is what a release gives back: restoring the takeover
                 # state would overwrite the user's own change (their temperature, their "off").
                 updated = updated.model_copy(update={"baseline": observed, "baseline_ts": now})
@@ -515,8 +513,9 @@ class SafetyGate:
             return await self._decide(
                 intent, DecisionKind.REJECTED, now, (REASON_EMERGENCY_STOP,), mode
             )
-        runtime = overrides.expire(await self._runtime(device_id), now)
-        if runtime is not self._runtimes.get(device_id):
+        current = await self._runtime(device_id)
+        runtime = overrides.expire(current, now)
+        if runtime is not current:  # only the expiry is saved, never a stale copy
             await self._save(runtime)
         device = self._devices(device_id)
         if mode is OperatingMode.SHADOW:
@@ -887,7 +886,7 @@ class SafetyGate:
         verdict = overrides.judge(observed, runtime, now, settle_s=self._settle_s(device))
         if not verdict.override:
             return runtime
-        updated = overrides.apply_verdict(runtime, verdict, now, device.override_policy, self._tz)
+        updated = self._apply_override(device, runtime, verdict, now)
         updated = updated.model_copy(update={"baseline": observed, "baseline_ts": now})
         await self._save(updated)
         log.info(
@@ -896,6 +895,29 @@ class SafetyGate:
             until=updated.override_until,
             reason=verdict.reason.key if verdict.reason else None,
         )
+        return updated
+
+    def _apply_override(
+        self,
+        device: DeviceConfig,
+        runtime: DeviceRuntime,
+        verdict: overrides.OverrideVerdict,
+        now: datetime,
+    ) -> DeviceRuntime:
+        """Apply a detected manual change; a hold already running is never shortened.
+
+        A "pause until resume" stays indefinite, a longer "pause until" stays as it is; a shorter
+        hold (a boost) is extended to the override policy's resume time.
+        """
+        updated = overrides.apply_verdict(runtime, verdict, now, device.override_policy, self._tz)
+        if runtime.is_held(now) and (
+            runtime.override_until is None
+            or (
+                updated.override_until is not None
+                and runtime.override_until > updated.override_until
+            )
+        ):
+            updated = updated.model_copy(update={"override_until": runtime.override_until})
         return updated
 
     async def _release_all(
@@ -989,10 +1011,12 @@ class SafetyGate:
     async def _runtime(self, device_id: str) -> DeviceRuntime:
         runtime = self._runtimes.get(device_id)
         if runtime is None:
-            runtime = await self._store.load_runtime(device_id)
+            loaded = await self._store.load_runtime(device_id)
+            # Saved while the store was read (a concurrent write path): that one is newer.
+            runtime = self._runtimes.get(device_id)
             if runtime is None:
-                runtime = DeviceRuntime(device_id=device_id)
-            self._runtimes[device_id] = runtime
+                runtime = loaded if loaded is not None else DeviceRuntime(device_id=device_id)
+                self._runtimes[device_id] = runtime
         return runtime
 
     async def _save(self, runtime: DeviceRuntime) -> None:
@@ -1089,6 +1113,7 @@ _DEFAULT_POLICY: Final = OverridePolicy()
 __all__ = [
     "MAX_CONSECUTIVE_FAILURES",
     "REASON_EMERGENCY_STOP",
+    "REASON_OVERRIDE_HELD",
     "REASON_SHADOW_MODE",
     "Clock",
     "DecisionSink",

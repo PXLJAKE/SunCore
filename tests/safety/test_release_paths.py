@@ -220,3 +220,59 @@ def test_a_handover_during_the_settle_wait_keeps_the_switch_protected() -> None:
     runtime = h.gate.runtime_of("pool")
     assert runtime is not None
     assert runtime.release_due_ts == T0 + timedelta(seconds=600)
+
+
+# --- lazy runtime load ---------------------------------------------------------------------------
+
+
+class SlowStore(MemoryRuntimeStore):
+    async def load_runtime(self, device_id: str) -> DeviceRuntime | None:
+        loaded = await super().load_runtime(device_id)  # read first, answer later (I/O)
+        for _ in range(3):
+            await asyncio.sleep(0)
+        return loaded
+
+
+def test_a_lazy_runtime_load_does_not_clobber_a_concurrent_save() -> None:
+    """Found while testing the handover: ``_runtime`` stored the (empty) loaded runtime over one
+    a concurrent path had saved while the store was read - a device under control looked free."""
+    h = make_harness((switch_device(),), store=SlowStore())
+    taken = DeviceRuntime(device_id="pool", baseline=OFF, last_written=ON, last_on_ts=T0)
+
+    async def race() -> None:
+        loading = asyncio.ensure_future(h.gate._runtime("pool"))
+        await asyncio.sleep(0)
+        await h.gate._save(taken)
+        await loading
+
+    asyncio.run(race())
+    assert h.gate.runtime_of("pool") == taken
+
+
+# --- explicit holds and detected changes ----------------------------------------------------------
+
+
+def test_a_manual_change_never_shortens_an_explicit_pause() -> None:
+    h = make_harness((switch_device(),))
+    switch_on(h, min_run_s=0)
+    asyncio.run(h.gate.hold("pool", None))  # pause until "resume now"
+    h.clock.advance(60)
+    assert asyncio.run(h.gate.observe("pool", OFF)).override
+    runtime = h.gate.runtime_of("pool")
+    assert runtime is not None
+    assert runtime.override
+    assert runtime.override_until is None
+    assert runtime.baseline == OFF
+
+
+def test_a_manual_change_extends_a_short_boost_to_the_override_policy() -> None:
+    h = make_harness((switch_device(),))
+    switch_on(h, min_run_s=0)
+    boost_end = h.clock.now + timedelta(minutes=30)
+    asyncio.run(h.gate.hold("pool", boost_end))
+    h.clock.advance(60)
+    assert asyncio.run(h.gate.observe("pool", OFF)).override
+    runtime = h.gate.runtime_of("pool")
+    assert runtime is not None
+    assert runtime.override_until is not None
+    assert runtime.override_until > boost_end  # next day 04:00 (default policy)
