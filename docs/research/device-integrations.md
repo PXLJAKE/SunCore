@@ -128,6 +128,96 @@ appears in `strings.json` under `entity.climate`). Derived entity id:
   can therefore take ≥ 2 s and is not atomic. State arrives by cloud push and
   may lag.
 
+### Climate write behaviour (Phase 3)
+
+Verified on 2026-10-14 against `home-assistant/core` `dev`
+`c433453ac565f083a4515ec5edfbdbede48ebf24`, `homeassistant/components/lg_thinq/{climate,entity,
+coordinator,switch,manifest.json}.py` (permalink base
+`https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/lg_thinq/`)
+and the PyPI wheel `thinqconnect-1.0.14` (`integration/homeassistant/{api,property,state}.py`).
+Generic service rules (fields, errors, `required_features`) are in
+[`ha-websocket-api.md`](ha-websocket-api.md), "Write services and contexts (Phase 3)".
+
+- **Entity type**: `ThinQClimateEntity(ThinQEntity, ClimateEntity)`; `ThinQEntity` is a
+  `CoordinatorEntity` (`should_poll = False`). State changes come only from the coordinator
+  (`handle_update_status` from the MQTT push, `async_set_updated_data`), i.e. **after** the cloud
+  confirms; the entity does not write an optimistic state after a command and the service
+  call does not trigger `async_update_ha_state(True)`.
+- **Supported features**: always `TARGET_TEMPERATURE | TURN_ON | TURN_OFF`, so `climate.turn_on`,
+  `climate.turn_off` and `climate.set_temperature` with `temperature` are accepted for every
+  `lg_thinq` air conditioner; `target_temp_low/high` only with `TARGET_TEMPERATURE_RANGE`
+  (`support_temperature_range`).
+- **`turn_on` / `turn_off`** (`async_turn_on/off`): one API call `POWER_ON` / `POWER_OFF`
+  (`thinqconnect api.py:785-801`). The library swallows "already in that state" errors
+  (`COMMAND_NOT_SUPPORTED_IN_STATE` 2302 on `POWER_ON`, `COMMAND_NOT_SUPPORTED_IN_POWER_OFF` 2304
+  on `POWER_OFF`), so repeating the command is harmless. There is **no sleep** in `turn_on`/`turn_off`
+  themselves. A `ThinQAPIException` becomes `ServiceValidationError(exc.message)`; timeouts and
+  `ClientError` become `HomeAssistantError` with translation key `connection_error`
+  (`entity.py` `async_call_api`).
+- **Turn-on delay**: `async_set_hvac_mode` and `async_set_temperature` call `async_turn_on()` when
+  `not self.data.is_on` and then `await asyncio.sleep(2)` (`climate.py`, both methods). The service
+  call therefore blocks >= 2 s. `async_set_temperature` with a different `hvac_mode` sleeps a further
+  2 s after `async_set_hvac_mode`. Because `self.data.is_on` is only refreshed by a push, a stale
+  "off" may trigger `POWER_ON` twice (harmless, see above) and the `hvac_mode != self.hvac_mode`
+  comparison uses the not yet updated HA mode.
+- **`set_temperature` while the unit is off turns it on.** There is no "set the set-point only"
+  path: with `data.is_on == False` the entity sends `POWER_ON`, sleeps 2 s, then writes the target.
+  The one exception is `hvac_mode == off` in the same call: it only turns off and the temperature is
+  ignored. **SunCore must not call `climate.set_temperature` on a unit that is off** (except when
+  switching on is intended and `allow_switch_on` is set); read `hvac_mode == off` from the cache
+  and skip the write.
+- **Which set-point is written**: `climate.set_temperature(temperature=…)` calls
+  `api.async_set_target_temperature`, which writes the holder for the *device's current* mode
+  (`state.py:520-530`): `cool` -> cool set-point, `heat` -> heat set-point, `auto` -> auto
+  set-point, anything else (also off) falls back to the cool holder. HA exposes a single
+  `temperature`; after a mode change the same attribute shows the other holder's value.
+- **Truncation, no step rounding**: `if self.data.step >= 1: temperature = int(temperature)`
+  (`climate.py`, truncation toward zero, not rounding: 22.9 -> 22), and `thinqconnect`
+  `PropertyHolder._convert_value` again casts to `int` when the profile step `is_integer()`
+  (`property.py:233-240`). For a step < 1 (e.g. 0.5) the float is passed through unchanged
+  (no snapping to the step grid; an off-grid value is left to the cloud API, which answers with an
+  error mapped to `ServiceValidationError`). Core itself enforces only `min_temp`..`max_temp`
+  (live: 7..35). The step is `PropertyState.step` from the device profile of the current-mode
+  holder (`_attr_target_temperature_step = self.data.step`); it is `None` when the profile has none.
+- **Skipped write**: the target is sent only `if temperature != self.native_target_temperature`
+  (after truncation); an equal value produces no API call and no state change. A `temperature` of
+  `0` is falsy and ignored. The range pair `target_temp_low/high` needs both values truthy.
+- **`UNVERIFIED` / risk**: on the maintainer's `RAC_0B0001_WW` unit the live check found **no
+  `target_temp_step` attribute** (step `None` at least while off). The code does
+  `self.data.step >= 1` unguarded, which would raise `TypeError: '>=' not supported between
+  instances of 'NoneType' and 'int'` for a `temperature` write in that state. The generic service
+  wrapper does not catch it, so the WebSocket answer would be `unknown_error`. Whether this
+  happens when the unit is on (where the profile holder of the active mode applies) is not
+  verifiable from source; the first limited live write must test `set_temperature` while on and
+  record the result. Treat `unknown_error` on this path as a driver failure (no retry loop) and
+  keep the device at its base set-point.
+- **How `hvac_mode` is set** (`async_set_hvac_mode`): `off` -> `async_turn_off()` and return;
+  `heat_cool` is rewritten to `auto`; if the unit is off it is turned on first (+2 s); then
+  `api.async_set_hvac_mode(…, HVAC_TO_STR[mode])` with `auto/cool/heat/fan/air_dry`
+  (`dry` -> `air_dry`, `fan_only` -> `fan`). Core pre-validates against `hvac_modes`, which never
+  contains `heat_cool` for this integration, so `climate.set_hvac_mode(heat_cool)` fails with
+  `not_valid_hvac_mode`; only `climate.set_temperature(hvac_mode=heat_cool)` reaches the
+  `auto` mapping. Modes that exist depend on the model (live: `heat, cool, dry, auto, fan_only`).
+- **State mapping used for read-back** (`_update_status`): `hvac_mode` is `off` when
+  `data.is_on` is false, otherwise the mapped device mode; preset `energy_saving` shows as `cool`
+  with `preset_mode = energy_saving`, `air_clean`/`aroma` as `fan_only`. `temperature` is the
+  target of the same holder as above and is `None` while the unit is off (live).
+  Update latency is cloud push; no value is known to be written until the push arrives
+  (`UNVERIFIED`: typical latency, measure in the first live write; budget the settle time in the
+  device template, not in the driver).
+- **Context handling**: because the state write comes from the push, it carries our `context.id`
+  only if it arrives within 5 s of the service call (see the context section in
+  `ha-websocket-api.md`); with the 2 s sleep and the cloud round trip, expect id-only contexts
+  (`user_id`/`parent_id` empty) for the echo of our own write. `lg_thinq` pushes are also
+  indistinguishable from a physical remote by context. Use value comparison for override
+  detection on this integration.
+- **Alternative on/off path**: the device also exposes a `switch` "Power"
+  (`unique_id` suffix `_air_con_operation_mode`, live check) whose `turn_on/turn_off` call the same
+  `POWER_ON`/`POWER_OFF` API without the 2 s sleeps (`switch.py:265-297`). Switching by
+  `climate.turn_on/turn_off` and by this switch are equivalent at the API level;
+  `UNVERIFIED` whether the maintainer's `smartthinq_sensors` climate behaves the same (its source
+  was not read).
+
 ### Energy sensors
 
 `components/lg_thinq/sensor.py:603-651` (descriptions), `:699-713` (setup).
@@ -329,6 +419,12 @@ a given LG model reports; LG sub-device (`sub_id`) layouts; the Tibber
 publication time of tomorrow's prices; the default number of Solcast day
 sensors; whether older cores and older Tibber/Solcast versions differ in
 attribute names.
+
+Read on 2026-10-14 (Phase 3 WP1), `home-assistant/core` `dev`
+`c433453ac565f083a4515ec5edfbdbede48ebf24`: `components/lg_thinq/{climate,entity,coordinator,
+switch}.py`, `thinqconnect-1.0.14` wheel; results in "Climate write behaviour (Phase 3)". `UNVERIFIED`
+there: the `step is None` `TypeError` risk, push latency after a command, the behaviour of
+`smartthinq_sensors`.
 
 ### Live check on the maintainer's system (2026-10-14)
 

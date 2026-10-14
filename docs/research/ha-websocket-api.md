@@ -274,6 +274,291 @@ Values are converted to the user's unit system.
 The `workday` binary sensor indicates whether the current day is a workday
 (holidays per country/region). The load forecast uses it to classify days.
 
+## Write services and contexts (Phase 3)
+
+Verified on 2026-10-14 against `home-assistant/core` `dev` at commit
+`c433453ac565f083a4515ec5edfbdbede48ebf24` (`MAJOR_VERSION = 2026`, `MINOR_VERSION = 11`) and
+`home-assistant/supervisor` `main` at `a2627a1ce37032ecd5c6509813f70cf5b95d32c2`. Paths are
+relative to `homeassistant/` in core; permalinks:
+`https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/<path>`.
+`dev` uses the `probatio` validation library (a `voluptuous` successor with the same API shape);
+error text below is unchanged by that. Every statement below is source reading only; nothing was
+run against a live HA unless it says so.
+
+### Common behaviour of entity services
+
+- All services below are *entity services* (`helpers/service.py`: `async_register_entity_service`,
+  `entity_service_call`). Their schema is the listed fields plus the target fields
+  `entity_id`, `device_id`, `area_id`, `floor_id`, `label_id` (`helpers/config_validation.py`
+  `ENTITY_SERVICE_FIELDS`), with at least one of them required and extra keys rejected
+  (`PREVENT_EXTRA`). `entity_id` is a string or a list of strings (`comp_entity_ids`).
+- **A non-existing or currently unavailable entity does not raise.** `_resolve_entity_service_call_entities`
+  drops entities with `available == False`, logs "Referenced entities … are missing or not
+  currently available" and, if nothing is left, returns `None`: the WebSocket call **succeeds**
+  (`success: true`) without doing anything. The only exception is `return_response: true`, which
+  then raises `HomeAssistantError("Service call requested response data but did not match any
+  entities")`. Consequence: a successful result never proves a write; SunCore must read the
+  state back (and treat `unavailable`/`unknown` as "write not applied").
+- **`required_features` is checked per entity.** The registration lists feature bit-sets; the
+  entity qualifies if *any* listed set is fully contained in `supported_features`
+  (`entity.supported_features & set == set`). If an explicitly referenced entity does not qualify,
+  `ServiceNotSupported` is raised (see error shapes); an entity reached only through
+  `device_id`/`area_id` is silently skipped.
+- After the entity method returns, entities with `should_poll = True` get an immediate
+  `async_update_ha_state(True)` (with the call's context re-applied). Push/coordinator entities
+  (`should_poll = False`, e.g. all `lg_thinq` entities) do not; their state changes whenever
+  the integration next writes (see "Context propagation").
+
+### Services and fields
+
+| Service | Fields (exact names) | Registration / validation (source) |
+|---|---|---|
+| `switch.turn_on`, `switch.turn_off` | none (target only) | `switch/services.py`; `ToggleEntity.async_turn_on/off`; no `required_features` |
+| `input_boolean.turn_on`, `input_boolean.turn_off` | none (target only) | `input_boolean/services.py` (`component.async_register_entity_service(SERVICE_TURN_ON, None, "async_turn_on")`) |
+| `climate.set_temperature` | `temperature` (float), or `target_temp_low` + `target_temp_high` (both floats, `Inclusive` group), optional `hvac_mode` (`Coerce(HVACMode)`) | `climate/services.py` `SET_TEMPERATURE_SCHEMA`; `required_features` = `[TARGET_TEMPERATURE, TARGET_TEMPERATURE_RANGE]` (either) |
+| `climate.set_hvac_mode` | `hvac_mode` (required, `Coerce(HVACMode)`) | `climate/services.py`; no `required_features`; `async_handle_set_hvac_mode_service` |
+| `climate.turn_on` | none | `required_features = [ClimateEntityFeature.TURN_ON]` |
+| `climate.turn_off` | none | `required_features = [ClimateEntityFeature.TURN_OFF]` |
+| `number.set_value` | `value` (required, `Coerce(float)`) | `number/services.py` `_async_set_value` |
+| `select.select_option` | `option` (required, `cv.string`) | `select/services.py` -> `async_handle_select_option` |
+| `water_heater.set_temperature` | `temperature` (required, float), optional `operation_mode` (string) | `water_heater/services.py`; `required_features = [WaterHeaterEntityFeature.TARGET_TEMPERATURE]` |
+| `water_heater.set_operation_mode` | `operation_mode` (required, string) | `required_features = [WaterHeaterEntityFeature.OPERATION_MODE]` |
+| `water_heater.turn_on`, `water_heater.turn_off` | none | `required_features = [WaterHeaterEntityFeature.ON_OFF]` |
+
+Details that matter for the drivers:
+
+- **Field name pitfalls**: climate uses `target_temp_high` / `target_temp_low` (not `_max`/`_min`);
+  the climate state attributes `min_temp`, `max_temp`, `target_temp_step` are separate from the
+  service fields. `HVACMode` values: `off, heat, cool, heat_cool, auto, dry, fan_only`
+  (`climate/const.py`). `ClimateEntityFeature` bits: `TARGET_TEMPERATURE = 1`,
+  `TARGET_TEMPERATURE_RANGE = 2`, `TARGET_HUMIDITY = 4`, `FAN_MODE = 8`, `PRESET_MODE = 16`,
+  `SWING_MODE = 32`, `TURN_OFF = 128`, `TURN_ON = 256`, `SWING_HORIZONTAL_MODE = 512`
+  (`climate/const.py:195-206`; consistent with the live `supported_features` 937 =
+  1 + 8 + 32 + 128 + 256 + 512 on the maintainer's `lg_thinq` entity, see
+  `device-integrations.md`).
+  `WaterHeaterEntityFeature`: `TARGET_TEMPERATURE = 1`, `OPERATION_MODE = 2`, `AWAY_MODE = 4`,
+  `ON_OFF = 8`.
+- **`climate.set_temperature` validation** (`_async_service_temperature_set`): `temperature`
+  requires the `TARGET_TEMPERATURE` bit and `target_temp_low` the `TARGET_TEMPERATURE_RANGE` bit,
+  otherwise `ServiceValidationError` (`missing_target_temperature_entity_feature` /
+  `missing_target_temperature_range_entity_feature`). `temperature` and the low/high pair are
+  mutually exclusive (`Exclusive`/`Inclusive`), at least one is needed (`AtLeastOne`); low > high
+  raises `low_temp_higher_than_high_temp`. Values are converted from the HA unit system to the
+  entity's `native_temperature_unit` and checked against the entity's `min_temp`..`max_temp`:
+  outside raises `temp_out_of_range` ("Provided temperature {check_temp} is not valid. Accepted
+  range is {min_temp} to {max_temp}."). **There is no step validation or rounding in core**;
+  `target_temp_step` is informational only. `hvac_mode` passed to `set_temperature` is *not*
+  checked against `hvac_modes` by core; the entity decides (the `lg_thinq` entity does, see
+  `device-integrations.md`). The service is typed with the HA unit system: the value sent is
+  interpreted in `hass.config.units.temperature_unit`, not in the device's unit.
+- **`climate.set_hvac_mode`**: `async_handle_set_hvac_mode_service` raises
+  `not_valid_hvac_mode` ("HVAC mode {mode} is not valid. Valid HVAC modes are: {modes}.") unless
+  the mode is in the entity's `hvac_modes`. An unknown mode string fails earlier in the schema
+  (`Coerce(HVACMode)`) as `invalid_format`.
+- **`climate.turn_on` / `turn_off`**: registered only for entities that advertise
+  `TURN_ON` / `TURN_OFF`. For an explicitly targeted entity without the bit the call fails with
+  `ServiceNotSupported` -> `service_validation_error`, translation key `service_not_supported`,
+  message "Entity {entity_id} does not support action climate.turn_on." (`homeassistant/strings.json`).
+  Core no longer auto-adds the bits (no backwards-compat helper left in `climate/__init__.py`), so an
+  entity that never declares them cannot be switched through `turn_on/off`; use `set_hvac_mode`
+  (`off` / a heating mode) for such entities. The base implementation (when the integration does not
+  override `turn_on`/`turn_off`) falls back to `set_hvac_mode`: `turn_on` picks the only non-`off`
+  mode if exactly two modes exist, otherwise the first of `heat_cool`, `heat`, `cool` that is
+  offered, otherwise `NotImplementedError`; `turn_off` uses `HVACMode.OFF` if offered. A device
+  that lacks `off` in `hvac_modes` therefore cannot be switched off with `turn_off`.
+- **`number.set_value`**: the value is checked against the *converted* `min_value`/`max_value`
+  (state-unit range); outside raises `out_of_range` ("Value {value} for {entity_id} is outside
+  valid range {min_value} - {max_value}."). The value is then converted to the native unit and
+  **clamped** to `native_min_value`/`native_max_value`. **The `step` is not enforced.** Defaults
+  when an integration does not set them: min 0.0, max 100.0, step 1.0 (`number/const.py`); the
+  `native_step` attribute is informational.
+- **`select.select_option`**: raises `not_valid_option` ("Option {option} is not valid for entity
+  {entity_id}, valid options are: {options}.") if `option` is not in the entity's `options`
+  (case-sensitive; also raised when `options` is empty).
+- **`water_heater.set_temperature`**: the `temperature` is unit-converted but **not range-checked**
+  in core (unlike climate and number); the integration may reject it. `operation_mode` is passed
+  through. `set_operation_mode` raises `operation_list_not_defined` / `not_valid_operation_mode`
+  ("Operation mode {operation_mode} is not valid for {entity_id}. Valid operation modes are:
+  {operation_list}.") when the mode is not in `operation_list`.
+
+### WebSocket `call_service`: message, result, errors
+
+Request (`websocket_api/commands.py` `handle_call_service`, schema):
+
+```json
+{"id": 24, "type": "call_service", "domain": "climate", "service": "set_temperature",
+ "target": {"entity_id": "climate.schlafen"},
+ "service_data": {"temperature": 22.5},
+ "return_response": false}
+```
+
+- `domain`, `service`: required strings. `target` (optional) uses `ENTITY_SERVICE_FIELDS`:
+  keys `entity_id` (string or list), `device_id`, `area_id`, `floor_id`, `label_id`; no
+  entity-registry UUIDs here. `service_data` (optional dict). `return_response` defaults to
+  `false`. `hass.services.async_call` merges `target` into `service_data`
+  (`service_data.update(target)`, `core.py` `async_call`) before schema validation, so
+  `entity_id` inside `service_data` works too. The call is always `blocking=True`: the result
+  arrives only after the service handler has finished (the `lg_thinq` climate can take >= 2 s).
+- Passing `return_response: true` to a service that does not declare `supports_response`
+  (all services in the table above) raises `ServiceValidationError`
+  (`service_does_not_support_response`); leave the field out.
+- The context is created by the server: `connection.context(msg)` returns
+  `Context(user_id=<connection user id>)` (`websocket_api/connection.py:109`). The client can not
+  choose the context id; `parent_id` is `None`. Via the Supervisor proxy (`ws://supervisor/core/websocket`)
+  the connection to Core is made by the Supervisor with its own access token
+  (`supervisor/homeassistant/api.py` `connect_websocket`; `supervisor/api/proxy.py`), so
+  `user_id` is the Supervisor's system user, shared by all apps. `UNVERIFIED`: its exact id and
+  that the Core-side user is the same for the unix-socket variant; the `user_id` therefore does
+  **not** identify SunCore, the context `id` does.
+- The Supervisor proxy rejects commands whose `type` starts with `supervisor/` or `hassio/`
+  (`{"type":"result","success":false,"error":{"code":"unauthorized","message":"Unauthorized"}}`);
+  `call_service` is forwarded unchanged.
+
+Success result (**the result carries the context**):
+
+```json
+{"id": 24, "type": "result", "success": true,
+ "result": {"context": {"id": "01K…", "parent_id": null, "user_id": "<supervisor user id>"}}}
+```
+
+With `return_response: true` (only for services that support it) `result.response` is added.
+`Context.as_dict()` is `{"id", "parent_id", "user_id"}` (`core.py:1322-1346`; JSON encoder
+`helpers/json.py` uses `as_dict`).
+
+Error result (`websocket_api/messages.py` `error_message`):
+
+```json
+{"id": 24, "type": "result", "success": false,
+ "error": {"code": "service_validation_error", "message": "Validation error: …",
+           "translation_key": "…", "translation_placeholders": {…}, "translation_domain": "…"}}
+```
+
+`translation_*` are present only when the exception has a `translation_key`. Codes
+(`websocket_api/const.py`, mapping in `handle_call_service`):
+
+| Cause | `error.code` | message |
+|---|---|---|
+| Service does not exist | `not_found` | "Service {domain}.{service} not found." |
+| Schema error (`probatio.Invalid`: missing/extra/mistyped field, bad `HVACMode`) | `invalid_format` | `str(err)` of the schema error |
+| `ServiceValidationError` (range, unknown option/mode, `ServiceNotSupported`, missing feature, integration validation) | `service_validation_error` | "Validation error: {text}" |
+| Other `HomeAssistantError` (e.g. `lg_thinq` connection error) | `home_assistant_error` | `str(err)` |
+| Permission | `unauthorized` | "Unauthorized" |
+| Anything else | `unknown_error` | `str(err)` |
+
+`ServiceNotFound` and `ServiceNotSupported` are `ServiceValidationError` subclasses;
+`ServiceNotFound` is mapped to `not_found` first. A `ServiceValidationError` is a user/input
+error (not retried, logged at error level by Core); `home_assistant_error` may be transient.
+There is no timeout on the server side of `call_service`; SunCore must apply its own.
+
+### Context propagation and override detection
+
+Facts from `helpers/service.py`, `helpers/entity.py`, `core.py`, `websocket_api/messages.py`:
+
+1. `entity_service_call` calls `entity.async_set_context(call.context)` before running the entity
+   method (`_async_handle_entity_calls`). The entity stores the context with a timestamp
+   (`_context`, `_context_set`).
+2. The next `Entity.async_write_ha_state()` passes `self._context` to `StateMachine.async_set_internal`,
+   **but only if the write happens within `CONTEXT_RECENT_TIME_SECONDS = 5` of
+   `async_set_context`** (`helpers/entity.py:87, 1328-1333`); otherwise the stored context is
+   dropped and the new state gets a fresh `Context(id=<ULID>)` with `user_id = None` and
+   `parent_id = None`.
+3. The state's context is only replaced when the state actually changes. If a write has the same
+   state and the same attributes, no `state_changed` event is fired and the stored state (including its
+   context) is kept; only `last_reported` moves (`core.py:2485-2502`).
+4. State changes that an integration produces itself (push from the cloud or the device, polling,
+   coordinator refresh) are written without a context: `Context(id=<ULID>)`, `user_id = None`,
+   `parent_id = None` (`core.py:2482-2483`). A change started in the HA frontend has `user_id` =
+   the logged-in user, `parent_id = None` (`connection.context`). A call from our WebSocket
+   connection has `user_id` = Supervisor user and `parent_id = None`. A change started by an
+   automation or script has a `parent_id` pointing at the run's context; `UNVERIFIED`: where
+   exactly `parent_id` is set (`automation/__init__.py` and `helpers/script.py` were searched
+   but the construction site was not found in those files, only the propagation of
+   `self._context`), so do not rely on `parent_id` semantics.
+
+Consequences, in the order SunCore will use them:
+
+- **A context match is positive proof, a mismatch is not.** If the new state's `c.id` equals the
+  `context.id` returned by our `call_service`, the change was caused by our call. The reverse does
+  not hold: for push/coordinator integrations the state write after our command usually arrives
+  later than 5 s or is triggered by the cloud echo, and then carries a fresh id-only context
+  (indistinguishable from a physical remote). **Override detection must therefore be value-based**
+  (observed value differs from the last value we wrote and no expected change is pending), with the
+  context as supporting evidence only: `c.id == one of our recent ids` -> ours; `user_id` set and
+  not the Supervisor user -> human via UI/app; `parent_id` set -> automation; both `None` and id
+  not ours -> integration push (physical remote, app, schedule, or a delayed echo of our own write).
+- **Race**: a push write within 5 s after our call (including one caused by an unrelated physical
+  action) inherits our context id. A physical change right after our command can look like ours.
+  The value check catches it only if the value differs from what we wrote.
+- If the device never changes state after our command (device refused, offline, same value), there
+  is no state change and no context to see; absence of a state update within the settle time is the
+  failure signal.
+
+Context in `subscribe_entities` (`const.py:914-918`, `messages.py:195-254`, `core.py:2062-2088`):
+
+- Initial `{"a": {entity_id: {...}}}` and later `a` additions: key `c` is a **string** (the
+  context id) when `parent_id` and `user_id` are both `None`, otherwise a dict
+  `{"id", "parent_id", "user_id"}`.
+- `c` (change) events: `{"c": {entity_id: {"+": {...}, "-": {"a": [...]}}}}`. In `"+"`, key `c`
+  is present only if the context changed, and then only carries **the fields that differ from the
+  old state's context** (`_state_diff_event`): a plain string `"<id>"` if only `id` differs, in
+  which case `parent_id`/`user_id` are *unchanged* from the previous state (they are **not**
+  `None`: the same human changing a value twice yields a bare string); otherwise a dict with
+  the differing keys among `parent_id`, `user_id` and, if it differs, `id` (a dict can lack
+  `id` only if the id is identical, which does not happen for a new state). Example: UI change
+  by user U, then a physical-remote push: `{"c": {"user_id": null, "id": "01K…"}}`. The client
+  must keep the previous context per entity and merge (dict keys override, string overrides
+  `id` only). `parent_id`/`user_id` that did not change are never repeated.
+- `lc` is sent when `last_changed` differs, `lu` only when `last_changed` is unchanged but
+  `last_updated` differs (attribute-only change). If `lc` is present, `lu` equals `lc`.
+- The compressed format has **no `lr`/`last_reported` key** and no parent/user for the old state.
+
+### `last_reported`, `last_updated`, `last_changed`
+
+(`core.py` `State`, `StateMachine.async_set_internal`, `1881-1993`, `2431-2546`)
+
+- `last_changed`: the `state` string changed (also when `force_update` is true).
+- `last_updated`: state **or attributes** changed (a new `State` object, a `state_changed` event).
+- `last_reported`: every write of the entity, including writes where state and attributes are
+  identical. In that case Core does **not** create a new state and fires **no `state_changed`**:
+  it mutates `old_state.last_reported = now` and fires `EVENT_STATE_REPORTED`
+  (`state_reported`, data `entity_id`, `last_reported`, `old_last_reported`, `new_state`).
+  So a polled or coordinator-driven sensor whose value (and attributes) did not change shows a moving
+  `last_reported` while `last_changed`/`last_updated` stay put. Entities with `force_update = True`
+  fire `state_changed` on every write instead.
+- Not delivered by `subscribe_entities` (no `lr` key; it only listens to `state_changed`,
+  `commands.py` `handle_subscribe_entities`). `subscribe_events` with `event_type: "state_reported"`
+  is **refused by Core**: `Bus.async_listen` raises `HomeAssistantError("Event filter is required
+  for event state_reported")` for listeners without a filter (`core.py:1747-1751`), which
+  `handle_subscribe_events` does not provide; the client gets `home_assistant_error`
+  (`UNVERIFIED` at runtime; derived from the source). `last_reported` is exposed in
+  `get_states` and `State.as_dict` (`last_reported` ISO string; equals `last_changed` when
+  identical) and in the REST state endpoints.
+- Consequence for SunCore: the entity cache can only know "last *changed*". For a slow sensor
+  (the 5-minute `smartthinq_sensors` power sensor) an unchanged value must not be treated as
+  stale just because no `state_changed` arrived. Options: poll `get_states` for the few
+  entities involved at the sensor's period and read `last_reported`, or define staleness per
+  entity as a template-configured maximum age counted from the last observed change **plus**
+  an optional `get_states` refresh. The Phase 1 cache currently derives age from the
+  subscription stream; Phase 3 must add the refresh for slow sensors.
+
+### Verification (Phase 3 WP1)
+
+Read on 2026-10-14, `home-assistant/core` `dev` `c433453ac565f083a4515ec5edfbdbede48ebf24`:
+`homeassistant/components/{switch,input_boolean,climate,number,select,water_heater}/{__init__,services,const}.py`
+(+ `strings.json` of climate, number, select, water_heater, homeassistant),
+`homeassistant/components/websocket_api/{commands,connection,messages,const}.py`,
+`homeassistant/helpers/{service,entity,config_validation,json,target}.py`, `homeassistant/core.py`,
+`homeassistant/exceptions.py`, `homeassistant/const.py`; `home-assistant/supervisor` `main`
+`a2627a1ce37032ecd5c6509813f70cf5b95d32c2`: `supervisor/api/proxy.py`,
+`supervisor/homeassistant/api.py`.
+
+`UNVERIFIED` (needs a live HA): the Core-side user id behind the Supervisor proxy; the runtime
+error code for `subscribe_events` `state_reported`; whether the 5 s context window is hit in
+practice for `lg_thinq` pushes (timing of the cloud echo); `SUBSCRIBE_ALLOWLIST` content
+(`auth/permissions/events.py` was not read; the Supervisor user is assumed to be admin, which
+bypasses it); behaviour of cores
+older than 2026.11 (before the `probatio` change and with the earlier turn-on/off compat code).
+
 ## Verification
 
 Verified on 2026-10-12 against `home-assistant/developers.home-assistant`
