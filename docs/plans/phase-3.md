@@ -1,6 +1,9 @@
 # Phase 3 – Real-time controller and safety
 
-Status: **draft**, waiting for the maintainer's approval
+Status: **approved** by the maintainer on 2026-10-14 (answers in §6: water heater built
+without hardware to test, climate switch-on per device, manual changes are respected until
+the next day or a configurable number of hours, no grid import caused by SunCore; defaults
+otherwise)
 Source of truth: [`docs/BRIEF.md`](../BRIEF.md) §3, §4.5 (common concepts, power without a
 power sensor, device types, real-time surplus distribution), §4.11, §4.14, §5, §8, §9, §10;
 [`docs/roadmap.md`](../roadmap.md) Phase 3; ADR-0004, 0006, 0011, 0012;
@@ -99,7 +102,8 @@ Read from `home-assistant/core` (GitHub, the doc sites are unreachable) and reco
 - `invariants.py`: pure functions over `(Intent, DeviceRuntime, Signals, limits, now)` →
   `Ok | Violation(Reason)`: grid import limit (controllable share: never *add* load that
   pushes import above `site.grid.import_limit_w`), comfort band (set-point never outside
-  `comfort`), min run/pause, max switches/hour (sliding hour), per-device write rate limit,
+  `comfort`), **no grid import caused by SunCore** (see WP7), min run/pause, max
+  switches/hour (sliding hour), per-device write rate limit,
   write-only-on-change, battery reserve (guard only; no battery writes in Phase 3).
   Property tests with hypothesis over random intent sequences and clocks.
 - `gate.py`: per-device and global mode from an **injected mode provider** (the app passes
@@ -109,9 +113,12 @@ Read from `home-assistant/core` (GitHub, the doc sites are unreachable) and reco
   `Origin.USER`); automatic → invariants → `apply()` → settle → read-back from the entity
   cache (not `get_states`) → `accepted` or `failed`.
 - `overrides.py`: a state change that is not explained by our last write (context id, or
-  value differs from the read-back after settle) marks the device `held` for
-  `override_hold_s` (default 2 h, R3); "Boost N min" / "Pause until" are explicit user
-  overrides through the API.
+  value differs from the read-back after settle) marks the device `held` (R3). A unit
+  switched off by remote control stays off, a changed temperature is kept (it becomes the
+  new base set-point). Per device `override_policy`: **`next_day`** (default: SunCore takes
+  over again at the configured local time of the next day, default 04:00) or `hours` (1–48 h).
+  The UI shows "held until …" and offers "resume now". "Boost N min" / "Pause until" are
+  explicit user overrides through the API.
 - `watchdog.py`: plausibility per scope – stale (per-entity max age, slow sensors get their
   cadence × 2), unavailable, unit invalid, jumps (> configurable W/s), frozen inverter values
   in daylight (maintainer's Kostal hang, BRIEF §9), balance not closing. Grid/PV/battery
@@ -166,15 +173,21 @@ Read from `home-assistant/core` (GitHub, the doc sites are unreachable) and reco
 `ServiceCaller` held by safety, verified services from WP1:
 
 - `OnOffDriver` (`switch`, `input_boolean`), `ClimateDriver` (set-point shift relative to the
-  user's base set-point inside the comfort band; on/off via HVAC mode only when the user
-  allowed it – default off; baseline = user's set-point and HVAC mode at takeover),
+  user's base set-point inside the comfort band; switching on/off via HVAC mode only when
+  `allow_switch_on` is set for the device – per-device opt-in in the device editor, default
+  off; the HVAC mode used for switching on (heat/cool) is configured per device; baseline =
+  user's set-point and HVAC mode at takeover),
   `StepsDriver` (select option or number value; or 1–3 relays, see question 3),
   `NumberDriver` (W, A, %), `ModeDriver` (select/preset).
 - Read-back maps the cached entity state to an `Action`; write only on change; never
   blocks the loop.
 - New template `generic.water_heater_steps` (stepped heater with temperature sensor role
-  and `max_c` via the comfort band) with source citation and conformance scenario; schema
-  change only if question 3 picks relays (additive v1 change per ADR-0012 policy).
+  and `max_c` via the comfort band) in two variants: one select/number entity, and 1–3 relay
+  switches (`relays` control kind, an additive schema v1 change per ADR-0012 policy). The
+  maintainer has no heater: it is tested in the simulator only and marked `UNVERIFIED`
+  (`tested_with: []`).
+- `DeviceConfig` additions (additive, defaults keep old documents valid): `allow_switch_on`,
+  `switch_on_hvac_mode`, `override_policy` (`next_day` + time | `hours`).
 
 ### WP7 – Controller · `control-safety` (Fable)
 
@@ -192,6 +205,16 @@ Read from `home-assistant/core` (GitHub, the doc sites are unreachable) and reco
   shifts the set-point (heat: up to `+shift_max_c`, cool: down) inside the comfort band and
   back to the base when the surplus is gone; time windows and quiet hours; `climate_before_
   export` goal.
+- **No grid import caused by SunCore** (maintainer, 2026-10-14): controlled devices may only
+  use real surplus. Adding load needs `surplus − uncertainty ≥ need + hysteresis`. When a
+  controlled device suddenly draws more (compressor ramp, Δtemp), the battery buffers the
+  short deficit; if grid import or battery discharge attributable to controlled devices lasts
+  longer than `deficit_delay_s` (default 30 s, shorter for uncertain estimates), the
+  controller backs off in steps: set-point back toward the base, then lower steps/power,
+  then off (only after `min_run_s`; switch-off is always allowed for devices SunCore switched
+  on). A small battery energy budget per deficit (default 50 Wh) bounds the buffering, and
+  the battery is never used below the reserve. Grid import is only ever planned for smart
+  battery charging (Phase 4).
 - Hysteresis state machine per device with explicit states and reasons (`controller.*`
   catalogue keys), emits intents **only on change**, so the decision log does not fill
   every 5 s.
@@ -299,28 +322,23 @@ maintainer's shadow-mode run is the acceptance test.
 | R8 | PR 3-B too large to review | slow review | split into 3-B1 (devices/power) and 3-B2 (controller/sim/runtime) if > ~3 000 lines |
 | R9 | DB schema 3 blocks a downgrade to 0.3.x | user cannot roll back | documented in release notes; export before update |
 
-## 6. Open questions for the maintainer
+## 6. Questions and answers
 
-Defaults in bold apply if unanswered.
+Answered by the maintainer on 2026-10-14; bold defaults applied where he did not answer.
 
-1. **PR structure:** **three stacked PRs (3-A safety/storage, 3-B controller/devices/sim,
-   3-C UI/docs)** – or one big Phase 3 PR? (Your step 4 says "a PR"; I recommend the stack
-   for the safety review.)
-2. **"Back to normal" / release:** **restore the state at takeover** (climate: your base
-   set-point and HVAC mode; switch/steps/number: the state before SunCore switched it, usually
-   off/minimum). Alternative: leave everything as it is and only stop writing.
-3. **Water heater:** do you have one? **Template for a stepped heater driven by one select
-   or number entity, plus a `relays` variant (1–3 switch entities, additive schema v1
-   change)**.
-4. **Climate on/off:** may SunCore switch an AC on (HVAC `off` → `heat`/`cool`) from surplus,
-   or only shift the set-point of a unit that is already running? **Default: set-point shift
-   only; switching on is a per-device opt-in.**
-5. **Override hold time:** after you change a device by hand, SunCore keeps its hands off for
-   **2 hours** (configurable per device).
-6. **Assisted mode:** **proposals in the UI only, valid 2 minutes**; HA notifications with
-   actions come with Phase 6.
-7. **Import:** an import always resets the global mode to shadow. **Yes.**
-8. **Controller tick:** **5 s**, smoothing window 60 s.
+1. PR structure: **three stacked PRs (3-A, 3-B, 3-C)** (default).
+2. "Back to normal" / release: **restore the state at takeover** (default).
+3. Water heater: the maintainer has none, **build it anyway** (select/number and 1–3 relays),
+   simulator-tested only, `UNVERIFIED`.
+4. Climate switch-on: **allowed, opt-in per device** (`allow_switch_on`).
+5. Manual changes (remote control off, temperature changed) are respected: the unit stays as
+   the user left it. SunCore takes over again **the next day** (default 04:00 local) or after
+   a configurable number of hours, per device; "resume now" in the UI.
+6. **No grid import caused by SunCore**; the battery may buffer short deficits, then
+   SunCore backs off (WP7). Grid import only for smart battery charging in Phase 4.
+7. Assisted mode: **proposals in the UI, valid 2 minutes** (default).
+8. Import resets the global mode to shadow: **yes** (default).
+9. Controller tick **5 s**, smoothing window **60 s** (default).
 
 ## 7. Out of scope for Phase 3
 
