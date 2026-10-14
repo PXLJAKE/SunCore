@@ -115,3 +115,24 @@ async def test_latest_loads_phase_1_rows_and_skips_corrupt_ones(db: Database) ->
     assert latest[0].schema_version == 2
     assert latest[0].kind is DecisionKind.SHADOW
     assert await log.count() == 4
+
+
+async def test_append_normalises_the_ts_to_utc_and_prune_uses_it(db: Database) -> None:
+    from datetime import timezone  # noqa: PLC0415
+
+    log = DecisionLog(db)
+    plus_two = timezone(timedelta(hours=2))
+    old = make_decision(0).model_copy(update={"ts": (T0 - timedelta(days=40)).astimezone(plus_two)})
+    new = make_decision(1).model_copy(update={"ts": T0.astimezone(plus_two)})
+    await log.append(old)
+    await log.append(new)
+    rows = await db.fetchall("SELECT ts FROM decision ORDER BY id")
+    assert [str(r[0]) for r in rows] == [
+        (T0 - timedelta(days=40)).isoformat(),
+        T0.isoformat(),
+    ]
+    assert all("+00:00" in str(r[0]) for r in rows)
+    deleted = await log.prune(T0, max_age_days=30)
+    assert deleted == 1
+    assert [d.intent.id for d in await log.latest()] == ["i-1"]
+    assert (await log.latest())[0].ts == new.ts  # the payload keeps the original offset

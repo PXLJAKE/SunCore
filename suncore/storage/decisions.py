@@ -34,7 +34,7 @@ class DecisionLog:
             "INSERT INTO decision (ts, asset_id, layer, kind, payload, reasons) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (
-                decision.ts.isoformat(),
+                decision.ts.astimezone(UTC).isoformat(),  # the ts index sorts chronologically
                 decision.intent.asset_id,
                 LAYER_SAFETY,
                 decision.kind.value,

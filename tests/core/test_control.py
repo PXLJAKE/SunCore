@@ -110,3 +110,11 @@ def test_plan_intervals_are_sorted_and_must_not_overlap() -> None:
         BatteryBand(min_power_w=10, max_power_w=5)
     with pytest.raises(ValidationError):
         BatteryBand(min_soc_pct=50, max_soc_pct=10)
+
+
+def test_resume_time_default_is_one_constant() -> None:
+    from suncore.core import control, devices  # noqa: PLC0415
+
+    assert control.RESUME_TIME_DEFAULT is devices.RESUME_TIME_DEFAULT
+    assert devices.OverridePolicy().resume_time == devices.RESUME_TIME_DEFAULT
+    assert ControlSettings().inputs_max_age_ticks == 3

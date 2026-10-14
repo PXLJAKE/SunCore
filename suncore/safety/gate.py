@@ -19,10 +19,21 @@ Phase 3 (``docs/plans/phase-3.md`` WP3). For every intent, in this order:
 
 Release ("back to normal", restores the takeover baseline) is triggered by the
 emergency stop, ``shutdown`` (bounded by ``release_deadline_s``), a mode change to
-shadow (``sync_modes``), a site watchdog trip, a restored connection and the crash
-recovery at start-up (``recover`` with the persisted runtime). Only this module calls
-``apply()`` and ``release()`` (``tests/safety/test_boundary.py``). Time is injected
-(``clock``), the settle wait is injected (``sleep``); nothing reads the wall clock.
+shadow (``sync_modes``), a watchdog trip, a restored connection and the crash
+recovery at start-up (``recover`` with the persisted runtime). Urgent triggers
+(emergency stop, shutdown, crash recovery, site trip, repeated write failures) release
+at once. Non-urgent triggers (mode change to shadow, device trip, restored connection)
+stop writing at once but defer the release write until the device's minimum run or
+pause time has elapsed; the deadline is persisted in the runtime and executed by
+:meth:`SafetyGate.poll`, which the control loop calls every tick.
+
+Concurrency: a per-device ``asyncio.Lock`` serialises the write path, the release and
+the runtime updates. The write path re-checks the emergency stop, the effective mode,
+the watchdog and the hold right before ``apply()`` (after the baseline read-back, which
+awaits) and reloads the runtime after the settle wait: a device released meanwhile is
+not taken over again (``safety.superseded``). Only this module calls ``apply()`` and
+``release()`` (``tests/safety/test_boundary.py``). Time is injected (``clock``), the
+settle wait is injected (``sleep``); nothing reads the wall clock.
 """
 
 from __future__ import annotations
@@ -110,6 +121,12 @@ REASON_SHUTDOWN: Final = Reason(key="safety.shutdown")
 REASON_MODE_SHADOW: Final = Reason(key="safety.mode_shadow")
 REASON_RECOVERY: Final = Reason(key="safety.crash_recovery")
 REASON_WRITE_FAILURES: Final = Reason(key="safety.repeated_failures")
+REASON_SUPERSEDED: Final = Reason(key="safety.superseded")
+REASON_LATE_CONFIRMED: Final = Reason(key="safety.late_confirmed")
+REASON_RELEASE_DEFERRED: Final = Reason(key="safety.release_deferred")
+REASON_RELEASE_PENDING: Final = Reason(key="safety.release_pending")
+REASON_MODE_CHANGED: Final = Reason(key="safety.mode_changed")
+REASON_RATE_LIMITED: Final = Reason(key="safety.rate_limited")
 
 MAX_CONSECUTIVE_FAILURES: Final = 3
 """After this many failed writes in a row the device scope trips (watchdog)."""
@@ -117,7 +134,14 @@ MAX_CONSECUTIVE_FAILURES: Final = 3
 
 @dataclass(frozen=True, slots=True)
 class GateInputs:
-    """Site view handed to the invariants (the controller refreshes it every tick)."""
+    """Site view handed to the invariants (the controller refreshes it every tick).
+
+    ``surplus`` is the **free** surplus: power available on top of everything that runs
+    now (export minus reserve, after smoothing), *not* including the current draw of
+    the device being judged - the invariant compares it with the action's added demand.
+    A snapshot older than ``inputs_max_age_ticks * tick_s`` (or without ``ts``) is
+    treated as unknown surplus, which rejects every load increase.
+    """
 
     flows: FlowSnapshot | None = None
     surplus: PowerEstimate | None = None
@@ -125,6 +149,8 @@ class GateInputs:
     """Current power per device id."""
     import_limit_w: float | None = None
     reserve_soc_pct: float | None = None
+    ts: datetime | None = None
+    """When the snapshot was computed (injected clock)."""
 
 
 InputsProvider = Callable[[], GateInputs | None]
@@ -176,6 +202,7 @@ class SafetyGate:
         self._proposals: dict[str, Decision] = {}
         self._failures: dict[str, int] = {}
         self._site_tripped = False
+        self._locks: dict[str, asyncio.Lock] = {}
 
     # --- read-only views ----------------------------------------------------------
 
@@ -209,10 +236,17 @@ class SafetyGate:
 
     def proposals(self) -> tuple[Decision, ...]:
         """Open (unexpired) assisted-mode proposals, oldest first."""
-        now = self._now()
-        return tuple(
-            d for d in self._proposals.values() if d.expires_at is None or now < d.expires_at
-        )
+        self._prune_proposals(self._now())
+        return tuple(self._proposals.values())
+
+    def _prune_proposals(self, now: datetime) -> None:
+        expired = [
+            k
+            for k, d in self._proposals.items()
+            if d.expires_at is not None and now >= d.expires_at
+        ]
+        for key in expired:
+            del self._proposals[key]
 
     # --- lifecycle ---------------------------------------------------------------
 
@@ -254,11 +288,30 @@ class SafetyGate:
         await self._store.save_emergency_stop(False)
 
     async def sync_modes(self) -> None:
-        """Call after the operating modes changed: devices that fell to shadow are released."""
+        """Call after the operating modes changed: devices that fell to shadow are released
+        (deferred until their minimum run/pause time has elapsed)."""
         for device_id in list(self._runtimes):
             runtime = self._runtimes[device_id]
             if runtime.under_control and self.modes_of(device_id).effective is OperatingMode.SHADOW:
-                await self.release_device(device_id, REASON_MODE_SHADOW, origin=Origin.USER)
+                await self.release_device(
+                    device_id, REASON_MODE_SHADOW, origin=Origin.USER, urgent=False
+                )
+
+    async def poll(self) -> tuple[Decision, ...]:
+        """Execute deferred releases whose protection time has elapsed (call every tick)."""
+        now = self._now()
+        decisions: list[Decision] = []
+        for device_id in list(self._runtimes):
+            runtime = self._runtimes[device_id]
+            if runtime.release_due_ts is None or now < runtime.release_due_ts:
+                continue
+            reason = (
+                Reason(key=runtime.release_due_reason)
+                if runtime.release_due_reason is not None
+                else REASON_RELEASED
+            )
+            decisions.append(await self.release_device(device_id, reason, origin=Origin.SAFETY))
+        return tuple(decisions)
 
     # --- watchdog feed -------------------------------------------------------------------
 
@@ -280,7 +333,9 @@ class SafetyGate:
         if faults:
             runtime = self._runtimes.get(device_id)
             if runtime is not None and runtime.under_control:
-                await self.release_device(device_id, faults[0].reason, origin=Origin.SAFETY)
+                await self.release_device(
+                    device_id, faults[0].reason, origin=Origin.SAFETY, urgent=False
+                )
         return faults
 
     async def connection_lost(self) -> None:
@@ -291,7 +346,7 @@ class SafetyGate:
     async def connection_restored(self) -> None:
         """Back online: release what was under control (the user may have changed things)."""
         self._watchdog.connection_restored(self._now())
-        await self._release_all(REASON_CONNECTION_LOST, origin=Origin.SAFETY)
+        await self._release_all(REASON_CONNECTION_LOST, origin=Origin.SAFETY, urgent=False)
         self._site_tripped = self._watchdog.state(SITE_SCOPE, self._now()) is ScopeState.SAFE
 
     async def _after_site_check(self, now: datetime, faults: tuple[Fault, ...]) -> None:
@@ -305,37 +360,87 @@ class SafetyGate:
     async def observe(
         self, device_id: str, observed: Action, *, context_id: str | None = None
     ) -> overrides.OverrideVerdict:
-        """Feed an observed device state (from the cache) for override detection."""
-        now = self._now()
-        runtime = await self._runtime(device_id)
+        """Feed an observed device state (from the cache) for override detection.
+
+        Only configured devices are judged. A value that matches a write whose
+        read-back had failed is a late confirmation: the write becomes ``last_written``
+        and is logged as ``accepted`` (``safety.late_confirmed``), never as an override.
+        """
         device = self._devices(device_id)
-        settle = self._settle_s(device)
-        verdict = overrides.judge(observed, runtime, now, settle_s=settle, context_id=context_id)
-        if verdict.override:
-            policy = device.override_policy if device is not None else _DEFAULT_POLICY
-            updated = overrides.apply_verdict(runtime, verdict, now, policy, self._tz)
-            await self._save(updated)
-            log.info(
-                "safety.override_detected",
-                device_id=device_id,
-                until=updated.override_until,
-                reason=verdict.reason.key if verdict.reason else None,
+        if device is None:
+            return overrides.NO_OVERRIDE
+        async with self._lock(device_id):
+            now = self._now()
+            runtime = await self._runtime(device_id)
+            settle = self._settle_s(device)
+            if overrides.pending_expired(runtime, now, settle):
+                runtime = overrides.clear_pending(runtime)
+                await self._save(runtime)
+            verdict = overrides.judge(
+                observed, runtime, now, settle_s=settle, context_id=context_id
             )
-        return verdict
+            if verdict.late_confirm:
+                await self._late_confirm(device, runtime, observed, now)
+            elif verdict.override:
+                updated = overrides.apply_verdict(
+                    runtime, verdict, now, device.override_policy, self._tz
+                )
+                await self._save(updated)
+                log.info(
+                    "safety.override_detected",
+                    device_id=device_id,
+                    until=updated.override_until,
+                    reason=verdict.reason.key if verdict.reason else None,
+                )
+            return verdict
+
+    async def _late_confirm(
+        self, device: DeviceConfig, runtime: DeviceRuntime, observed: Action, now: datetime
+    ) -> None:
+        pending = runtime.pending_action
+        assert pending is not None
+        confirmed = overrides.confirm_pending(runtime)
+        if _was_transition(pending, device, runtime):
+            target = action_turns_on(pending, device)
+            if target is not None:
+                confirmed = confirmed.with_switch(runtime.pending_ts or now, on=target)
+        await self._save(confirmed)
+        count = self._failures.get(device.id, 0)
+        if count <= 1:
+            self._failures.pop(device.id, None)
+        else:
+            self._failures[device.id] = count - 1
+        await self._decide(
+            Intent(
+                id=f"late:{device.id}:{now.isoformat()}",
+                ts=now,
+                asset_id=device.id,
+                action=pending,
+                reasons=(REASON_LATE_CONFIRMED,),
+                origin=Origin.SAFETY,
+            ),
+            DecisionKind.ACCEPTED,
+            now,
+            (REASON_LATE_CONFIRMED,),
+            self.modes_of(device.id).effective,
+            observed=observed,
+        )
 
     async def hold(self, device_id: str, until: datetime | None) -> DeviceRuntime:
         """Explicit user override (boost / pause until); ``None`` holds until ``resume``."""
-        runtime = await self._runtime(device_id)
-        updated = overrides.hold_until(runtime, until)
-        await self._save(updated)
-        return updated
+        async with self._lock(device_id):
+            runtime = await self._runtime(device_id)
+            updated = overrides.hold_until(runtime, until)
+            await self._save(updated)
+            return updated
 
     async def resume(self, device_id: str) -> DeviceRuntime:
         """ "Resume now": SunCore may control the device again."""
-        runtime = await self._runtime(device_id)
-        updated = overrides.resume(runtime)
-        await self._save(updated)
-        return updated
+        async with self._lock(device_id):
+            runtime = await self._runtime(device_id)
+            updated = overrides.resume(runtime)
+            await self._save(updated)
+            return updated
 
     # --- proposals -----------------------------------------------------------------------
 
@@ -370,6 +475,7 @@ class SafetyGate:
     async def submit(self, intent: Intent) -> Decision:  # noqa: PLR0911 - one return per verdict
         """Judge one intent, emit the decision to the sink and return it."""
         now = self._now()
+        self._prune_proposals(now)
         device_id = intent.asset_id
         mode = self.modes_of(device_id).effective
         if is_stale_intent(intent.ts, now, self._settings.intent_max_age_s):
@@ -392,6 +498,10 @@ class SafetyGate:
         pause = self._watchdog.pause_reason(device_id, now)
         if pause is not None:
             return await self._decide(intent, DecisionKind.REJECTED, now, (pause,), mode)
+        if runtime.release_pending and not isinstance(intent.action, ReleaseAction):
+            return await self._decide(
+                intent, DecisionKind.REJECTED, now, (REASON_RELEASE_PENDING,), mode
+            )
         if runtime.is_held(now) and intent.origin is not Origin.USER:
             return await self._decide(
                 intent,
@@ -421,7 +531,7 @@ class SafetyGate:
             return decision
         return await self._write(intent, device, runtime, now, mode)
 
-    async def _write(
+    async def _write(  # noqa: PLR0911 - one return per verdict
         self,
         intent: Intent,
         device: DeviceConfig,
@@ -435,46 +545,113 @@ class SafetyGate:
             return await self._decide(
                 intent, DecisionKind.REJECTED, now, (REASON_NO_ACTUATOR,), mode
             )
-        previous_slot = self._limiter.last_write(device_id)
-        if not self._limiter.try_acquire(device_id, now):
-            return await self._decide(
-                intent, DecisionKind.REJECTED, now, (Reason(key="safety.rate_limited"),), mode
-            )
-        if not runtime.under_control:
-            baseline = await actuator.read_back()
-            if baseline is None:
-                self._limiter.release_slot(device_id, previous_slot)
+        failed_write = False
+        context_id: str | None = None
+        async with self._lock(device_id):
+            runtime = self._runtimes.get(device_id, runtime)
+            blocked = self._blocked(intent, runtime, now)
+            if blocked is not None:
+                return await self._decide(intent, DecisionKind.REJECTED, now, (blocked,), mode)
+            previous_slot = self._limiter.last_write(device_id)
+            if not self._limiter.try_acquire(device_id, now):
                 return await self._decide(
-                    intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
+                    intent, DecisionKind.REJECTED, now, (REASON_RATE_LIMITED,), mode
                 )
-            runtime = runtime.model_copy(
-                update={
-                    "baseline": baseline,
-                    "baseline_ts": now,
-                    "base_setpoint_c": baseline.setpoint_c
-                    if isinstance(baseline, SetpointAction)
-                    else runtime.base_setpoint_c,
-                }
-            )
-            await self._save(runtime)
-        try:
-            context_id = await actuator.apply(intent)
-        except Exception as exc:
-            log.warning("safety.write_failed", device_id=device_id, error=str(exc)[:200])
+            if not runtime.under_control:
+                baseline = await actuator.read_back()
+                if baseline is None:
+                    self._limiter.release_slot(device_id, previous_slot)
+                    return await self._decide(
+                        intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
+                    )
+                # The read-back awaited: anything may have changed in between.
+                blocked = self._blocked(intent, self._runtimes.get(device_id, runtime), now)
+                if blocked is not None:
+                    self._limiter.release_slot(device_id, previous_slot)
+                    return await self._decide(intent, DecisionKind.REJECTED, now, (blocked,), mode)
+                runtime = runtime.model_copy(
+                    update={
+                        "baseline": baseline,
+                        "baseline_ts": now,
+                        "base_setpoint_c": baseline.setpoint_c
+                        if isinstance(baseline, SetpointAction)
+                        else runtime.base_setpoint_c,
+                    }
+                )
+                await self._save(runtime)
+            try:
+                context_id = await actuator.apply(intent)
+            except Exception as exc:
+                log.warning("safety.write_failed", device_id=device_id, error=str(exc)[:200])
+                failed_write = True
             runtime = runtime.model_copy(update={"last_write_ts": now})
             await self._save(runtime)
+        if failed_write:
             await self._count_failure(device_id, now)
             return await self._decide(
                 intent, DecisionKind.FAILED, now, (REASON_WRITE_FAILED,), mode
             )
         await self._sleep(self._settle_s(device))
         observed = await actuator.read_back()
+        return await self._confirm(
+            intent, device, now, observed=observed, context_id=context_id, mode=mode
+        )
+
+    async def _confirm(
+        self,
+        intent: Intent,
+        device: DeviceConfig,
+        now: datetime,
+        *,
+        observed: Action | None,
+        context_id: str | None,
+        mode: OperatingMode,
+    ) -> Decision:
+        """After the settle wait: compare the read-back, record the outcome."""
+        device_id = device.id
         after = self._now()
-        if not action_matches(intent.action, observed):
-            runtime = runtime.model_copy(
-                update={"last_write_ts": now, "last_write_context_id": context_id}
-            )
+        mismatch = False
+        async with self._lock(device_id):
+            runtime = self._runtimes.get(device_id)
+            if runtime is None or not runtime.under_control:
+                # Released (emergency stop, watchdog, mode change) during the settle wait:
+                # the release restored the baseline; do not take the device over again.
+                return await self._decide(
+                    intent,
+                    DecisionKind.FAILED,
+                    after,
+                    (REASON_SUPERSEDED,),
+                    mode,
+                    observed=observed,
+                )
+            if not action_matches(intent.action, observed):
+                mismatch = True
+                runtime = runtime.model_copy(
+                    update={
+                        "last_write_context_id": context_id,
+                        "pending_action": intent.action,
+                        "pending_ts": now,
+                    }
+                )
+            else:
+                self._failures.pop(device_id, None)
+                if is_switch_transition(
+                    intent.action, device, self._states(device_id)
+                ) or _was_transition(intent.action, device, runtime):
+                    target = action_turns_on(intent.action, device)
+                    if target is not None:
+                        runtime = runtime.with_switch(now, on=target)
+                update: dict[str, object] = {
+                    "last_written": intent.action,
+                    "last_write_context_id": context_id,
+                    "pending_action": None,
+                    "pending_ts": None,
+                }
+                if isinstance(intent.action, SetpointAction):
+                    update["base_setpoint_c"] = intent.action.base_c
+                runtime = runtime.model_copy(update=update)
             await self._save(runtime)
+        if mismatch:
             await self._count_failure(device_id, after)
             return await self._decide(
                 intent,
@@ -484,25 +661,27 @@ class SafetyGate:
                 mode,
                 observed=observed,
             )
-        self._failures.pop(device_id, None)
-        if is_switch_transition(intent.action, device, self._states(device_id)) or _was_transition(
-            intent.action, device, runtime
-        ):
-            target = action_turns_on(intent.action, device)
-            if target is not None:
-                runtime = runtime.with_switch(now, on=target)
-        update: dict[str, object] = {
-            "last_written": intent.action,
-            "last_write_ts": now,
-            "last_write_context_id": context_id,
-        }
-        if isinstance(intent.action, SetpointAction):
-            update["base_setpoint_c"] = intent.action.base_c
-        runtime = runtime.model_copy(update=update)
-        await self._save(runtime)
         return await self._decide(
             intent, DecisionKind.ACCEPTED, after, intent.reasons, mode, observed=observed
         )
+
+    def _blocked(self, intent: Intent, runtime: DeviceRuntime, now: datetime) -> Reason | None:
+        """Re-check, right before ``apply()``, everything that may have changed meanwhile."""
+        if self._emergency_stop:
+            return REASON_EMERGENCY_STOP
+        mode = self.modes_of(intent.asset_id).effective
+        if mode is OperatingMode.SHADOW or (
+            mode is OperatingMode.ASSISTED and intent.origin is not Origin.USER
+        ):
+            return REASON_MODE_CHANGED
+        pause = self._watchdog.pause_reason(intent.asset_id, now)
+        if pause is not None:
+            return pause
+        if runtime.release_pending:
+            return REASON_RELEASE_PENDING
+        if runtime.is_held(now) and intent.origin is not Origin.USER:
+            return REASON_OVERRIDE_HELD
+        return None
 
     # --- release -------------------------------------------------------------------------
 
@@ -513,72 +692,106 @@ class SafetyGate:
         *,
         origin: Origin = Origin.SAFETY,
         intent: Intent | None = None,
+        urgent: bool = True,
     ) -> Decision:
         """Restore the device's takeover baseline and stop controlling it.
 
         Bypasses modes, the emergency stop, the watchdog and the invariants: releasing is
-        the safe direction. The decision is ``accepted`` (released), ``rejected`` (not
-        under control / no actuator) or ``failed``.
+        the safe direction. ``urgent=False`` (mode change, device trip, reconnect) defers
+        the release write until the minimum run/pause time has elapsed and answers
+        ``held`` with ``held_until``; writing stops at once and :meth:`poll` executes
+        the release later. The decision is otherwise ``accepted`` (released),
+        ``rejected`` (not under control / no actuator) or ``failed``.
         """
-        now = self._now()
-        mode = self.modes_of(device_id).effective
-        runtime = await self._runtime(device_id)
-        if intent is None:
-            intent = Intent(
-                id=f"release:{device_id}:{now.isoformat()}",
-                ts=now,
-                asset_id=device_id,
-                action=ReleaseAction(),
-                reasons=(reason,),
-                origin=origin,
+        async with self._lock(device_id):
+            now = self._now()
+            mode = self.modes_of(device_id).effective
+            runtime = await self._runtime(device_id)
+            if intent is None:
+                intent = Intent(
+                    id=f"release:{device_id}:{now.isoformat()}",
+                    ts=now,
+                    asset_id=device_id,
+                    action=ReleaseAction(),
+                    reasons=(reason,),
+                    origin=origin,
+                )
+            actuator = self._actuators.get(device_id)
+            if not runtime.under_control:
+                return await self._decide(
+                    intent, DecisionKind.REJECTED, now, (REASON_NOT_UNDER_CONTROL,), mode
+                )
+            if actuator is None:
+                return await self._decide(
+                    intent, DecisionKind.REJECTED, now, (REASON_NO_ACTUATOR,), mode
+                )
+            device = self._devices(device_id)
+            if not urgent:
+                due = _protection_due(device, runtime, now)
+                if due is not None:
+                    deferred = runtime.model_copy(
+                        update={"release_due_ts": due, "release_due_reason": reason.key}
+                    )
+                    await self._save(deferred)
+                    return await self._decide(
+                        intent,
+                        DecisionKind.HELD,
+                        now,
+                        (REASON_RELEASE_DEFERRED, reason),
+                        mode,
+                        held_until=due,
+                    )
+            try:
+                await actuator.release(runtime.baseline)
+            except Exception as exc:
+                log.warning("safety.release_failed", device_id=device_id, error=str(exc)[:200])
+                return await self._decide(
+                    intent, DecisionKind.FAILED, now, (REASON_RELEASE_FAILED, reason), mode
+                )
+            released = runtime.model_copy(
+                update={
+                    "baseline": None,
+                    "baseline_ts": None,
+                    "last_written": None,
+                    "last_write_context_id": None,
+                    "last_write_ts": now,
+                    "pending_action": None,
+                    "pending_ts": None,
+                    "release_due_ts": None,
+                    "release_due_reason": None,
+                }
             )
-        actuator = self._actuators.get(device_id)
-        if not runtime.under_control:
-            return await self._decide(
-                intent, DecisionKind.REJECTED, now, (REASON_NOT_UNDER_CONTROL,), mode
-            )
-        if actuator is None:
-            return await self._decide(
-                intent, DecisionKind.REJECTED, now, (REASON_NO_ACTUATOR,), mode
-            )
-        try:
-            await actuator.release(runtime.baseline)
-        except Exception as exc:
-            log.warning("safety.release_failed", device_id=device_id, error=str(exc)[:200])
-            return await self._decide(
-                intent, DecisionKind.FAILED, now, (REASON_RELEASE_FAILED, reason), mode
-            )
-        released = runtime.model_copy(
-            update={
-                "baseline": None,
-                "baseline_ts": None,
-                "last_written": None,
-                "last_write_context_id": None,
-                "last_write_ts": now,
+            if (
+                device is not None
+                and runtime.last_written is not None
+                and runtime.baseline is not None
+            ):
+                before = action_turns_on(runtime.last_written, device)
+                target = action_turns_on(runtime.baseline, device)
+                if before is not None and target is not None and before != target:
+                    released = released.with_switch(now, on=target)
+            await self._save(released)
+            self._proposals = {
+                k: v for k, v in self._proposals.items() if v.intent.asset_id != device_id
             }
-        )
-        device = self._devices(device_id)
-        if device is not None and runtime.last_written is not None and runtime.baseline is not None:
-            before = action_turns_on(runtime.last_written, device)
-            target = action_turns_on(runtime.baseline, device)
-            if before is not None and target is not None and before != target:
-                released = released.with_switch(now, on=target)
-        await self._save(released)
-        self._proposals = {
-            k: v for k, v in self._proposals.items() if v.intent.asset_id != device_id
-        }
-        return await self._decide(
-            intent, DecisionKind.ACCEPTED, now, (REASON_RELEASED, reason), mode
-        )
+            return await self._decide(
+                intent, DecisionKind.ACCEPTED, now, (REASON_RELEASED, reason), mode
+            )
 
     async def _release_all(
-        self, reason: Reason, *, origin: Origin, deadline_s: float | None = None
+        self,
+        reason: Reason,
+        *,
+        origin: Origin,
+        deadline_s: float | None = None,
+        urgent: bool = True,
     ) -> None:
         ids = [d for d, rt in self._runtimes.items() if rt.under_control]
         if not ids:
             return
         tasks = {
-            asyncio.ensure_future(self.release_device(d, reason, origin=origin)): d for d in ids
+            asyncio.ensure_future(self.release_device(d, reason, origin=origin, urgent=urgent)): d
+            for d in ids
         }
         done, pending = await asyncio.wait(tasks, timeout=deadline_s)
         for task in pending:
@@ -612,6 +825,8 @@ class SafetyGate:
         self, intent: Intent, device: DeviceConfig, runtime: DeviceRuntime, now: datetime
     ) -> InvariantContext:
         inputs = self._inputs() or GateInputs()
+        max_age = timedelta(seconds=self._settings.inputs_max_age_ticks * self._settings.tick_s)
+        fresh = inputs.ts is not None and now - inputs.ts <= max_age
         return InvariantContext(
             action=intent.action,
             device=device,
@@ -620,7 +835,7 @@ class SafetyGate:
             now=now,
             settings=self._settings,
             flows=inputs.flows,
-            surplus=inputs.surplus,
+            surplus=inputs.surplus if fresh else None,
             estimate=inputs.estimates.get(device.id),
             import_limit_w=inputs.import_limit_w,
             reserve_soc_pct=inputs.reserve_soc_pct,
@@ -638,6 +853,12 @@ class SafetyGate:
             self._failures.pop(device_id, None)
             self._watchdog.trip(device_id, REASON_WRITE_FAILURES, now)
             await self.release_device(device_id, REASON_WRITE_FAILURES, origin=Origin.SAFETY)
+
+    def _lock(self, device_id: str) -> asyncio.Lock:
+        lock = self._locks.get(device_id)
+        if lock is None:
+            lock = self._locks[device_id] = asyncio.Lock()
+        return lock
 
     async def _runtime(self, device_id: str) -> DeviceRuntime:
         runtime = self._runtimes.get(device_id)
@@ -683,6 +904,31 @@ class SafetyGate:
             msg = "SafetyGate clock must return a timezone-aware datetime"
             raise ValueError(msg)
         return now
+
+
+def _protection_due(
+    device: DeviceConfig | None, runtime: DeviceRuntime, now: datetime
+) -> datetime | None:
+    """When a release may switch the device without breaking min run/pause (``None`` = now).
+
+    Restoring the baseline is a switch only if the last written action and the baseline
+    differ in on/off; then the minimum run time (switching off) or pause time (switching
+    on) counted from the last switch must have elapsed.
+    """
+    if device is None or runtime.last_written is None or runtime.baseline is None:
+        return None
+    before = action_turns_on(runtime.last_written, device)
+    target = action_turns_on(runtime.baseline, device)
+    if before is None or target is None or before == target:
+        return None
+    if target:
+        since, limit = runtime.last_off_ts, device.min_pause_s
+    else:
+        since, limit = runtime.last_on_ts, device.min_run_s
+    if since is None or limit <= 0:
+        return None
+    due = since + timedelta(seconds=limit)
+    return due if due > now else None
 
 
 def _was_transition(action: Action, device: DeviceConfig, runtime: DeviceRuntime) -> bool:

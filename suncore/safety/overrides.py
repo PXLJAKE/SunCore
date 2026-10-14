@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, tzinfo
+from typing import Final
 
 from suncore.core.decisions import Action, Reason, SetpointAction, SwitchAction
 from suncore.core.devices import OverridePolicy
@@ -32,9 +33,25 @@ class OverrideVerdict:
     reason: Reason | None = None
     new_base_setpoint_c: float | None = None
     """The user's new set-point (a changed temperature becomes the base)."""
+    late_confirm: bool = False
+    """The observation confirms a write whose read-back had failed (slow cloud echo)."""
 
 
 NO_OVERRIDE = OverrideVerdict(override=False)
+LATE_CONFIRM = OverrideVerdict(override=False, late_confirm=True)
+PENDING_MIN_WINDOW_S: Final = 120.0
+"""A pending write is confirmable for ``max(settle_s * 6, 120 s)`` after it was sent."""
+
+
+def pending_window_s(settle_s: float) -> float:
+    return max(settle_s * 6.0, PENDING_MIN_WINDOW_S)
+
+
+def pending_expired(runtime: DeviceRuntime, now: datetime, settle_s: float) -> bool:
+    """Whether the pending write is too old to be confirmed by a late echo."""
+    if runtime.pending_action is None or runtime.pending_ts is None:
+        return False
+    return now - runtime.pending_ts > timedelta(seconds=pending_window_s(settle_s))
 
 
 def resume_at(policy: OverridePolicy, now: datetime, tz: tzinfo) -> datetime:
@@ -76,20 +93,30 @@ def judge(  # noqa: PLR0911 - one return per rule
 ) -> OverrideVerdict:
     """Judge an observed device state against what SunCore last wrote.
 
-    * not under control or nothing written yet: never an override;
+    * not under control: never an override;
     * our context id: ours;
+    * a value equal to a pending write (read-back had failed) inside its window: a late
+      confirmation (``late_confirm``), never an override - the LG cloud echoes our own
+      writes later than the settle time (research/device-integrations.md);
     * within the settle time after the write: pending, no verdict;
-    * otherwise a value that differs from the last written action is an override.
+    * nothing written yet, or a value equal to the last written action: no override;
+    * otherwise the value differs from what SunCore wrote: a manual override.
     """
-    if not runtime.under_control or runtime.last_written is None:
+    if not runtime.under_control:
         return NO_OVERRIDE
     if is_ours(context_id, runtime):
         return NO_OVERRIDE
+    if (
+        runtime.pending_action is not None
+        and not pending_expired(runtime, now, settle_s)
+        and action_matches(runtime.pending_action, observed)
+    ):
+        return LATE_CONFIRM
     if runtime.last_write_ts is not None and now - runtime.last_write_ts < timedelta(
         seconds=settle_s
     ):
         return NO_OVERRIDE
-    if action_matches(runtime.last_written, observed):
+    if runtime.last_written is None or action_matches(runtime.last_written, observed):
         return NO_OVERRIDE
     match observed:
         case SetpointAction(setpoint_c=setpoint):
@@ -102,6 +129,28 @@ def judge(  # noqa: PLR0911 - one return per rule
             return OverrideVerdict(override=True, reason=Reason(key="safety.override_off"))
         case _:
             return OverrideVerdict(override=True, reason=Reason(key="safety.override_detected"))
+
+
+def confirm_pending(runtime: DeviceRuntime) -> DeviceRuntime:
+    """The pending write is confirmed: it becomes the last written action."""
+    pending = runtime.pending_action
+    if pending is None:
+        return runtime
+    update: dict[str, object] = {
+        "last_written": pending,
+        "last_write_ts": runtime.pending_ts or runtime.last_write_ts,
+        "pending_action": None,
+        "pending_ts": None,
+    }
+    if isinstance(pending, SetpointAction):
+        update["base_setpoint_c"] = pending.base_c
+    return runtime.model_copy(update=update)
+
+
+def clear_pending(runtime: DeviceRuntime) -> DeviceRuntime:
+    if runtime.pending_action is None and runtime.pending_ts is None:
+        return runtime
+    return runtime.model_copy(update={"pending_action": None, "pending_ts": None})
 
 
 def apply_verdict(
@@ -143,13 +192,19 @@ def expire(runtime: DeviceRuntime, now: datetime) -> DeviceRuntime:
 
 
 __all__ = [
+    "LATE_CONFIRM",
     "NO_OVERRIDE",
+    "PENDING_MIN_WINDOW_S",
     "OverrideVerdict",
     "apply_verdict",
+    "clear_pending",
+    "confirm_pending",
     "expire",
     "hold_until",
     "is_ours",
     "judge",
+    "pending_expired",
+    "pending_window_s",
     "resume",
     "resume_at",
 ]

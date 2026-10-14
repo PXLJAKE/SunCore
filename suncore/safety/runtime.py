@@ -49,6 +49,17 @@ class DeviceRuntime(BaseModel):
     override_until: AwareDatetime | None = None
     """Manual override respected until this time (``None`` with ``override`` = indefinitely)."""
     override: bool = False
+    pending_action: Action | None = None
+    """A write whose read-back did not confirm it yet (slow echo); see ``overrides.judge``."""
+    pending_ts: AwareDatetime | None = None
+    release_due_ts: AwareDatetime | None = None
+    """A deferred release (min run/pause) is executed by ``SafetyGate.poll`` at this time."""
+    release_due_reason: str | None = None
+    """Reason key of the deferred release (rendered when it is executed)."""
+
+    @property
+    def release_pending(self) -> bool:
+        return self.release_due_ts is not None
 
     @property
     def under_control(self) -> bool:

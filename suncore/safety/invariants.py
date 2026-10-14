@@ -58,7 +58,12 @@ class InvariantContext:
     settings: ControlSettings
     flows: FlowSnapshot | None = None
     surplus: PowerEstimate | None = None
-    """Controller's surplus estimate *before* this action (W, + = available)."""
+    """**Free** surplus in W: power available on top of everything that runs now, i.e.
+    export minus reserve, *excluding* the judged device's own current draw. The grid
+    check compares it with the action's *added* demand (``power_delta_w``), so a device
+    already drawing 1000 W at zero export must not be raised to 1500 W. The controller
+    computes it per tick; the gate sets it to ``None`` (unknown) when its inputs are
+    older than ``ControlSettings.inputs_max_age_ticks`` ticks."""
     estimate: PowerEstimate | None = None
     """Current power of this device."""
     import_limit_w: float | None = None
@@ -324,11 +329,13 @@ def check_battery_reserve(ctx: InvariantContext) -> Reason | None:
 
 
 def check_climate_switch_on(ctx: InvariantContext) -> Reason | None:
-    """A climate unit that is off is only switched on with ``allow_switch_on``.
+    """A climate unit that is off is only switched on with ``allow_switch_on``, and
+    only through the configured ``switch_on_hvac_mode``.
 
     ``lg_thinq`` turns the unit on for a ``set_temperature`` while off
     (research/device-integrations.md), so a set-point write counts as switching on.
-    An unknown state is treated as off.
+    A ``ModeAction`` with any other mode (``dry``, ``fan_only``, ...) while off is
+    rejected even with the opt-in. An unknown state is treated as off.
     """
     if ctx.device.kind is not DeviceKind.CLIMATE:
         return None
@@ -337,9 +344,14 @@ def check_climate_switch_on(ctx: InvariantContext) -> Reason | None:
         return None
     if device_is_on(ctx.state) is True:
         return None
-    if ctx.device.allow_switch_on and ctx.device.switch_on_hvac_mode is not None:
-        return None
-    return Reason(key="safety.climate_off")
+    if not ctx.device.allow_switch_on or ctx.device.switch_on_hvac_mode is None:
+        return Reason(key="safety.climate_off")
+    if isinstance(ctx.action, ModeAction) and ctx.action.mode != ctx.device.switch_on_hvac_mode:
+        return Reason(
+            key="safety.climate_switch_on_mode",
+            args={"mode": ctx.action.mode, "allowed": ctx.device.switch_on_hvac_mode},
+        )
+    return None
 
 
 ALL_CHECKS: Final = (

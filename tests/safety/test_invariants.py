@@ -133,6 +133,56 @@ def test_grid_passes_only_with_proven_surplus(c: InvariantContext) -> None:
         assert verdict is None
 
 
+@settings(max_examples=400, deadline=None)
+@given(contexts)
+def test_grid_accepted_increase_implies_no_import(c: InvariantContext) -> None:
+    """Implementation-independent: an accepted load increase keeps the grid at export."""
+    delta = inv.power_delta_w(c)
+    if delta is None or delta <= 0 or inv.check_grid(c) is not None:
+        return
+    assert c.surplus is not None
+    assert c.surplus.quality is Quality.OK
+    assert delta <= c.surplus.lower_w
+    grid = c.flows.grid_w.value if c.flows is not None else None
+    assert grid is None or grid <= 0
+    if c.import_limit_w is not None:
+        assert grid is not None
+        assert grid + delta <= c.import_limit_w
+
+
+def test_grid_free_surplus_semantics_pinned() -> None:
+    """B3: the surplus is the free surplus; a device at 1000 W with export 0 asking for
+    1500 W is rejected (added demand 500 W > free 0 W)."""
+    dev = continuous_device()
+    c = ctx(
+        PowerSetpointAction(power_w=1500.0),
+        dev,
+        state=DeviceState(value=1000.0),
+        flows=flows(grid_w=0.0),
+        surplus=surplus(0.0),
+        estimate=PowerEstimate(value_w=1000.0, uncertainty_w=0.0),
+    )
+    assert inv.power_delta_w(c) == 500.0
+    r = inv.check_grid(c)
+    assert r is not None
+    assert r.key == "safety.grid_import_caused"
+    assert inv.check_grid(dataclasses.replace(c, surplus=surplus(500.0))) is None
+
+
+def test_nb3_switch_on_from_off_only_through_the_configured_mode() -> None:
+    off = DeviceState(on=False, mode="off")
+    dev = climate_device(allow_switch_on=True)  # switch_on_hvac_mode = cool
+    assert inv.check_climate_switch_on(ctx(ModeAction(mode="cool"), dev, state=off)) is None
+    assert inv.check_climate_switch_on(ctx(SwitchAction(on=True), dev, state=off)) is None
+    for mode in ("dry", "fan_only", "heat"):
+        r = inv.check_climate_switch_on(ctx(ModeAction(mode=mode), dev, state=off))
+        assert r is not None
+        assert r.key == "safety.climate_switch_on_mode"
+        assert r.args == {"mode": mode, "allowed": "cool"}
+    on = DeviceState(on=True, mode="cool")
+    assert inv.check_climate_switch_on(ctx(ModeAction(mode="dry"), dev, state=on)) is None
+
+
 def test_grid_examples() -> None:
     on = SwitchAction(on=True)
     base = {"flows": flows(grid_w=-1500.0), "surplus": surplus(1500.0, 100.0)}
@@ -367,7 +417,8 @@ def test_climate_off_needs_opt_in(action: Action, state: DeviceState | None, all
     verdict = inv.check_climate_switch_on(ctx(action, dev, state=state))
     turns_on = inv.action_turns_on(action, dev) is True
     known_on = inv.device_is_on(state) is True
-    assert (verdict is not None) == (turns_on and not known_on and not allow)
+    wrong_mode = isinstance(action, ModeAction) and action.mode != dev.switch_on_hvac_mode
+    assert (verdict is not None) == (turns_on and not known_on and (not allow or wrong_mode))
 
 
 def test_climate_rule_does_not_apply_to_other_kinds() -> None:

@@ -268,6 +268,9 @@ HVAC_MODES: Final[tuple[str, ...]] = ("heat", "cool", "heat_cool", "auto", "dry"
 SWITCH_ON_HVAC_MODES: Final[tuple[str, ...]] = ("heat", "cool", "heat_cool", "auto")
 """HVAC modes SunCore may use to switch a climate device on (never ``dry``/``fan_only``)."""
 
+RESUME_TIME_DEFAULT: Final = time(4, 0)
+"""Override policy ``next_day``: SunCore takes over again at this local time."""
+
 
 class OverridePolicy(_Frozen):
     """How long a manual change is respected before SunCore takes over again (plan §6.5).
@@ -277,7 +280,7 @@ class OverridePolicy(_Frozen):
     """
 
     kind: Literal["next_day", "hours"] = "next_day"
-    resume_time: time = time(4, 0)
+    resume_time: time = RESUME_TIME_DEFAULT
     hours: Annotated[int, Field(ge=1, le=48)] | None = None
 
     @model_validator(mode="after")

@@ -238,6 +238,20 @@ ADRs relevant to your task. Keep it short; history lives in git.
   - Beta version derivation in `build.yml` and the E2E/screenshot work were done
     in PR 2-D, see Open – Phase 1.
 
+## Open – Phase 3
+
+- From the PR 3-A review (fixed in `fix(safety)`: per-device lock and re-checks before
+  `apply()`, late confirmation of slow echoes, free-surplus semantics with input age, deferred
+  release). Still for WP9: (2) the gate's `tz` must be injected from the site/region time
+  zone (override resume time is local time); (8) `operation` put trust gap – a per-device
+  mode endpoint or a precondition (device identity) so a stale UI cannot flip a device to
+  automatic; (10) wiring of `gate.recover()` after the first successful connect and of
+  `gate.connection_lost()`/`connection_restored()` from the connection state listener, plus
+  `gate.poll()` every controller tick (deferred releases) and `gate.observe()` from the
+  entity cache. Maintainer question (PR 3-A): non-urgent releases (mode change to shadow,
+  device watchdog trip, reconnect) wait for the device's minimum run/pause time; emergency
+  stop and shutdown release at once.
+
 ## Open – Phase 1
 
 - Still to report by the maintainer: menu names in the HA UI. Memory on

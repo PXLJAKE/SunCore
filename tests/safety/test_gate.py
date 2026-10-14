@@ -8,6 +8,7 @@ clock and the settle wait are injected; nothing here touches the wall clock.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -25,6 +26,7 @@ from suncore.core.decisions import (
     Intent,
     OperatingMode,
     Origin,
+    PowerSetpointAction,
     ReleaseAction,
     SetpointAction,
     SwitchAction,
@@ -123,7 +125,8 @@ def make_harness(
         modes=modes,
         devices=by_id.get,
         states=states.get,
-        inputs=lambda: gate_inputs,
+        # The controller stamps every snapshot; the harness keeps it fresh.
+        inputs=lambda: dataclasses.replace(gate_inputs, ts=clock.now),
         store=store,
         settings=settings or ControlSettings(min_write_interval_s=5.0, default_settle_s=2.0),
         sleep=sleep if sleep is not None else clock.sleep,
@@ -311,7 +314,7 @@ def test_missing_actuator_is_rejected() -> None:
         modes=h.modes,
         devices={"pool": switch_device()}.get,
         states=h.states.get,
-        inputs=lambda: h.inputs,
+        inputs=lambda: dataclasses.replace(h.inputs, ts=h.clock.now),
     )
     d = asyncio.run(gate.submit(make_intent(SwitchAction(on=True))))
     assert d.kind is DecisionKind.REJECTED
@@ -408,12 +411,21 @@ def test_expired_proposal_is_rejected_on_confirm_and_hidden_from_the_list() -> N
     h = make_harness(global_mode=ASSISTED)
     asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True))))
     h.clock.advance(121)
-    assert h.gate.proposals() == ()
-    d = asyncio.run(h.gate.confirm("i-1"))
+    d = asyncio.run(h.gate.confirm("i-1"))  # still stored: confirm answers "expired"
     assert d is not None
     assert d.kind is DecisionKind.REJECTED
     assert d.reasons[0].key == "safety.proposal_expired"
     assert h.apply_calls == 0
+    asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True), intent_id="i-2", ts=h.clock.now)))
+    h.clock.advance(121)
+    assert h.gate.proposals() == ()  # pruned
+    assert asyncio.run(h.gate.confirm("i-2")) is None
+    asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True), intent_id="i-3", ts=h.clock.now)))
+    h.clock.advance(121)
+    asyncio.run(
+        h.gate.submit(make_intent(SwitchAction(on=True), intent_id="i-4", ts=h.clock.now))
+    )  # submit prunes too
+    assert [p.intent.id for p in h.gate.proposals()] == ["i-4"]
 
 
 def test_dismiss_drops_a_proposal() -> None:
@@ -846,3 +858,329 @@ def test_flow_helper_shape() -> None:
     f = flows()
     assert isinstance(f, FlowSnapshot)
     assert isinstance(f.grid_w, Flow)
+
+
+# --- review findings of PR 3-A -----------------------------------------------------------
+
+
+def test_b1_emergency_stop_during_baseline_read_back_blocks_the_write() -> None:
+    """B1: the stop arrives while the baseline read-back awaits; apply() must not run."""
+    h = make_harness(settings=ControlSettings(min_write_interval_s=1.0, default_settle_s=0))
+    spy = h.actuators["pool"]
+    original = spy.read_back
+    first = True
+
+    async def read_back_then_stop() -> Action | None:
+        nonlocal first
+        if first:
+            first = False
+            await h.gate.emergency_stop()
+        return await original()
+
+    spy.read_back = read_back_then_stop  # type: ignore[method-assign]
+    d = asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True))))
+    assert d.kind is DecisionKind.REJECTED
+    assert d.reasons == (REASON_EMERGENCY_STOP,)
+    assert spy.applied == []
+    rt = h.gate.runtime_of("pool")
+    assert rt is not None
+    assert not rt.under_control
+
+
+def test_b1_emergency_stop_during_the_settle_wait_does_not_retake_the_device() -> None:
+    """B1: a release during the settle wait wins; the write does not re-save its stale copy."""
+    settle_started = asyncio.Event()
+
+    async def slow_sleep(_: float) -> None:
+        settle_started.set()
+        await asyncio.sleep(0.02)
+
+    h = make_harness(sleep=slow_sleep, settings=ControlSettings(min_write_interval_s=1.0))
+
+    async def scenario() -> Decision:
+        task = asyncio.create_task(h.gate.submit(make_intent(SwitchAction(on=True))))
+        await settle_started.wait()
+        await h.gate.emergency_stop()
+        return await task
+
+    d = asyncio.run(scenario())
+    assert d.kind is DecisionKind.FAILED
+    assert d.reasons[0].key == "safety.superseded"
+    assert h.actuators["pool"].released == [SwitchAction(on=False)]
+    rt = h.gate.runtime_of("pool")
+    assert rt is not None
+    assert not rt.under_control
+    assert rt.last_written is None
+    assert h.gate.emergency_stopped
+
+
+def test_b1_mode_change_and_pause_are_rechecked_before_apply() -> None:
+    h = make_harness(settings=ControlSettings(min_write_interval_s=1.0, default_settle_s=0))
+    spy = h.actuators["pool"]
+    original = spy.read_back
+
+    async def read_back_then_shadow() -> Action | None:
+        h.modes.set_global(SHADOW)
+        return await original()
+
+    spy.read_back = read_back_then_shadow  # type: ignore[method-assign]
+    d = asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True))))
+    assert d.kind is DecisionKind.REJECTED
+    assert d.reasons[0].key == "safety.mode_changed"
+    assert spy.applied == []
+    # the rate-limit slot was given back
+    h.modes.set_global(AUTO)
+    spy.read_back = original  # type: ignore[method-assign]
+    assert (
+        asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True), intent_id="i-2"))).kind
+        is DecisionKind.ACCEPTED
+    )
+
+
+def test_b2_late_cloud_echo_confirms_the_write_instead_of_holding_the_device() -> None:
+    """B2: read-back mismatch, then our own echo 20 s later is a late confirmation."""
+    dev = climate_device(settle_s=2)
+    h = make_harness(devices=(dev,), observed={"ac": SetpointAction(setpoint_c=24.0, base_c=24.0)})
+    h.states["ac"] = DeviceState(on=True, mode="cool", setpoint_c=24.0)
+    d1 = asyncio.run(
+        h.gate.submit(
+            make_intent(
+                SetpointAction(setpoint_c=23.0, base_c=24.0),
+                asset_id="ac",
+                intent_id="i1",
+                ts=h.clock.now,
+            )
+        )
+    )
+    assert d1.kind is DecisionKind.ACCEPTED
+    h.clock.advance(30)
+    h.states["ac"] = DeviceState(on=True, mode="cool", setpoint_c=23.0)
+    h.actuators["ac"].follow = False  # the echo is slower than settle_s
+    d2 = asyncio.run(
+        h.gate.submit(
+            make_intent(
+                SetpointAction(setpoint_c=22.0, base_c=24.0),
+                asset_id="ac",
+                intent_id="i2",
+                ts=h.clock.now,
+            )
+        )
+    )
+    assert d2.kind is DecisionKind.FAILED
+    assert d2.reasons[0].key == "safety.readback_mismatch"
+    rt = h.gate.runtime_of("ac")
+    assert rt is not None
+    assert rt.pending_action == SetpointAction(setpoint_c=22.0, base_c=24.0)
+    assert rt.last_written == SetpointAction(setpoint_c=23.0, base_c=24.0)
+    h.clock.advance(20)
+    v = asyncio.run(
+        h.gate.observe("ac", SetpointAction(setpoint_c=22.0, base_c=24.0), context_id="01K-fresh")
+    )
+    assert not v.override
+    assert v.late_confirm
+    rt = h.gate.runtime_of("ac")
+    assert rt is not None
+    assert rt.last_written == SetpointAction(setpoint_c=22.0, base_c=24.0)
+    assert rt.pending_action is None
+    assert not rt.override
+    assert rt.base_setpoint_c == 24.0
+    late = h.emitted[-1]
+    assert late.kind is DecisionKind.ACCEPTED
+    assert late.reasons[0].key == "safety.late_confirmed"
+    assert late.intent.origin is Origin.SAFETY
+    assert late.observed == SetpointAction(setpoint_c=22.0, base_c=24.0)
+    # A genuinely different value afterwards is still an override.
+    h.clock.advance(20)
+    v2 = asyncio.run(h.gate.observe("ac", SetpointAction(setpoint_c=25.0, base_c=24.0)))
+    assert v2.override
+    assert v2.new_base_setpoint_c == 25.0
+
+
+def test_b2_pending_window_is_bounded_and_late_confirms_do_not_count_as_failures() -> None:
+    dev = climate_device(settle_s=2)
+    h = make_harness(devices=(dev,), observed={"ac": SetpointAction(setpoint_c=24.0, base_c=24.0)})
+    h.states["ac"] = DeviceState(on=True, mode="cool", setpoint_c=24.0)
+    h.actuators["ac"].follow = False
+    for n in range(2):
+        d = asyncio.run(
+            h.gate.submit(
+                make_intent(
+                    SetpointAction(setpoint_c=23.0 - n, base_c=24.0),
+                    asset_id="ac",
+                    intent_id=f"i{n}",
+                    ts=h.clock.now,
+                )
+            )
+        )
+        assert d.kind is DecisionKind.FAILED
+        h.clock.advance(10)
+        assert asyncio.run(
+            h.gate.observe("ac", SetpointAction(setpoint_c=23.0 - n, base_c=24.0))
+        ).late_confirm
+        h.clock.advance(10)
+    # Two failures were both confirmed late: the counter is back at zero, no trip.
+    assert h.gate.watchdog.state("ac", h.clock.now) is ScopeState.NORMAL
+    d = asyncio.run(
+        h.gate.submit(
+            make_intent(
+                SetpointAction(setpoint_c=21.0, base_c=24.0),
+                asset_id="ac",
+                intent_id="i9",
+                ts=h.clock.now,
+            )
+        )
+    )
+    assert d.kind is DecisionKind.FAILED
+    h.clock.advance(121)  # beyond max(settle * 6, 120 s): the pending write expired
+    v = asyncio.run(h.gate.observe("ac", SetpointAction(setpoint_c=21.0, base_c=24.0)))
+    assert v.override  # bounded window: a very late value is judged against last_written
+    rt = h.gate.runtime_of("ac")
+    assert rt is not None
+    assert rt.pending_action is None
+
+
+def test_b3_free_surplus_excludes_the_device_own_draw() -> None:
+    """B3: device drawing 1000 W at zero export asks for 1500 W -> rejected."""
+    from suncore.core.control import PowerEstimate  # noqa: PLC0415
+    from tests.safety.helpers import continuous_device  # noqa: PLC0415
+
+    dev = continuous_device("dimmer")
+    inputs = GateInputs(
+        flows=flows(grid_w=0.0),
+        surplus=surplus(0.0),  # free surplus: nothing beyond what runs now
+        estimates={"dimmer": PowerEstimate(value_w=1000.0, uncertainty_w=0.0)},
+    )
+    h = make_harness(
+        devices=(dev,), inputs=inputs, observed={"dimmer": PowerSetpointAction(power_w=1000.0)}
+    )
+    h.states["dimmer"] = DeviceState(value=1000.0)
+    d = asyncio.run(
+        h.gate.submit(make_intent(PowerSetpointAction(power_w=1500.0), asset_id="dimmer"))
+    )
+    assert d.kind is DecisionKind.REJECTED
+    assert d.reasons[0].key == "safety.grid_import_caused"
+    assert d.reasons[0].args == {"need_w": 500, "surplus_w": 0}
+    # Lowering the demand never needs surplus.
+    d2 = asyncio.run(
+        h.gate.submit(
+            make_intent(PowerSetpointAction(power_w=500.0), asset_id="dimmer", intent_id="i-2")
+        )
+    )
+    assert d2.kind is DecisionKind.ACCEPTED
+
+
+def test_b3_stale_inputs_make_the_surplus_unknown_also_for_confirm() -> None:
+    clock = FakeClock()
+    stamped = GateInputs(flows=flows(), surplus=surplus(5000.0), ts=T0)
+    h = make_harness(global_mode=ASSISTED)
+    gate = SafetyGate(
+        clock=clock,
+        sink=h.gate._sink,
+        actuators=h.actuators,
+        modes=h.modes,
+        devices={"pool": switch_device()}.get,
+        states=h.states.get,
+        inputs=lambda: stamped,  # never refreshed
+        settings=ControlSettings(
+            tick_s=5, inputs_max_age_ticks=3, default_settle_s=0, min_write_interval_s=1
+        ),
+    )
+    proposed = asyncio.run(gate.submit(make_intent(SwitchAction(on=True))))
+    assert proposed.kind is DecisionKind.PROPOSED
+    clock.advance(16)  # older than 3 ticks of 5 s
+    confirmed = asyncio.run(gate.confirm("i-1"))
+    assert confirmed is not None
+    assert confirmed.kind is DecisionKind.REJECTED
+    assert confirmed.reasons[0].key == "safety.surplus_unknown"
+    assert h.apply_calls == 0
+    unstamped = SafetyGate(
+        clock=clock,
+        sink=_drop,
+        actuators=h.actuators,
+        modes=StaticModes(AUTO, {"pool": AUTO}),
+        devices={"pool": switch_device()}.get,
+        states=h.states.get,
+        inputs=lambda: GateInputs(flows=flows(), surplus=surplus(5000.0)),
+    )
+    d = asyncio.run(unstamped.submit(make_intent(SwitchAction(on=True), ts=clock.now)))
+    assert d.kind is DecisionKind.REJECTED
+    assert d.reasons[0].key == "safety.surplus_unknown"
+
+
+def test_nb1_non_urgent_release_waits_for_the_minimum_run_time() -> None:
+    """A mode change to shadow stops writing at once; the release write waits for min_run_s."""
+    dev = switch_device(min_run_s=600)
+    h = make_harness(
+        devices=(dev,), settings=ControlSettings(min_write_interval_s=1.0, default_settle_s=0)
+    )
+    _take_over(h)
+    h.clock.advance(60)
+    h.modes.set_device("pool", SHADOW)
+    asyncio.run(h.gate.sync_modes())
+    deferred = h.emitted[-1]
+    assert deferred.kind is DecisionKind.HELD
+    assert [r.key for r in deferred.reasons] == ["safety.release_deferred", "safety.mode_shadow"]
+    assert deferred.held_until == T0 + timedelta(seconds=600)
+    assert h.actuators["pool"].released == []
+    rt = h.gate.runtime_of("pool")
+    assert rt is not None
+    assert rt.release_pending
+    assert rt.release_due_reason == "safety.mode_shadow"
+    assert asyncio.run(h.store.load_runtime("pool")) == rt  # the deadline is persisted
+    # Writing is blocked meanwhile, even for the user.
+    h.modes.set_device("pool", AUTO)
+    d = asyncio.run(
+        h.gate.submit(
+            make_intent(SwitchAction(on=False), intent_id="i-2", ts=h.clock.now, origin=Origin.USER)
+        )
+    )
+    assert d.kind is DecisionKind.REJECTED
+    assert d.reasons[0].key == "safety.release_pending"
+    assert asyncio.run(h.gate.poll()) == ()  # not due yet
+    h.clock.advance(540)
+    released = asyncio.run(h.gate.poll())
+    assert len(released) == 1
+    assert released[0].kind is DecisionKind.ACCEPTED
+    assert [r.key for r in released[0].reasons] == ["safety.released", "safety.mode_shadow"]
+    assert h.actuators["pool"].released == [SwitchAction(on=False)]
+    rt = h.gate.runtime_of("pool")
+    assert rt is not None
+    assert not rt.under_control
+    assert not rt.release_pending
+
+
+def test_nb1_emergency_stop_and_shutdown_release_at_once_despite_the_protection_time() -> None:
+    dev = switch_device(min_run_s=600)
+    h = make_harness(
+        devices=(dev,), settings=ControlSettings(min_write_interval_s=1.0, default_settle_s=0)
+    )
+    _take_over(h)
+    asyncio.run(h.gate.check_device("pool", {}, DeviceState(quality=Quality.UNAVAILABLE)))
+    assert h.actuators["pool"].released == []  # device trip: deferred
+    asyncio.run(h.gate.emergency_stop())
+    assert h.actuators["pool"].released == [SwitchAction(on=False)]
+    h2 = make_harness(
+        devices=(dev,), settings=ControlSettings(min_write_interval_s=1.0, default_settle_s=0)
+    )
+    _take_over(h2)
+    asyncio.run(h2.gate.shutdown())
+    assert h2.actuators["pool"].released == [SwitchAction(on=False)]
+
+
+def test_nb1_release_without_a_switch_is_never_deferred() -> None:
+    dev = climate_device(settle_s=0).model_copy(update={"min_run_s": 600})
+    h = make_harness(devices=(dev,), observed={"ac": SetpointAction(setpoint_c=22.0, base_c=22.0)})
+    h.states["ac"] = DeviceState(on=True, mode="cool", setpoint_c=22.0)
+    asyncio.run(
+        h.gate.submit(make_intent(SetpointAction(setpoint_c=23.0, base_c=22.0), asset_id="ac"))
+    )
+    h.modes.set_device("ac", SHADOW)
+    asyncio.run(h.gate.sync_modes())
+    assert h.actuators["ac"].released == [SetpointAction(setpoint_c=22.0, base_c=22.0)]
+
+
+def test_nb5_observe_ignores_unknown_devices() -> None:
+    h = make_harness()
+    v = asyncio.run(h.gate.observe("ghost", SwitchAction(on=False)))
+    assert not v.override
+    assert h.gate.runtime_of("ghost") is None

@@ -9,13 +9,14 @@ device power + = consumption.
 from __future__ import annotations
 
 import itertools
-from datetime import datetime, time
+from datetime import datetime
 from enum import StrEnum, unique
 from typing import Annotated, Final, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from suncore.core.decisions import Reason
+from suncore.core.devices import RESUME_TIME_DEFAULT
 from suncore.core.signals import Quality
 from suncore.core.validation import invalid
 
@@ -96,6 +97,8 @@ class ControlSettings(_Frozen):
     """Assisted mode: a proposal expires after this time."""
     intent_max_age_s: Annotated[float, Field(ge=1, le=600)] = 30.0
     """Intents older than this when they reach the gate are stale and dropped."""
+    inputs_max_age_ticks: Annotated[int, Field(ge=1, le=100)] = 3
+    """Gate inputs (flows, surplus) older than this many ticks count as unknown."""
     default_hysteresis_w: Annotated[float, Field(ge=0, le=100_000)] = 100.0
     default_hysteresis_delay_s: Annotated[float, Field(ge=0, le=3600)] = 60.0
     default_settle_s: Annotated[float, Field(ge=0, le=600)] = 10.0
@@ -238,11 +241,7 @@ class Plan(_Frozen):
         return DEFAULT_BATTERY_BAND if interval is None else interval.battery
 
 
-RESUME_TIME_DEFAULT: Final = time(4, 0)
-"""Override policy ``next_day``: SunCore takes over again at this local time."""
-
-
-__all__ = [
+__all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single constant)
     "DEFAULT_BAND",
     "DEFAULT_BATTERY_BAND",
     "RESUME_TIME_DEFAULT",
