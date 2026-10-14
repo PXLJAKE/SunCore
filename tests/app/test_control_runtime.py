@@ -271,7 +271,9 @@ async def test_a_lost_connection_pauses_and_the_restore_releases(demo_runtime: R
             device_id=POOL, baseline=SwitchAction(on=False), last_written=SwitchAction(on=True)
         )
     )
-    conn._set_state(ConnectionState.RECONNECTING)
+    # DISCONNECTED: the fake turns RECONNECTING back into CONNECTED on its next step (10 ms),
+    # which made this test race the restore under load
+    conn._set_state(ConnectionState.DISCONNECTED)
     await wait_for(lambda: stack.lost)
     await wait_for(lambda: not stack.watchdog.connected)
     assert not stack.ready
@@ -518,9 +520,18 @@ async def test_override_boost_pause_resume(demo_runtime: Runtime) -> None:
     runtime = stack.gate.runtime_of(POOL)
     assert runtime is not None
     assert runtime.is_held(now)
+    # under control as if SunCore had switched the pump on: a pause gives it back
+    await stack.gate._save(
+        runtime.model_copy(
+            update={"baseline": SwitchAction(on=False), "last_written": SwitchAction(on=True)}
+        )
+    )
     state = await demo_runtime.override_device(POOL, OverrideCommand(action="pause"))
     assert state.held
     assert state.held_until is None  # until "resume now"
+    paused = stack.gate.runtime_of(POOL)
+    assert paused is not None
+    assert not paused.under_control or paused.release_pending
     state = await demo_runtime.override_device(POOL, OverrideCommand(action="resume"))
     assert not state.held
     with pytest.raises(UnknownDeviceError):
@@ -729,3 +740,87 @@ async def test_power_models_are_restored_saved_periodically_and_on_shutdown(
         assert await runtime.power_store.get(POOL) == {"a": 3}
     finally:
         await runtime.stop()
+
+
+# --- review 3-B (control-safety): rebuilds and stale connection handlers ------------------------
+
+
+async def test_a_rename_hands_a_running_device_over_without_breaking_its_minimum_run_time(
+    demo_runtime: Runtime,
+) -> None:
+    """An edit that keeps the device (here: another device is renamed) used to release every
+    device at once (``shutdown``), switching a compressor off seconds after SunCore had switched
+    it on. The release is deferred until the minimum run time has elapsed now."""
+    devices = demo_runtime.devices
+    assert devices is not None
+    slow = [
+        d.model_copy(update={"min_run_s": 86_400}) if d.id == POOL else d for d in devices.devices
+    ]
+    await demo_runtime.put_section("devices", DevicesConfig(devices=slow))
+    stack = await idle(stack_of(demo_runtime))
+    await wait_for(lambda: stack.recovered and stack.cache.get(POOL_SWITCH_ID) is not None)
+    conn = demo_runtime.connection
+    assert isinstance(conn, RecordingConnection)
+    await conn.service_caller().write("switch", "turn_on", target={"entity_id": POOL_SWITCH_ID})
+    await wait_for(
+        lambda: (view := stack.cache.get(POOL_SWITCH_ID)) is not None and view.state.state == "on"
+    )
+    now = demo_runtime.clock()
+    await stack.gate._save(
+        DeviceRuntime(
+            device_id=POOL,
+            baseline=SwitchAction(on=False),
+            last_written=SwitchAction(on=True),
+            last_write_ts=now,
+            last_on_ts=now,
+            switch_times=(now,),
+        )
+    )
+    before = len(conn.call_log)
+    renamed = [d.model_copy(update={"name": "Renamed"}) if d.id == AC else d for d in slow]
+    await demo_runtime.put_section("devices", DevicesConfig(devices=renamed))
+    new = await idle(stack_of(demo_runtime))
+    assert new is not stack
+    await wait_for(lambda: new.recovered)
+    pool_writes = [c for c in conn.call_log[before:] if c.entity_ids == (POOL_SWITCH_ID,)]
+    assert pool_writes == []
+    runtime = new.gate.runtime_of(POOL)
+    assert runtime is not None
+    assert runtime.under_control
+    assert runtime.release_due_ts == now + timedelta(seconds=86_400)
+
+
+async def test_only_devices_that_stay_the_same_are_handed_over(demo_runtime: Runtime) -> None:
+    stack = stack_of(demo_runtime)
+    previous = dict(stack.device_configs)
+    assert demo_runtime._unchanged_devices(previous) == frozenset(previous)
+    pool = previous[POOL]
+    remapped = pool.model_copy(
+        update={
+            "entities": {
+                **pool.entities,
+                "switch": pool.entities["switch"].model_copy(
+                    update={"entity_id": "switch.elsewhere"}
+                ),
+            }
+        }
+    )
+    assert POOL not in demo_runtime._unchanged_devices({**previous, POOL: remapped})
+
+
+async def test_a_late_connected_handler_does_not_end_a_new_outage(demo_runtime: Runtime) -> None:
+    """A handler of an earlier CONNECTED that runs after the link dropped again (its recover had
+    to wait) used to clear the outage: ticks resumed and the watchdog read "connected"."""
+    stack = await idle(stack_of(demo_runtime))
+    await wait_for(lambda: stack.recovered)
+    conn = demo_runtime.connection
+    assert isinstance(conn, RecordingConnection)
+    # DISCONNECTED: the fake turns RECONNECTING back into CONNECTED on its next step
+    conn._set_state(ConnectionState.DISCONNECTED)
+    await wait_for(lambda: stack.lost and not stack.watchdog.connected)
+    await stack._connected()  # the stale handler
+    assert stack.lost
+    assert not stack.watchdog.connected
+    assert await stack.tick() is None
+    conn._set_state(ConnectionState.CONNECTED)
+    await wait_for(lambda: not stack.lost and stack.watchdog.connected)

@@ -42,8 +42,9 @@ from suncore.core.controlstate import (
     UnknownDeviceError,
     UnknownProposalError,
 )
-from suncore.core.decisions import Decision, DecisionKind, OperatingMode
+from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.devices import DeviceConfig
 from suncore.core.identity import identity_token
 from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
@@ -63,7 +64,7 @@ from suncore.ha import (
     legacy_entities,
     suggest_from_prefs,
 )
-from suncore.safety.gate import Clock, SafetyGate
+from suncore.safety.gate import REASON_OVERRIDE_HELD, Clock, SafetyGate
 from suncore.storage import (
     ConfigStore,
     Database,
@@ -207,7 +208,7 @@ class Runtime:
             log.warning("control.timezone_unknown_using_utc")
         return UTC
 
-    def _new_stack(self) -> ControlStack:
+    def _new_stack(self, *, after_handover: bool = False) -> ControlStack:
         devices = list(self.devices.devices) if self.devices is not None else []
         site = self.site
         battery = None if site is None else site.battery
@@ -232,6 +233,7 @@ class Runtime:
             cache=self.cache,
             power_store=self.power_store,
             attach=False,
+            after_handover=after_handover,
         )
         stack.add_listener(self._notify_control)
         return stack
@@ -241,18 +243,31 @@ class Runtime:
 
         The old stack stops ticking and releases every device it controls (baseline restored)
         before the new one recovers from the persisted runtime; the emergency-stop flag and the
-        device runtime survive in the store.
+        device runtime survive in the store. A device that stays the same (identity and control
+        unchanged) is released without breaking its minimum run/pause time - the new stack
+        executes a deferred release - so a rename or an edit elsewhere cannot short-cycle it.
         """
         async with self._stack_lock:
             old, self.stack = self.stack, None
             if old is not None:
-                await old.shutdown()
-            new = self._new_stack()
+                await old.handover(self._unchanged_devices(old.device_configs))
+            new = self._new_stack(after_handover=old is not None)
             self.stack = new
             if self._started:
                 await new.start()
                 new.start_ticking()
         self._notify_control()
+
+    def _unchanged_devices(self, previous: Mapping[str, DeviceConfig]) -> frozenset[str]:
+        """Ids of the devices that are the same device, controlled the same way, after a change."""
+        current = {d.id: d for d in (self.devices.devices if self.devices is not None else [])}
+        return frozenset(
+            device_id
+            for device_id, before in previous.items()
+            if (after := current.get(device_id)) is not None
+            and identity_token(after) == identity_token(before)
+            and after.control == before.control
+        )
 
     async def _record_decision(self, decision: Decision) -> None:
         await self.decision_log.append(decision)
@@ -578,7 +593,14 @@ class Runtime:
             until: datetime | None = self.clock() + timedelta(minutes=command.minutes)
             await stack.gate.hold(device_id, until)
         elif command.action == "pause":
-            await stack.gate.hold(device_id, command.until)
+            # "Hands off" gives the device back: a unit SunCore switched on must not keep
+            # running on SunCore's behalf for the whole pause (no SunCore-caused import). The
+            # release respects the minimum run/pause time (deferred, executed by ``poll``).
+            runtime = await stack.gate.hold(device_id, command.until)
+            if runtime.under_control and not runtime.release_pending:
+                await stack.gate.release_device(
+                    device_id, REASON_OVERRIDE_HELD, origin=Origin.USER, urgent=False
+                )
         else:
             await stack.gate.resume(device_id)
         self._notify_control()

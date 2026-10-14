@@ -35,7 +35,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections import deque
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from datetime import datetime, tzinfo
 from typing import Final, cast
 
@@ -124,6 +124,9 @@ class ControlStack:
         power_save_interval_s: how often the power models are saved.
         attach: subscribe to the connection in :meth:`start`; the runtime passes ``False`` and
             forwards the events (:meth:`on_update`, :meth:`on_state`) after it fed the cache.
+        after_handover: this stack replaces one stopped by :meth:`handover` (a configuration
+            change): releases that stack deferred for a protection time stay deferred
+            (``gate.recover(after_handover=True)``).
     """
 
     def __init__(  # noqa: PLR0915 - the composition root of the control layer
@@ -148,8 +151,10 @@ class ControlStack:
         power_store: PowerModelStateStore | None = None,
         power_save_interval_s: float = DEFAULT_POWER_SAVE_INTERVAL_S,
         attach: bool = True,
+        after_handover: bool = False,
     ) -> None:
         self._connection = connection
+        self._after_handover = after_handover
         self._site = site
         self._devices = {d.id: d for d in devices}
         self._clock = clock
@@ -345,7 +350,7 @@ class ControlStack:
             if self.recovered or self.stopped:
                 return
             await self._restore_models()
-            await self.gate.recover()
+            await self.gate.recover(after_handover=self._after_handover)
             self.recovered = True
         self._notify()
 
@@ -357,11 +362,14 @@ class ControlStack:
     async def run(self) -> None:
         """Tick every ``settings.tick_s`` while :attr:`ready`; recover when the link comes up."""
         while not self.stopped:
-            if self._connection.state is ConnectionState.CONNECTED and not self.recovered:
+            if self._connection.state is ConnectionState.CONNECTED and (
+                not self.recovered or self._lost
+            ):
+                # Retries a failed recover and ends an outage whose restore it had cut short.
                 try:
-                    await self.recover()
+                    await self._connected()
                 except Exception:
-                    log.exception("control.recover_failed")
+                    log.exception("control.restore_failed")
             if self.ready and (self._tick_task is None or self._tick_task.done()):
                 self._tick_task = asyncio.ensure_future(self._tick_logged())
             await self._sleep(self._settings.tick_s)
@@ -396,6 +404,21 @@ class ControlStack:
         await self._stop_tasks()
         await self.loop.close()
         await self.gate.shutdown()
+        await self.save_models()
+        self._detach()
+        await self._cancel_observers()
+
+    async def handover(self, keep: Collection[str]) -> None:
+        """Stop for a configuration change; the successor stack takes over the devices.
+
+        Like :meth:`shutdown`, but the devices in ``keep`` (the same device in the new
+        configuration) are released without breaking their minimum run/pause time
+        (``gate.handover``): a harmless edit must not short-cycle a compressor.
+        """
+        self.stopped = True
+        await self._stop_tasks()
+        await self.loop.close()
+        await self.gate.handover(keep)
         await self.save_models()
         self._detach()
         await self._cancel_observers()
@@ -478,7 +501,9 @@ class ControlStack:
         except Exception:
             log.exception("control.recover_failed")
             return
-        if self._lost:
+        # A handler of an earlier CONNECTED may run late (``recover`` awaited) after the link
+        # dropped again: only a link that is up now ends the outage.
+        if self._lost and self._connection.state is ConnectionState.CONNECTED:
             self._lost = False
             await self.gate.connection_restored()
         self._notify()
