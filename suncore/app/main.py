@@ -12,8 +12,9 @@ import contextlib
 import os
 import signal
 import tempfile
-from collections.abc import Callable, Generator, Mapping
-from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable, Generator, Mapping
+from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 import structlog
@@ -21,9 +22,11 @@ import uvicorn
 
 from suncore import __version__
 from suncore.api import create_app
+from suncore.app.demo import DemoClock, demo_tick_s
 from suncore.app.logconfig import configure_logging
-from suncore.app.runtime import DB_FILENAME, Runtime
+from suncore.app.runtime import DB_FILENAME, Runtime, utc_now
 from suncore.app.settings import ENV_SUPERVISOR_TOKEN, Settings, load_settings, under_supervisor
+from suncore.core.control import ControlSettings
 from suncore.ha import (
     EntityCache,
     EntityCatalogue,
@@ -32,8 +35,14 @@ from suncore.ha import (
     transport_from_env,
 )
 from suncore.ha.redact import register_secret
-from suncore.safety.gate import Clock, SafetyGate
-from suncore.storage import ConfigStore, Database, DecisionLog, SqliteRuntimeStore
+from suncore.safety.gate import Clock
+from suncore.storage import (
+    ConfigStore,
+    Database,
+    DecisionLog,
+    PowerModelStateStore,
+    SqliteRuntimeStore,
+)
 from suncore.templates import load_templates
 
 log = structlog.get_logger(__name__)
@@ -41,8 +50,44 @@ log = structlog.get_logger(__name__)
 DEMO_SCENARIO = "summer_day"
 
 
-def utc_now() -> datetime:
-    return datetime.now(UTC)
+@dataclass(frozen=True, slots=True)
+class DemoWiring:
+    """What demo mode swaps in: the fake connection and the clock/cadences that go with it."""
+
+    connection: HAConnection
+    clock: Clock
+    control_sleep: Callable[[float], Awaitable[None]]
+    control_settings: ControlSettings
+    cadences: Mapping[str, float]
+
+
+def _demo_wiring(settings: Settings) -> DemoWiring:
+    """The fake Home Assistant on an accelerated clock (the controller shares its time base)."""
+    from suncore.sim.demo_devices import DemoDevices  # noqa: PLC0415
+    from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
+    from suncore.sim.scenario import load_scenario  # noqa: PLC0415
+
+    scenario = load_scenario(DEMO_SCENARIO)
+    start = scenario.start
+    begin = start.replace(
+        hour=settings.demo_start_time.hour,
+        minute=settings.demo_start_time.minute,
+        second=0,
+        microsecond=0,
+    )
+    offset_s = (begin - start).total_seconds() % scenario.duration_s
+    clock = DemoClock(start + timedelta(seconds=offset_s), settings.demo_speed)
+    connection = FakeHAConnection(
+        scenario, clock=clock, speed=settings.demo_speed, start_offset_s=offset_s
+    )
+    tick_s = demo_tick_s(settings.controller_interval_s, settings.demo_speed)
+    return DemoWiring(
+        connection=connection,
+        clock=clock,
+        control_sleep=clock.sleep,
+        control_settings=ControlSettings(tick_s=tick_s),
+        cadences=DemoDevices(scenario).devices.heartbeats(),
+    )
 
 
 async def build_runtime(
@@ -55,15 +100,22 @@ async def build_runtime(
     """Open the database and create the services. Nothing is connected yet.
 
     ``connection`` lets tests inject a connection (any ``HAConnection``); without it demo
-    mode builds a ``FakeHAConnection`` and otherwise the transport is chosen from ``env``.
+    mode builds a ``FakeHAConnection`` on an accelerated clock (``suncore.app.demo``: the
+    controller runs the production stack in shadow mode against the simulated house) and
+    otherwise the transport is chosen from ``env``. The demo never touches ``/data``.
     """
     env = os.environ if env is None else env
     demo = settings.demo_mode
     tempdir: tempfile.TemporaryDirectory[str] | None = None
+    wiring: DemoWiring | None = None
     if demo:
         # The demo never touches /data: a throw-away database holds the demo site.
         tempdir = tempfile.TemporaryDirectory(prefix="suncore-demo-")
         data_dir = Path(tempdir.name)
+        if connection is None:
+            wiring = _demo_wiring(settings)
+            connection = wiring.connection
+            clock = wiring.clock
     else:
         data_dir = settings.data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -71,12 +123,8 @@ async def build_runtime(
     try:
         config = ConfigStore(db)
         if connection is None:
-            connection = _make_connection(settings, env, clock)
+            connection = WebSocketConnection(transport_from_env(env))
         decision_log = DecisionLog(db)
-        # Demo: `db` lives in a throw-away temp dir, so the demo never touches /data.
-        gate = SafetyGate(
-            clock=clock, sink=decision_log.append, store=SqliteRuntimeStore(db, clock=clock)
-        )
         cache = EntityCache(clock=clock)
         catalogue = EntityCatalogue(connection, wall_clock=clock)
         user_templates = None if demo else data_dir / "templates"
@@ -94,47 +142,35 @@ async def build_runtime(
             await seed_demo_config(config, template_catalog)
         else:
             await config.migrate_legacy_forecast()
+        # Demo: `db` lives in a throw-away temp dir, so nothing below touches /data either.
+        runtime = Runtime(
+            settings=settings,
+            db=db,
+            config=config,
+            decision_log=decision_log,
+            runtime_store=SqliteRuntimeStore(db, clock=clock),
+            power_store=PowerModelStateStore(db, clock=clock),
+            connection=connection,
+            cache=cache,
+            catalogue=catalogue,
+            template_catalog=template_catalog,
+            clock=clock,
+            demo=demo,
+            supervised=under_supervisor(env),
+        )
+        if wiring is not None:
+            runtime.real_clock = utc_now
+            runtime.control_sleep = wiring.control_sleep
+            runtime.control_settings = wiring.control_settings
+            runtime.extra_cadences = wiring.cadences
+        runtime._tempdir = tempdir
+        await runtime.prepare()
     except BaseException:
         await db.close()
         if tempdir is not None:
             tempdir.cleanup()
         raise
-    runtime = Runtime(
-        settings=settings,
-        db=db,
-        config=config,
-        decision_log=decision_log,
-        connection=connection,
-        cache=cache,
-        catalogue=catalogue,
-        template_catalog=template_catalog,
-        gate=gate,
-        clock=clock,
-        demo=demo,
-        supervised=under_supervisor(env),
-    )
-    runtime._tempdir = tempdir
     return runtime
-
-
-def _make_connection(settings: Settings, env: Mapping[str, str], clock: Clock) -> HAConnection:
-    if settings.demo_mode:
-        from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
-        from suncore.sim.scenario import load_scenario  # noqa: PLC0415
-
-        scenario = load_scenario(DEMO_SCENARIO)
-        start = scenario.start
-        begin = start.replace(
-            hour=settings.demo_start_time.hour,
-            minute=settings.demo_start_time.minute,
-            second=0,
-            microsecond=0,
-        )
-        offset_s = (begin - start).total_seconds() % scenario.duration_s
-        return FakeHAConnection(
-            scenario, clock=clock, speed=settings.demo_speed, start_offset_s=offset_s
-        )
-    return WebSocketConnection(transport_from_env(env))
 
 
 class _Server(uvicorn.Server):

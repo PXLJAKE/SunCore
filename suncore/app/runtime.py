@@ -6,11 +6,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import tempfile
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 from pydantic import BaseModel
@@ -25,11 +26,25 @@ from suncore.api.services import (
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.app.cadence import device_cadences, merge_cadences
+from suncore.app.control import ControlStack
+from suncore.app.modes import ConfigModes
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
-from suncore.core.config import DevicesConfig
-from suncore.core.decisions import Decision
+from suncore.core.config import DevicesConfig, GoalsConfig, OperationConfig, RegionConfig
+from suncore.core.control import ControlSettings
+from suncore.core.controlstate import (
+    ControlState,
+    DeviceControlState,
+    DeviceIdentityChangedError,
+    ModeRaiseRejectedError,
+    OverrideCommand,
+    UnknownDeviceError,
+    UnknownProposalError,
+)
+from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.identity import identity_token
 from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, collect_refs, preview, run_system_check
@@ -49,7 +64,14 @@ from suncore.ha import (
     suggest_from_prefs,
 )
 from suncore.safety.gate import Clock, SafetyGate
-from suncore.storage import ConfigStore, Database, DecisionLog, HistoryEntry
+from suncore.storage import (
+    ConfigStore,
+    Database,
+    DecisionLog,
+    HistoryEntry,
+    PowerModelStateStore,
+    SqliteRuntimeStore,
+)
 from suncore.templates import TemplateCatalog
 
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
@@ -61,49 +83,97 @@ PRUNE_INTERVAL_S = 3600.0
 """Decision-log retention runs hourly."""
 
 
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 @dataclass(slots=True)
 class Runtime:
-    """All long-lived objects of one SunCore process (the composition root's result)."""
+    """All long-lived objects of one SunCore process (the composition root's result).
+
+    The control layer is one :class:`~suncore.app.control.ControlStack` (``stack``): it is rebuilt
+    when the ``devices``, ``site`` or ``region`` section changes (the old one releases its devices
+    first - the safe direction) and keeps running on the entity cache this runtime owns.
+    """
 
     settings: Settings
     db: Database
     config: ConfigStore
     decision_log: DecisionLog
+    runtime_store: SqliteRuntimeStore
+    power_store: PowerModelStateStore
     connection: HAConnection
     cache: EntityCache
     catalogue: EntityCatalogue
     template_catalog: TemplateCatalog
-    gate: SafetyGate
     clock: Clock
     demo: bool
     supervised: bool
+    modes: ConfigModes = field(default_factory=ConfigModes)
     site: SiteConfig | None = None
     devices: DevicesConfig | None = None
+    region: RegionConfig | None = None
+    goals: GoalsConfig | None = None
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     prune_interval_s: float = PRUNE_INTERVAL_S
+    real_clock: Clock = utc_now
+    """Wall clock for liveness (health age); ``clock`` is simulated time in the demo."""
+    control_settings: ControlSettings | None = None
+    """Controller and safety settings; default: tick from ``Settings.controller_interval_s``."""
+    control_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    """The gate's settle wait and the tick period (accelerated in the demo)."""
+    extra_cadences: Mapping[str, float] = field(default_factory=dict)
+    """Cadences known better than the configuration (the simulator's slow sensors)."""
+    stack: ControlStack | None = None
     _listeners: list[Callable[[], None]] = field(default_factory=list)
     _health_listeners: list[Callable[[], None]] = field(default_factory=list)
+    _control_listeners: list[Callable[[], None]] = field(default_factory=list)
     _last_update: datetime | None = None
     _connect_task: asyncio.Task[None] | None = None
     _unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _tempdir: tempfile.TemporaryDirectory[str] | None = None
     _prune_task: asyncio.Task[None] | None = None
+    _stack_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _started: bool = False
+    _ha_timezone: str | None = None
+
+    @property
+    def gate(self) -> SafetyGate:
+        """The current safety gate (it changes when the stack is rebuilt)."""
+        if self.stack is None:
+            msg = "the control stack is not built yet"
+            raise RuntimeError(msg)
+        return self.stack.gate
 
     # --- lifecycle ------------------------------------------------------------
 
+    async def prepare(self) -> None:
+        """Load the live sections and build the control stack (no listeners, no connection).
+
+        Called by ``build_runtime`` so that the gate exists before :meth:`start`.
+        """
+        await self._load_live_sections()
+        self.stack = self._new_stack()
+
     async def start(self) -> None:
-        """Load the site, wire the connection and start connecting in the background.
+        """Wire the control stack and the connection and start connecting in the background.
 
         The API must come up even if Home Assistant is unreachable (``/health`` reports
         503), so ``connect()`` runs as a task; its failure is logged, and the state is
-        visible through the connection.
+        visible through the connection. ``gate.recover()`` runs after the first successful
+        connect, not here: a release needs Home Assistant (``ControlStack.on_state``).
         """
-        await self._load_live_sections()
-        await self.gate.recover()
+        if self.stack is None:
+            await self.prepare()
+        self._started = True
         self._unsubscribers.append(self.connection.add_entity_listener(self._on_entities))
         self._unsubscribers.append(self.connection.add_state_listener(self._on_state))
         await self._resubscribe()
         await self.catalogue.start()
+        assert self.stack is not None
+        await self.stack.start()
+        self.stack.start_ticking()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
         self._prune_task = asyncio.create_task(self._prune_loop(), name="suncore-prune")
 
@@ -112,6 +182,80 @@ class Runtime:
         devices = await self.config.get("devices")
         assert devices is None or isinstance(devices, DevicesConfig)
         self.devices = devices
+        region = await self.config.get("region")
+        assert region is None or isinstance(region, RegionConfig)
+        self.region = region
+        goals = await self.config.get("goals")
+        assert goals is None or isinstance(goals, GoalsConfig)
+        self.goals = goals
+        await self._load_modes()
+
+    async def _load_modes(self) -> None:
+        operation = await self.config.get("operation")
+        assert operation is None or isinstance(operation, OperationConfig)
+        self.modes.update(operation)
+
+    def _timezone(self) -> tzinfo:
+        """The site time zone: the region's, else Home Assistant's, else UTC (a warning)."""
+        name = self.region.timezone if self.region is not None else self._ha_timezone
+        if name is not None:
+            try:
+                return ZoneInfo(name)
+            except (ZoneInfoNotFoundError, ValueError, OSError):
+                log.warning("control.unknown_timezone", timezone=name)
+        else:
+            log.warning("control.timezone_unknown_using_utc")
+        return UTC
+
+    def _new_stack(self) -> ControlStack:
+        devices = list(self.devices.devices) if self.devices is not None else []
+        site = self.site
+        battery = None if site is None else site.battery
+        settings = self.control_settings or ControlSettings(
+            tick_s=float(self.settings.controller_interval_s)
+        )
+        stack = ControlStack(
+            self.connection,
+            site=site,
+            devices=devices,
+            clock=self.clock,
+            sleep=self.control_sleep,
+            settings=settings,
+            modes=self.modes,
+            store=self.runtime_store,
+            tz=self._timezone(),
+            goals=self.goals,
+            import_limit_w=None if site is None else site.grid.import_limit_w,
+            reserve_soc_pct=None if battery is None else battery.min_soc_pct,
+            cadences=merge_cadences(device_cadences(devices), self.extra_cadences),
+            sink=self._record_decision,
+            cache=self.cache,
+            power_store=self.power_store,
+            attach=False,
+        )
+        stack.add_listener(self._notify_control)
+        return stack
+
+    async def _rebuild_stack(self) -> None:
+        """Replace the control stack after a ``devices``/``site``/``region`` change.
+
+        The old stack stops ticking and releases every device it controls (baseline restored)
+        before the new one recovers from the persisted runtime; the emergency-stop flag and the
+        device runtime survive in the store.
+        """
+        async with self._stack_lock:
+            old, self.stack = self.stack, None
+            if old is not None:
+                await old.shutdown()
+            new = self._new_stack()
+            self.stack = new
+            if self._started:
+                await new.start()
+                new.start_ticking()
+        self._notify_control()
+
+    async def _record_decision(self, decision: Decision) -> None:
+        await self.decision_log.append(decision)
 
     async def prune_decisions(self) -> int:
         """One retention pass over the decision log; failures are logged, never raised."""
@@ -133,13 +277,32 @@ class Runtime:
             raise
         except Exception as exc:  # AuthError and friends: reported via state, not fatal
             log.error("ha.connect_failed", error_type=type(exc).__name__, error=str(exc))
+            return
+        await self._learn_ha_timezone()
+
+    async def _learn_ha_timezone(self) -> None:
+        """Without a region the override resume time is local to Home Assistant's zone."""
+        if self.region is not None:
+            return
+        try:
+            config = await self.connection.get_config()
+        except (HAError, TimeoutError) as exc:
+            log.warning("ha.get_config_failed", error=str(exc))
+            return
+        name = config.get("time_zone")
+        if isinstance(name, str) and name and name != self._ha_timezone:
+            self._ha_timezone = name
+            if self.region is None and self._started:
+                await self._rebuild_stack()
 
     async def stop(self) -> None:
         """Close in reverse order: release hardware control, connection, then database.
 
-        ``gate.shutdown()`` restores the takeover baselines within its deadline while
-        the HA connection is still open (fail-safe path, plan WP3).
+        ``ControlStack.shutdown()`` stops the tick loop, restores the takeover baselines within
+        the gate's deadline while the HA connection is still open (fail-safe path, plan WP3) and
+        saves the learned power models.
         """
+        self._started = False
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
@@ -149,7 +312,9 @@ class Runtime:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
         self._connect_task = self._prune_task = None
-        await self.gate.shutdown()
+        async with self._stack_lock:
+            if self.stack is not None:
+                await self.stack.shutdown()
         await self.catalogue.stop()
         await self.connection.close()
         await self.db.close()
@@ -166,12 +331,23 @@ class Runtime:
             except Exception:
                 log.exception("change listener failed")
 
+    def _notify_control(self) -> None:
+        for listener in list(self._control_listeners):
+            try:
+                listener()
+            except Exception:
+                log.exception("control listener failed")
+
     def _on_entities(self, update: EntityUpdate) -> None:
-        self.cache.ingest(update)
-        self._last_update = self.clock()
+        self.cache.ingest(update)  # the cache first: the stack reads it
+        self._last_update = self.real_clock()
+        if self.stack is not None:
+            self.stack.on_update(update)
         self._notify()
 
-    def _on_state(self, _state: ConnectionState) -> None:
+    def _on_state(self, state: ConnectionState) -> None:
+        if self.stack is not None:
+            self.stack.on_state(state)
         self._notify()
         for listener in list(self._health_listeners):
             try:
@@ -197,7 +373,7 @@ class Runtime:
 
     @property
     def mode(self) -> str:
-        return self.gate.mode.value
+        return self.modes.global_mode().value
 
     @property
     def max_import_bytes(self) -> int:
@@ -226,7 +402,7 @@ class Runtime:
         age = (
             None
             if self._last_update is None
-            else (self.clock() - self._last_update).total_seconds()
+            else (self.real_clock() - self._last_update).total_seconds()
         )
         return HealthReport(
             ha_state=self.connection.state.value,
@@ -246,24 +422,183 @@ class Runtime:
         return await self.config.get(name)
 
     async def put_section(self, name: str, model: BaseModel) -> BaseModel:
-        """Store any config section; ``site`` and ``devices`` also resubscribe entities.
+        """Store any config section and apply it to the running control layer.
 
-        Returns what was stored. Putting ``devices`` drops the stored non-shadow mode of
-        devices (id, template or mapped entities changed) from ``operation``: they start
-        in shadow.
-        Other sections are stored only: ``operation`` is never read by the safety gate.
+        Returns what was stored.
+
+        * ``site``, ``devices``: resubscribe the entities; a change rebuilds the control stack
+          (the old one releases its devices first). Putting ``devices`` also drops the stored
+          non-shadow mode of devices whose identity changed from ``operation`` (they start in
+          shadow);
+        * ``region`` (time zone) rebuilds the stack, ``goals`` apply at the next tick;
+        * ``operation``: the full document may keep or *lower* modes only. Raising a mode goes
+          through :meth:`set_global_mode` / :meth:`set_device_mode`, the latter with the device's
+          identity token, so a stale document cannot grant a mode to a device that was re-mapped
+          meanwhile (``ModeRaiseRejectedError``). Lowered devices are released.
         """
+        if name == "operation":
+            assert isinstance(model, OperationConfig)
+            self._reject_raise(model)
+        before = (self.site, self.devices, self.region)
         stored = await self.config.put(name, model)
+        if name == "operation":
+            assert isinstance(stored, OperationConfig)
+            await self._apply_operation(stored)
+        else:
+            await self._apply_stored(name, stored, before)
+        self._notify()
+        return stored
+
+    async def _apply_stored(
+        self,
+        name: str,
+        stored: BaseModel,
+        before: tuple[SiteConfig | None, DevicesConfig | None, RegionConfig | None],
+    ) -> None:
         if name == "site":
             assert isinstance(stored, SiteConfig)
             self.site = stored
         elif name == "devices":
             assert isinstance(stored, DevicesConfig)
             self.devices = stored
+            await self._load_modes()  # the identity rule may have dropped modes
+        elif name == "region":
+            assert isinstance(stored, RegionConfig)
+            self.region = stored
+        elif name == "goals":
+            assert isinstance(stored, GoalsConfig)
+            self.goals = stored
+            if self.stack is not None:
+                self.stack.set_goals(stored)
         if name in ("site", "devices"):
             await self._resubscribe()
+        if (self.site, self.devices, self.region) != before:
+            await self._rebuild_stack()
+        if name == "devices":
+            await self._sync_modes()
+
+    # --- operating modes ----------------------------------------------------------
+
+    def _reject_raise(self, new: OperationConfig) -> None:
+        current = self.modes.operation
+        if new.mode.rank > current.mode.rank:
+            raise ModeRaiseRejectedError("global")
+        for device_id, mode in new.device_modes.items():
+            if mode.rank > current.device_modes.get(device_id, OperatingMode.SHADOW).rank:
+                raise ModeRaiseRejectedError(device_id)
+
+    async def _sync_modes(self) -> None:
+        if self.stack is not None:
+            await self.stack.gate.sync_modes()
+        self._notify_control()
+
+    async def _apply_operation(self, operation: OperationConfig) -> None:
+        self.modes.update(operation)
+        await self._sync_modes()
+
+    async def set_global_mode(self, mode: OperatingMode) -> OperationConfig:
+        async with self._operation_lock:
+            current = self.modes.operation
+            stored = await self.config.put("operation", current.model_copy(update={"mode": mode}))
+            assert isinstance(stored, OperationConfig)
+            await self._apply_operation(stored)
         self._notify()
         return stored
+
+    async def set_device_mode(
+        self, device_id: str, mode: OperatingMode, identity: str | None
+    ) -> OperationConfig:
+        device = next(
+            (d for d in (self.devices.devices if self.devices else []) if d.id == device_id),
+            None,
+        )
+        if device is None:
+            raise UnknownDeviceError(device_id)
+        if mode is not OperatingMode.SHADOW and identity != identity_token(device):
+            raise DeviceIdentityChangedError(device_id)
+        async with self._operation_lock:
+            current = self.modes.operation
+            modes = dict(current.device_modes)
+            if mode is OperatingMode.SHADOW:
+                modes.pop(device_id, None)  # missing = shadow
+            else:
+                modes[device_id] = mode
+            stored = await self.config.put(
+                "operation", current.model_copy(update={"device_modes": modes})
+            )
+            assert isinstance(stored, OperationConfig)
+            await self._apply_operation(stored)
+        self._notify()
+        return stored
+
+    # --- control ----------------------------------------------------------------------
+
+    def control_state(self) -> ControlState:
+        if self.stack is None:
+            return ControlState(
+                ts=None,
+                active=False,
+                emergency_stop=False,
+                global_mode=self.modes.global_mode(),
+                site=None,
+                devices=[],
+                proposals=[],
+            )
+        return self.stack.control_state()
+
+    def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        self._control_listeners.append(listener)
+
+        def remove() -> None:
+            with contextlib.suppress(ValueError):
+                self._control_listeners.remove(listener)
+
+        return remove
+
+    async def emergency_stop(self) -> None:
+        if self.stack is not None:
+            await self.stack.gate.emergency_stop()
+        else:  # being rebuilt: the next stack loads the persisted flag in `recover()`
+            await self.runtime_store.save_emergency_stop(True)
+        self._notify_control()
+
+    async def clear_emergency_stop(self) -> None:
+        if self.stack is not None:
+            await self.stack.gate.clear_emergency_stop()
+        else:
+            await self.runtime_store.save_emergency_stop(False)
+        self._notify_control()
+
+    async def override_device(self, device_id: str, command: OverrideCommand) -> DeviceControlState:
+        stack = self.stack
+        if stack is None or device_id not in stack.device_configs:
+            raise UnknownDeviceError(device_id)
+        if command.action == "boost":
+            assert command.minutes is not None
+            until: datetime | None = self.clock() + timedelta(minutes=command.minutes)
+            await stack.gate.hold(device_id, until)
+        elif command.action == "pause":
+            await stack.gate.hold(device_id, command.until)
+        else:
+            await stack.gate.resume(device_id)
+        self._notify_control()
+        state = stack.control_state()
+        return next(d for d in state.devices if d.device_id == device_id)
+
+    def proposals(self) -> list[Decision]:
+        return [] if self.stack is None else list(self.stack.gate.proposals())
+
+    async def confirm_proposal(self, intent_id: str) -> Decision:
+        decision = None if self.stack is None else await self.stack.gate.confirm(intent_id)
+        if decision is None:
+            raise UnknownProposalError(intent_id)
+        self._notify_control()
+        return decision
+
+    async def dismiss_proposal(self, intent_id: str) -> None:
+        if self.stack is None or not self.stack.gate.dismiss(intent_id):
+            raise UnknownProposalError(intent_id)
+        self._notify_control()
 
     async def entities(self, query: EntityQuery) -> Sequence[DetectedEntity]:
         """Ranked entities from the catalogue (registry snapshot + state cache, ≤ 30 s old)."""
@@ -321,9 +656,8 @@ class Runtime:
     async def restore_section(self, name: str, entry_id: int) -> BaseModel:
         """Restore a history entry; live sections are reloaded like after a normal save."""
         restored = await self.config.restore(name, entry_id)
-        if name in ("site", "devices"):
-            await self._load_live_sections()
-            await self._resubscribe()
+        if name in ("site", "devices", "region", "goals", "operation"):
+            await self._reload_live_sections(resubscribe=name in ("site", "devices"))
         self._notify()
         return restored
 
@@ -372,18 +706,35 @@ class Runtime:
         ids = [r.entity_id for r in self.site.entity_refs()]
         return compute_flows(self.site, self.cache.samples(ids))
 
-    async def decisions(self, limit: int) -> list[Decision]:
-        return await self.decision_log.latest(limit)
+    async def decisions(
+        self,
+        limit: int,
+        *,
+        device_id: str | None = None,
+        kinds: Collection[DecisionKind] | None = None,
+    ) -> list[Decision]:
+        return await self.decision_log.latest(limit, device_id=device_id, kinds=kinds)
 
     async def export_config(self) -> dict[str, Any]:
         return await self.config.export_json()
 
     async def import_config(self, data: object) -> list[str]:
         sections = await self.config.import_json(data)
-        await self._load_live_sections()
-        await self._resubscribe()
+        await self._reload_live_sections(resubscribe=True)
         self._notify()
         return sections
+
+    async def _reload_live_sections(self, *, resubscribe: bool) -> None:
+        """After a restore or import: re-read what the control layer runs on and apply it."""
+        before = (self.site, self.devices, self.region)
+        await self._load_live_sections()
+        if resubscribe:
+            await self._resubscribe()
+        if (self.site, self.devices, self.region) != before:
+            await self._rebuild_stack()
+        elif self.stack is not None and self.goals is not None:
+            self.stack.set_goals(self.goals)
+        await self._sync_modes()
 
     def add_change_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(listener)

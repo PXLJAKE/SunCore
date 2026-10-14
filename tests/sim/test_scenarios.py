@@ -296,11 +296,16 @@ def test_sensor_dropout_connection_loss_releases_on_restore() -> None:
         rel = releases(result, device_id, restore, restore + 60)
         assert len(rel) == 1, device_id
         assert "safety.connection_lost" in [r.key for r in rel[0].reasons]
-    attempts = [c for c in runner.conn.call_log if c.error == "not_connected"]
-    assert attempts  # the gate tried to release during the outage ...
-    assert all(
-        28800 <= (c.ts - result.scenario.start).total_seconds() < restore for c in attempts
-    )  # ... and nowhere else
+    # Nothing is sent - and nothing logged - while the connection is lost: the stack skips its
+    # ticks (a release cannot succeed without Home Assistant; WP8 found one failed release
+    # decision per device per tick, 230 entries in 10 minutes).
+    assert [c for c in runner.conn.call_log if c.error == "not_connected"] == []
+    outage = [
+        d
+        for d in result.decisions
+        if 28800 <= (d.ts - result.scenario.start).total_seconds() < restore
+    ]
+    assert [d for d in outage if d.kind is DecisionKind.FAILED] == []
     i = index(result, restore + 90)
     assert result.devices["pool"].on[i] is False
     assert result.devices["ac"].setpoint_c[i] == 21.0
@@ -351,14 +356,14 @@ def test_disconnect_releases_on_restore_and_takes_over_only_afterwards() -> None
     i = index(result, end + 60)
     assert result.devices["pool"].on[i] is False
     assert result.devices["ac"].setpoint_c[i] == 24.0
-    # no service call was attempted that could have changed a device during the outage
+    # no service call was attempted during the outage: the stack skips its ticks (a release
+    # cannot succeed without Home Assistant, WP8 logged a failed one per tick)
     outage = [
         c
         for c in runner.conn.call_log
         if start <= (c.ts - result.scenario.start).total_seconds() < end
     ]
-    assert outage
-    assert all(c.error == "not_connected" and c.reached == () for c in outage)
+    assert outage == []
     # the next takeover waits for the cool-down and for the pump's min pause
     first_again = min(seconds(result, d.ts) for d in writes(result, "pool", end))
     assert first_again >= end + settle

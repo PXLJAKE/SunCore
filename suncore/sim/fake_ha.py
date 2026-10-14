@@ -298,6 +298,10 @@ class FakeHAConnection:
             self._step_house()
             self._step_index += 1
         self._apply_step(emit=False)
+        if self._subscribed:
+            # Like the WebSocket client: the snapshot of the subscription arrives before the
+            # connection counts as connected (the control stack recovers on that state).
+            self._emit_snapshot()
         self._set_state(ConnectionState.CONNECTED)
         if self._autorun:
             self._task = asyncio.get_running_loop().create_task(self._run(), name="fake-ha-feed")

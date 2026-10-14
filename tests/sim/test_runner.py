@@ -329,6 +329,7 @@ async def test_the_demo_stack_helper_wires_the_controller_on_the_fake() -> None:
         runner.conn.advance()
         await runner.vt.settle()
         result = await stack.tick()
+    assert result is not None
     assert result.ts == runner.vt.now
     assert set(stack.estimates) == {AC_DEVICE_ID, POOL_DEVICE_ID, ROD_DEVICE_ID}
     assert "sensor.sim_living_room_ac_energy_current" in stack.watchdog._cadence
