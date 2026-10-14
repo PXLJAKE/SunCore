@@ -114,7 +114,10 @@
       (list) => {
         if (stale) return;
         units = new Map(
-          list.map((c) => [c.entity_id, { deviceId: c.device_id, deviceName: c.device_name }]),
+          list.map((c) => [
+            c.entity_id,
+            { deviceId: c.device_id, deviceName: c.device_name, platform: c.platform },
+          ]),
         );
       },
       () => {}, // a hint only: without the list there is simply no hint

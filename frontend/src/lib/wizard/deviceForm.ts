@@ -291,6 +291,7 @@ export function validateDeviceForm(form: DeviceForm, template: DeviceTemplate): 
 export interface UnitInfo {
   deviceId: string | null;
   deviceName: string | null;
+  platform: string | null;
 }
 
 /** Case- and whitespace-insensitive device name (same rule as the backend system check). */
@@ -299,8 +300,10 @@ export const normaliseName = (name: string | null | undefined): string =>
 
 /**
  * Whether the chosen control entity looks like a unit that another configured climate device
- * already controls: the same entity, or an entity of another registry device with the same
- * device name (two integrations for one air conditioner). Only a hint; never blocks saving.
+ * already controls: the same entity, or an entity of another registry device on another
+ * platform (integration) with the same device name (two integrations for one air conditioner).
+ * Two devices of one integration with equal names are not flagged; renaming a device in Home
+ * Assistant silences the hint. Only a hint; never blocks saving.
  */
 export function seemsConfiguredAlready(
   form: Pick<DeviceForm, 'id' | 'kind' | 'entities' | 'control'>,
@@ -323,6 +326,9 @@ export function seemsConfiguredAlready(
       theirs !== undefined &&
       mine !== undefined &&
       theirs.deviceId !== mine.deviceId &&
+      theirs.platform !== null &&
+      mine.platform !== null &&
+      theirs.platform !== mine.platform &&
       normaliseName(theirs.deviceName) === name
     );
   });

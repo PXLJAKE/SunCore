@@ -21,11 +21,10 @@ source:
   - title: "home-assistant/core lg_thinq entity.py (device ids, translation key suffix)"
     url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/lg_thinq/entity.py"
     date: 2026-10-13
-tested_with:
-  - { integration: lg_thinq, version: "2026.10.1" }
+tested_with: []
 capabilities: [energy_counter, power_measured, temperature_setpoint, hvac_modes, preset_modes, fan_modes]
 unverified:
-  - "Seen on core 2026.10.1 (RAC_0B0001_WW): unique ids end in _climate_air_conditioner and _energyUsage_today; translation keys themselves are inferred from the source."
+  - "Seen live on core 2026.10.1 (RAC_0B0001_WW): unique ids end in _climate_air_conditioner and _energyUsage_today. Translation keys are inferred, not observed."
   - "Exact entity ids and the property id part of the unique id (built at runtime from the device profile); the template therefore matches by platform and translation key."
   - "Modes differ per model. RAC_0B0001_WW: hvac off/heat/cool/dry/auto/fan_only, fans auto/low/low_mid/medium/mid_high/high, no presets, no target_temp_step."
   - "Energy sensors exist only when the device API exposes `energyUsage`; sub-device layouts (sub_id) are unknown."
@@ -66,7 +65,6 @@ roles:
       domain: sensor
       device_class: power
       units: [W, kW]
-      state_class: measurement
     description: template.lg.thinq_climate.role.power
 defaults:
   # Without the optional `power` role there is no power sensor: learn the power from the

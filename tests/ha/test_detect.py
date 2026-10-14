@@ -374,3 +374,29 @@ def test_name_affinity_ranks_sensors_of_the_same_named_device_first() -> None:
     assert criteria_keys(hinted[0].criteria)[-1] == "detect.criterion.name_affinity"
     # A hint never drops a candidate and never adds one.
     assert len(hinted) == len(plain)
+
+
+def test_name_affinity_needs_whole_words_in_the_friendly_name() -> None:
+    role = RoleSpec.model_validate(
+        {
+            "description": "role.test.power",
+            "matcher": {"domain": "sensor", "device_class": "power", "units": ["W"]},
+        }
+    )
+    metas = [
+        power("sensor.a_backup", device_id="d_x", name="Backup power"),  # "ac" inside "backup"
+        power("sensor.b_ac", device_id="d_y", name="AC power"),
+        power("sensor.c_dash", device_id="d_z", name="AC-1 power"),  # punctuation is a boundary
+    ]
+    hinted = detect_template_role(
+        role, metas, name_hint="AC", device_name_of=lambda _device_id: None
+    )
+    by_id = {m.meta.entity_id: m for m in hinted}
+    assert "name_affinity" not in by_id["sensor.a_backup"].criteria
+    assert "name_affinity" in by_id["sensor.b_ac"].criteria
+    assert "name_affinity" in by_id["sensor.c_dash"].criteria
+    # equality with the device name still counts, whatever the entity is called
+    named = detect_template_role(
+        role, metas[:1], name_hint="AC", device_name_of=lambda _device_id: " ac "
+    )
+    assert "name_affinity" in named[0].criteria

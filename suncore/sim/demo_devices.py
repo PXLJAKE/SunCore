@@ -75,10 +75,11 @@ SIM_DEVICE_ENTITY_IDS: Final[tuple[str, ...]] = (
 """All additional demo entities (the five site sensors are ``SIM_ENTITY_IDS``)."""
 
 AC_POWER_W: Final = 900.0
+"""Electrical power of the demo air conditioner while it cools."""
 AC_B_POLL_S: Final = 300
 """The ``smartthinq_sensors`` power sensor is polled every 5 minutes."""
 AC_STANDBY_W: Final = 5.0
-"""Electrical power of the demo air conditioner while it cools."""
+"""Electrical power of the demo air conditioner in standby."""
 POOL_PUMP_POWER_W: Final = 750.0
 PRICE_CURRENCY: Final = "EUR"
 SLOT_MIN: Final = 30

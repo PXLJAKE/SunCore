@@ -291,15 +291,18 @@ def _control_entity(device: DeviceConfig) -> str | None:
 
 
 def _check_duplicate_units(
-    devices: DevicesConfig, unit_of: Callable[[str], tuple[str, str] | None]
+    devices: DevicesConfig, unit_of: Callable[[str], tuple[str, str, str] | None]
 ) -> list[CheckItem]:
     """Warn when two configured devices control the same physical unit.
 
     Two devices count as the same unit when their control entity is the same entity, or (for
     air conditioners, which commonly exist twice through two integrations) when the control
-    entities belong to *different* Home Assistant devices with the same name (ignoring case
-    and whitespace). ``unit_of`` maps an entity id to ``(registry device id, device name)``;
-    other kinds are not compared by name because default names ("Smart plug") repeat.
+    entities belong to *different* Home Assistant devices on *different* platforms
+    (integrations) with the same name (ignoring case and whitespace). Two devices of one
+    integration with equal names (two rooms called "AC") are not flagged. A device renamed in
+    Home Assistant (``name_by_user``) no longer matches, which silences the check. ``unit_of``
+    maps an entity id to ``(registry device id, device name, platform)``; other kinds are not
+    compared by name because default names ("Smart plug") repeat.
     """
     items: list[CheckItem] = []
     controlled = [(d, e) for d in devices.devices if (e := _control_entity(d)) is not None]
@@ -314,6 +317,7 @@ def _check_duplicate_units(
                     a is not None
                     and b is not None
                     and a[0] != b[0]
+                    and a[2] != b[2]  # same integration twice is no duplicate
                     and normalise_name(a[1]) == normalise_name(b[1])
                 ):
                     unit_name = a[1]
@@ -336,7 +340,7 @@ def run_system_check(
     samples: Mapping[str, Sample],
     present_sections: Collection[str],
     devices: DevicesConfig | None = None,
-    unit_of: Callable[[str], tuple[str, str] | None] | None = None,
+    unit_of: Callable[[str], tuple[str, str, str] | None] | None = None,
 ) -> list[CheckItem]:
     """All findings, most basic first. ``samples`` are by entity id (the live cache).
 

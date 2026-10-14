@@ -319,10 +319,11 @@ def _ac(device_id: str, name: str, entity_id: str, kind: str = "climate") -> Dev
 
 
 REGISTRY = {
-    "climate.a": ("dev_a", "Schlafen Jake Klimaanlage"),
-    "climate.b": ("dev_b", "  schlafen   jake klimaanlage "),
-    "climate.c": ("dev_c", "Wohnzimmer"),
-    "climate.d": ("dev_a", "Schlafen Jake Klimaanlage"),  # same registry device as `a`
+    "climate.a": ("dev_a", "Schlafen Jake Klimaanlage", "lg_thinq"),
+    "climate.b": ("dev_b", "  schlafen   jake klimaanlage ", "smartthinq_sensors"),
+    "climate.c": ("dev_c", "Wohnzimmer", "lg_thinq"),
+    "climate.d": ("dev_a", "Schlafen Jake Klimaanlage", "lg_thinq"),  # same registry device as `a`
+    "climate.e": ("dev_e", "Schlafen Jake Klimaanlage", "lg_thinq"),  # same name, same platform
 }
 
 
@@ -354,6 +355,8 @@ def test_no_duplicate_for_different_names_one_registry_device_or_unknown_registr
     assert duplicates(_ac("ac1", "One", "climate.a"), _ac("ac2", "Two", "climate.c")) == []
     # two climate entities of ONE registry device are not two integrations
     assert duplicates(_ac("ac1", "One", "climate.a"), _ac("ac2", "Two", "climate.d")) == []
+    # equal names on the SAME platform (two rooms called "AC") are not one unit
+    assert duplicates(_ac("ac1", "One", "climate.a"), _ac("ac2", "Two", "climate.e")) == []
     # without registry data only the same-entity check can run
     items = run_system_check(
         None,
@@ -363,7 +366,10 @@ def test_no_duplicate_for_different_names_one_registry_device_or_unknown_registr
     )
     assert not any(i.reason.key == "wizard.check.duplicate_unit" for i in items)
     # non-climate devices are not compared by name (default names such as "Smart plug" repeat)
-    registry = {"climate.a": ("x", "Smart plug"), "climate.b": ("y", "Smart plug")}
+    registry = {
+        "climate.a": ("x", "Smart plug", "p1"),
+        "climate.b": ("y", "Smart plug", "p2"),
+    }
     plugs = run_system_check(
         None,
         {},

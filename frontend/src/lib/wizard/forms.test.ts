@@ -490,10 +490,32 @@ describe('optional power sensor of another device (climate templates)', () => {
 
 describe('same unit configured twice (hint)', () => {
   const lookup = new Map([
-    ['climate.lg', { deviceId: 'dev_lg', deviceName: 'Schlafen Jake Klimaanlage' }],
-    ['climate.st', { deviceId: 'dev_st', deviceName: '  schlafen   jake KLIMAANLAGE' }],
-    ['climate.other', { deviceId: 'dev_o', deviceName: 'Wohnzimmer' }],
-    ['climate.lg_2', { deviceId: 'dev_lg', deviceName: 'Schlafen Jake Klimaanlage' }],
+    [
+      'climate.lg',
+      { deviceId: 'dev_lg', deviceName: 'Schlafen Jake Klimaanlage', platform: 'lg_thinq' },
+    ],
+    [
+      'climate.st',
+      {
+        deviceId: 'dev_st',
+        deviceName: '  schlafen   jake KLIMAANLAGE',
+        platform: 'smartthinq_sensors',
+      },
+    ],
+    ['climate.other', { deviceId: 'dev_o', deviceName: 'Wohnzimmer', platform: 'lg_thinq' }],
+    [
+      'climate.lg_2',
+      { deviceId: 'dev_lg', deviceName: 'Schlafen Jake Klimaanlage', platform: 'lg_thinq' },
+    ],
+    // same name, other registry device, SAME platform: two rooms called alike
+    [
+      'climate.lg_3',
+      { deviceId: 'dev_lg3', deviceName: 'Schlafen Jake Klimaanlage', platform: 'lg_thinq' },
+    ],
+    [
+      'climate.noplat',
+      { deviceId: 'dev_np', deviceName: 'Schlafen Jake Klimaanlage', platform: null },
+    ],
   ]);
   const stored = (id: string, entity: string, kind = 'climate') =>
     ({
@@ -524,6 +546,8 @@ describe('same unit configured twice (hint)', () => {
     const others = [stored('ac_lg', 'climate.lg')];
     expect(seemsConfiguredAlready(formFor('climate.other'), others, lookup)).toBe(false);
     expect(seemsConfiguredAlready(formFor('climate.lg_2'), others, lookup)).toBe(false);
+    expect(seemsConfiguredAlready(formFor('climate.lg_3'), others, lookup)).toBe(false);
+    expect(seemsConfiguredAlready(formFor('climate.noplat'), others, lookup)).toBe(false);
     expect(seemsConfiguredAlready(formFor('climate.st', 'ac_lg'), others, lookup)).toBe(false);
     expect(
       seemsConfiguredAlready(formFor('climate.st'), [stored('x', 'climate.lg', 'switch')], lookup),

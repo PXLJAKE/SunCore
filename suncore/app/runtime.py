@@ -273,13 +273,13 @@ class Runtime:
         site_matches = detect_site_role(query.role, metas, include_hidden=query.include_hidden)
         return describe(site_matches, live=self.cache, catalogue=self.catalogue)
 
-    def _unit_of_entity(self, entity_id: str) -> tuple[str, str] | None:
-        """Registry ``(device id, device name)`` of an entity, if the registry knows both."""
+    def _unit_of_entity(self, entity_id: str) -> tuple[str, str, str] | None:
+        """Registry ``(device id, device name, platform)`` of an entity, if all are known."""
         entity = self.catalogue.snapshot.entities.get(entity_id)
         device = self.catalogue.device(entity.device_id if entity is not None else None)
-        if entity is None or device is None or device.name is None:
+        if entity is None or device is None or device.name is None or entity.platform is None:
             return None
-        return device.device_id, device.name
+        return device.device_id, device.name, entity.platform
 
     def _device_name(self, device_id: str | None) -> str | None:
         device = self.catalogue.device(device_id)

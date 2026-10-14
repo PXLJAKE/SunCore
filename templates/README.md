@@ -19,7 +19,7 @@ drift).
 
 | Kind | Id | What | Status |
 |---|---|---|---|
-| device | `lg.thinq_climate` | LG ThinQ air conditioner, power from the hourly Wh counter or an optional power sensor of another device | from integration source, `UNVERIFIED` on hardware |
+| device | `lg.thinq_climate` | LG ThinQ air conditioner, power from the hourly Wh counter or an optional power sensor of another device | from integration source; entity ids, modes and units seen live, matcher keys `UNVERIFIED` |
 | device | `generic.switch` | any switch, optional power sensor | generic |
 | device | `generic.climate` | any `climate` entity, power measured (sensor may be on another device) or nominal | generic |
 | device | `generic.number_load` | load set through a number entity (W, A or %) | generic |

@@ -286,7 +286,9 @@ def _shares_name(
     meta: EntityMeta, hint: str, device_name_of: Callable[[str | None], str | None] | None
 ) -> bool:
     device = normalise_name(device_name_of(meta.device_id) if device_name_of else None)
-    return device == hint or hint in normalise_name(meta.name)
+    if device == hint:
+        return True
+    return re.search(rf"(?<!\w){re.escape(hint)}(?!\w)", normalise_name(meta.name)) is not None
 
 
 def _criteria(role: RoleSpec, meta: EntityMeta, same_device_id: str | None) -> tuple[str, ...]:

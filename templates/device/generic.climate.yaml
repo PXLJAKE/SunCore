@@ -35,7 +35,6 @@ roles:
       domain: sensor
       device_class: power
       units: [W, kW]
-      state_class: measurement
     description: template.generic.climate.role.power
   energy:
     required: false

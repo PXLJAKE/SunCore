@@ -11,13 +11,14 @@ ADRs relevant to your task. Keep it short; history lives in git.
 - **Phase 2 completion from the live LG check (PR #18, 2026-10-14)**: the maintainer runs the
   same AC through `lg_thinq` and HACS `smartthinq_sensors`. (1) Climate templates
   (`lg.thinq_climate`, `generic.climate`) have an optional `power` role without
-  `same_device_as` (sensor of another device, `state_class` measurement); mapping it
+  `same_device_as` (sensor of another device); mapping it
   preselects the `measured` power model (switchable), candidates of a device with the same
   name rank first (`name_affinity`, query parameter `device_name`, no schema change). The
   `energy_current` sensor polls every 5 minutes, so Phase 3 must treat it as slow (noted in
   the templates). (2) System check warning `wizard.check.duplicate_unit` (same control entity
-  twice, or climate entities of different registry devices with equal device names) and a
-  hint in the device editor; the check never blocks. The demo has a second, smartthinq-like
+  twice, or climate entities of different registry devices on different platforms with equal
+  device names; a renamed device silences it) and a hint in the device editor; the check never
+  blocks. The demo has a second, smartthinq-like
   device. `UNVERIFIED`: the `smartthinq_sensors` source was not read, only its entities on
   the maintainer's HA.
 

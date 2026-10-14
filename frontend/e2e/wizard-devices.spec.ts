@@ -34,8 +34,8 @@ test.describe('devices and priorities', () => {
     await page.getByLabel('Search').fill('lg');
     await expect(gallery.getByRole('listitem')).toHaveCount(1);
     await expect(gallery).toContainText('LG ThinQ air conditioner');
-    // tested on the maintainer's hardware (tested_with set): no warning badge
-    await expect(gallery).not.toContainText('Not verified with real hardware');
+    // matcher keys only inferred from source (tested_with empty): warning badge
+    await expect(gallery).toContainText('Not verified with real hardware');
     await page.getByLabel('Search').fill('generic');
     await expect(gallery.getByRole('listitem')).toHaveCount(1);
     await expect(gallery).toContainText('Generic climate device');
