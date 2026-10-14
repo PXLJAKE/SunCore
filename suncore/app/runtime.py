@@ -94,6 +94,7 @@ class Runtime:
         visible through the connection.
         """
         await self._load_live_sections()
+        await self.gate.recover()
         self._unsubscribers.append(self.connection.add_entity_listener(self._on_entities))
         self._unsubscribers.append(self.connection.add_state_listener(self._on_state))
         await self._resubscribe()
@@ -115,7 +116,11 @@ class Runtime:
             log.error("ha.connect_failed", error_type=type(exc).__name__, error=str(exc))
 
     async def stop(self) -> None:
-        """Close in reverse order: connection, then database."""
+        """Close in reverse order: release hardware control, connection, then database.
+
+        ``gate.shutdown()`` restores the takeover baselines within its deadline while
+        the HA connection is still open (fail-safe path, plan WP3).
+        """
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
@@ -124,6 +129,7 @@ class Runtime:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        await self.gate.shutdown()
         await self.catalogue.stop()
         await self.connection.close()
         await self.db.close()

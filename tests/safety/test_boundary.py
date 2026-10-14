@@ -3,8 +3,11 @@
 
 AST-based scan over ``suncore/``; no module is imported. The rules:
 
-1. Only ``suncore.safety`` may call ``.apply(...)`` - the actuator write.
-2. Only ``suncore.safety`` may import ``suncore.safety.actuator``.
+1. Only ``suncore.safety.gate`` may call ``.apply(...)`` and ``.release(...)`` - the
+   actuator write and the hardware release (Phase 3: the only write paths).
+2. Only ``suncore.safety`` may import ``suncore.safety.actuator``; driver modules
+   (``suncore.devices.drivers``, Phase 3 WP6) may only be imported by ``suncore.safety``
+   and the composition root ``suncore.app``.
 3. Only ``suncore.ha`` and ``suncore.safety`` may reference an attribute
    named ``call_service`` (the connector exposes it only through a
    capability object handed to safety).
@@ -17,8 +20,9 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
 6. ``suncore.safety`` imports neither ``suncore.core.config`` nor ``suncore.storage`` and
-   mentions neither ``OperationConfig`` nor the ``operation`` section: the gate stays
-   structurally shadow-only and ignores the stored operating mode (Phase 2 WP6).
+   mentions neither ``OperationConfig`` nor the ``operation`` section: the gate learns the
+   operating modes only through the injected ``ModeProvider`` (Phase 3 WP3) and the
+   runtime only through the injected ``RuntimeStore``.
 7. ``call_action_response`` (read-only action with ``return_response``) is defined and used
    only in ``suncore.ha`` (implementation), ``suncore.sim`` (fake) and ``suncore.app``
    (wiring of the tariff/forecast adapters later); ``READ_ONLY_ACTIONS`` is the fixed allowlist.
@@ -43,6 +47,10 @@ HA = "suncore.ha"
 CORE = "suncore.core"
 TEMPLATES = "suncore.templates"
 ACTUATOR_MODULE = "suncore.safety.actuator"
+GATE_MODULE = "suncore.safety.gate"
+DRIVERS = "suncore.devices.drivers"
+DRIVER_IMPORTERS = (SAFETY, "suncore.app")
+WRITE_CALLS = ("apply", "release")
 API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
 WRITE_CAPABILITY_NAMES = frozenset({"ServiceCaller", "ServiceCallerProvider"})
@@ -142,35 +150,38 @@ SOURCES = source_files()
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
-def test_only_safety_calls_apply(path: Path) -> None:
-    """Rule 1: ``.apply(`` is the actuator write and belongs to safety alone."""
+def test_only_the_gate_calls_apply_and_release(path: Path) -> None:
+    """Rule 1: ``.apply(`` / ``.release(`` are the hardware writes and belong to the gate."""
     module = module_name(path)
-    if in_package(module, SAFETY):
+    if module == GATE_MODULE:
         return
-    offenders = fmt(path, attribute_calls(parse(path), "apply"))
-    assert not offenders, f"actuator write outside suncore.safety: {offenders}"
+    tree = parse(path)
+    offenders = fmt(path, (line for attr in WRITE_CALLS for line in attribute_calls(tree, attr)))
+    assert not offenders, f"actuator write outside suncore.safety.gate: {offenders}"
 
 
-def test_phase_1_has_no_apply_call_anywhere() -> None:
-    """Phase 1 ships no write path at all - not even inside safety.
-
-    Remove this test when Phase 3 adds the automatic path behind the
-    invariants; ``test_only_safety_calls_apply`` keeps guarding the boundary.
-    """
-    offenders = [
-        line for path in SOURCES for line in fmt(path, attribute_calls(parse(path), "apply"))
+def test_the_gate_is_the_single_writer() -> None:
+    """The write path exists exactly once: ``gate.py`` calls ``apply`` and ``release``."""
+    gate = PACKAGE / "safety" / "gate.py"
+    tree = parse(gate)
+    assert list(attribute_calls(tree, "apply")), "gate.py must contain the apply() call"
+    assert list(attribute_calls(tree, "release")), "gate.py must contain the release() call"
+    everywhere = [
+        line
+        for path in SOURCES
+        if path != gate
+        for attr in WRITE_CALLS
+        for line in fmt(path, attribute_calls(parse(path), attr))
     ]
-    assert not offenders, f"Phase 1 must not contain an actuator write: {offenders}"
+    assert not everywhere, f"a second write path exists: {everywhere}"
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_only_safety_imports_the_actuator_module(path: Path) -> None:
     """Rule 2: the actuator protocol stays behind the gate.
 
-    Actuator implementations (``suncore.devices``, Phase 3) satisfy the
-    protocol structurally and need not import it. Phase 3 must extend this
-    rule: driver modules may only be imported by ``safety`` and the
-    composition root (``suncore.app``).
+    Actuator implementations (``suncore.devices.drivers``, Phase 3 WP6) satisfy the
+    protocol structurally and need not import it.
     """
     module = module_name(path)
     if in_package(module, SAFETY):
@@ -184,6 +195,26 @@ def test_only_safety_imports_the_actuator_module(path: Path) -> None:
         ),
     )
     assert not offenders, f"suncore.safety.actuator imported outside safety: {offenders}"
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
+    """Rule 2b: driver modules reach the gate through the composition root only.
+
+    The drivers do not exist yet (WP6); the rule is in place before the first one lands.
+    """
+    module = module_name(path)
+    if in_package(module, DRIVERS) or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS):
+        return
+    offenders = fmt(
+        path,
+        (
+            line
+            for line, imported in imported_modules(path, parse(path))
+            if in_package(imported, DRIVERS)
+        ),
+    )
+    assert not offenders, f"driver module imported outside safety/app: {offenders}"
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
@@ -307,10 +338,48 @@ def test_read_only_action_allowlist_is_fixed() -> None:
 
 
 def test_the_safety_gate_never_sees_the_operation_section() -> None:
-    """The gate is built from a clock and a sink only; the mode is a constant."""
-    gate_source = (PACKAGE / "safety" / "gate.py").read_text(encoding="utf-8")
+    """The gate learns modes only through the injected ``ModeProvider`` (Phase 3 design).
+
+    No config section, no store and no mode constant: the constructor takes a ``modes``
+    provider, and every mode read in ``gate.py`` goes through ``self._modes`` / ``view``.
+    """
+    gate_path = PACKAGE / "safety" / "gate.py"
+    gate_source = gate_path.read_text(encoding="utf-8")
     assert "OperationConfig" not in gate_source
     assert "ConfigStore" not in gate_source
+    tree = parse(gate_path)
+    init = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef)
+        and n.name == "__init__"
+        and _in_class(tree, n, "SafetyGate")
+    )
+    params = {a.arg for a in init.args.kwonlyargs}
+    assert "modes" in params, "SafetyGate must take the mode provider as `modes`"
+    assert "mode" not in params, "the gate takes no mode value, only a provider"
+    assert not any(
+        isinstance(n, ast.Name) and n.id == "OperatingMode" and isinstance(n.ctx, ast.Store)
+        for n in ast.walk(tree)
+    )
+    # Every `.global_mode()` / `.device_mode()` call is on the provider, never on config.
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("global_mode", "device_mode")
+        ):
+            target = node.func.value
+            assert (isinstance(target, ast.Attribute) and target.attr == "_modes") or (
+                isinstance(target, ast.Name) and target.id == "provider"
+            ), ast.dump(node)
+
+
+def _in_class(tree: ast.Module, func: ast.FunctionDef, class_name: str) -> bool:
+    return any(
+        isinstance(n, ast.ClassDef) and n.name == class_name and func in n.body
+        for n in ast.walk(tree)
+    )
 
 
 def test_scanner_detects_action_response_refs() -> None:
@@ -331,6 +400,7 @@ def _tree(src: str) -> ast.Module:
 
 def test_scanner_detects_apply_calls() -> None:
     assert list(attribute_calls(_tree("await driver.apply(intent)"), "apply")) == [1]
+    assert list(attribute_calls(_tree("await driver.release(None)"), "release")) == [1]
     assert list(attribute_calls(_tree("x = obj.apply"), "apply")) == []
     assert list(attribute_calls(_tree("apply(intent)"), "apply")) == []
 
@@ -407,6 +477,17 @@ def test_import_scan_reports_submodule_imports() -> None:
 def test_templates_package_exists_and_old_location_is_gone() -> None:
     assert (PACKAGE / "templates" / "models.py").is_file()
     assert not (PACKAGE / "devices" / "templates").exists()
+
+
+def test_driver_rule_rejects_other_packages() -> None:
+    tmp = PACKAGE / "controller" / "_synthetic.py"
+    src = "from suncore.devices.drivers import onoff\nimport suncore.devices.power\n"
+    hits = {
+        line
+        for line, imported in imported_modules(tmp, _tree(src))
+        if in_package(imported, DRIVERS)
+    }
+    assert hits == {1}
 
 
 def test_templates_rule_rejects_siblings() -> None:
