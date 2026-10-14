@@ -352,8 +352,12 @@ device "Schlafen Jake Klimaanlage" (LG model `RAC_0B0001_WW`):
   own device (`model` `RAC_0B0001_WW-RAC (AC)`) with a second climate entity
   (other mode names, e.g. `heat_cool`, `diffuse`, `target_temp_step` 1, range
   16–30 °C) and a **power sensor** `energy_current` (`device_class` power, unit
-  `W`, `state_class` measurement; 5 W while off, unchanged for 12 h, so its
-  update behaviour while running is `UNVERIFIED`). Consequences for Phase 3:
-  a measured power model is possible via this sensor, but it lives on another
+  `W`, `state_class` measurement). History of 2026-10-04…14: 5 W standby while
+  off; while running it updates every 5 minutes (polling) with real values,
+  e.g. 0 → 440 → 1319 → 1335 W → 5 W on 2026-10-09 14:19–14:39. Consequences
+  for Phase 3: a measured power model is possible via this sensor (5 min
+  latency, so the controller must treat it as slow), but it lives on another
   device (`same_device_as` cannot link it), and SunCore must control exactly
-  one climate entity per physical unit.
+  one climate entity per physical unit. The `lg_thinq` climate entity itself
+  reports state updates every few seconds even while off (about 4,000 in
+  10 days), so subscribers must not treat an update as a change.

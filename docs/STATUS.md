@@ -210,8 +210,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
   `smartthinq_sensors` for the same AC, so there are two climate entities per unit.
   SunCore must control exactly one per physical unit (warn when two climate
   entities in `devices` look like the same unit); offer the `smartthinq_sensors`
-  power sensor (`energy_current`, W) as an optional measured power source once its
-  update rate while running is known.
+  power sensor (`energy_current`, W, polled every 5 min, real values up to 1.3 kW
+  seen) as an optional measured power source with 5 min latency.
 - Phase 4 follow-up (A3): per-(domain, service) rate limiter with try-acquire/deadline for
   `call_action_response` before the first adapter calls it (boundary rule 7 then admits `app`
   together with the adapter wiring).
@@ -240,7 +240,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Registry and energy-prefs shapes on cores older than dev (single `config_entry_id` on devices, unified grid source); `unknown_command` code without the `energy` integration; Supervisor proxy passes registry commands | `research/ha-websocket-api.md` | first run on HA OS; parsers tolerate both shapes |
 | Section 51 EEG 2023 text could not be fetched; region `de` feed-in tiers are empty until the official BNetzA table is cited | `templates/region/de.yaml` | maintainer provides the table or a session with access to gesetze-im-internet.de |
 | Whether Tibber's `total` includes grid fees (country dependent) | `templates/tariff/tibber.price.yaml` | live check on the maintainer's Tibber account |
-| LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes, `smartthinq_sensors` power sensor update rate while running, Tibber tomorrow-price publication time, Solcast default day-sensor count | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
+| LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes, Tibber tomorrow-price publication time, Solcast default day-sensor count | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
 | Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA) | `docs/user/*/quick-start.md` | maintainer follows the quick start on HA OS |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
