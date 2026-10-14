@@ -4,7 +4,7 @@ Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
 **Last update:** 2026-10-14 · **Phase:** 3 in progress (plan approved, WP1–WP3 on
-`phase-3/a-safety`) · **Branch:** `phase-3/a-safety`
+`phase-3/a-safety`, WP5–WP7 on `phase-3/b-controller`) · **Branch:** `phase-3/b-controller`
 
 ## Done
 
@@ -252,6 +252,23 @@ ADRs relevant to your task. Keep it short; history lives in git.
   passes `ServiceCaller.write` and an entity-cache lookup to `create_driver` (boundary rule 3 forbids
   `service_caller()` outside `ha`/`safety`, so the wiring needs a small accessor in `safety`/`ha`).
 
+- **WP7 controller (branch `phase-3/b-controller`)** done: `suncore/controller/` (pure core,
+  time injected, depends on `core` only - now enforced by rule 4 of `tests/safety/test_boundary.py`):
+  `surplus` (available `a = export + battery share + real draw of the controllable devices`,
+  median over `smoothing_s`, uncertainty = max(robust sigma, median - P10) so two-level cloud
+  flicker widens the band; the window is re-based when a device joins/leaves the controlled
+  set), `levels` (one level table per control kind; climate shifts snapped with
+  `core.setpoint.snap_setpoint`, `CallableQuantiser` for the driver wiring), `hysteresis`
+  (per-device machine idle/steady/pending/in_flight/retry, intents only on change),
+  `allocation` (priority allocation, committed draws, the gate's rules mirrored incl. the
+  per-tick free-surplus budget, deficit back-off per plan §6 incl. budget, reserve and import
+  limit) and `loop` (`Controller.step` + `ControllerLoop`; the per-tick call order for WP8/WP9
+  is in the `loop` module docstring). `suncore/devices/conversion.py` moved to
+  `suncore/core/conversion.py` (re-export shim kept). 26 `controller.*` reason keys (en/de),
+  `scripts/check_reasons.py` checks `suncore/controller/reasons.py`. Battery share without any
+  goal: *not* available (battery first) - `UNVERIFIED` against the maintainer's intent.
+  Tests: `tests/controller/` (hypothesis allocation invariants, cloud flicker switch counts,
+  measured vs counter-only climate, deficit back-off, real gate and real drivers).
 - From the PR 3-A review (fixed in `fix(safety)`: per-device lock and re-checks before
   `apply()`, late confirmation of slow echoes, free-surplus semantics with input age, deferred
   release). Still for WP9: (2) the gate's `tz` must be injected from the site/region time
@@ -327,6 +344,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA) | `docs/user/*/quick-start.md` | maintainer follows the quick start on HA OS |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
 | Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |
+| Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 

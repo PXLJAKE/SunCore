@@ -16,7 +16,8 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
 4. Dependency rule (docs/architecture.md §2): ``suncore.core`` imports no
    sibling package; ``suncore.safety`` imports only ``suncore.core`` and
    itself; ``suncore.templates`` imports only ``suncore.core`` and itself (plus
-   yaml/pydantic, ADR-0012).
+   yaml/pydantic, ADR-0012); ``suncore.controller`` imports only ``suncore.core``
+   and itself (Phase 3 WP7: drivers, power models and the gate are injected).
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
 6. ``suncore.safety`` imports neither ``suncore.core.config`` nor ``suncore.storage`` and
@@ -46,6 +47,7 @@ SAFETY = "suncore.safety"
 HA = "suncore.ha"
 CORE = "suncore.core"
 TEMPLATES = "suncore.templates"
+CONTROLLER = "suncore.controller"
 ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
@@ -262,7 +264,7 @@ def test_api_does_not_import_write_side_packages(path: Path) -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_dependency_rule(path: Path) -> None:
-    """Rule 4: core imports no sibling; safety and templates import only core and itself."""
+    """Rule 4: core imports no sibling; safety, templates, controller only core and itself."""
     module = module_name(path)
     if in_package(module, CORE):
         allowed = (CORE,)
@@ -270,6 +272,8 @@ def test_dependency_rule(path: Path) -> None:
         allowed = (CORE, SAFETY)
     elif in_package(module, TEMPLATES):
         allowed = (CORE, TEMPLATES)
+    elif in_package(module, CONTROLLER):
+        allowed = (CORE, CONTROLLER)
     else:
         return
     offenders = fmt(

@@ -241,7 +241,9 @@ def test_constant_power_is_recovered_within_quantisation(
             continue
         feed(model, h * HOUR, base + math.floor(cumulative))
         interval = model.interval
-        clean = reset_after is None or h > reset_after + 1  # the reset period is skipped
+        # The reset period is skipped; a reset that lands within the 1 Wh jitter of the
+        # previous reading cannot be told from jitter and is not a reset for the model.
+        clean = reset_after is None or (h > reset_after + 1 and model.resets > 0)
         if interval is not None and clean:
             # integer rounding of two readings: at most 1 W off over a one-hour period
             assert abs(interval.avg_w - power) <= 1.0 + 1e-6
