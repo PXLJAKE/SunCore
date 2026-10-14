@@ -579,14 +579,25 @@ export interface components {
          * @description The safety gate's verdict on an intent, as stored in the decision log.
          */
         Decision: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Held Until */
+            held_until?: string | null;
             intent: components["schemas"]["Intent"];
             kind: components["schemas"]["DecisionKind"];
             mode: components["schemas"]["OperatingMode"];
+            /** Observed */
+            observed?: (components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"]) | null;
             /**
              * Reasons
              * @default []
              */
             reasons: components["schemas"]["Reason"][];
+            /**
+             * Schema Version
+             * @default 2
+             */
+            schema_version: number;
             /**
              * Ts
              * Format: date-time
@@ -598,7 +609,7 @@ export interface components {
          * @description Outcome of the safety gate for one intent.
          * @enum {string}
          */
-        DecisionKind: "accepted" | "rejected" | "shadow";
+        DecisionKind: "accepted" | "rejected" | "shadow" | "proposed" | "held" | "failed";
         /** DecisionsMessage */
         DecisionsMessage: {
             /** Decisions */
@@ -615,8 +626,18 @@ export interface components {
          *
          *     ``max_switches_per_hour`` / hysteresis / ``settle_s`` ``None`` mean "safety/controller
          *     default", never "unlimited" or "none" (ADR-0012 item 6).
+         *
+         *     Phase 3 additions (all with defaults, old documents stay valid): ``allow_switch_on``
+         *     and ``switch_on_hvac_mode`` (climate only: SunCore may switch the unit on through the
+         *     HVAC mode; a set-point write while the unit is off also switches it on, see
+         *     research/device-integrations.md), ``override_policy``.
          */
         DeviceConfig: {
+            /**
+             * Allow Switch On
+             * @default false
+             */
+            allow_switch_on: boolean;
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
             control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"];
@@ -645,6 +666,13 @@ export interface components {
             min_run_s: number;
             /** Name */
             name: string;
+            /**
+             * @default {
+             *       "kind": "next_day",
+             *       "resume_time": "04:00:00"
+             *     }
+             */
+            override_policy: components["schemas"]["OverridePolicy"];
             power_model: components["schemas"]["PowerModel"];
             /**
              * Priority
@@ -653,6 +681,8 @@ export interface components {
             priority: number;
             /** Settle S */
             settle_s?: number | null;
+            /** Switch On Hvac Mode */
+            switch_on_hvac_mode?: ("heat" | "cool" | "heat_cool" | "auto") | null;
             /** Template Id */
             template_id: string;
             /**
@@ -1106,7 +1136,7 @@ export interface components {
          */
         Intent: {
             /** Action */
-            action: components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"];
+            action: components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"];
             /** Asset Id */
             asset_id: string;
             /** Id */
@@ -1133,6 +1163,19 @@ export interface components {
             power_w: number;
             /** Value */
             value: string;
+        };
+        /**
+         * ModeAction
+         * @description Select a mode value (select option, climate HVAC mode or preset).
+         */
+        ModeAction: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "mode";
+            /** Mode */
+            mode: string;
         };
         /**
          * ModeControl
@@ -1198,7 +1241,30 @@ export interface components {
          * @description The layer that produced an intent (ADR-0011).
          * @enum {string}
          */
-        Origin: "planner" | "controller" | "user";
+        Origin: "planner" | "controller" | "user" | "safety";
+        /**
+         * OverridePolicy
+         * @description How long a manual change is respected before SunCore takes over again (plan §6.5).
+         *
+         *     * ``next_day``: at ``resume_time`` (local) of the next day (default 04:00);
+         *     * ``hours``: ``hours`` after the override was detected (1-48).
+         */
+        OverridePolicy: {
+            /** Hours */
+            hours?: number | null;
+            /**
+             * Kind
+             * @default next_day
+             * @enum {string}
+             */
+            kind: "next_day" | "hours";
+            /**
+             * Resume Time
+             * Format: time
+             * @default 04:00:00
+             */
+            resume_time: string;
+        };
         /**
          * PowerModel
          * @description Power source of a device; refers to roles of :attr:`DeviceConfig.entities`.
@@ -1384,6 +1450,17 @@ export interface components {
             unverified?: string[];
         };
         /**
+         * ReleaseAction
+         * @description Give the device back: restore the takeover baseline and stop controlling it.
+         */
+        ReleaseAction: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "release";
+        };
+        /**
          * RoleSpec
          * @description One entity role of a template.
          */
@@ -1414,6 +1491,25 @@ export interface components {
             value_field: string;
             /** Value Unit */
             value_unit: string;
+        };
+        /**
+         * SetpointAction
+         * @description Write an absolute temperature set-point in °C.
+         *
+         *     ``base_c`` is the user's own set-point the controller shifts from; it is recorded so
+         *     the decision log and the release path know what "back to normal" means. A shift of
+         *     zero (``setpoint_c == base_c``) restores the user's value.
+         */
+        SetpointAction: {
+            /** Base C */
+            base_c: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "setpoint";
+            /** Setpoint C */
+            setpoint_c: number;
         };
         /**
          * SetpointControl
@@ -1489,6 +1585,19 @@ export interface components {
             value: string | number;
         };
         /**
+         * StepAction
+         * @description Select step ``step`` (index into the device's ``control.steps``; 0 = lowest).
+         */
+        StepAction: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "step";
+            /** Step */
+            step: number;
+        };
+        /**
          * StepsControl
          * @description Discrete power levels written to ``role`` (select option or number).
          */
@@ -1514,6 +1623,10 @@ export interface components {
         /**
          * SwitchAction
          * @description Turn a device on or off.
+         *
+         *     For a climate device "on" means the configured ``switch_on_hvac_mode`` and "off"
+         *     means HVAC mode ``off``; a switch-on needs the device's ``allow_switch_on`` opt-in
+         *     (checked by the safety invariants).
          */
         SwitchAction: {
             /**

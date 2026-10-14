@@ -74,3 +74,44 @@ async def test_gate_writes_into_the_log(db: Database) -> None:
     d2 = await gate.submit(make_intent(2, asset="device.b"))
     assert await log.latest(10) == [d2, d1]
     assert all(d.kind is DecisionKind.SHADOW for d in await log.latest(10))
+
+
+V1_ROW = (
+    '{"intent": {"id": "i-9", "ts": "2026-10-12T12:00:09Z", "asset_id": "device.a", '
+    '"action": {"kind": "switch", "on": true}, "reasons": [], "origin": "controller"}, '
+    '"kind": "shadow", "ts": "2026-10-12T12:00:09Z", '
+    '"reasons": [{"key": "safety.shadow_mode", "args": {}}], "mode": "shadow"}'
+)
+"""Payload exactly as the Phase 1 ``DecisionLog.append`` stored it (no ``schema_version``)."""
+
+
+async def test_latest_loads_phase_1_rows_and_skips_corrupt_ones(db: Database) -> None:
+    log = DecisionLog(db)
+    await log.append(make_decision(1))
+    await db.execute(
+        "INSERT INTO decision (ts, asset_id, layer, kind, payload, reasons) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("2026-10-12T12:00:09+00:00", "device.a", "safety", "shadow", V1_ROW, "[]"),
+    )
+    await db.execute(
+        "INSERT INTO decision (ts, asset_id, layer, kind, payload, reasons) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("2026-10-12T12:00:10+00:00", "device.a", "safety", "shadow", '{"kind": "shadow"}', "[]"),
+    )
+    await db.execute(
+        "INSERT INTO decision (ts, asset_id, layer, kind, payload, reasons) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "2026-10-12T12:00:11+00:00",
+            "device.a",
+            "safety",
+            "shadow",
+            V1_ROW.replace('"kind": "shadow"', '"kind": "shadow", "schema_version": 42'),
+            "[]",
+        ),
+    )
+    latest = await log.latest(10)
+    assert [d.intent.id for d in latest] == ["i-9", "i-1"]
+    assert latest[0].schema_version == 2
+    assert latest[0].kind is DecisionKind.SHADOW
+    assert await log.count() == 4

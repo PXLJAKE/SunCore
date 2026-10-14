@@ -7,15 +7,20 @@ JSON-serialisable so they can be appended to the decision log and rendered
 by the UI's "Why?" view. Explanations are :class:`Reason` keys resolved
 through the ICU catalogue - never free text.
 
-The ``Plan`` contract is deliberately absent; it is defined in Phase 3/4.
+Schema v2 (Phase 3, plan WP2): the action union gained the set-point, step,
+mode and release variants, ``Decision`` carries ``schema_version`` and the
+kinds ``proposed``, ``held`` and ``failed``. Stored v1 rows (no
+``schema_version``) still load through :func:`decision_from_payload`.
+The ``Plan`` contract lives in :mod:`suncore.core.control`.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from enum import StrEnum, unique
-from typing import Annotated, Final, Literal
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -26,6 +31,9 @@ REASON_KEY_PATTERN: Final = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"
 """Dotted lowercase catalogue key, e.g. ``safety.shadow_mode``."""
 
 _REASON_KEY_RE: Final = re.compile(REASON_KEY_PATTERN)
+
+DECISION_SCHEMA_VERSION: Final = 2
+"""Version written into every new :class:`Decision`."""
 
 
 class _FrozenModel(BaseModel):
@@ -61,6 +69,28 @@ class OperatingMode(StrEnum):
     AUTOMATIC = "automatic"
     """Write autonomously within all invariants."""
 
+    @property
+    def rank(self) -> int:
+        """Ordering used by :func:`effective_mode`: shadow < assisted < automatic."""
+        return _MODE_RANK[self]
+
+
+_MODE_RANK: Final[dict[OperatingMode, int]] = {
+    OperatingMode.SHADOW: 0,
+    OperatingMode.ASSISTED: 1,
+    OperatingMode.AUTOMATIC: 2,
+}
+
+
+def effective_mode(global_mode: OperatingMode, device_mode: OperatingMode) -> OperatingMode:
+    """The mode that applies to a device: the more conservative of global and device.
+
+    ``min(global, device)`` in the order shadow < assisted < automatic, so a device can
+    never be more autonomous than the system and the system can never force a device
+    beyond what the user enabled for it.
+    """
+    return global_mode if global_mode.rank <= device_mode.rank else device_mode
+
 
 @unique
 class Origin(StrEnum):
@@ -69,6 +99,8 @@ class Origin(StrEnum):
     PLANNER = "planner"
     CONTROLLER = "controller"
     USER = "user"
+    SAFETY = "safety"
+    """Release intents the gate synthesises (shutdown, watchdog, crash recovery)."""
 
 
 @unique
@@ -77,10 +109,19 @@ class ActionKind(StrEnum):
 
     SWITCH = "switch"
     POWER_SETPOINT = "power_setpoint"
+    SETPOINT = "setpoint"
+    STEP = "step"
+    MODE = "mode"
+    RELEASE = "release"
 
 
 class SwitchAction(_FrozenModel):
-    """Turn a device on or off."""
+    """Turn a device on or off.
+
+    For a climate device "on" means the configured ``switch_on_hvac_mode`` and "off"
+    means HVAC mode ``off``; a switch-on needs the device's ``allow_switch_on`` opt-in
+    (checked by the safety invariants).
+    """
 
     kind: Literal[ActionKind.SWITCH] = ActionKind.SWITCH
     on: bool
@@ -93,7 +134,47 @@ class PowerSetpointAction(_FrozenModel):
     power_w: float = Field(allow_inf_nan=False)
 
 
-Action = Annotated[SwitchAction | PowerSetpointAction, Field(discriminator="kind")]
+class SetpointAction(_FrozenModel):
+    """Write an absolute temperature set-point in °C.
+
+    ``base_c`` is the user's own set-point the controller shifts from; it is recorded so
+    the decision log and the release path know what "back to normal" means. A shift of
+    zero (``setpoint_c == base_c``) restores the user's value.
+    """
+
+    kind: Literal[ActionKind.SETPOINT] = ActionKind.SETPOINT
+    setpoint_c: float = Field(allow_inf_nan=False, ge=-50, le=150)
+    base_c: float = Field(allow_inf_nan=False, ge=-50, le=150)
+
+    @property
+    def shift_c(self) -> float:
+        return self.setpoint_c - self.base_c
+
+
+class StepAction(_FrozenModel):
+    """Select step ``step`` (index into the device's ``control.steps``; 0 = lowest)."""
+
+    kind: Literal[ActionKind.STEP] = ActionKind.STEP
+    step: Annotated[int, Field(ge=0, le=15)]
+
+
+class ModeAction(_FrozenModel):
+    """Select a mode value (select option, climate HVAC mode or preset)."""
+
+    kind: Literal[ActionKind.MODE] = ActionKind.MODE
+    mode: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class ReleaseAction(_FrozenModel):
+    """Give the device back: restore the takeover baseline and stop controlling it."""
+
+    kind: Literal[ActionKind.RELEASE] = ActionKind.RELEASE
+
+
+Action = Annotated[
+    SwitchAction | PowerSetpointAction | SetpointAction | StepAction | ModeAction | ReleaseAction,
+    Field(discriminator="kind"),
+]
 """Typed action target; the ``kind`` field selects the variant."""
 
 
@@ -113,40 +194,90 @@ class DecisionKind(StrEnum):
     """Outcome of the safety gate for one intent."""
 
     ACCEPTED = "accepted"
-    """Validated and handed to the actuator (automatic mode only)."""
+    """Validated, written and confirmed by the read-back (automatic mode only)."""
     REJECTED = "rejected"
-    """An invariant or the emergency stop fired; nothing was written."""
+    """An invariant, a watchdog or the emergency stop fired; nothing was written."""
     SHADOW = "shadow"
     """Logged as "would have done"; nothing was written."""
+    PROPOSED = "proposed"
+    """Assisted mode: awaiting the user's confirmation until ``expires_at``."""
+    HELD = "held"
+    """A manual override is respected until ``held_until``; nothing was written."""
+    FAILED = "failed"
+    """The write or the read-back failed; the device may be in an unknown state."""
 
 
 class Decision(_FrozenModel):
     """The safety gate's verdict on an intent, as stored in the decision log."""
 
+    schema_version: Annotated[int, Field(ge=1)] = DECISION_SCHEMA_VERSION
     intent: Intent
     kind: DecisionKind
     ts: AwareDatetime
     reasons: tuple[Reason, ...] = ()
     mode: OperatingMode
+    """Effective mode of the asset when the decision was made."""
+    expires_at: AwareDatetime | None = None
+    """``proposed`` only: the proposal is void after this time."""
+    held_until: AwareDatetime | None = None
+    """``held`` only: SunCore takes over again at this time (``None`` = until resumed)."""
+    observed: Action | None = None
+    """``accepted`` / ``failed``: what the read-back saw after the settle time."""
 
     @property
     def wrote_hardware(self) -> bool:
-        """True only for decisions that may have reached an actuator."""
-        return self.kind is DecisionKind.ACCEPTED
+        """True for decisions that reached an actuator (whether or not it succeeded)."""
+        return self.kind in (DecisionKind.ACCEPTED, DecisionKind.FAILED)
+
+
+def decision_from_payload(payload: Mapping[str, Any]) -> Decision:
+    """Load a stored decision of any known schema version.
+
+    v1 rows (Phase 1, no ``schema_version``) are upgraded in place: every v1 field exists
+    unchanged in v2, so the upgrade only stamps the version. A payload newer than
+    :data:`DECISION_SCHEMA_VERSION` raises ``ValueError`` (the caller skips the row).
+    """
+    data = dict(payload)
+    version = data.get("schema_version", 1)
+    if not isinstance(version, int) or version < 1:
+        msg = f"decision payload has an invalid schema_version {version!r}"
+        raise ValueError(msg)
+    if version > DECISION_SCHEMA_VERSION:
+        msg = f"decision payload schema_version {version} is newer than {DECISION_SCHEMA_VERSION}"
+        raise ValueError(msg)
+    data["schema_version"] = DECISION_SCHEMA_VERSION
+    return Decision.model_validate(data)
+
+
+def decision_from_json(text: str) -> Decision:
+    """:func:`decision_from_payload` for a JSON string."""
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        msg = "decision payload must be a JSON object"
+        raise ValueError(msg)
+    return decision_from_payload(data)
 
 
 __all__ = [
+    "DECISION_SCHEMA_VERSION",
     "REASON_KEY_PATTERN",
     "Action",
     "ActionKind",
     "Decision",
     "DecisionKind",
     "Intent",
+    "ModeAction",
     "OperatingMode",
     "Origin",
     "PowerSetpointAction",
     "Reason",
     "ReasonArg",
+    "ReleaseAction",
+    "SetpointAction",
+    "StepAction",
     "SwitchAction",
+    "decision_from_json",
+    "decision_from_payload",
+    "effective_mode",
     "is_reason_key",
 ]

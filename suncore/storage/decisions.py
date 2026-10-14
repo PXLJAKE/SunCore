@@ -6,8 +6,13 @@ from __future__ import annotations
 import json
 from typing import Final
 
-from suncore.core.decisions import Decision
+import structlog
+from pydantic import ValidationError
+
+from suncore.core.decisions import Decision, decision_from_json
 from suncore.storage.db import Database
+
+log = structlog.get_logger(__name__)
 
 MAX_LIMIT: Final = 1000
 LAYER_SAFETY: Final = "safety"
@@ -36,12 +41,22 @@ class DecisionLog:
         )
 
     async def latest(self, limit: int = 100) -> list[Decision]:
-        """Newest first; ``limit`` is clamped to ``1..MAX_LIMIT``."""
+        """Newest first; ``limit`` is clamped to ``1..MAX_LIMIT``.
+
+        Rows are deserialised tolerantly (``decision_from_json``): Phase 1 v1 payloads
+        load, rows of a newer schema or with a corrupt payload are skipped and logged.
+        """
         bounded = max(1, min(int(limit), MAX_LIMIT))
         rows = await self._db.fetchall(
-            "SELECT payload FROM decision ORDER BY id DESC LIMIT ?", (bounded,)
+            "SELECT id, payload FROM decision ORDER BY id DESC LIMIT ?", (bounded,)
         )
-        return [Decision.model_validate_json(str(row[0])) for row in rows]
+        decisions: list[Decision] = []
+        for row in rows:
+            try:
+                decisions.append(decision_from_json(str(row[1])))
+            except (ValueError, ValidationError) as exc:
+                log.warning("decision_log.row_skipped", row_id=row[0], error=str(exc)[:200])
+        return decisions
 
     async def count(self) -> int:
         row = await self._db.fetchone("SELECT COUNT(*) FROM decision")

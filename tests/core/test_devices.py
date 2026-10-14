@@ -351,3 +351,77 @@ def test_entity_meta_of_derives_domain() -> None:
 def test_entity_meta_carries_device_id() -> None:
     assert EntityMeta.of("sensor.x", device_id="abc").device_id == "abc"
     assert EntityMeta.of("sensor.x").device_id is None
+
+
+# --- Phase 3 additive fields -------------------------------------------------------
+
+
+def test_phase_3_fields_default_so_old_documents_stay_valid() -> None:
+    from suncore.core.devices import OverridePolicy  # noqa: PLC0415
+
+    dev = DeviceConfig.model_validate(
+        {
+            "id": "ac",
+            "template_id": "generic.climate",
+            "name": "AC",
+            "kind": "climate",
+            "entities": {"climate": {"entity_id": "climate.ac"}},
+            "power_model": {"kind": "nominal", "nominal_w": 800},
+            "control": {"kind": "setpoint", "role": "climate", "shift_max_c": 2},
+            "comfort": {"min_c": 20, "max_c": 26},
+        }
+    )
+    assert dev.allow_switch_on is False
+    assert dev.switch_on_hvac_mode is None
+    assert dev.override_policy == OverridePolicy()
+    assert dev.override_policy.kind == "next_day"
+    assert dev.override_policy.resume_time.hour == 4
+
+
+def test_switch_on_opt_in_needs_a_mode_and_a_climate_device() -> None:
+    from suncore.core.devices import OverridePolicy  # noqa: PLC0415
+
+    base = {
+        "id": "ac",
+        "template_id": "generic.climate",
+        "name": "AC",
+        "kind": "climate",
+        "entities": {"climate": {"entity_id": "climate.ac"}},
+        "power_model": {"kind": "nominal", "nominal_w": 800},
+        "control": {"kind": "setpoint", "role": "climate", "shift_max_c": 2},
+        "comfort": {"min_c": 20, "max_c": 26},
+    }
+    ok = DeviceConfig.model_validate(
+        {**base, "allow_switch_on": True, "switch_on_hvac_mode": "cool"}
+    )
+    assert ok.allow_switch_on
+    assert ok.switch_on_hvac_mode == "cool"
+    with pytest.raises(ValidationError, match="switch_on_hvac_mode"):
+        DeviceConfig.model_validate({**base, "allow_switch_on": True})
+    with pytest.raises(ValidationError):
+        DeviceConfig.model_validate({**base, "allow_switch_on": True, "switch_on_hvac_mode": "dry"})
+    switch = {
+        "id": "pool",
+        "template_id": "generic.switch",
+        "name": "Pool",
+        "kind": "switch",
+        "entities": {"switch": {"entity_id": "switch.pool"}},
+        "power_model": {"kind": "nominal", "nominal_w": 800},
+        "control": {"kind": "on_off", "role": "switch"},
+    }
+    with pytest.raises(ValidationError, match="climate"):
+        DeviceConfig.model_validate(
+            {**switch, "allow_switch_on": True, "switch_on_hvac_mode": "heat"}
+        )
+    with pytest.raises(ValidationError, match="climate"):
+        DeviceConfig.model_validate({**switch, "switch_on_hvac_mode": "heat"})
+    hours = DeviceConfig.model_validate(
+        {**switch, "override_policy": {"kind": "hours", "hours": 6}}
+    )
+    assert hours.override_policy == OverridePolicy(kind="hours", hours=6)
+    with pytest.raises(ValidationError, match="hours"):
+        OverridePolicy(kind="hours")
+    with pytest.raises(ValidationError, match="next_day"):
+        OverridePolicy(kind="next_day", hours=2)
+    with pytest.raises(ValidationError):
+        OverridePolicy(kind="hours", hours=49)

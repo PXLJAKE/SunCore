@@ -262,11 +262,43 @@ class TimeWindow(_Frozen):
         return self
 
 
+HVAC_MODES: Final[tuple[str, ...]] = ("heat", "cool", "heat_cool", "auto", "dry", "fan_only")
+"""HA ``HVACMode`` values besides ``off`` (verified in research/ha-websocket-api.md)."""
+
+SWITCH_ON_HVAC_MODES: Final[tuple[str, ...]] = ("heat", "cool", "heat_cool", "auto")
+"""HVAC modes SunCore may use to switch a climate device on (never ``dry``/``fan_only``)."""
+
+
+class OverridePolicy(_Frozen):
+    """How long a manual change is respected before SunCore takes over again (plan §6.5).
+
+    * ``next_day``: at ``resume_time`` (local) of the next day (default 04:00);
+    * ``hours``: ``hours`` after the override was detected (1-48).
+    """
+
+    kind: Literal["next_day", "hours"] = "next_day"
+    resume_time: time = time(4, 0)
+    hours: Annotated[int, Field(ge=1, le=48)] | None = None
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        if self.kind == "hours" and self.hours is None:
+            raise invalid("override_hours", "override_policy: kind `hours` needs `hours`")
+        if self.kind == "next_day" and self.hours is not None:
+            raise invalid("override_next_day", "override_policy: kind `next_day` takes no `hours`")
+        return self
+
+
 class DeviceConfig(_Frozen):
     """One configured device (instance of a template).
 
     ``max_switches_per_hour`` / hysteresis / ``settle_s`` ``None`` mean "safety/controller
     default", never "unlimited" or "none" (ADR-0012 item 6).
+
+    Phase 3 additions (all with defaults, old documents stay valid): ``allow_switch_on``
+    and ``switch_on_hvac_mode`` (climate only: SunCore may switch the unit on through the
+    HVAC mode; a set-point write while the unit is off also switches it on, see
+    research/device-integrations.md), ``override_policy``.
     """
 
     id: DeviceId
@@ -287,9 +319,25 @@ class DeviceConfig(_Frozen):
     """Delay before the read-back after a write."""
     comfort: ComfortBand | None = None
     windows: tuple[TimeWindow, ...] = ()
+    allow_switch_on: bool = False
+    """Climate: SunCore may switch the unit on (opt-in per device, plan §6.4)."""
+    switch_on_hvac_mode: Literal["heat", "cool", "heat_cool", "auto"] | None = None
+    """Climate: the HVAC mode used for switching on; required with ``allow_switch_on``."""
+    override_policy: OverridePolicy = OverridePolicy()
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
+        if self.allow_switch_on and self.kind is not DeviceKind.CLIMATE:
+            raise invalid(
+                "switch_on_not_climate",
+                "allow_switch_on: only climate devices switch on through an HVAC mode",
+            )
+        if self.allow_switch_on and self.switch_on_hvac_mode is None:
+            raise invalid("switch_on_needs_mode", "allow_switch_on: needs `switch_on_hvac_mode`")
+        if self.switch_on_hvac_mode is not None and self.kind is not DeviceKind.CLIMATE:
+            raise invalid(
+                "hvac_mode_not_climate", "switch_on_hvac_mode: only valid for climate devices"
+            )
         seen: dict[str, str] = {}
         for role, ref in self.entities.items():
             if ref.entity_id in seen:
