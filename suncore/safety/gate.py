@@ -41,15 +41,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from types import MappingProxyType
 from typing import Final
 
 import structlog
 
-from suncore.core.balance import FlowSnapshot
-from suncore.core.control import ControlSettings, DeviceState, PowerEstimate
+from suncore.core.control import ControlSettings, DeviceState, GateInputs
 from suncore.core.decisions import (
     Action,
     Decision,
@@ -130,27 +128,6 @@ REASON_RATE_LIMITED: Final = Reason(key="safety.rate_limited")
 
 MAX_CONSECUTIVE_FAILURES: Final = 3
 """After this many failed writes in a row the device scope trips (watchdog)."""
-
-
-@dataclass(frozen=True, slots=True)
-class GateInputs:
-    """Site view handed to the invariants (the controller refreshes it every tick).
-
-    ``surplus`` is the **free** surplus: power available on top of everything that runs
-    now (export minus reserve, after smoothing), *not* including the current draw of
-    the device being judged - the invariant compares it with the action's added demand.
-    A snapshot older than ``inputs_max_age_ticks * tick_s`` (or without ``ts``) is
-    treated as unknown surplus, which rejects every load increase.
-    """
-
-    flows: FlowSnapshot | None = None
-    surplus: PowerEstimate | None = None
-    estimates: Mapping[str, PowerEstimate] = field(default_factory=dict)
-    """Current power per device id."""
-    import_limit_w: float | None = None
-    reserve_soc_pct: float | None = None
-    ts: datetime | None = None
-    """When the snapshot was computed (injected clock)."""
 
 
 InputsProvider = Callable[[], GateInputs | None]

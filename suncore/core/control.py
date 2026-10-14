@@ -9,12 +9,15 @@ device power + = consumption.
 from __future__ import annotations
 
 import itertools
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum, unique
 from typing import Annotated, Final, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from suncore.core.balance import FlowSnapshot
 from suncore.core.decisions import Reason
 from suncore.core.devices import RESUME_TIME_DEFAULT
 from suncore.core.signals import Quality
@@ -72,6 +75,27 @@ class DeviceState(_Frozen):
     def known(self) -> bool:
         """Whether the state can be trusted for a decision (ok or stale, never missing)."""
         return self.quality in (Quality.OK, Quality.STALE)
+
+
+@dataclass(frozen=True, slots=True)
+class GateInputs:
+    """Site view the controller computes every tick and the safety gate judges intents with.
+
+    ``surplus`` is the **free** surplus: power available on top of everything that runs
+    now (export minus reserve, after smoothing), *not* including the current draw of
+    the device being judged - the grid invariant compares it with the action's added
+    demand. A snapshot older than ``inputs_max_age_ticks * tick_s`` (or without ``ts``)
+    is treated as unknown surplus by the gate, which then rejects every load increase.
+    """
+
+    flows: FlowSnapshot | None = None
+    surplus: PowerEstimate | None = None
+    estimates: Mapping[str, PowerEstimate] = field(default_factory=dict)
+    """Current power per device id."""
+    import_limit_w: float | None = None
+    reserve_soc_pct: float | None = None
+    ts: datetime | None = None
+    """When the snapshot was computed (injected clock)."""
 
 
 # --- settings -----------------------------------------------------------------
@@ -250,6 +274,7 @@ __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single cons
     "ControlSettings",
     "DeviceBand",
     "DeviceState",
+    "GateInputs",
     "Plan",
     "PlanInterval",
     "PowerEstimate",

@@ -12,6 +12,9 @@ unit) and clamps to the native range but does **not** enforce ``step``
   the minimum: a load never gets more than was asked for;
 * writes only if the cached value differs.
 
+:meth:`NumberDriver.snap_power_w` exposes the same quantisation so the controller requests
+exactly the value that will be written (the gate confirms a write within 1 W).
+
 A control whose ``min`` is above zero cannot be switched off through the number; a request for
 less than ``min`` writes ``min``.
 """
@@ -19,7 +22,8 @@ less than ``min`` writes ``min``.
 from __future__ import annotations
 
 import math
-from typing import Final
+from collections.abc import Mapping
+from typing import Any, Final
 
 from suncore.core.control import DeviceState
 from suncore.core.decisions import Action, Intent, PowerSetpointAction
@@ -94,6 +98,39 @@ class NumberDriver(EntityDriver):
         self.begin_apply()
         return await self._write_power(action.power_w, limit=True)
 
+    def _quantise(self, power_w: float, view: EntityStateView) -> float:
+        """The control value (control unit) a request for ``power_w`` is written as."""
+        control = self._control
+        factor = self._entity_factor(view)
+        value = min(
+            max(power_to_value(power_w, control, self._nominal_w), control.min), control.max
+        )
+        entity_min = as_float(view.attributes.get("min"))
+        entity_max = as_float(view.attributes.get("max"))
+        low = max(control.min, entity_min / factor if entity_min is not None else control.min)
+        high = min(control.max, entity_max / factor if entity_max is not None else control.max)
+        step = as_float(view.attributes.get("step"))
+        step = step / factor if step is not None and step > 0 else control.step
+        value = min(max(value, low), high)
+        if step is not None and step > 0:
+            value = low + math.floor((value - low) / step + EPSILON) * step
+        return value
+
+    def snap_power_w(self, power_w: float) -> float:
+        """The power (W) the entity will really be set to for a request of ``power_w``.
+
+        Same clamping and step snapping as the write (control and entity limits, entity
+        ``step``). The controller asks for this value so that the intent equals the written
+        value and the gate's read-back (tolerance 1 W) confirms it. Without a cached entity
+        state only the control's own limits and step apply.
+        """
+        if not math.isfinite(power_w):
+            return 0.0
+        view = self.lookup(self._entity)
+        if view is None:
+            view = _NoView(self._entity)
+        return value_to_power_w(self._quantise(power_w, view), self._control, self._nominal_w)
+
     async def _write_power(self, power_w: float, *, limit: bool) -> str | None:
         view = self.lookup(self._entity)
         if view is None:
@@ -102,19 +139,10 @@ class NumberDriver(EntityDriver):
             raise WriteRefusedError("power set-point is not finite")
         control = self._control
         factor = self._entity_factor(view)
-        value = power_to_value(power_w, control, self._nominal_w)
         if limit:
-            value = min(max(value, control.min), control.max)
-        entity_min = as_float(view.attributes.get("min"))
-        entity_max = as_float(view.attributes.get("max"))
-        low = max(control.min, entity_min / factor if entity_min is not None else control.min)
-        high = min(control.max, entity_max / factor if entity_max is not None else control.max)
-        step = as_float(view.attributes.get("step"))
-        step = step / factor if step is not None and step > 0 else control.step
-        if limit:
-            value = min(max(value, low), high)
-            if step is not None and step > 0:
-                value = low + math.floor((value - low) / step + EPSILON) * step
+            value = self._quantise(power_w, view)
+        else:
+            value = power_to_value(power_w, control, self._nominal_w)
         target = round(value * factor, 6)
         current = as_float(view.state)
         if current is not None and math.isclose(current, target, abs_tol=SAME_VALUE):
@@ -126,3 +154,22 @@ class NumberDriver(EntityDriver):
         self.begin_apply()
         if isinstance(baseline, PowerSetpointAction):
             await self._write_power(baseline.power_w, limit=False)
+
+
+class _NoView:
+    """A placeholder entity view without attributes (``snap_power_w`` before the first state)."""
+
+    def __init__(self, entity_id: str) -> None:
+        self._entity_id = entity_id
+
+    @property
+    def entity_id(self) -> str:
+        return self._entity_id
+
+    @property
+    def state(self) -> str:
+        return "unknown"
+
+    @property
+    def attributes(self) -> Mapping[str, Any]:
+        return {}

@@ -213,3 +213,35 @@ async def test_mode_driver_rejects_other_actions() -> None:
     with pytest.raises(ActionNotSupportedError):
         await driver.apply(intent(StepAction(step=1)))
     assert ha.calls == []
+
+
+# --- snap_power_w (review 3-B: the controller asks for what will be written) ---------------
+
+
+async def test_snap_power_w_equals_the_written_value() -> None:
+    driver, ha = make()
+    ha.set(ROD, "0", min=0, max=2000, step=100)
+    assert driver.snap_power_w(1750) == 1700.0
+    assert driver.snap_power_w(9999) == 2000.0
+    await driver.apply(intent(PowerSetpointAction(power_w=driver.snap_power_w(1750))))
+    assert ha.calls[-1].service_data == {"value": 1700.0}
+    ha.set(ROD, "1700", min=0, max=2000, step=100)  # the cache follows the write
+    assert await driver.read_back() == PowerSetpointAction(power_w=1700.0)
+
+
+async def test_snap_power_w_in_amperes_and_percent_round_trips_through_read_back() -> None:
+    driver, ha = make("A")
+    ha.set(ROD, "6", min=6, max=16, step=1)
+    power = driver.snap_power_w(7000)  # 7000 W / 690 W per A = 10.14 A -> 10 A
+    assert power == 10 * 230 * 3
+    ha.set(ROD, "10", min=6, max=16, step=1)
+    assert await driver.read_back() == PowerSetpointAction(power_w=power)
+    pct, ha2 = make("%")
+    ha2.set(ROD, "0", min=0, max=100, step=5)
+    assert pct.snap_power_w(1000) == 30 * 3000 / 100  # 33.3 % -> 30 %
+
+
+def test_snap_power_w_without_a_cached_state_uses_the_control_limits() -> None:
+    driver, _ = make()
+    assert driver.snap_power_w(1750) == 1700.0  # control step 100, max 3000
+    assert driver.snap_power_w(float("nan")) == 0.0

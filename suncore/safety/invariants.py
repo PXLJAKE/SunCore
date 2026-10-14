@@ -302,7 +302,7 @@ def check_change(ctx: InvariantContext) -> Reason | None:
     """Write only on change: the observed state must differ from the target."""
     if isinstance(ctx.action, ReleaseAction):
         return None
-    if ctx.state is not None and action_matches_state(ctx.action, ctx.state):
+    if ctx.state is not None and action_matches_state(ctx.action, ctx.state, ctx.device):
         return Reason(key="safety.write_no_change")
     return None
 
@@ -370,8 +370,14 @@ def evaluate(ctx: InvariantContext) -> tuple[Reason, ...]:
 # --- comparison -----------------------------------------------------------------
 
 
-def action_matches_state(action: Action, state: DeviceState) -> bool:  # noqa: PLR0911
-    """Whether the observed state already equals the action's target."""
+def action_matches_state(  # noqa: PLR0911
+    action: Action, state: DeviceState, device: DeviceConfig | None = None
+) -> bool:
+    """Whether the observed state already equals the action's target.
+
+    ``DeviceState.value`` is in the control's unit (W, A or %); with ``device`` it is
+    converted to W before the comparison with a ``PowerSetpointAction``.
+    """
     if not state.known:
         return False
     match action:
@@ -388,7 +394,12 @@ def action_matches_state(action: Action, state: DeviceState) -> bool:  # noqa: P
         case ModeAction(mode=mode):
             return state.mode == mode
         case PowerSetpointAction(power_w=power):
-            return state.value is not None and abs(state.value - power) <= POWER_TOLERANCE_W
+            if state.value is None:
+                return False
+            current = state.value
+            if device is not None and isinstance(device.control, ContinuousControl):
+                current = _continuous_power_w(current, device.control, device.power_model.nominal_w)
+            return abs(current - power) <= POWER_TOLERANCE_W
         case ReleaseAction():
             return False
     return False  # pragma: no cover - exhaustive

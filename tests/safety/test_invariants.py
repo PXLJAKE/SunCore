@@ -511,3 +511,12 @@ def test_action_matches_read_back() -> None:
     assert not inv.action_matches(SwitchAction(on=True), None)
     assert not inv.action_matches(SwitchAction(on=True), ModeAction(mode="cool"))
     assert inv.action_matches(StepAction(step=1), StepAction(step=1))
+
+
+def test_action_matches_state_converts_the_control_unit() -> None:
+    """``DeviceState.value`` is in A for an ampere control: compare in W (review 3-B)."""
+    device = continuous_device(unit="A")
+    state = DeviceState(value=10.0)  # 10 A x 230 V x 3 phases = 6900 W
+    assert inv.action_matches_state(PowerSetpointAction(power_w=6900.0), state, device)
+    assert not inv.action_matches_state(PowerSetpointAction(power_w=10.0), state, device)
+    assert inv.action_matches_state(PowerSetpointAction(power_w=10.0), state)  # no device: raw
