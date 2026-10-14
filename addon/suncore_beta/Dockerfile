@@ -12,7 +12,7 @@ ARG BUILD_FROM=ghcr.io/home-assistant/base-python:3.13-alpine3.24
 # node:22-alpine = 22.23.3-alpine, pushed 2026-09-23, digest looked up on Docker Hub
 # 2026-10-12. Bump the digest deliberately (Renovate/Dependabot or by hand).
 # ---------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS frontend
+FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS frontend
 
 WORKDIR /src/frontend
 # Dependencies first (layer cache); .npmrc carries legacy-peer-deps.
