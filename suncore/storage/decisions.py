@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import structlog
 from pydantic import ValidationError
 
-from suncore.core.decisions import Decision, decision_from_json
+from suncore.core.decisions import Decision, DecisionKind, decision_from_json
 from suncore.storage.db import Database
 
 log = structlog.get_logger(__name__)
@@ -43,15 +44,35 @@ class DecisionLog:
             ),
         )
 
-    async def latest(self, limit: int = 100) -> list[Decision]:
+    async def latest(
+        self,
+        limit: int = 100,
+        *,
+        device_id: str | None = None,
+        kinds: Collection[DecisionKind] | None = None,
+    ) -> list[Decision]:
         """Newest first; ``limit`` is clamped to ``1..MAX_LIMIT``.
+
+        ``device_id`` (the decision's asset) and ``kinds`` filter in SQL (indexed by
+        ``decision_asset_idx``); an empty ``kinds`` means no filter on the kind.
 
         Rows are deserialised tolerantly (``decision_from_json``): Phase 1 v1 payloads
         load, rows of a newer schema or with a corrupt payload are skipped and logged.
         """
         bounded = max(1, min(int(limit), MAX_LIMIT))
+        clauses: list[str] = []
+        params: list[str | int] = []
+        if device_id is not None:
+            clauses.append("asset_id = ?")
+            params.append(device_id)
+        if kinds:
+            wanted = sorted({k.value for k in kinds})
+            clauses.append(f"kind IN ({', '.join('?' for _ in wanted)})")
+            params.extend(wanted)
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
         rows = await self._db.fetchall(
-            "SELECT id, payload FROM decision ORDER BY id DESC LIMIT ?", (bounded,)
+            f"SELECT id, payload FROM decision {where}ORDER BY id DESC LIMIT ?",
+            (*params, bounded),
         )
         decisions: list[Decision] = []
         for row in rows:

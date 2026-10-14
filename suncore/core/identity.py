@@ -9,6 +9,8 @@ of ``devices`` and ``operation``, Phase 3 WP4) and by the app.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -33,6 +35,19 @@ def device_identity(device: DeviceConfig) -> DeviceIdentity:
     )
 
 
+def identity_token(device: DeviceConfig) -> str:
+    """A short opaque token of the device's identity (id, template, mapped entities).
+
+    The control state carries it; a request that raises a device's operating mode must send it
+    back, so a stale UI cannot grant a mode to a device that was re-mapped meanwhile.
+    """
+    identity = device_identity(device)
+    payload = json.dumps(
+        [identity.id, identity.template_id, sorted(identity.entities)], separators=(",", ":")
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
 def is_new_device(device: DeviceConfig, previous: DeviceConfig | None) -> bool:
     """``True`` if ``device`` is not the same device as ``previous`` (or there is none)."""
     return previous is None or device_identity(device) != device_identity(previous)
@@ -46,4 +61,10 @@ def new_device_ids(
     return frozenset(d.id for d in current if is_new_device(d, before.get(d.id)))
 
 
-__all__ = ["DeviceIdentity", "device_identity", "is_new_device", "new_device_ids"]
+__all__ = [
+    "DeviceIdentity",
+    "device_identity",
+    "identity_token",
+    "is_new_device",
+    "new_device_ids",
+]

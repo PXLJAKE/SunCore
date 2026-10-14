@@ -98,6 +98,10 @@ class PowerModel(_Frozen):
     nominal_w: Annotated[float, Field(gt=0, le=1_000_000)] | None = None
     counter_update_s: Annotated[int, Field(ge=1, le=86_400)] | None = None
     """Expected update cadence of the counter (LG: 3600); ``None`` = unknown, measured."""
+    power_update_s: Annotated[int, Field(ge=1, le=86_400)] | None = None
+    """Expected update period of the power sensor when it is slow (``smartthinq_sensors``
+    ``energy_current``: 300). ``None`` = unknown: the sensor is assumed to be seen at least once
+    per client resync (60 s). The watchdog and the entity cache judge staleness against it."""
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -118,6 +122,11 @@ class PowerModel(_Frozen):
             raise invalid(
                 "counter_update_without_role",
                 "power_model: `counter_update_s` without `energy_role`",
+            )
+        if self.power_update_s is not None and self.power_role is None:
+            raise invalid(
+                "power_update_without_role",
+                "power_model: `power_update_s` without `power_role`",
             )
         return self
 
