@@ -21,6 +21,7 @@ from typing import Final
 
 from suncore.core.balance import FlowSnapshot
 from suncore.core.control import ControlSettings, DeviceState, PowerEstimate
+from suncore.core.conversion import value_to_power_w
 from suncore.core.decisions import (
     Action,
     ModeAction,
@@ -154,11 +155,7 @@ def _upper(estimate: PowerEstimate | None) -> float | None:
 
 
 def _continuous_power_w(value: float, control: ContinuousControl, nominal: float | None) -> float:
-    if control.unit == "W":
-        return max(0.0, value)
-    if control.unit == "A":
-        return max(0.0, value) * control.voltage_v * control.phases
-    return max(0.0, value) / 100.0 * (nominal or 0.0)
+    return value_to_power_w(value, control, nominal)
 
 
 def power_delta_w(ctx: InvariantContext) -> float | None:
