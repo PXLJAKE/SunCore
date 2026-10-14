@@ -111,7 +111,14 @@ few minutes (5 minutes for `smartthinq_sensors`), so the value is slow. If you
 run the same air conditioner through two integrations (for example `lg_thinq`
 and `smartthinq_sensors`), control it through **one** of them only: the editor
 shows a hint when you pick a second entity of a unit that is configured
-already, and the system check at the end warns about it.
+already, and the system check at the end warns about it. Both compare the
+device names in Home Assistant and only react to two *different* integrations
+with the same device name; if you renamed one of the devices in Home Assistant
+(its own name), the hint and the warning stay silent.
+
+![Hint in the device editor](../../assets/screenshots/device-duplicate-hint-tablet-light-en.png)
+
+![System check warning](../../assets/screenshots/wizard-summary-duplicate-tablet-light-en.png)
 
 ![Step Devices](../../assets/screenshots/wizard-devices-tablet-light-en.png)
 

@@ -121,7 +121,14 @@ aktualisieren oft nur alle paar Minuten (bei `smartthinq_sensors` alle
 Integrationen (zum Beispiel `lg_thinq` und `smartthinq_sensors`), steuere es
 nur über **eine** davon: Der Editor zeigt einen Hinweis, wenn du eine zweite
 Entität eines bereits eingerichteten Geräts wählst, und die Systemprüfung am
-Ende warnt davor.
+Ende warnt davor. Beide vergleichen die Gerätenamen in Home Assistant und
+reagieren nur auf zwei *verschiedene* Integrationen mit gleichem Gerätenamen;
+hast du eines der Geräte in Home Assistant umbenannt (eigener Name), bleiben
+Hinweis und Warnung stumm.
+
+![Hinweis im Geräte-Editor](../../assets/screenshots/device-duplicate-hint-tablet-light-de.png)
+
+![Warnung der Systemprüfung](../../assets/screenshots/wizard-summary-duplicate-tablet-light-de.png)
 
 ![Schritt Verbraucher](../../assets/screenshots/wizard-devices-tablet-light-de.png)
 
