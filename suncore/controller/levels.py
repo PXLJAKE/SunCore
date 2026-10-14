@@ -319,9 +319,13 @@ def _climate_levels(
         levels.append(Level(0, 0.0, SwitchAction(on=False)))
         # An unit that is already on is brought back to the user's base set-point (the way
         # down from a shift runs through this level); only an unit that is off is switched on.
+        # A base outside the comfort band cannot pass the gate's comfort invariant: the level
+        # would be refused for ever and the unit could never reach level 0 (off) again, so the
+        # no-op switch-on leaves the shift in place and the release restores the base later.
+        restorable = base is not None and comfort.min_c <= base <= comfort.max_c
         on_action: Action = (
             SetpointAction(setpoint_c=base, base_c=base)
-            if is_on and base is not None
+            if is_on and base is not None and restorable
             else SwitchAction(on=True)
         )
         levels.append(Level(1, nominal, on_action, setpoint_c=base))

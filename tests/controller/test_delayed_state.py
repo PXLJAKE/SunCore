@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from suncore.controller import Controller, ControllerInputs
 from suncore.core.config import GoalsConfig
-from suncore.core.control import DeviceState, PowerEstimate
+from suncore.core.control import ControlSettings, DeviceState, PowerEstimate
 from suncore.core.decisions import (
     Decision,
     DecisionKind,
@@ -21,7 +21,8 @@ from suncore.core.decisions import (
     SetpointAction,
     SwitchAction,
 )
-from tests.safety.helpers import T0, climate_device, flows
+from suncore.safety.invariants import InvariantContext, check_comfort
+from tests.safety.helpers import T0, climate_device, flows, runtime
 
 GOALS = GoalsConfig(climate_before_export=True)
 
@@ -141,3 +142,35 @@ def test_the_way_down_from_a_shift_restores_the_base_before_the_switch_off() -> 
     level_one = machine.table.level(1)
     assert level_one.action == SetpointAction(setpoint_c=24.0, base_c=24.0)
     assert machine.table.level(0).action == SwitchAction(on=False)
+
+
+def test_a_base_outside_the_comfort_band_does_not_block_the_way_down() -> None:
+    """Review 3-B (control-safety): with the base set-point (28, set by the user while the unit
+    was off) outside the comfort band (20-26), level 1 as ``SetpointAction(28)`` is refused by the
+    gate's comfort invariant for ever; a unit SunCore switched on and shifted could then never be
+    switched off again (grid import caused by SunCore). Level 1 stays the no-op switch-on then."""
+    ac = climate_device("ac", nominal_w=800.0, allow_switch_on=True)
+    controller = Controller([ac])
+    intent, t = drive_until_intent(controller, DeviceState(on=False, mode="off"), 0.0)
+    assert intent.action == SwitchAction(on=True)
+    assert controller.report(decide(intent))
+    hot = DeviceState(on=True, mode="cool", setpoint_c=28.0)
+    for n in range(1, 4):
+        tick(controller, at(t + 5.0 * n), hot)
+    machine = controller.allocator.machine("ac")
+    assert machine is not None
+    assert machine.table is not None
+    assert machine.switched_on_by_us
+    assert machine.table.level(0).action == SwitchAction(on=False)
+    assert machine.table.level(1).action == SwitchAction(on=True)
+    # every level the way down passes through is acceptable to the comfort invariant
+    for level in machine.table.levels[:-1]:
+        ctx = InvariantContext(
+            action=level.action,
+            device=ac,
+            state=hot,
+            runtime=runtime("ac"),
+            now=T0,
+            settings=ControlSettings(),
+        )
+        assert check_comfort(ctx) is None, level
