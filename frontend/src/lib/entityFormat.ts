@@ -18,6 +18,18 @@ export function candidateValueText(c: EntityCandidate): string {
   return t('entity.unavailable');
 }
 
+/** Domains whose state is a number with a unit; others (climate, switch, …) carry a raw state. */
+const MEASURING_DOMAINS = new Set(['sensor', 'number', 'input_number']);
+
+/**
+ * Whether unit and numeric quality apply to the candidate. A climate or switch entity has no unit
+ * and a text state ("off"), which is normal, not an invalid value.
+ */
+export function measuring(c: Pick<EntityCandidate, 'entity_id' | 'domain'>): boolean {
+  const domain = c.domain || (c.entity_id.split('.', 1)[0] ?? '');
+  return MEASURING_DOMAINS.has(domain);
+}
+
 /** Search terms must all occur in name, entity id, area or device name (case-insensitive). */
 export function matchesQuery(c: EntityCandidate, query: string): boolean {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);

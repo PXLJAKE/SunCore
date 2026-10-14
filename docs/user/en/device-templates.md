@@ -91,6 +91,15 @@ belongs to the same registry device as the entity chosen for the other role
 (one level only; the other role must not use `same_device_as` itself). This
 is how "the power sensor of **this** air conditioner" is found.
 
+Leave `same_device_as` out when the sensor may live on **another** device: the
+climate templates do this for their optional `power` role, because a second
+integration (for example `smartthinq_sensors`) or a smart plug creates its own
+registry device. Such a role has no device filter; the wizard only ranks
+candidates whose device or entity name contains the name of the device chosen
+for the main role higher. This needs no template syntax. Mention in a comment
+if such a sensor is polled slowly, because a measured power model built on it
+is slow too.
+
 ```yaml
 roles:
   switch:

@@ -13,7 +13,9 @@ import {
   newDeviceForm,
   newDeviceId,
   powerModelOptions,
+  normaliseName,
   preferredPowerKind,
+  seemsConfiguredAlready,
   uniqueName,
   validateDeviceForm,
 } from './deviceForm';
@@ -412,6 +414,148 @@ describe('device form', () => {
     expect(newDeviceId('Pool pump', new Set(['pool_pump']))).toBe('pool_pump_2');
     expect(uniqueName('Switch', ['Switch', 'switch 2'])).toBe('Switch 3');
     expect(uniqueName('Lamp', ['Switch'])).toBe('Lamp');
+  });
+});
+
+const LG = {
+  id: 'lg.thinq_climate',
+  device_kind: 'climate',
+  roles: {
+    climate: {
+      required: true,
+      matcher: { domain: 'climate' },
+      description: 'k',
+      same_device_as: null,
+    },
+    energy_today: {
+      required: true,
+      matcher: { domain: 'sensor', device_class: 'energy' },
+      description: 'k',
+      same_device_as: 'climate',
+    },
+    power: {
+      required: false,
+      matcher: { domain: 'sensor', device_class: 'power', state_class: 'measurement' },
+      description: 'k',
+      same_device_as: null,
+    },
+  },
+  defaults: {
+    power_model: { kind: 'learned', energy_role: 'energy_today', counter_update_s: 3600 },
+    control: { kind: 'setpoint', role: 'climate', shift_max_c: 2, step_c: 1 },
+    min_run_s: 600,
+    min_pause_s: 300,
+  },
+} as unknown as DeviceTemplate;
+
+describe('optional power sensor of another device (climate templates)', () => {
+  it('keeps the template default while the power role is unmapped', () => {
+    const form = newDeviceForm(LG, 'AC', 0);
+    form.entities.climate = ref('climate.ac');
+    form.entities.energy_today = ref('sensor.ac_energy_today');
+    expect(preferredPowerKind(LG, form.entities)).toBe('learned');
+    form.entities.energy_today = ref('');
+    expect(preferredPowerKind(LG, form.entities)).toBe('learned');
+  });
+  it('preselects measured when the power role is mapped, but stays switchable', () => {
+    const form = newDeviceForm(LG, 'AC', 0);
+    form.entities.climate = ref('climate.ac');
+    form.entities.energy_today = ref('sensor.ac_energy_today');
+    form.entities.power = ref('sensor.ac_energy_current');
+    expect(preferredPowerKind(LG, form.entities)).toBe('measured');
+    form.powerKind = preferredPowerKind(LG, form.entities);
+    const dev = deviceFromForm(form, 'ac', LG);
+    expect(dev.power_model).toEqual({
+      kind: 'measured',
+      power_role: 'power',
+      energy_role: null,
+      nominal_w: null,
+      counter_update_s: null,
+    });
+    expect(dev.entities?.power?.entity_id).toBe('sensor.ac_energy_current');
+    // the user keeps the learned model: the power sensor then only trains it
+    form.powerKind = 'learned';
+    form.nominalW = 900;
+    expect(deviceFromForm(form, 'ac', LG).power_model).toMatchObject({
+      kind: 'learned',
+      power_role: 'power',
+      energy_role: 'energy_today',
+      counter_update_s: 3600,
+    });
+    expect(powerModelOptions(LG, form.entities).find((o) => o.kind === 'measured')?.available).toBe(
+      true,
+    );
+  });
+});
+
+describe('same unit configured twice (hint)', () => {
+  const lookup = new Map([
+    [
+      'climate.lg',
+      { deviceId: 'dev_lg', deviceName: 'Schlafen Jake Klimaanlage', platform: 'lg_thinq' },
+    ],
+    [
+      'climate.st',
+      {
+        deviceId: 'dev_st',
+        deviceName: '  schlafen   jake KLIMAANLAGE',
+        platform: 'smartthinq_sensors',
+      },
+    ],
+    ['climate.other', { deviceId: 'dev_o', deviceName: 'Wohnzimmer', platform: 'lg_thinq' }],
+    [
+      'climate.lg_2',
+      { deviceId: 'dev_lg', deviceName: 'Schlafen Jake Klimaanlage', platform: 'lg_thinq' },
+    ],
+    // same name, other registry device, SAME platform: two rooms called alike
+    [
+      'climate.lg_3',
+      { deviceId: 'dev_lg3', deviceName: 'Schlafen Jake Klimaanlage', platform: 'lg_thinq' },
+    ],
+    [
+      'climate.noplat',
+      { deviceId: 'dev_np', deviceName: 'Schlafen Jake Klimaanlage', platform: null },
+    ],
+  ]);
+  const stored = (id: string, entity: string, kind = 'climate') =>
+    ({
+      id,
+      kind,
+      entities: { climate: ref(entity) },
+      control: { kind: 'setpoint', role: 'climate' },
+    }) as unknown as DeviceConfig;
+  const formFor = (entity: string, id: string | null = null) => {
+    const form = newDeviceForm(LG, 'AC', 0);
+    form.id = id;
+    form.entities.climate = ref(entity);
+    return form;
+  };
+  it('normalises names like the backend', () => {
+    expect(normaliseName('  Living   ROOM ac ')).toBe('living room ac');
+    expect(normaliseName(null)).toBe('');
+  });
+  it('shows the hint for the same name on another registry device', () => {
+    const others = [stored('ac_lg', 'climate.lg')];
+    expect(seemsConfiguredAlready(formFor('climate.st'), others, lookup)).toBe(true);
+  });
+  it('shows the hint for the same entity twice', () => {
+    const others = [stored('ac_lg', 'climate.lg')];
+    expect(seemsConfiguredAlready(formFor('climate.lg'), others, lookup)).toBe(true);
+  });
+  it('shows no hint for other names, the same registry device, itself or other kinds', () => {
+    const others = [stored('ac_lg', 'climate.lg')];
+    expect(seemsConfiguredAlready(formFor('climate.other'), others, lookup)).toBe(false);
+    expect(seemsConfiguredAlready(formFor('climate.lg_2'), others, lookup)).toBe(false);
+    expect(seemsConfiguredAlready(formFor('climate.lg_3'), others, lookup)).toBe(false);
+    expect(seemsConfiguredAlready(formFor('climate.noplat'), others, lookup)).toBe(false);
+    expect(seemsConfiguredAlready(formFor('climate.st', 'ac_lg'), others, lookup)).toBe(false);
+    expect(
+      seemsConfiguredAlready(formFor('climate.st'), [stored('x', 'climate.lg', 'switch')], lookup),
+    ).toBe(false);
+    expect(seemsConfiguredAlready(formFor('climate.st'), [], lookup)).toBe(false);
+    expect(seemsConfiguredAlready(formFor(''), others, lookup)).toBe(false);
+    // unknown registry data: no guess
+    expect(seemsConfiguredAlready(formFor('climate.st'), others, new Map())).toBe(false);
   });
 });
 

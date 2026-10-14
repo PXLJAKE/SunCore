@@ -14,6 +14,7 @@ from suncore.ha.connection import EntityState
 from suncore.ha.detect import (
     CRITERION_KEYS,
     HIDDEN_MALUS,
+    NAME_AFFINITY_WEIGHT,
     SITE_ROLES,
     criteria_keys,
     describe,
@@ -39,7 +40,7 @@ def power(entity_id: str, **kw: object) -> EntityMeta:
 
 def test_every_criterion_the_matcher_can_report_has_a_catalogue_key() -> None:
     assert set(WEIGHTS) - {"domain", "same_device"} <= set(CRITERION_KEYS)
-    assert set(CRITERION_KEYS) == set(WEIGHTS) | {"name"}
+    assert set(CRITERION_KEYS) == set(WEIGHTS) | {"name", "name_affinity"}
     assert all(k == f"detect.criterion.{n}" for n, k in CRITERION_KEYS.items())
     assert criteria_keys(["domain", "bogus", "name"]) == (
         "detect.criterion.domain",
@@ -322,3 +323,80 @@ def test_legacy_entities_keep_phase_1_rules() -> None:
     assert all(e.score == 0 and e.criteria == () for e in got)
     wide = legacy_entities(metas, live=live, catalogue=catalogue, include_hidden=True)
     assert [e.entity_id for e in wide] == ["sensor.hidden", "sensor.pv", "sensor.soc"]
+
+
+def test_name_affinity_ranks_sensors_of_the_same_named_device_first() -> None:
+    role = RoleSpec.model_validate(
+        {
+            "description": "role.test.power",
+            "matcher": {
+                "domain": "sensor",
+                "device_class": "power",
+                "units": ["W", "kW"],
+                "state_class": "measurement",
+            },
+        }
+    )
+    metas = [
+        power("sensor.aaa_grid", state_class="measurement", device_id="d_house"),
+        power("sensor.bbb_other", state_class="measurement", device_id="d_other"),
+        power("sensor.ccc_current", state_class="measurement", device_id="d_b"),
+        power(
+            "sensor.ddd_plug",
+            state_class="measurement",
+            device_id="d_plug",
+            name="Schlafen   Jake Klimaanlage Power",
+        ),
+    ]
+    names = {"d_b": "  schlafen jake KLIMAANLAGE ", "d_house": "House", "d_other": "Other"}
+    plain = detect_template_role(role, metas)
+    assert [m.meta.entity_id for m in plain] == [
+        "sensor.aaa_grid",
+        "sensor.bbb_other",
+        "sensor.ccc_current",
+        "sensor.ddd_plug",
+    ]  # no hint: ties by entity id, no affinity criterion
+    assert all("name_affinity" not in m.criteria for m in plain)
+    hinted = detect_template_role(
+        role,
+        metas,
+        name_hint="Schlafen Jake Klimaanlage",
+        device_name_of=lambda device_id: names.get(device_id or ""),
+    )
+    assert [m.meta.entity_id for m in hinted] == [
+        "sensor.ccc_current",  # device name equal (case and whitespace insensitive)
+        "sensor.ddd_plug",  # friendly name contains the device name
+        "sensor.aaa_grid",
+        "sensor.bbb_other",
+    ]
+    assert hinted[0].criteria[-1] == "name_affinity"
+    assert hinted[0].score - hinted[2].score == NAME_AFFINITY_WEIGHT
+    assert criteria_keys(hinted[0].criteria)[-1] == "detect.criterion.name_affinity"
+    # A hint never drops a candidate and never adds one.
+    assert len(hinted) == len(plain)
+
+
+def test_name_affinity_needs_whole_words_in_the_friendly_name() -> None:
+    role = RoleSpec.model_validate(
+        {
+            "description": "role.test.power",
+            "matcher": {"domain": "sensor", "device_class": "power", "units": ["W"]},
+        }
+    )
+    metas = [
+        power("sensor.a_backup", device_id="d_x", name="Backup power"),  # "ac" inside "backup"
+        power("sensor.b_ac", device_id="d_y", name="AC power"),
+        power("sensor.c_dash", device_id="d_z", name="AC-1 power"),  # punctuation is a boundary
+    ]
+    hinted = detect_template_role(
+        role, metas, name_hint="AC", device_name_of=lambda _device_id: None
+    )
+    by_id = {m.meta.entity_id: m for m in hinted}
+    assert "name_affinity" not in by_id["sensor.a_backup"].criteria
+    assert "name_affinity" in by_id["sensor.b_ac"].criteria
+    assert "name_affinity" in by_id["sensor.c_dash"].criteria
+    # equality with the device name still counts, whatever the entity is called
+    named = detect_template_role(
+        role, metas[:1], name_hint="AC", device_name_of=lambda _device_id: " ac "
+    )
+    assert "name_affinity" in named[0].criteria

@@ -34,6 +34,11 @@ test.describe('devices and priorities', () => {
     await page.getByLabel('Search').fill('lg');
     await expect(gallery.getByRole('listitem')).toHaveCount(1);
     await expect(gallery).toContainText('LG ThinQ air conditioner');
+    // matcher keys only inferred from source (tested_with empty): warning badge
+    await expect(gallery).toContainText('Not verified with real hardware');
+    await page.getByLabel('Search').fill('generic');
+    await expect(gallery.getByRole('listitem')).toHaveCount(1);
+    await expect(gallery).toContainText('Generic climate device');
     await expect(gallery).toContainText('Not verified with real hardware');
     await page.getByLabel('Search').fill('zzz');
     await expect(gallery).toContainText('No template matches');
@@ -77,6 +82,78 @@ test.describe('devices and priorities', () => {
     await page.getByRole('button', { name: /^Remove/ }).click();
     await page.getByRole('button', { name: /^Really remove/ }).click();
     await expect(page.getByTestId('no-devices')).toBeVisible();
+  });
+
+  test('optional power sensor of the second integration; the same unit twice is flagged', async ({
+    page,
+    request,
+  }) => {
+    await resetDemo(request, { wizardDone: false });
+    await openStep(page, 'devices');
+    await page.getByTestId('add-device').click();
+    await page.getByRole('button', { name: /^Choose.*LG ThinQ/ }).click();
+    const editor = page.getByTestId('device-editor');
+    await editor
+      .getByLabel('The air conditioner (climate entity of the LG ThinQ integration)')
+      .fill('climate.sim_living_room_ac');
+    await page.keyboard.press('Escape');
+    await editor.getByLabel(/^Energy used today/).fill('sensor.sim_living_room_ac_energy_today');
+    await page.keyboard.press('Escape');
+    // power role unmapped: the template default (learned from the counter) stays
+    const model = editor.getByLabel('Power model');
+    await expect(model).toHaveValue('learned');
+
+    // the power sensor of the other device with the same device name is offered first
+    await editor.getByLabel(/^Power sensor \(optional/).focus();
+    const options = page.getByRole('listbox').getByRole('option');
+    await expect(options.first()).toContainText('sensor.sim_living_room_ac_energy_current');
+    await expect(options.first()).toContainText('same device name');
+    await options.first().click();
+
+    // mapped: measured is preselected, but the user can still switch
+    await expect(model).toHaveValue('measured');
+    await model.selectOption('learned');
+    await expect(model).toHaveValue('learned');
+    await model.selectOption('measured');
+    await editor.getByLabel('Name').fill('Living room AC');
+    await page.getByTestId('device-save').click();
+    await expect(page.getByTestId('devices-notice')).toContainText('was added');
+    let stored = (await (await request.get('/api/v1/config/devices')).json()).devices;
+    expect(stored[0]).toMatchObject({
+      template_id: 'lg.thinq_climate',
+      entities: {
+        climate: { entity_id: 'climate.sim_living_room_ac' },
+        power: { entity_id: 'sensor.sim_living_room_ac_energy_current' },
+      },
+      power_model: { kind: 'measured', power_role: 'power', energy_role: null },
+    });
+
+    // the same air conditioner through the other integration: hint, never a block
+    await page.getByTestId('add-device').click();
+    await page.getByRole('button', { name: /^Choose.*Generic climate device/ }).click();
+    const second = page.getByTestId('device-editor');
+    await expect(page.getByTestId('duplicate-unit-hint')).toHaveCount(0);
+    await second.getByLabel('The climate entity').fill('climate.sim_living_room_ac_smartthinq');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('duplicate-unit-hint')).toContainText(
+      'configured already via another integration',
+    );
+    await second.getByLabel('Nominal power').fill('900');
+    await second.getByLabel('Name').fill('Living room AC (SmartThinQ)');
+    await page.getByTestId('device-save').click();
+    await expect(page.getByTestId('devices-notice')).toContainText('was added');
+    stored = (await (await request.get('/api/v1/config/devices')).json()).devices;
+    expect(stored).toHaveLength(2);
+
+    // the system check of the summary warns (and does not block)
+    const check = await (await request.post('/api/v1/wizard/check', { data: {} })).json();
+    const dup = check.items.filter(
+      (i: { reason: { key: string } }) => i.reason.key === 'wizard.check.duplicate_unit',
+    );
+    expect(dup).toHaveLength(1);
+    expect(dup[0].severity).toBe('warn');
+    await openStep(page, 'summary');
+    await expect(page.getByText(/control the same unit/)).toBeVisible();
   });
 
   test('two devices of one template get unique ids', async ({ page, request }) => {

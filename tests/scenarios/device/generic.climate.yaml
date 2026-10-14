@@ -5,10 +5,17 @@ user_input:
   comfort: {min_c: 22, max_c: 26}
 roles:
   climate:
-    entity: climate.sim_living_room_ac
-    criteria: [domain]
+    # The demo has the unit twice (lg_thinq and smartthinq_sensors); the generic matcher cannot
+    # tell them apart, so the user chooses.
+    tied: [climate.sim_living_room_ac, climate.sim_living_room_ac_smartthinq]
+    pick: climate.sim_living_room_ac
   power:
-    none: true            # the demo AC has no power sensor (like LG ThinQ)
+    # No `same_device_as`: every polled power sensor of the house is a candidate, the one of the
+    # second integration is found by the name affinity (tests/ha/test_detect.py).
+    tied: [sensor.sim_battery_power, sensor.sim_grid_power, sensor.sim_house_power,
+           sensor.sim_living_room_ac_energy_current, sensor.sim_pool_pump_power,
+           sensor.sim_pv_power]
+    unit: W
   energy:
     tied: [sensor.sim_living_room_ac_energy_today, sensor.sim_living_room_ac_energy_yesterday]
     unit: Wh

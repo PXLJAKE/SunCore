@@ -2,6 +2,11 @@
 # LG ThinQ air conditioner (core integration `lg_thinq`, cloud push).
 # There is no power sensor for air conditioners in the integration: the power comes from the
 # hourly Wh counter `energy_usage_today` (learned model, never a control input).
+# Optional `power` role: a measured power sensor of ANOTHER device (smart plug, or the HACS
+# integration `smartthinq_sensors` that creates its own device for the same unit with a
+# `sensor.<name>_energy_current`, W). Seen on the maintainer's HA (2026-10-14): polled every
+# 5 minutes, so a measured model built on it has about 5 minutes latency (Phase 3 must treat
+# it as slow). With the role mapped the wizard preselects the `measured` power model.
 id: lg.thinq_climate
 kind: device
 schema_version: 1
@@ -17,12 +22,13 @@ source:
     url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/lg_thinq/entity.py"
     date: 2026-10-13
 tested_with: []
-capabilities: [energy_counter, temperature_setpoint, hvac_modes, preset_modes, fan_modes]
+capabilities: [energy_counter, power_measured, temperature_setpoint, hvac_modes, preset_modes, fan_modes]
 unverified:
-  - "Read from the integration source (core 14f093e, 2026.11.0.dev0) only; not observed on a running Home Assistant or a real air conditioner."
+  - "Seen live on core 2026.10.1 (RAC_0B0001_WW): unique ids end in _climate_air_conditioner and _energyUsage_today. Translation keys are inferred, not observed."
   - "Exact entity ids and the property id part of the unique id (built at runtime from the device profile); the template therefore matches by platform and translation key."
-  - "Which HVAC modes, presets and fan modes a given model reports; LG never offers heat_cool (mapped to auto by the integration)."
+  - "Modes differ per model. RAC_0B0001_WW: hvac off/heat/cool/dry/auto/fan_only, fans auto/low/low_mid/medium/mid_high/high, no presets, no target_temp_step."
   - "Energy sensors exist only when the device API exposes `energyUsage`; sub-device layouts (sub_id) are unknown."
+  - "Optional `power` role: `smartthinq_sensors` `energy_current` seen live 2026-10-14 (5 min polling); its source was not read, so no platform or entity id is assumed."
   - "min_run_s and min_pause_s are compressor-protective design defaults, not manufacturer data."
   - "target_temp_step depends on the model; the 1 °C set-point step is a safe default because the integration truncates the target to an integer when the step is >= 1."
 device_kind: climate
@@ -52,9 +58,18 @@ roles:
       device_class: energy
       units: [Wh]
     description: template.lg.thinq_climate.role.energy_yesterday
+  power:
+    required: false
+    # No `same_device_as`: the sensor lives on another device (other integration or a plug).
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.lg.thinq_climate.role.power
 defaults:
-  # No power sensor: learn the power from the hourly counter. The nominal power of the
-  # user's model is asked in the wizard (not part of the template).
+  # Without the optional `power` role there is no power sensor: learn the power from the
+  # hourly counter. The nominal power of the user's model is asked in the wizard (not part of
+  # the template).
   power_model:
     kind: learned
     energy_role: energy_today

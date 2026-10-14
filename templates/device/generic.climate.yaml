@@ -28,7 +28,9 @@ roles:
     description: template.generic.climate.role.climate
   power:
     required: false
-    same_device_as: climate
+    # No `same_device_as`: the sensor may belong to another device (smart plug, or a second
+    # integration for the same unit such as `smartthinq_sensors` `energy_current`). Such
+    # sensors are often polled slowly (5 min seen): Phase 3 must treat measured power as slow.
     matcher:
       domain: sensor
       device_class: power

@@ -3,7 +3,7 @@
 // started at 09:30 by playwright.config.ts). Nothing is mocked.
 // Run: SCREENSHOTS_DIR=../docs/assets/screenshots npx playwright test screenshots
 import { expect, test } from '@playwright/test';
-import { STEP_IDS } from './helpers';
+import { resetDemo, STEP_IDS } from './helpers';
 
 const dir = process.env.SCREENSHOTS_DIR;
 test.skip(!dir, 'set SCREENSHOTS_DIR to take screenshots');
@@ -72,5 +72,69 @@ for (const { step, scheme, locale } of wizardShots) {
     const name = `wizard-${step}-${info.project.name}-${scheme}-${locale.slice(0, 2)}`;
     await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
     await ctx.close();
+  });
+}
+
+// The same air conditioner configured twice (lg_thinq and smartthinq_sensors): the hint in the
+// device editor and the warning of the system check. A dedicated document state, set up through
+// the API and reset afterwards; the default demo configuration stays untouched.
+for (const locale of ['en-US', 'de-DE'] as const) {
+  test(`duplicate unit ${locale}`, async ({ browser, request }, info) => {
+    test.skip(info.project.name !== 'tablet', 'tablet only');
+    const res = await request.get('/api/v1/config/devices');
+    const section = await res.json();
+    const ac = section.devices.find((d: { id: string }) => d.id === 'living_room_ac');
+    const twin = {
+      ...ac,
+      id: 'living_room_ac_st',
+      name: 'Living room AC (SmartThinQ)',
+      template_id: 'generic.climate',
+      entities: { climate: { entity_id: 'climate.sim_living_room_ac_smartthinq' } },
+      power_model: { kind: 'nominal', nominal_w: 900 },
+      priority: section.devices.length,
+    };
+    const put = await request.put('/api/v1/config/devices', {
+      data: { ...section, devices: [...section.devices, twin] },
+    });
+    expect(put.ok(), `PUT devices: ${put.status()}`).toBe(true);
+    const ctx = await browser.newContext({
+      colorScheme: 'light',
+      locale,
+      viewport: info.project.use.viewport ?? { width: 1024, height: 768 },
+      hasTouch: info.project.use.hasTouch,
+    });
+    try {
+      const page = await ctx.newPage();
+      const lang = locale.slice(0, 2);
+      await page.goto('/#/setup/devices');
+      await expect(page.getByTestId('wizard')).toHaveAttribute('data-step', 'devices');
+      await page
+        .getByRole('listitem')
+        .filter({ hasText: 'Living room AC (SmartThinQ)' })
+        .getByRole('button')
+        .first()
+        .click();
+      await expect(page.getByTestId('duplicate-unit-hint')).toBeVisible();
+      await page.addStyleTag({ content: '.actions { position: static !important; }' });
+      await page.waitForTimeout(1000);
+      await page.getByTestId('device-editor').scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: `${dir}/device-duplicate-hint-${info.project.name}-light-${lang}.png`,
+        fullPage: true,
+      });
+
+      await page.goto('/#/setup/summary');
+      await expect(page.getByTestId('wizard')).toHaveAttribute('data-step', 'summary');
+      await expect(page.getByText(/Living room AC \(SmartThinQ\)/).first()).toBeVisible();
+      await page.addStyleTag({ content: '.actions { position: static !important; }' });
+      await page.waitForTimeout(1500);
+      await page.screenshot({
+        path: `${dir}/wizard-summary-duplicate-${info.project.name}-light-${lang}.png`,
+        fullPage: true,
+      });
+    } finally {
+      await ctx.close();
+      await resetDemo(request);
+    }
   });
 }

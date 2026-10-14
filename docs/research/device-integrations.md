@@ -329,3 +329,35 @@ a given LG model reports; LG sub-device (`sub_id`) layouts; the Tibber
 publication time of tomorrow's prices; the default number of Solcast day
 sensors; whether older cores and older Tibber/Solcast versions differ in
 attribute names.
+
+### Live check on the maintainer's system (2026-10-14)
+
+Read through the Home Assistant MCP server on HA OS 18.3, core `2026.10.1`,
+device "Schlafen Jake Klimaanlage" (LG model `RAC_0B0001_WW`):
+
+- `lg_thinq` climate: `unique_id` ends in `_climate_air_conditioner`; attributes
+  `hvac_modes` `off, heat, cool, dry, auto, fan_only`; `fan_modes`
+  `auto, low, low_mid, medium, mid_high, high`; `swing_modes` and
+  `swing_horizontal_modes` `on, off`; `min_temp` 7, `max_temp` 35;
+  `supported_features` 937; no `preset_modes` and no `target_temp_step`
+  attribute; `temperature` is `null` while the unit is off.
+- `lg_thinq` energy sensors on the same device: `energy_today`, `energy_yesterday`,
+  `energy_this_month`, `energy_last_month`; `unique_id` suffix `_energyUsage_today`
+  etc.; unit `Wh`, `device_class` energy, `state_class` `total` with `last_reset`
+  at local midnight (`this_month`: `total_increasing`). Also a `switch` "Power"
+  (`unique_id` suffix `_air_con_operation_mode`).
+- The registry tool does not show `translation_key`; the template's keys stay
+  inferred from the source (they match the `unique_id` suffixes above).
+- **Second integration on the same unit:** HACS `smartthinq_sensors` creates its
+  own device (`model` `RAC_0B0001_WW-RAC (AC)`) with a second climate entity
+  (other mode names, e.g. `heat_cool`, `diffuse`, `target_temp_step` 1, range
+  16–30 °C) and a **power sensor** `energy_current` (`device_class` power, unit
+  `W`, `state_class` measurement). History of 2026-10-04…14: 5 W standby while
+  off; while running it updates every 5 minutes (polling) with real values,
+  e.g. 0 → 440 → 1319 → 1335 W → 5 W on 2026-10-09 14:19–14:39. Consequences
+  for Phase 3: a measured power model is possible via this sensor (5 min
+  latency, so the controller must treat it as slow), but it lives on another
+  device (`same_device_as` cannot link it), and SunCore must control exactly
+  one climate entity per physical unit. The `lg_thinq` climate entity itself
+  reports state updates every few seconds even while off (about 4,000 in
+  10 days), so subscribers must not treat an update as a change.

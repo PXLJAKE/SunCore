@@ -28,10 +28,10 @@ from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
 from suncore.core.site import EntityRef
 from suncore.sim.demo_devices import (
+    AC_B_POWER_ID,
     AC_ENERGY_TODAY_ID,
     AC_ENERGY_YESTERDAY_ID,
     AC_ID,
-    AC_POWER_W,
     FORECAST_TODAY_ID,
     FORECAST_TOMORROW_ID,
     POOL_POWER_ID,
@@ -77,6 +77,8 @@ def instantiate_device(
         power_model["kind"] = power_kind
         if power_kind == "measured":
             power_model["power_role"] = "power"
+            power_model.pop("energy_role", None)
+            power_model.pop("counter_update_s", None)
     if nominal_w is not None and power_model["kind"] in ("learned", "nominal"):
         power_model["nominal_w"] = nominal_w
     if power_model["kind"] == "nominal":
@@ -113,7 +115,7 @@ def _device_template(catalog: TemplateCatalog, template_id: str) -> DeviceTempla
 
 
 def demo_devices(catalog: TemplateCatalog) -> DevicesConfig:
-    """AC (LG ThinQ template), pool pump (generic switch), heating rod (generic number load)."""
+    """AC (LG ThinQ template, measured power from the second integration), pool pump, rod."""
     return DevicesConfig(
         devices=[
             instantiate_device(
@@ -124,9 +126,11 @@ def demo_devices(catalog: TemplateCatalog) -> DevicesConfig:
                     "climate": AC_ID,
                     "energy_today": AC_ENERGY_TODAY_ID,
                     "energy_yesterday": AC_ENERGY_YESTERDAY_ID,
+                    # power of the same unit from the `smartthinq_sensors` device (5 min poll)
+                    "power": AC_B_POWER_ID,
                 },
                 priority=20,
-                nominal_w=AC_POWER_W,
+                power_kind="measured",
                 comfort=(22.0, 26.0),
             ),
             instantiate_device(

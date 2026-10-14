@@ -140,6 +140,7 @@
     <DeviceEditor
       bind:form
       {template}
+      others={wizard.devices}
       issues={serverIssues}
       {saving}
       {serverError}

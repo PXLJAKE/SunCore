@@ -34,6 +34,7 @@ AREA_LIVING: Final = "living_room"
 AREA_GARDEN: Final = "garden"
 DEV_HOUSE: Final = "sim_house"
 DEV_AC: Final = "sim_dev_living_room_ac"
+DEV_AC_B: Final = "sim_dev_living_room_ac_smartthinq"
 DEV_POOL: Final = "sim_dev_pool_plug"
 DEV_ROD: Final = "sim_dev_heating_rod"
 DEV_TIBBER: Final = "sim_dev_tibber"
@@ -80,6 +81,10 @@ ENTITIES: Final[tuple[RegEntity, ...]] = (
         AREA_LIVING,
         "energy_usage_yesterday",
     ),
+    # The same unit through the HACS integration `smartthinq_sensors`: its own registry device
+    # (same device name), a second climate entity and a polled power sensor.
+    RegEntity(d.AC_B_ID, "smartthinq_sensors", None, DEV_AC_B, AREA_LIVING),
+    RegEntity(d.AC_B_POWER_ID, "smartthinq_sensors", "Energy current", DEV_AC_B, AREA_LIVING),
     RegEntity(d.POOL_SWITCH_ID, SIM_PLATFORM, "Pool pump", DEV_POOL, AREA_GARDEN),
     RegEntity(d.POOL_POWER_ID, SIM_PLATFORM, "Pool pump power", DEV_POOL, AREA_GARDEN),
     RegEntity(d.POOL_ENERGY_ID, SIM_PLATFORM, "Pool pump energy", DEV_POOL, AREA_GARDEN),
@@ -109,6 +114,14 @@ AREAS: Final[tuple[tuple[str, str], ...]] = ((AREA_LIVING, "Living room"), (AREA
 _DEVICES: Final[tuple[tuple[str, str, str, str, str | None, str | None], ...]] = (
     (DEV_HOUSE, "SunCore demo house", "SunCore", "Virtual house", None, "service"),
     (DEV_AC, "Living room AC", "LGE", "SIM-AC (DEVICE_AIR_CONDITIONER)", AREA_LIVING, None),
+    (
+        DEV_AC_B,
+        "Living room AC",
+        "LGE",
+        "SIM-AC-RAC (AC)",
+        AREA_LIVING,
+        None,
+    ),
     (DEV_POOL, "Pool pump plug", "SunCore Sim", "Smart plug", AREA_GARDEN, None),
     (DEV_ROD, "Heating rod controller", "SunCore Sim", "Power limiter", AREA_GARDEN, None),
     (DEV_TIBBER, "Home", "Tibber", "Price Sensor", None, "service"),
@@ -116,6 +129,7 @@ _DEVICES: Final[tuple[tuple[str, str, str, str, str | None, str | None], ...]] =
 )
 _DEVICE_DOMAIN: Final[dict[str, str]] = {
     DEV_AC: "lg_thinq",
+    DEV_AC_B: "smartthinq_sensors",
     DEV_TIBBER: "tibber",
     DEV_SOLCAST: "solcast_solar",
 }

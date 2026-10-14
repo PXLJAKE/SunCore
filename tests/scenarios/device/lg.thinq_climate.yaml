@@ -16,3 +16,10 @@ roles:
     entity: sensor.sim_living_room_ac_energy_yesterday
     unit: Wh
     criteria: [domain, device_class, platforms, translation_key_pattern, units, same_device]
+  power:
+    # No `same_device_as`: every polled power sensor of the house is a candidate, the one of the
+    # second integration is found by the name affinity (tests/ha/test_detect.py).
+    tied: [sensor.sim_battery_power, sensor.sim_grid_power, sensor.sim_house_power,
+           sensor.sim_living_room_ac_energy_current, sensor.sim_pool_pump_power,
+           sensor.sim_pv_power]
+    unit: W

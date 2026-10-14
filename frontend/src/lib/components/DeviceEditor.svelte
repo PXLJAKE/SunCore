@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type {
+    DeviceConfig,
     DeviceTemplate,
     EntityCandidate,
     PowerModelKind,
@@ -10,11 +11,14 @@
   import {
     powerModelOptions,
     preferredPowerKind,
+    seemsConfiguredAlready,
     THERMAL_KINDS,
     validateDeviceForm,
     type DeviceForm,
     type DeviceFormError,
+    type UnitInfo,
   } from '../wizard/deviceForm';
+  import { loadCandidates } from '../stores/candidates';
   import { issuesAt } from '../wizard/issues';
   import FieldIssues from './FieldIssues.svelte';
   import NumberField from './NumberField.svelte';
@@ -23,6 +27,8 @@
   interface Props {
     form: DeviceForm;
     template: DeviceTemplate;
+    /** The other configured devices (for the "configured already" hint). */
+    others?: readonly DeviceConfig[];
     /** Issues of the server for this device (paths relative to the device). */
     issues: readonly ValidationIssue[];
     saving: boolean;
@@ -33,6 +39,7 @@
   let {
     form = $bindable(),
     template,
+    others = [],
     issues,
     saving,
     serverError,
@@ -86,7 +93,40 @@
   function track(role: string, c: EntityCandidate | null): void {
     const id = c?.device_id ?? null;
     if (form.deviceIds[role] !== id) form.deviceIds[role] = id;
+    const name = c?.device_name ?? null;
+    if (form.deviceNames[role] !== name) form.deviceNames[role] = name;
   }
+
+  // Ranking hint for roles of another device (a power sensor of a second integration): the
+  // device name of the control entity. Roles bound by `same_device_as` already follow its device.
+  const controlRole = $derived(form.control.role);
+  const hintName = (role: string, spec: DeviceTemplate['roles'][string]): string | undefined =>
+    spec.same_device_as === null && role !== controlRole
+      ? (form.deviceNames[controlRole] ?? undefined)
+      : undefined;
+
+  // All climate entities with their registry device, to compare device names of units.
+  let units = $state.raw<ReadonlyMap<string, UnitInfo>>(new Map());
+  $effect(() => {
+    if (form.kind !== 'climate' || others.length === 0) return;
+    let stale = false;
+    loadCandidates({ role: 'climate', template: 'generic.climate' }).then(
+      (list) => {
+        if (stale) return;
+        units = new Map(
+          list.map((c) => [
+            c.entity_id,
+            { deviceId: c.device_id, deviceName: c.device_name, platform: c.platform },
+          ]),
+        );
+      },
+      () => {}, // a hint only: without the list there is simply no hint
+    );
+    return () => {
+      stale = true;
+    };
+  });
+  const duplicateUnit = $derived(seemsConfiguredAlready(form, others, units));
 
   // Until the user picks a power model, follow what is mapped: a power sensor means `measured`.
   // A model that the mapped roles no longer allow is always replaced.
@@ -126,6 +166,7 @@
         deviceId={spec.same_device_as
           ? (form.deviceIds[spec.same_device_as] ?? undefined)
           : undefined}
+        deviceName={hintName(role, spec)}
         bind:field={form.entities[role]!}
         optional={!spec.required}
         signed={spec.matcher.device_class === 'power'}
@@ -133,6 +174,11 @@
         issues={at('entities', role)}
       />
     {/each}
+    {#if duplicateUnit}
+      <p class="notice warn" role="status" data-testid="duplicate-unit-hint">
+        {t('device.duplicate_unit')}
+      </p>
+    {/if}
   </fieldset>
 
   <fieldset class="card">

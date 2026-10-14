@@ -96,6 +96,16 @@ für die andere Rolle gewählt wurde (nur eine Ebene; die andere Rolle darf
 selbst kein `same_device_as` nutzen). So findet man „den Leistungssensor
 **dieses** Klimageräts“.
 
+Lass `same_device_as` weg, wenn der Sensor auf einem **anderen** Gerät liegen
+darf: Die Klimagerät-Vorlagen tun das bei ihrer optionalen Rolle `power`,
+weil eine zweite Integration (zum Beispiel `smartthinq_sensors`) oder ein
+Zwischenstecker ein eigenes Registry-Gerät anlegt. Eine solche Rolle hat
+keinen Gerätefilter; der Assistent sortiert nur Kandidaten höher, deren
+Geräte- oder Entitätsname den Namen des Geräts der Hauptrolle enthält. Dafür
+braucht die Vorlage keine eigene Syntax. Vermerke in einem Kommentar, wenn
+ein solcher Sensor nur langsam aktualisiert, denn ein darauf aufgebautes
+Leistungsmodell ist ebenfalls langsam.
+
 ```yaml
 roles:
   switch:

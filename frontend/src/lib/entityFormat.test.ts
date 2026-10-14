@@ -7,6 +7,7 @@ import {
   filterCandidates,
   fragmentFor,
   matchesQuery,
+  measuring,
   resolveCandidate,
 } from './entityFormat';
 
@@ -99,5 +100,14 @@ describe('fragmentFor', () => {
     const f = fragmentFor('pv.1.power', ref) as { pv: unknown[] };
     expect(f.pv[1]).toEqual({ power: ref });
     expect(f.pv).toHaveLength(2);
+  });
+});
+
+describe('measuring', () => {
+  it('treats sensors and numbers as measuring, climate and switch as raw states', () => {
+    expect(measuring({ entity_id: 'sensor.x_power', domain: 'sensor' })).toBe(true);
+    expect(measuring({ entity_id: 'number.limit', domain: '' })).toBe(true);
+    expect(measuring({ entity_id: 'climate.ac', domain: 'climate' })).toBe(false);
+    expect(measuring({ entity_id: 'switch.plug', domain: '' })).toBe(false);
   });
 });

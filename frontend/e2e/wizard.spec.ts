@@ -164,11 +164,14 @@ test.describe('setup wizard', () => {
     await expect(page).toHaveURL(/#\/setup\/pv$/);
     // On narrow screens the step list is collapsed behind a button.
     const toggle = page.getByRole('button', { name: 'Show all steps' });
+    const gridLink = page.getByRole('link', { name: /Grid connection/ });
+    // wait until the step navigation is there (toggle on narrow screens, links otherwise)
+    await toggle.or(gridLink).first().waitFor();
     if (await toggle.isVisible()) {
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
       await toggle.click();
     }
-    await expect(page.getByRole('link', { name: /Grid connection/ })).toContainText('✓');
+    await expect(gridLink).toContainText('✓');
     await expect(page.getByRole('link', { name: /Solar/ })).toHaveAttribute('aria-current', 'step');
   });
 
