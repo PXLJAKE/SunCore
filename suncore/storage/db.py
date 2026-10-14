@@ -128,7 +128,13 @@ class Database:
         """
         async with self._lock:
             conn = self._connection()
-            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                await conn.execute("BEGIN IMMEDIATE")
+            except BaseException:
+                # A cancelled caller may leave the BEGIN running in the worker thread.
+                if conn.in_transaction:
+                    await conn.execute("ROLLBACK")
+                raise
             try:
                 yield Transaction(conn)
             except BaseException:

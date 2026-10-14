@@ -15,6 +15,7 @@ from suncore.storage.errors import (
     StorageError,
     UnknownSectionError,
 )
+from suncore.storage.runtime import PowerModelStateStore, SqliteRuntimeStore
 
 __all__ = [
     "ConfigCorruptError",
@@ -25,8 +26,10 @@ __all__ = [
     "HistoryEntryNotFoundError",
     "ImportRejectedError",
     "MigrationError",
+    "PowerModelStateStore",
     "SchemaTooNewError",
     "SectionSpec",
+    "SqliteRuntimeStore",
     "StorageError",
     "UnknownSectionError",
 ]

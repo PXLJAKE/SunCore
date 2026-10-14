@@ -46,6 +46,22 @@ ADRs relevant to your task. Keep it short; history lives in git.
     `last_reported`; the app sets cadences per entity (WP9). `release()` bypasses min
     run/pause (restoring the user's state is the safe direction; noted as a risk).
 
+- **Phase 3 – WP4 storage** (branch `phase-3/a-safety`): migration `0003_runtime.sql` (DB
+  schema 3: `device_runtime`, `safety_state`, `power_model_state`; `decision(ts)` was already
+  indexed in 0001). **0.3.x cannot open a schema-3 database (it refuses newer ones): export the
+  configuration before updating.** `storage/runtime.py`: `SqliteRuntimeStore` (the gate's
+  `RuntimeStore`; an unparseable payload is logged and counts as missing, an unreadable
+  emergency-stop flag counts as stopped) and `PowerModelStateStore` (JSON per device, for WP5).
+  `DecisionLog.prune(now, max_age_days=30, max_rows=200_000)`, run hourly by
+  `Runtime` (time and sleep injected). Device identity rule replaces the id-only rule in
+  `ConfigStore`: put/import/restore of `devices` drop the `operation` mode of devices whose id,
+  template or entities changed; restore of `operation` drops modes of devices whose identity
+  differs from the one recorded when the mode was set (`safety_state.mode_identities`; no record
+  = shadow); an import always resets the global mode to shadow. The gate uses
+  `SqliteRuntimeStore`; the demo uses it on its throw-away database, never `/data`.
+  Known gap: a plain `operation` put is trusted (a stale UI document could re-add a mode for a
+  device that was just re-mapped).
+
 - **Phase 2 completion from the live LG check (PR #18, 2026-10-14)**: the maintainer runs the
   same AC through `lg_thinq` and HACS `smartthinq_sensors`. (1) Climate templates
   (`lg.thinq_climate`, `generic.climate`) have an optional `power` role without

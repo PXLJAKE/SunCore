@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import structlog
@@ -16,6 +17,8 @@ log = structlog.get_logger(__name__)
 
 MAX_LIMIT: Final = 1000
 LAYER_SAFETY: Final = "safety"
+RETENTION_DAYS: Final = 30
+RETENTION_MAX_ROWS: Final = 200_000
 
 
 class DecisionLog:
@@ -61,3 +64,28 @@ class DecisionLog:
     async def count(self) -> int:
         row = await self._db.fetchone("SELECT COUNT(*) FROM decision")
         return int(str(row[0])) if row else 0
+
+    async def prune(
+        self,
+        now: datetime,
+        max_age_days: int = RETENTION_DAYS,
+        max_rows: int = RETENTION_MAX_ROWS,
+    ) -> int:
+        """Retention: drop rows older than ``max_age_days`` and keep at most ``max_rows``.
+
+        ``now`` is injected (no wall clock here). Returns the number of deleted rows. Age
+        uses the indexed ``ts`` (ISO-8601 UTC text sorts chronologically), the row cap keeps
+        the newest ids.
+        """
+        cutoff = (now.astimezone(UTC) - timedelta(days=max_age_days)).isoformat()
+        async with self._db.transaction() as tx:
+            by_age = await tx.execute("DELETE FROM decision WHERE ts < ?", (cutoff,))
+            by_count = await tx.execute(
+                "DELETE FROM decision WHERE id <= "
+                "COALESCE((SELECT id FROM decision ORDER BY id DESC LIMIT 1 OFFSET ?), 0)",
+                (max(0, max_rows),),
+            )
+        deleted = by_age + by_count
+        if deleted:
+            log.info("decision_log.pruned", deleted=deleted)
+        return deleted

@@ -99,7 +99,7 @@ async def test_v1_export_file_imports(db: Database) -> None:
     assert site.grid.is_pair
     assert [a.power for a in site.pv] == [EntityRef(entity_id="sensor.pv_total")]
     exported = await store.export_json()
-    assert exported["db_schema_version"] == latest_version() == 2
+    assert exported["db_schema_version"] == latest_version() == 3
     assert exported["sections"]["site"]["schema_version"] == 2
 
 
@@ -266,8 +266,15 @@ async def test_all_sections_round_trip_through_export_import(
             if name == "devices":  # new devices are normalised to shadow, ids unchanged
                 assert isinstance(loaded, DevicesConfig)
                 assert [d.id for d in loaded.devices] == [d.id for d in model.devices]  # type: ignore[attr-defined]
+            if name == "operation":  # an import always resets the global mode to shadow
+                assert isinstance(loaded, OperationConfig)
+                assert loaded.mode is OperatingMode.SHADOW
+                assert loaded.device_modes == model.device_modes  # type: ignore[attr-defined]
+                continue
             assert loaded == model
-        assert await sb.export_json() == exported
+        exported_b = await sb.export_json()
+        exported_b["sections"]["operation"] = exported["sections"]["operation"]
+        assert exported_b == exported
 
 
 # --- history ------------------------------------------------------------------
@@ -413,7 +420,7 @@ async def test_import_never_inherits_modes_for_new_devices(db: Database) -> None
     op = await store.get("operation")
     assert isinstance(op, OperationConfig)
     assert op.device_modes == {"a": AUTO, "zzz": AUTO}
-    assert op.mode is AUTO  # the global value is stored as given (the gate ignores it)
+    assert op.mode is OperatingMode.SHADOW  # an import always resets the global mode
 
 
 async def test_import_without_devices_drops_all_device_modes(db: Database) -> None:
@@ -534,3 +541,132 @@ async def test_stored_sections_lists_only_written_ones(db: Database) -> None:
     assert await store.stored_sections() == frozenset()
     await store.put("wizard", WizardState())
     assert await store.stored_sections() == frozenset({"wizard"})
+
+
+# --- device identity rule (id + template + entities), STATUS F6/A2 ------------------------
+
+
+def _device_with(
+    dev_id: str, *, entity: str | None = None, template: str | None = None
+) -> DeviceConfig:
+    base = _device(dev_id)
+    update: dict[str, object] = {}
+    if entity is not None:
+        update["entities"] = {"switch": EntityRef(entity_id=entity)}
+    if template is not None:
+        update["template_id"] = template
+    return base.model_copy(update=update)
+
+
+async def _setup_auto(store: ConfigStore, *devices: DeviceConfig) -> None:
+    await store.put("devices", DevicesConfig(devices=list(devices)))
+    await store.put("operation", OperationConfig(device_modes={d.id: AUTO for d in devices}))
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        _device_with("a", entity="switch.other"),
+        _device_with("a", template="generic.other"),
+    ],
+    ids=["entities", "template"],
+)
+async def test_put_devices_changed_identity_falls_back_to_shadow(
+    db: Database, changed: DeviceConfig
+) -> None:
+    store = ConfigStore(db)
+    await _setup_auto(store, _device("a"), _device("b"))
+    await store.put("devices", DevicesConfig(devices=[changed, _device("b")]))
+    op = await store.get("operation")
+    assert isinstance(op, OperationConfig)
+    assert op.device_modes == {"b": AUTO}
+
+
+async def test_put_devices_setting_change_keeps_mode(db: Database) -> None:
+    store = ConfigStore(db)
+    await _setup_auto(store, _device("a"))
+    renamed = _device("a").model_copy(update={"name": "Boiler", "priority": 3})
+    await store.put("devices", DevicesConfig(devices=[renamed]))
+    op = await store.get("operation")
+    assert isinstance(op, OperationConfig)
+    assert op.device_modes == {"a": AUTO}
+
+
+async def test_import_changed_identity_drops_mode_and_resets_global(db: Database) -> None:
+    store = ConfigStore(db)
+    await _setup_auto(store, _device("a"), _device("b"))
+    data = {
+        "suncore_export": 1,
+        "db_schema_version": latest_version(),
+        "sections": {
+            "devices": {
+                "schema_version": 1,
+                "body": DevicesConfig(
+                    devices=[_device_with("a", entity="switch.moved"), _device("b")]
+                ).model_dump(mode="json"),
+            },
+            "operation": {
+                "schema_version": 1,
+                "body": OperationConfig(mode=AUTO, device_modes={"a": AUTO, "b": AUTO}).model_dump(
+                    mode="json"
+                ),
+            },
+        },
+    }
+    await store.import_json(data)
+    op = await store.get("operation")
+    assert isinstance(op, OperationConfig)
+    assert op.device_modes == {"b": AUTO}
+    assert op.mode is OperatingMode.SHADOW
+
+
+async def test_restore_devices_changed_identity_falls_back_to_shadow(db: Database) -> None:
+    store = ConfigStore(db)
+    await _setup_auto(store, _device("a"))
+    await store.put("devices", DevicesConfig(devices=[_device_with("a", entity="switch.x")]))
+    await store.put("operation", OperationConfig(device_modes={"a": AUTO}))
+    (entry,) = await store.history("devices")
+    await store.restore("devices", entry.id)  # back to switch.a: identity changed again
+    op = await store.get("operation")
+    assert isinstance(op, OperationConfig)
+    assert op.device_modes == {}
+
+
+async def test_restore_operation_drops_modes_of_changed_devices(db: Database) -> None:
+    store = ConfigStore(db)
+    await _setup_auto(store, _device("a"), _device("b"))
+    await store.put("operation", OperationConfig())  # history: both automatic
+    # "a" is re-mapped; the devices put already drops nothing (operation is shadow now)
+    await store.put(
+        "devices", DevicesConfig(devices=[_device_with("a", entity="switch.x"), _device("b")])
+    )
+    (entry,) = [h for h in await store.history("operation") if h.body["device_modes"]]
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.device_modes == {"b": AUTO}
+    stored = await store.get("operation")
+    assert stored == restored
+
+
+async def test_restore_operation_without_identity_record_is_conservative(db: Database) -> None:
+    store = ConfigStore(db)
+    await store.put("devices", DevicesConfig(devices=[_device("a")]))
+    await db.execute(  # an operation body from before the record existed
+        "INSERT INTO config_history (section, schema_version, body, replaced_at) "
+        "VALUES ('operation', 1, ?, 't')",
+        (OperationConfig(device_modes={"a": AUTO}).model_dump_json(),),
+    )
+    (entry,) = await store.history("operation")
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.device_modes == {}
+
+
+async def test_put_operation_is_stored_as_given(db: Database) -> None:
+    store = ConfigStore(db)
+    await store.put("devices", DevicesConfig(devices=[_device("a")]))
+    await store.put("operation", OperationConfig(mode=AUTO, device_modes={"a": AUTO}))
+    op = await store.get("operation")
+    assert isinstance(op, OperationConfig)
+    assert op.mode is AUTO
+    assert op.device_modes == {"a": AUTO}

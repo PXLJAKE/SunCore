@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import tempfile
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +57,8 @@ LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
 log = structlog.get_logger(__name__)
 
 DB_FILENAME = "suncore.db"
+PRUNE_INTERVAL_S = 3600.0
+"""Decision-log retention runs hourly."""
 
 
 @dataclass(slots=True)
@@ -77,12 +79,15 @@ class Runtime:
     supervised: bool
     site: SiteConfig | None = None
     devices: DevicesConfig | None = None
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    prune_interval_s: float = PRUNE_INTERVAL_S
     _listeners: list[Callable[[], None]] = field(default_factory=list)
     _health_listeners: list[Callable[[], None]] = field(default_factory=list)
     _last_update: datetime | None = None
     _connect_task: asyncio.Task[None] | None = None
     _unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _tempdir: tempfile.TemporaryDirectory[str] | None = None
+    _prune_task: asyncio.Task[None] | None = None
 
     # --- lifecycle ------------------------------------------------------------
 
@@ -100,12 +105,26 @@ class Runtime:
         await self._resubscribe()
         await self.catalogue.start()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
+        self._prune_task = asyncio.create_task(self._prune_loop(), name="suncore-prune")
 
     async def _load_live_sections(self) -> None:
         self.site = await self.config.get_site()
         devices = await self.config.get("devices")
         assert devices is None or isinstance(devices, DevicesConfig)
         self.devices = devices
+
+    async def prune_decisions(self) -> int:
+        """One retention pass over the decision log; failures are logged, never raised."""
+        try:
+            return await self.decision_log.prune(self.clock())
+        except Exception:
+            log.exception("decision_log.prune_failed")
+            return 0
+
+    async def _prune_loop(self) -> None:
+        while True:
+            await self.prune_decisions()
+            await self.sleep(self.prune_interval_s)
 
     async def _connect(self) -> None:
         try:
@@ -124,11 +143,12 @@ class Runtime:
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
-        task, self._connect_task = self._connect_task, None
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        for task in (self._connect_task, self._prune_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._connect_task = self._prune_task = None
         await self.gate.shutdown()
         await self.catalogue.stop()
         await self.connection.close()
@@ -229,7 +249,8 @@ class Runtime:
         """Store any config section; ``site`` and ``devices`` also resubscribe entities.
 
         Returns what was stored. Putting ``devices`` drops the stored non-shadow mode of
-        new devices from ``operation`` (they start in shadow).
+        devices (id, template or mapped entities changed) from ``operation``: they start
+        in shadow.
         Other sections are stored only: ``operation`` is never read by the safety gate.
         """
         stored = await self.config.put(name, model)
