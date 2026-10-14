@@ -15,6 +15,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from suncore.api.services import HealthReport
 from suncore.core.balance import Flow, FlowSnapshot
+from suncore.core.controlstate import ControlState, DeviceModeRequest, ModeRequest
 from suncore.core.decisions import Decision, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
@@ -165,6 +166,15 @@ class ImportResultOut(_Model):
 
 class ErrorOut(_Model):
     detail: str
+
+
+# --- control (Phase 3 WP9) -----------------------------------------------------
+
+
+class EmergencyStopOut(_Model):
+    """State of the global emergency stop after the call."""
+
+    active: bool
 
 
 # --- config history ------------------------------------------------------------
@@ -390,6 +400,7 @@ class SnapshotMessage(_Model):
     flows: FlowsOut | None
     health: HealthOut
     decisions: list[Decision]
+    control: ControlState
 
 
 class FlowsMessage(_Model):
@@ -407,8 +418,15 @@ class DecisionsMessage(_Model):
     decisions: list[Decision]
 
 
+class ControlMessage(_Model):
+    """The control state changed (tick, decision, mode, emergency stop, override, proposal)."""
+
+    type: Literal["control"] = "control"
+    control: ControlState
+
+
 LiveMessage = Annotated[
-    SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage,
+    SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage,
     Field(discriminator="type"),
 ]
 """Everything the server sends on ``/api/v1/live`` (discriminated by ``type``)."""
@@ -418,7 +436,10 @@ __all__ = [
     "CheckOut",
     "CheckRequest",
     "ConfigHistoryEntryOut",
+    "ControlMessage",
     "DecisionsMessage",
+    "DeviceModeRequest",
+    "EmergencyStopOut",
     "EnergyPrefsOut",
     "EntityCandidateOut",
     "ErrorOut",
@@ -431,6 +452,7 @@ __all__ = [
     "ImportResultOut",
     "InfoOut",
     "LiveMessage",
+    "ModeRequest",
     "PreviewItemOut",
     "PreviewOut",
     "SnapshotMessage",

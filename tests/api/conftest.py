@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,7 +26,16 @@ from suncore.api import (
     UnknownTemplateError,
 )
 from suncore.core.balance import Flow, FlowSnapshot
-from suncore.core.config import SECTION_MODELS
+from suncore.core.config import SECTION_MODELS, OperationConfig
+from suncore.core.control import DeviceState, PowerEstimate
+from suncore.core.controlstate import (
+    ControlState,
+    DeviceControlState,
+    DeviceIdentityChangedError,
+    OverrideCommand,
+    UnknownDeviceError,
+    UnknownProposalError,
+)
 from suncore.core.decisions import (
     Decision,
     DecisionKind,
@@ -37,6 +46,7 @@ from suncore.core.decisions import (
     SwitchAction,
 )
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.devices import DeviceKind
 from suncore.core.signals import Quality
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, PreviewTooLargeError
@@ -114,6 +124,49 @@ def make_flows(pv: float = 3000.0) -> FlowSnapshot:
     )
 
 
+def make_device_state(device_id: str = "pool", *, held: bool = False) -> DeviceControlState:
+    return DeviceControlState(
+        device_id=device_id,
+        name="Pool pump",
+        kind=DeviceKind.SWITCH,
+        identity="current",
+        global_mode=OperatingMode.SHADOW,
+        device_mode=OperatingMode.SHADOW,
+        effective_mode=OperatingMode.SHADOW,
+        state=DeviceState(on=False),
+        estimate=PowerEstimate(value_w=0.0, uncertainty_w=10.0),
+        phase="idle",
+        level=0,
+        top=1,
+        expected_power_w=0.0,
+        committed_w=0.0,
+        base_setpoint_c=None,
+        under_control=False,
+        held=held,
+        held_until=None,
+        release_pending=False,
+        release_due=None,
+        paused=None,
+        reasons=[],
+        since=None,
+        last_decision=None,
+    )
+
+
+def make_control_state(**over: Any) -> ControlState:
+    fields: dict[str, Any] = {
+        "ts": NOW,
+        "active": True,
+        "emergency_stop": False,
+        "global_mode": OperatingMode.SHADOW,
+        "site": None,
+        "devices": [make_device_state()],
+        "proposals": [],
+    }
+    fields.update(over)
+    return ControlState(**fields)
+
+
 class FakeServices:
     """In-memory ``Services`` with knobs for the tests."""
 
@@ -148,6 +201,12 @@ class FakeServices:
         self.health_listeners: list[Callable[[], None]] = []
         self.health_calls = 0
         self.last_limit: int | None = None
+        self.decision_filters: list[tuple[str | None, tuple[DecisionKind, ...] | None]] = []
+        self.control: ControlState = make_control_state()
+        self.calls: list[tuple[str, object]] = []
+        self.proposal_list: list[Decision] = []
+        self.operation = OperationConfig()
+        self.control_listeners: list[Callable[[], None]] = []
 
     async def health(self) -> HealthReport:
         self.health_calls += 1
@@ -215,9 +274,87 @@ class FakeServices:
     def flows(self) -> FlowSnapshot | None:
         return self.flow
 
-    async def decisions(self, limit: int) -> list[Decision]:
+    async def decisions(
+        self,
+        limit: int,
+        *,
+        device_id: str | None = None,
+        kinds: Collection[DecisionKind] | None = None,
+    ) -> list[Decision]:
         self.last_limit = limit
-        return self.decision_list[:limit]
+        self.decision_filters.append((device_id, tuple(kinds) if kinds else None))
+        found = [
+            d
+            for d in self.decision_list
+            if (device_id is None or d.intent.asset_id == device_id)
+            and (not kinds or d.kind in kinds)
+        ]
+        return found[:limit]
+
+    # --- control -------------------------------------------------------------------------
+
+    def control_state(self) -> ControlState:
+        return self.control
+
+    async def emergency_stop(self) -> None:
+        self.control = self.control.model_copy(update={"emergency_stop": True})
+        self.calls.append(("emergency_stop", None))
+
+    async def clear_emergency_stop(self) -> None:
+        self.control = self.control.model_copy(update={"emergency_stop": False})
+        self.calls.append(("clear_emergency_stop", None))
+
+    async def override_device(self, device_id: str, command: OverrideCommand) -> DeviceControlState:
+        if device_id != "pool":
+            raise UnknownDeviceError(device_id)
+        self.calls.append(("override", (device_id, command)))
+        return make_device_state(device_id, held=command.action != "resume")
+
+    def proposals(self) -> list[Decision]:
+        return list(self.proposal_list)
+
+    async def confirm_proposal(self, intent_id: str) -> Decision:
+        found = next((d for d in self.proposal_list if d.intent.id == intent_id), None)
+        if found is None:
+            raise UnknownProposalError(intent_id)
+        self.proposal_list.remove(found)
+        self.calls.append(("confirm", intent_id))
+        return found.model_copy(update={"kind": DecisionKind.ACCEPTED})
+
+    async def dismiss_proposal(self, intent_id: str) -> None:
+        found = next((d for d in self.proposal_list if d.intent.id == intent_id), None)
+        if found is None:
+            raise UnknownProposalError(intent_id)
+        self.proposal_list.remove(found)
+        self.calls.append(("dismiss", intent_id))
+
+    async def set_global_mode(self, mode: OperatingMode) -> OperationConfig:
+        self.operation = self.operation.model_copy(update={"mode": mode})
+        return self.operation
+
+    async def set_device_mode(
+        self, device_id: str, mode: OperatingMode, identity: str | None
+    ) -> OperationConfig:
+        if device_id != "pool":
+            raise UnknownDeviceError(device_id)
+        if mode is not OperatingMode.SHADOW and identity != "current":
+            raise DeviceIdentityChangedError(device_id)
+        modes = {**self.operation.device_modes, device_id: mode}
+        self.operation = self.operation.model_copy(update={"device_modes": modes})
+        return self.operation
+
+    def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        self.control_listeners.append(listener)
+
+        def remove() -> None:
+            with contextlib.suppress(ValueError):
+                self.control_listeners.remove(listener)
+
+        return remove
+
+    def trigger_control(self) -> None:
+        for listener in list(self.control_listeners):
+            listener()
 
     async def export_config(self) -> dict[str, Any]:
         return {"suncore_export": 1, "sections": {}}
