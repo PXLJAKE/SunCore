@@ -103,6 +103,16 @@ load), map its entities, check the power model and the protection times, and
 save. The assistant ranks your entities and tells you why a candidate
 matches. New devices always start in shadow mode.
 
+An air conditioner template has an optional **Power sensor**. Use it if
+another device measures the unit's power, for example a smart plug or the
+HACS integration `smartthinq_sensors` (sensor "Energy current"): SunCore then
+preselects the **Measured** power model. Such sensors often update only every
+few minutes (5 minutes for `smartthinq_sensors`), so the value is slow. If you
+run the same air conditioner through two integrations (for example `lg_thinq`
+and `smartthinq_sensors`), control it through **one** of them only: the editor
+shows a hint when you pick a second entity of a unit that is configured
+already, and the system check at the end warns about it.
+
 ![Step Devices](../../assets/screenshots/wizard-devices-tablet-light-en.png)
 
 Is your device missing? See

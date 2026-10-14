@@ -8,6 +8,19 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Done
 
+- **Phase 2 completion from the live LG check (PR #18, 2026-10-14)**: the maintainer runs the
+  same AC through `lg_thinq` and HACS `smartthinq_sensors`. (1) Climate templates
+  (`lg.thinq_climate`, `generic.climate`) have an optional `power` role without
+  `same_device_as` (sensor of another device, `state_class` measurement); mapping it
+  preselects the `measured` power model (switchable), candidates of a device with the same
+  name rank first (`name_affinity`, query parameter `device_name`, no schema change). The
+  `energy_current` sensor polls every 5 minutes, so Phase 3 must treat it as slow (noted in
+  the templates). (2) System check warning `wizard.check.duplicate_unit` (same control entity
+  twice, or climate entities of different registry devices with equal device names) and a
+  hint in the device editor; the check never blocks. The demo has a second, smartthinq-like
+  device. `UNVERIFIED`: the `smartthinq_sensors` source was not read, only its entities on
+  the maintainer's HA.
+
 - **Phase 2 merged** (#13, #14, #15, #16, 2026-10-13). First automatic beta
   bump on `main` worked (`0.3.0-beta.50`, pushed with `RELEASE_PLEASE_TOKEN`).
   The maintainer installed it on HA OS 18.3 / core 2026.10.1 (amd64, KVM),
@@ -206,12 +219,6 @@ ADRs relevant to your task. Keep it short; history lives in git.
   device = shadow" rule on device identity (id + `template_id` + entities) in
   put/import/restore of `devices` **and** put/restore of `operation`, not on the id alone.
   Decide whether an import resets the global mode to shadow (recommendation: yes).
-- Phase 3 follow-up (live LG check): the maintainer runs both `lg_thinq` and HACS
-  `smartthinq_sensors` for the same AC, so there are two climate entities per unit.
-  SunCore must control exactly one per physical unit (warn when two climate
-  entities in `devices` look like the same unit); offer the `smartthinq_sensors`
-  power sensor (`energy_current`, W, polled every 5 min, real values up to 1.3 kW
-  seen) as an optional measured power source with 5 min latency.
 - Phase 4 follow-up (A3): per-(domain, service) rate limiter with try-acquire/deadline for
   `call_action_response` before the first adapter calls it (boundary rule 7 then admits `app`
   together with the adapter wiring).

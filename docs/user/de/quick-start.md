@@ -112,6 +112,17 @@ Leistungsmodell und Schutzzeiten und speichere. Der Assistent sortiert
 deine Entitäten und sagt dir, warum ein Kandidat passt. Neue Geräte starten
 immer im Schattenmodus.
 
+Eine Klimagerät-Vorlage hat einen optionalen **Leistungssensor**. Nutze ihn,
+wenn ein anderes Gerät die Leistung misst, zum Beispiel ein Zwischenstecker
+oder die HACS-Integration `smartthinq_sensors` (Sensor „Energy current“):
+SunCore wählt dann das Leistungsmodell **Gemessen** vor. Solche Sensoren
+aktualisieren oft nur alle paar Minuten (bei `smartthinq_sensors` alle
+5 Minuten), der Wert ist also träge. Läuft dasselbe Klimagerät über zwei
+Integrationen (zum Beispiel `lg_thinq` und `smartthinq_sensors`), steuere es
+nur über **eine** davon: Der Editor zeigt einen Hinweis, wenn du eine zweite
+Entität eines bereits eingerichteten Geräts wählst, und die Systemprüfung am
+Ende warnt davor.
+
 ![Schritt Verbraucher](../../assets/screenshots/wizard-devices-tablet-light-de.png)
 
 Fehlt dein Gerät? Siehe
