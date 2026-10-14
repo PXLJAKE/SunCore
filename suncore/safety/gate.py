@@ -332,7 +332,9 @@ class SafetyGate:
         faults = self._watchdog.check_device(now, device_id, samples, state)
         if faults:
             runtime = self._runtimes.get(device_id)
-            if runtime is not None and runtime.under_control:
+            # A release already deferred by an earlier tick stays scheduled; re-deferring it
+            # every tick would only flood the decision log.
+            if runtime is not None and runtime.under_control and not runtime.release_pending:
                 await self.release_device(
                     device_id, faults[0].reason, origin=Origin.SAFETY, urgent=False
                 )

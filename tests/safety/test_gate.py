@@ -1184,3 +1184,22 @@ def test_nb5_observe_ignores_unknown_devices() -> None:
     v = asyncio.run(h.gate.observe("ghost", SwitchAction(on=False)))
     assert not v.override
     assert h.gate.runtime_of("ghost") is None
+
+
+def test_n1_a_deferred_release_is_not_re_deferred_on_every_tick() -> None:
+    """A persisting device fault defers the release once, not once per tick."""
+    dev = switch_device(min_run_s=600)
+    h = make_harness(
+        devices=(dev,), settings=ControlSettings(min_write_interval_s=1.0, default_settle_s=0)
+    )
+    _take_over(h)
+    h.clock.advance(60)
+    before = len(h.emitted)
+    for _ in range(6):
+        asyncio.run(h.gate.check_device("pool", {}, DeviceState(quality=Quality.UNAVAILABLE)))
+        h.clock.advance(5)
+    held = [d for d in h.emitted[before:] if d.kind is DecisionKind.HELD]
+    assert len(held) == 1
+    rt = h.gate.runtime_of("pool")
+    assert rt is not None
+    assert rt.release_pending
