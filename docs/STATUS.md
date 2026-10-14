@@ -3,8 +3,8 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-14 · **Phase:** 2 merged (#13–#16), maintainer test running ·
-**Branch:** `main`
+**Last update:** 2026-10-14 · **Phase:** 2 complete (#13–#16, #18), maintainer test
+running · Phase 3 not started (starts in a new session from its own plan) · **Branch:** `main`
 
 ## Done
 
@@ -231,8 +231,9 @@ ADRs relevant to your task. Keep it short; history lives in git.
 1. Maintainer: watch the beta in surplus, check the summary system check at
    noon, export a config backup; wizard walk-through with other people.
 2. Release the next release-please PR for the stable app after acceptance.
-3. Then the Phase 3 plan (`docs/plans/phase-3.md`: real-time controller and
-   safety), including the Phase 3 follow-ups above.
+3. Phase 3 starts in a new session: write and approve `docs/plans/phase-3.md`
+   (real-time controller and safety, roadmap Phase 3) from this file, the
+   roadmap and the Phase 3 follow-ups above. Nothing of Phase 3 exists yet.
 
 ## Known problems and `UNVERIFIED` items
 
