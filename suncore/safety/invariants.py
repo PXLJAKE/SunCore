@@ -36,7 +36,7 @@ from suncore.core.devices import (
     DeviceConfig,
     DeviceKind,
     ModeControl,
-    StepsControl,
+    step_power_w,
 )
 from suncore.core.signals import Quality
 from suncore.safety.runtime import DeviceRuntime
@@ -96,9 +96,8 @@ def action_turns_on(action: Action, device: DeviceConfig) -> bool | None:  # noq
         case ModeAction(mode=mode):
             return mode != HVAC_OFF
         case StepAction(step=step):
-            if isinstance(device.control, StepsControl) and step < len(device.control.steps):
-                return device.control.steps[step].power_w > 0
-            return step > 0
+            stepped = step_power_w(device.control, step)
+            return stepped > 0 if stepped is not None else step > 0
         case PowerSetpointAction(power_w=power):
             return power > 0
         case SetpointAction():
@@ -117,7 +116,7 @@ def is_switch_transition(action: Action, device: DeviceConfig, state: DeviceStat
     return current is None or current != target
 
 
-def expected_power_w(  # noqa: PLR0911, PLR0912 - one branch per action kind
+def expected_power_w(  # noqa: PLR0911 - one branch per action kind
     action: Action, device: DeviceConfig, estimate: PowerEstimate | None
 ) -> float | None:
     """Power the device is expected to draw after the action (``None`` = unknown)."""
@@ -128,10 +127,7 @@ def expected_power_w(  # noqa: PLR0911, PLR0912 - one branch per action kind
                 return 0.0
             return nominal if nominal is not None else _upper(estimate)
         case StepAction(step=step):
-            control = device.control
-            if isinstance(control, StepsControl) and step < len(control.steps):
-                return control.steps[step].power_w
-            return None
+            return step_power_w(device.control, step)
         case ModeAction(mode=mode):
             if mode == HVAC_OFF:
                 return 0.0

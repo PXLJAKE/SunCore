@@ -44,6 +44,7 @@ from suncore.core.devices import (
     RoleName,
     SetpointControl,
     StepsControl,
+    control_roles,
 )
 from suncore.core.units import Unit, parse_unit
 
@@ -329,10 +330,10 @@ class DeviceTemplate(TemplateHeader):
             if role is not None and role not in self.roles:
                 msg = f"defaults.power_model.{field}: unknown role `{role}`"
                 raise ValueError(msg)
-        control_role = self.defaults.control.role
-        if control_role not in self.roles:
-            msg = f"defaults.control.role: unknown role `{control_role}`"
-            raise ValueError(msg)
+        for control_role in control_roles(self.defaults.control):
+            if control_role not in self.roles:
+                msg = f"defaults.control.role: unknown role `{control_role}`"
+                raise ValueError(msg)
         if self.defaults.comfort is not None and self.device_kind not in THERMAL_KINDS:
             msg = f"defaults.comfort: not applicable to device_kind `{self.device_kind.value}`"
             raise ValueError(msg)

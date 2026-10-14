@@ -221,6 +221,18 @@ ControlSpec = Annotated[
 """How a device is driven and which role is written (ADR-0012 item 5)."""
 
 
+def control_roles(control: ControlSpec) -> tuple[RoleName, ...]:
+    """All entity roles a control writes (one)."""
+    return (control.role,)
+
+
+def step_power_w(control: ControlSpec, step: int) -> float | None:
+    """Power of step ``step`` of a ``steps`` control (``None`` = not stepped)."""
+    if isinstance(control, StepsControl) and 0 <= step < len(control.steps):
+        return control.steps[step].power_w
+    return None
+
+
 class ComfortBand(_Frozen):
     """Allowed temperature range in °C."""
 
@@ -329,7 +341,7 @@ class DeviceConfig(_Frozen):
     override_policy: OverridePolicy = OverridePolicy()
 
     @model_validator(mode="after")
-    def _consistent(self) -> Self:
+    def _consistent(self) -> Self:  # noqa: PLR0912
         if self.allow_switch_on and self.kind is not DeviceKind.CLIMATE:
             raise invalid(
                 "switch_on_not_climate",
@@ -372,12 +384,13 @@ class DeviceConfig(_Frozen):
                 "counter_invert",
                 "power_model.energy_role: invert_sign is meaningless for a counter",
             )
-        if self.control.role not in self.entities:
-            raise invalid(
-                "control_role_unmapped",
-                "control.role: role `{role}` is not mapped in `entities`",
-                role=self.control.role,
-            )
+        for control_role in control_roles(self.control):
+            if control_role not in self.entities:
+                raise invalid(
+                    "control_role_unmapped",
+                    "control.role: role `{role}` is not mapped in `entities`",
+                    role=control_role,
+                )
         if isinstance(self.control, SetpointControl) and self.comfort is None:
             raise invalid("setpoint_needs_comfort", "control: kind `setpoint` needs `comfort`")
         if (
