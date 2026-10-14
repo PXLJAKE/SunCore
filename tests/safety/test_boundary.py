@@ -14,7 +14,10 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    attribute named ``call_service`` (the connector exposes it only through a
    capability object handed to safety).
    The same holds for the name ``service_caller`` (the capability accessor) and
-   for imports or references of ``ServiceCaller`` / ``ServiceCallerProvider``.
+   for imports or references of ``ServiceCaller`` / ``ServiceCallerProvider``. The composition
+   root never names them: it hands the *connection* and a driver factory to
+   ``suncore.safety.wiring.build_actuators`` (part of ``safety``), and only
+   ``suncore.app.control`` constructs the ``SafetyGate`` (Phase 3 WP9, last two tests).
 4. Dependency rule (docs/architecture.md §2): ``suncore.core`` imports no
    sibling package; ``suncore.safety`` imports only ``suncore.core`` and
    itself; ``suncore.templates`` imports only ``suncore.core`` and itself (plus
@@ -507,3 +510,42 @@ def test_templates_rule_rejects_siblings() -> None:
         and not any(in_package(imported, pkg) for pkg in (CORE, TEMPLATES))
     }
     assert bad == {1, 3}
+
+
+def test_only_the_control_stack_constructs_the_gate() -> None:
+    """Phase 3 WP9: production code builds the gate in exactly one place.
+
+    ``suncore.app.control.ControlStack`` is the composition root of the control layer (the
+    simulator and the demo run the same class); a second ``SafetyGate(...)`` outside ``safety``
+    would be a second, unreviewed wiring of drivers to the gate.
+    """
+    builders = []
+    for path in SOURCES:
+        module = module_name(path)
+        if in_package(module, SAFETY):
+            continue
+        for node in ast.walk(parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name | ast.Attribute)
+                and getattr(node.func, "id", getattr(node.func, "attr", "")) == "SafetyGate"
+            ):
+                builders.append(module)
+    assert builders == ["suncore.app.control"]
+
+
+def test_the_write_capability_is_taken_from_the_connection_inside_safety() -> None:
+    """The composition root hands the *connection* to ``safety.wiring``; only that module (and
+    ``ha``/``sim``) touches ``service_caller``, so rule 3b stays as strict as it was."""
+    users = []
+    for path in SOURCES:
+        if list(attribute_refs(parse(path), "service_caller")):
+            users.append(module_name(path))
+    assert sorted(users) == [
+        "suncore.ha.connection",
+        "suncore.ha.websocket",
+        "suncore.safety.wiring",
+        "suncore.sim.fake_ha",
+    ]
+    app = PACKAGE / "app" / "control.py"
+    assert "suncore.safety.wiring" in {m for _, m in imported_modules(app, parse(app))}
