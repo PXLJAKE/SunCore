@@ -368,6 +368,9 @@ class SafetyGate:
                 updated = overrides.apply_verdict(
                     runtime, verdict, now, device.override_policy, self._tz
                 )
+                # What the user left is what a release gives back: restoring the takeover
+                # state would overwrite the user's own change (their temperature, their "off").
+                updated = updated.model_copy(update={"baseline": observed, "baseline_ts": now})
                 await self._save(updated)
                 log.info(
                     "safety.override_detected",
@@ -616,6 +619,12 @@ class SafetyGate:
                     }
                 )
                 await self._save(runtime)
+            # Judged *before* the write: after the settle wait the cache already shows the new
+            # state, and a transition would no longer look like one (min run/pause and the
+            # switch counter would never engage with a real driver).
+            switched = is_switch_transition(
+                intent.action, device, self._states(device_id)
+            ) or _was_transition(intent.action, device, runtime)
             try:
                 context_id = await actuator.apply(intent)
             except Exception as exc:
@@ -631,7 +640,13 @@ class SafetyGate:
         await self._sleep(self._settle_s(device))
         observed = await actuator.read_back()
         return await self._confirm(
-            intent, device, now, observed=observed, context_id=context_id, mode=mode
+            intent,
+            device,
+            now,
+            observed=observed,
+            context_id=context_id,
+            mode=mode,
+            switched=switched,
         )
 
     async def _confirm(
@@ -643,6 +658,7 @@ class SafetyGate:
         observed: Action | None,
         context_id: str | None,
         mode: OperatingMode,
+        switched: bool,
     ) -> Decision:
         """After the settle wait: compare the read-back, record the outcome."""
         device_id = device.id
@@ -672,9 +688,7 @@ class SafetyGate:
                 )
             else:
                 self._failures.pop(device_id, None)
-                if is_switch_transition(
-                    intent.action, device, self._states(device_id)
-                ) or _was_transition(intent.action, device, runtime):
+                if switched:
                     target = action_turns_on(intent.action, device)
                     if target is not None:
                         runtime = runtime.with_switch(now, on=target)
