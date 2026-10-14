@@ -305,7 +305,10 @@ ADRs relevant to your task. Keep it short; history lives in git.
   while HA is unreachable is retried every tick by `check_device`~~ (done: the stack skips its
   ticks while the connection is lost). Still open: the controller does not know about the
   gate's releases (the first intent after one can meet `safety.min_pause`).
-- **WP9 runtime and API (branch `phase-3/b-controller`)** done.
+- **WP9 runtime and API (branch `phase-3/b-controller`)** done. `control-safety` review of
+  3-B: four `fix(...)` commits (handover on config changes, switches recorded when sent, release
+  gives back unjudged manual changes, level 1 with a base outside the comfort band, stale
+  CONNECTED handler, lazy runtime load race, pause releases, holds never shortened).
   *Composition*: `suncore/app/control.py` `ControlStack` is the one control composition (the
   simulator's WP8 stack was generalised, not duplicated; `sim/stack.py` re-exports it): drivers
   via `suncore/safety/wiring.py` `build_actuators(connection, devices, make)` (the connection's
@@ -315,9 +318,12 @@ ADRs relevant to your task. Keep it short; history lives in git.
   `gate.sync_modes()` after every change), gate tz = region time zone (else HA's `time_zone`,
   else UTC with a warning), `ControllerLoop` ticking every `controller_interval_s` in the
   documented order. `Runtime` owns one stack and rebuilds it when `devices`, `site` or `region`
-  change (the old stack releases its devices first; the emergency stop and the device runtime
-  survive in the store; a rename also rebuilds - safe but abrupt). Life cycle: `recover()` after
-  the first successful connect (never before; observations are ignored until then),
+  change (the old stack hands its devices over: `gate.handover(keep)` releases devices with an
+  unchanged identity and control without breaking min run/pause - the new stack executes the
+  deferred release - and changed devices at once; the emergency stop and the device runtime
+  survive in the store). Life cycle: `recover()` after
+  the first successful connect (never before; observations are ignored until then - every
+  release judges the observed state itself, so a change made meanwhile is given back),
   `connection_lost`/`connection_restored` from the state listener, ticks are skipped while the
   connection is lost, stop = tick loop, `loop.close()`, `gate.shutdown()`, save models, then
   close the connection.
