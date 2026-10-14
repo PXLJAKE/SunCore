@@ -70,6 +70,7 @@ from suncore.safety.invariants import (
     action_turns_on,
     evaluate,
     is_switch_transition,
+    power_delta_w,
 )
 from suncore.safety.modes import AllShadow, ModeProvider, ModeView, view
 from suncore.safety.ratelimit import WriteRateLimiter, is_stale_intent
@@ -180,6 +181,9 @@ class SafetyGate:
         self._failures: dict[str, int] = {}
         self._site_tripped = False
         self._locks: dict[str, asyncio.Lock] = {}
+        # Load increases let through against one GateInputs snapshot (key: its ts).
+        self._claims_ts: datetime | None = None
+        self._claims: dict[str, float] = {}
 
     # --- read-only views ----------------------------------------------------------
 
@@ -498,7 +502,8 @@ class SafetyGate:
             return await self.release_device(
                 device_id, REASON_RELEASED, origin=intent.origin, intent=intent
             )
-        violations = evaluate(self._context(intent, device, runtime, now))
+        ctx = self._context(intent, device, runtime, now)
+        violations = evaluate(ctx)
         if violations:
             return await self._decide(intent, DecisionKind.REJECTED, now, violations, mode)
         if mode is OperatingMode.ASSISTED and intent.origin is not Origin.USER:
@@ -508,7 +513,60 @@ class SafetyGate:
             )
             self._proposals[intent.id] = decision
             return decision
-        return await self._write(intent, device, runtime, now, mode)
+        return await self._claimed_write(intent, device, runtime, now, mode, ctx)
+
+    async def _claimed_write(  # noqa: PLR0917
+        self,
+        intent: Intent,
+        device: DeviceConfig,
+        runtime: DeviceRuntime,
+        now: datetime,
+        mode: OperatingMode,
+        ctx: InvariantContext,
+    ) -> Decision:
+        """Claim the increase before the first await, then write (review 3-B, G1).
+
+        A concurrent intent judged against the same snapshot must see the increase. The
+        claim is kept when the write is accepted and returned otherwise; a new snapshot
+        (new ``GateInputs.ts``) starts from zero. Must be called without an ``await``
+        between ``evaluate(ctx)`` and here.
+        """
+        claim_ts = self._claim(intent.id, power_delta_w(ctx))
+        try:
+            decision = await self._write(intent, device, runtime, now, mode)
+        except BaseException:
+            self._unclaim(intent.id, claim_ts)
+            raise
+        if decision.kind is not DecisionKind.ACCEPTED:
+            self._unclaim(intent.id, claim_ts)
+        return decision
+
+    # --- per-snapshot claims ---------------------------------------------------------------
+
+    def _snapshot_ts(self) -> datetime | None:
+        inputs = self._inputs()
+        return None if inputs is None else inputs.ts
+
+    def _claimed_w(self) -> float:
+        """Increases already let through against the current snapshot."""
+        ts = self._snapshot_ts()
+        if ts is None or ts != self._claims_ts:
+            return 0.0
+        return sum(self._claims.values())
+
+    def _claim(self, intent_id: str, delta: float | None) -> datetime | None:
+        ts = self._snapshot_ts()
+        if ts != self._claims_ts:
+            self._claims_ts = ts
+            self._claims = {}
+        if ts is None or delta is None or delta <= 0:
+            return None
+        self._claims[intent_id] = delta
+        return ts
+
+    def _unclaim(self, intent_id: str, ts: datetime | None) -> None:
+        if ts is not None and ts == self._claims_ts:
+            self._claims.pop(intent_id, None)
 
     async def _write(  # noqa: PLR0911 - one return per verdict
         self,
@@ -818,6 +876,7 @@ class SafetyGate:
             estimate=inputs.estimates.get(device.id),
             import_limit_w=inputs.import_limit_w,
             reserve_soc_pct=inputs.reserve_soc_pct,
+            claimed_w=self._claimed_w() if inputs.ts is not None else 0.0,
         )
 
     def _settle_s(self, device: DeviceConfig | None) -> float:

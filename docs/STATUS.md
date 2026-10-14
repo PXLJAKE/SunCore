@@ -269,6 +269,10 @@ ADRs relevant to your task. Keep it short; history lives in git.
   goal: *not* available (battery first) - `UNVERIFIED` against the maintainer's intent.
   Tests: `tests/controller/` (hypothesis allocation invariants, cloud flicker switch counts,
   measured vs counter-only climate, deficit back-off, real gate and real drivers).
+  The gate now claims every accepted load increase for its `GateInputs` snapshot (`ts`) and
+  subtracts the claims from the free surplus for later intents of that snapshot, incl.
+  confirmed assisted proposals; failed/rejected writes return their claim
+  (`tests/safety/test_claims.py`, review 3-B G1).
 - From the PR 3-A review (fixed in `fix(safety)`: per-device lock and re-checks before
   `apply()`, late confirmation of slow echoes, free-surplus semantics with input age, deferred
   release). Still for WP9: (2) the gate's `tz` must be injected from the site/region time

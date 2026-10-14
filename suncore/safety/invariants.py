@@ -69,6 +69,10 @@ class InvariantContext:
     """Current power of this device."""
     import_limit_w: float | None = None
     reserve_soc_pct: float | None = None
+    claimed_w: float = 0.0
+    """Load increases the gate already let through against the same ``GateInputs``
+    snapshot (other intents of the same tick, a confirmed proposal): not yet visible in
+    ``surplus`` or ``flows``, so the grid check subtracts them (review 3-B, G1)."""
 
 
 # --- helpers ------------------------------------------------------------------
@@ -202,8 +206,9 @@ def _toward_base(action: SetpointAction, runtime: DeviceRuntime, state: DeviceSt
 def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one per rule
     """No grid import caused by SunCore and never above the import limit (plan WP7).
 
-    Adding ``delta`` W needs a known surplus with ``surplus - uncertainty >= delta``,
-    no current import and ``grid + delta <= import_limit_w`` where configured.
+    Adding ``delta`` W needs a known surplus with ``surplus - uncertainty - claimed >=
+    delta``, no current import and ``grid + claimed + delta <= import_limit_w`` where
+    configured (``claimed`` = increases already accepted against the same snapshot).
     """
     delta = power_delta_w(ctx)
     if delta is None or delta <= 0:
@@ -213,15 +218,17 @@ def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one p
     grid = None if ctx.flows is None else ctx.flows.grid_w
     if grid is not None and grid.value is not None and grid.value > 0:
         return Reason(key="safety.grid_importing", args={"grid_w": round(grid.value)})
-    if ctx.surplus.lower_w < delta:
+    claimed = max(0.0, ctx.claimed_w)
+    available = ctx.surplus.lower_w - claimed
+    if available < delta:
         return Reason(
             key="safety.grid_import_caused",
-            args={"need_w": round(delta), "surplus_w": round(ctx.surplus.lower_w)},
+            args={"need_w": round(delta), "surplus_w": round(max(0.0, available))},
         )
     if ctx.import_limit_w is not None:
         if grid is None or grid.value is None:
             return Reason(key="safety.grid_unknown")
-        if grid.value + delta > ctx.import_limit_w:
+        if grid.value + claimed + delta > ctx.import_limit_w:
             return Reason(
                 key="safety.grid_import_limit",
                 args={"limit_w": round(ctx.import_limit_w), "grid_w": round(grid.value)},
