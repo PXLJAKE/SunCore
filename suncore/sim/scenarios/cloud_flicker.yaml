@@ -1,0 +1,211 @@
+# SPDX-License-Identifier: Apache-2.0
+name: cloud_flicker
+description: Sunny summer morning with three cloud-flicker episodes (10-40 s sun/cloud segments); a pool pump and an air conditioner follow the surplus. Proves bounded switching.
+start: "2026-07-15T10:00:00+02:00"
+duration_s: 14400
+step_s: 5
+house:
+  seed: 11
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 27.0, amplitude_c: 5.0}
+devices:
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 10
+      min_run_s: 300
+      min_pause_s: 300
+      max_switches_per_hour: 4
+      power_model: {kind: measured, power_role: power, nominal_w: 750}
+  - id: ac
+    template: lg.thinq_climate
+    physics:
+      kind: climate
+      initial_mode: cool
+      initial_setpoint_c: 24
+      initial_temp_c: 24.5
+      default_on_mode: cool
+      nominal_w: 900
+      ua_w_per_k: 250
+      internal_gain_w: 400
+      power_sensor: true
+      power_poll_s: 10
+    control:
+      priority: 20
+      comfort: {min_c: 21, max_c: 27}
+      power_model: {kind: measured, power_role: power, nominal_w: 900}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 900, factor: 0.25}
+  - {at_s: 935, factor: 0.9}
+  - {at_s: 965, factor: 0.25}
+  - {at_s: 980, factor: 0.9}
+  - {at_s: 1015, factor: 0.25}
+  - {at_s: 1055, factor: 0.9}
+  - {at_s: 1070, factor: 0.25}
+  - {at_s: 1110, factor: 0.9}
+  - {at_s: 1135, factor: 0.25}
+  - {at_s: 1165, factor: 0.9}
+  - {at_s: 1195, factor: 0.25}
+  - {at_s: 1215, factor: 0.9}
+  - {at_s: 1250, factor: 0.25}
+  - {at_s: 1270, factor: 0.9}
+  - {at_s: 1290, factor: 0.25}
+  - {at_s: 1320, factor: 0.9}
+  - {at_s: 1340, factor: 0.25}
+  - {at_s: 1380, factor: 0.9}
+  - {at_s: 1395, factor: 0.25}
+  - {at_s: 1425, factor: 0.9}
+  - {at_s: 1450, factor: 0.25}
+  - {at_s: 1490, factor: 0.9}
+  - {at_s: 1510, factor: 0.25}
+  - {at_s: 1535, factor: 0.9}
+  - {at_s: 1560, factor: 0.25}
+  - {at_s: 1580, factor: 0.9}
+  - {at_s: 1595, factor: 0.25}
+  - {at_s: 1605, factor: 0.9}
+  - {at_s: 1640, factor: 0.25}
+  - {at_s: 1680, factor: 0.9}
+  - {at_s: 1705, factor: 0.25}
+  - {at_s: 1740, factor: 0.9}
+  - {at_s: 1760, factor: 0.25}
+  - {at_s: 1795, factor: 0.9}
+  - {at_s: 1825, factor: 0.25}
+  - {at_s: 1865, factor: 0.9}
+  - {at_s: 1900, factor: 0.25}
+  - {at_s: 1930, factor: 0.9}
+  - {at_s: 1965, factor: 0.25}
+  - {at_s: 1990, factor: 0.9}
+  - {at_s: 2010, factor: 0.25}
+  - {at_s: 2050, factor: 0.9}
+  - {at_s: 2070, factor: 0.25}
+  - {at_s: 2110, factor: 0.9}
+  - {at_s: 2135, factor: 0.25}
+  - {at_s: 2165, factor: 0.9}
+  - {at_s: 2180, factor: 0.25}
+  - {at_s: 2190, factor: 0.9}
+  - {at_s: 2225, factor: 0.25}
+  - {at_s: 2245, factor: 0.9}
+  - {at_s: 2260, factor: 0.25}
+  - {at_s: 2270, factor: 0.9}
+  - {at_s: 2295, factor: 0.25}
+  - {at_s: 2305, factor: 0.9}
+  - {at_s: 2315, factor: 0.25}
+  - {at_s: 2355, factor: 0.9}
+  - {at_s: 2390, factor: 0.25}
+  - {at_s: 2400, factor: 1.0}
+  - {at_s: 3300, factor: 0.25}
+  - {at_s: 3320, factor: 0.9}
+  - {at_s: 3340, factor: 0.25}
+  - {at_s: 3365, factor: 0.9}
+  - {at_s: 3375, factor: 0.25}
+  - {at_s: 3400, factor: 0.9}
+  - {at_s: 3425, factor: 0.25}
+  - {at_s: 3435, factor: 0.9}
+  - {at_s: 3450, factor: 0.25}
+  - {at_s: 3465, factor: 0.9}
+  - {at_s: 3505, factor: 0.25}
+  - {at_s: 3545, factor: 0.9}
+  - {at_s: 3585, factor: 0.25}
+  - {at_s: 3620, factor: 0.9}
+  - {at_s: 3660, factor: 0.25}
+  - {at_s: 3700, factor: 0.9}
+  - {at_s: 3720, factor: 0.25}
+  - {at_s: 3740, factor: 0.9}
+  - {at_s: 3750, factor: 0.25}
+  - {at_s: 3770, factor: 0.9}
+  - {at_s: 3810, factor: 0.25}
+  - {at_s: 3845, factor: 0.9}
+  - {at_s: 3860, factor: 0.25}
+  - {at_s: 3870, factor: 0.9}
+  - {at_s: 3885, factor: 0.25}
+  - {at_s: 3895, factor: 0.9}
+  - {at_s: 3915, factor: 0.25}
+  - {at_s: 3945, factor: 0.9}
+  - {at_s: 3975, factor: 0.25}
+  - {at_s: 3985, factor: 0.9}
+  - {at_s: 3995, factor: 0.25}
+  - {at_s: 4035, factor: 0.9}
+  - {at_s: 4055, factor: 0.25}
+  - {at_s: 4095, factor: 0.9}
+  - {at_s: 4105, factor: 0.25}
+  - {at_s: 4125, factor: 0.9}
+  - {at_s: 4155, factor: 0.25}
+  - {at_s: 4190, factor: 0.9}
+  - {at_s: 4230, factor: 0.25}
+  - {at_s: 4265, factor: 0.9}
+  - {at_s: 4290, factor: 0.25}
+  - {at_s: 4325, factor: 0.9}
+  - {at_s: 4335, factor: 0.25}
+  - {at_s: 4375, factor: 0.9}
+  - {at_s: 4395, factor: 0.25}
+  - {at_s: 4405, factor: 0.9}
+  - {at_s: 4425, factor: 0.25}
+  - {at_s: 4435, factor: 0.9}
+  - {at_s: 4445, factor: 0.25}
+  - {at_s: 4485, factor: 0.9}
+  - {at_s: 4515, factor: 0.25}
+  - {at_s: 4540, factor: 0.9}
+  - {at_s: 4575, factor: 0.25}
+  - {at_s: 4585, factor: 0.9}
+  - {at_s: 4600, factor: 0.25}
+  - {at_s: 4610, factor: 0.9}
+  - {at_s: 4650, factor: 0.25}
+  - {at_s: 4685, factor: 0.9}
+  - {at_s: 4700, factor: 0.25}
+  - {at_s: 4715, factor: 0.9}
+  - {at_s: 4745, factor: 0.25}
+  - {at_s: 4765, factor: 0.9}
+  - {at_s: 4800, factor: 0.25}
+  - {at_s: 4815, factor: 0.9}
+  - {at_s: 4855, factor: 0.25}
+  - {at_s: 4875, factor: 0.9}
+  - {at_s: 4895, factor: 0.25}
+  - {at_s: 4905, factor: 0.9}
+  - {at_s: 4920, factor: 0.25}
+  - {at_s: 4935, factor: 0.9}
+  - {at_s: 4945, factor: 0.25}
+  - {at_s: 4980, factor: 0.9}
+  - {at_s: 5010, factor: 0.25}
+  - {at_s: 5040, factor: 0.9}
+  - {at_s: 5055, factor: 0.25}
+  - {at_s: 5070, factor: 0.9}
+  - {at_s: 5080, factor: 0.25}
+  - {at_s: 5115, factor: 0.9}
+  - {at_s: 5130, factor: 0.25}
+  - {at_s: 5150, factor: 0.9}
+  - {at_s: 5180, factor: 0.25}
+  - {at_s: 5220, factor: 0.9}
+  - {at_s: 5240, factor: 0.25}
+  - {at_s: 5270, factor: 0.9}
+  - {at_s: 5285, factor: 0.25}
+  - {at_s: 5325, factor: 0.9}
+  - {at_s: 5365, factor: 0.25}
+  - {at_s: 5395, factor: 0.9}
+  - {at_s: 5410, factor: 1.0}
+  - {at_s: 6600, factor: 0.25}
+  - {at_s: 6615, factor: 0.9}
+  - {at_s: 6625, factor: 0.25}
+  - {at_s: 6635, factor: 0.9}
+  - {at_s: 6660, factor: 0.25}
+  - {at_s: 6700, factor: 0.9}
+  - {at_s: 6730, factor: 0.25}
+  - {at_s: 6760, factor: 0.9}
+  - {at_s: 6785, factor: 0.25}
+  - {at_s: 6810, factor: 0.9}
+  - {at_s: 6840, factor: 0.25}
+  - {at_s: 6865, factor: 0.9}
+  - {at_s: 6900, factor: 0.25}
+  - {at_s: 6940, factor: 0.9}
+  - {at_s: 6975, factor: 0.25}
+  - {at_s: 7015, factor: 0.9}
+  - {at_s: 7025, factor: 0.25}
+  - {at_s: 7050, factor: 0.9}
+  - {at_s: 7090, factor: 0.25}
+  - {at_s: 7125, factor: 0.9}
+  - {at_s: 7150, factor: 0.25}
+  - {at_s: 7190, factor: 0.9}
+  - {at_s: 7210, factor: 1.0}

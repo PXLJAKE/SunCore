@@ -397,6 +397,9 @@ variable names.
   Supervisor token never logged; dependencies pinned; CodeQL and Dependabot
   in CI; AppArmor profile.
 - **Testing:** unit tests per package; property-based tests on Safety and
-  the planner model; simulator scenarios as integration tests; Playwright
+  the planner model; simulator scenarios as integration tests (the full control
+  stack - cache, drivers, power models, controller, safety gate - against a fake
+  Home Assistant with device physics, delayed pushes, faults and manual user
+  events, in virtual time: `suncore/sim/runner.py`); Playwright
   E2E against the demo mode; CI smoke test starts the image and polls
   `/health`.

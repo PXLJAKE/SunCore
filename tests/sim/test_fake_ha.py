@@ -75,7 +75,15 @@ def ticker() -> Ticker:
 
 @pytest.fixture
 def dropout() -> Scenario:
-    return load_scenario("sensor_dropout")  # step 30 s
+    """The sensor-dropout faults on the default demo devices (the bundled scenario also has
+    simulated devices of its own, which replace the demo's)."""
+    sc = load_scenario("sensor_dropout")  # step 30 s
+    return sc.model_copy(
+        update={
+            "devices": (),
+            "faults": tuple(f for f in sc.faults if not (f.target or "").startswith("device:")),
+        }
+    )
 
 
 @pytest.fixture

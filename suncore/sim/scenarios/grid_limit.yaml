@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+name: grid_limit
+description: A hazy afternoon with a high house base load - the grid import is already above the configured import limit of 200 W for part of the time. A heating rod (number entity, 0-3000 W) and a pool pump may only use real surplus and must never be raised while the grid imports above the limit; the base load alone may import.
+start: "2026-07-15T13:00:00+02:00"
+duration_s: 18000
+step_s: 5
+house:
+  seed: 81
+  pv: {kwp: 8.0}
+  load:
+    noise_fraction: 0.04
+    hourly_w: [400, 400, 400, 400, 400, 400, 500, 600, 600, 600, 700, 800, 900, 1500, 1500, 1500, 1500, 2300, 2600, 2600, 1800, 1200, 800, 500]
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 26.0, amplitude_c: 4.0}
+clouds:
+  - {at_s: 0, factor: 0.55}
+  - {at_s: 3600, factor: 0.4}
+  - {at_s: 7200, factor: 0.6}
+  - {at_s: 10800, factor: 0.3}
+  - {at_s: 12600, factor: 0.45}
+control:
+  import_limit_w: 200
+devices:
+  - id: rod
+    template: generic.number_load
+    physics: {kind: number, max: 3000, step: 100, power_sensor: true}
+    control:
+      priority: 10
+      power_model: {kind: measured, power_role: power, nominal_w: 3000}
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 20
+      min_run_s: 300
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 750}

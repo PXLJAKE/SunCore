@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+name: climate_measured_slow
+description: "One air conditioner whose only power signal is the 5-minute polled smartthinq_sensors sensor (slow measured power); sunny day with a 30 minute cloud. Twin of climate_counter_only."
+start: "2026-07-15T09:00:00+02:00"
+duration_s: 21600
+step_s: 5
+house:
+  seed: 31
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.03}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 29.0, amplitude_c: 4.0}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 7200, factor: 0.15}
+  - {at_s: 9000, factor: 1.0}
+devices:
+  - id: ac
+    template: lg.thinq_climate
+    physics:
+      kind: climate
+      initial_mode: cool
+      initial_setpoint_c: 24
+      initial_temp_c: 24.5
+      default_on_mode: cool
+      nominal_w: 900
+      ua_w_per_k: 250
+      internal_gain_w: 400
+      power_sensor: true
+      power_poll_s: 300
+    control:
+      priority: 10
+      comfort: {min_c: 21, max_c: 27}
+      power_model: {kind: measured, power_role: power, nominal_w: 900}

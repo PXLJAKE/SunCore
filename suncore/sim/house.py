@@ -99,10 +99,13 @@ class HouseState(BaseModel):
     time: AwareDatetime
     pv_w: float
     load_w: float
+    """Total house consumption: base load plus ``devices_w``."""
     battery_w: float
     soc_pct: float
     grid_w: float
     cloud_factor: Annotated[float, Field(ge=0, le=1)]
+    devices_w: float = 0.0
+    """Draw of the simulated devices (already part of ``load_w``)."""
 
 
 def sin_elevation(when: datetime, latitude: float, longitude: float) -> float:
@@ -207,12 +210,19 @@ class House:
         self._soc_pct = min(b.soc_max_pct, max(b.soc_min_pct, self._soc_pct))
         return power
 
-    def step(self) -> HouseState:
-        """Simulate one step and advance the clock."""
+    def step(self, extra_load_w: float = 0.0) -> HouseState:
+        """Simulate one step and advance the clock.
+
+        ``extra_load_w`` is the draw of the simulated devices on top of the base load
+        profile: ``grid = base + devices + battery - pv`` (the balance still closes).
+        """
+        if extra_load_w < 0:
+            msg = "extra_load_w must not be negative"
+            raise ValueError(msg)
         when = self.time
         cloud = self._cloud_at(self._index)
         pv_w = clear_sky_w(when, self.params.pv) * cloud
-        load_w = self._load_w(when)
+        load_w = self._load_w(when) + extra_load_w
         battery_w = self._dispatch(pv_w - load_w)
         state = HouseState(
             time=when,
@@ -222,6 +232,7 @@ class House:
             soc_pct=self._soc_pct,
             grid_w=load_w + battery_w - pv_w,
             cloud_factor=cloud,
+            devices_w=extra_load_w,
         )
         self._index += 1
         return state

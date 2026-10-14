@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+name: water_heater_steps
+description: A 200 l tank with a stepped heater (off / low 1 kW / high 3 kW through a select entity, measured power) takes the surplus of a sunny day with two 20 minute clouds (the first while the tank still heats, the second after the thermostat has cut it off); its own thermostat cuts the elements off at 55 degrees. Simulator only - the maintainer has no water heater (UNVERIFIED).
+start: "2026-07-15T09:00:00+02:00"
+duration_s: 21600
+step_s: 5
+house:
+  seed: 71
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.03}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 24.0, amplitude_c: 5.0}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 1800, factor: 0.3}
+  - {at_s: 3000, factor: 1.0}
+  - {at_s: 7200, factor: 0.3}
+  - {at_s: 8400, factor: 1.0}
+devices:
+  - id: boiler
+    template: generic.water_heater_steps
+    physics:
+      kind: water_heater
+      variant: select
+      initial_temp_c: 36
+      max_temp_c: 55
+      power_sensor: true
+    control:
+      priority: 10
+      comfort: {min_c: 30, max_c: 58}
+      power_model: {kind: measured, power_role: power, nominal_w: 3000}

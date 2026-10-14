@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+name: climate_min_run
+description: A switched-off air conditioner that SunCore may switch on (allow_switch_on); the compressor protection times min_run_s 600 / min_pause_s 300 hold through a short cloud, a long cloud and the return of the sun.
+start: "2026-07-15T10:00:00+02:00"
+duration_s: 14400
+step_s: 5
+house:
+  seed: 21
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.03}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 30.0, amplitude_c: 4.0}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  # a short deep cloud right after the switch-on: the unit must stay on for min_run_s
+  - {at_s: 900, factor: 0.08}
+  - {at_s: 1080, factor: 1.0}
+  # a long cloud: the unit is switched off, and not back on before min_pause_s
+  - {at_s: 3600, factor: 0.08}
+  - {at_s: 4500, factor: 1.0}
+  # clear-sky gap, then flicker around the switching threshold
+  - {at_s: 7200, factor: 0.2}
+  - {at_s: 7260, factor: 1.0}
+  - {at_s: 7330, factor: 0.2}
+  - {at_s: 7400, factor: 1.0}
+  - {at_s: 7500, factor: 0.2}
+  - {at_s: 7590, factor: 1.0}
+devices:
+  - id: ac
+    template: lg.thinq_climate
+    physics:
+      kind: climate
+      initial_mode: "off"
+      initial_temp_c: 27.0
+      initial_setpoint_c: 24
+      default_on_mode: cool
+      nominal_w: 900
+      ua_w_per_k: 250
+      internal_gain_w: 400
+      power_sensor: true
+      power_poll_s: 10
+    control:
+      priority: 10
+      allow_switch_on: true
+      switch_on_hvac_mode: cool
+      min_run_s: 600
+      min_pause_s: 300
+      max_switches_per_hour: 4
+      comfort: {min_c: 21, max_c: 27}
+      power_model: {kind: measured, power_role: power, nominal_w: 900}

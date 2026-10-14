@@ -87,12 +87,28 @@ class ConnectionState(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class StateContext:
+    """The HA context of the change that produced a state (``State.context``).
+
+    A change SunCore caused through ``call_service`` carries the id of that call (positive
+    proof, research/ha-websocket-api.md "Context propagation"); an integration push has a
+    fresh id and no user; a change started in the HA UI has the user's id.
+    """
+
+    id: str
+    user_id: str | None = None
+    parent_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class EntityState:
     """A Home Assistant entity state.
 
     Timestamps are epoch seconds (HA's own compressed format uses floats). A value is
     ``None`` when the source does not carry it: the compressed stream has no
-    ``last_reported``; ``get_states`` has all three.
+    ``last_reported``; ``get_states`` has all three. ``context`` is ``None`` where the source
+    does not carry it (the WebSocket client does not parse the ``c`` key yet; only the
+    simulator fills it).
     """
 
     entity_id: str
@@ -101,6 +117,7 @@ class EntityState:
     last_changed: float | None = None
     last_updated: float | None = None
     last_reported: float | None = None
+    context: StateContext | None = None
 
 
 @dataclass(frozen=True, slots=True)

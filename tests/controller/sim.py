@@ -44,6 +44,7 @@ from suncore.core.signals import Quality
 from suncore.safety.gate import SafetyGate
 from suncore.safety.modes import StaticModes
 from suncore.safety.runtime import MemoryRuntimeStore
+from suncore.sim.runner import turns_on
 from tests.safety.helpers import T0
 
 EstimateFn = Callable[[str, datetime, float, DeviceState], PowerEstimate | None]
@@ -279,22 +280,11 @@ class Sim:
         out: list[tuple[datetime, bool]] = []
         on = False
         for d in self.accepted(device_id):
-            target = _turns_on(d.intent.action, device)
+            target = turns_on(d.intent.action, device)
             if target is not None and target != on:
                 out.append((d.ts, target))
                 on = target
         return out
-
-
-def _turns_on(action: Action, device: DeviceConfig) -> bool | None:
-    match action:
-        case SwitchAction(on=on):
-            return on
-        case StepAction(step=step):
-            return (step_power_w(device.control, step) or 0.0) > 0
-        case PowerSetpointAction(power_w=power):
-            return power > 0
-    return None
 
 
 def build_sim(

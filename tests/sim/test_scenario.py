@@ -8,7 +8,20 @@ from suncore.sim.scenario import Scenario, list_scenarios, load_scenario, parse_
 
 pytestmark = pytest.mark.simulator
 
-BUNDLED = ["sensor_dropout", "summer_day", "winter_fog"]
+BUNDLED = [
+    "climate_counter_only",
+    "climate_measured_slow",
+    "climate_min_run",
+    "cloud_flicker",
+    "grid_limit",
+    "ha_disconnect",
+    "inverter_hang",
+    "manual_override",
+    "sensor_dropout",
+    "summer_day",
+    "water_heater_steps",
+    "winter_fog",
+]
 
 
 def test_bundled_scenarios_listed() -> None:
@@ -83,3 +96,53 @@ def test_parse_minimal_and_rejections() -> None:
     for text in bad:
         with pytest.raises(ValidationError):
             parse_scenario(text)
+
+
+_PUMP = "devices: [{id: pump, physics: {kind: switch}}]\n"
+
+
+def test_devices_manual_events_and_faults_are_validated() -> None:
+    ok = parse_scenario(
+        _BASE
+        + _PUMP
+        + "manual: [{at_s: 5, device: pump, action: turn_off}]\n"
+        + 'faults: [{kind: unavailable, target: "device:pump", from_s: 0, to_s: 10},'
+        + " {kind: frozen, target: sensor.x_y, from_s: 0, to_s: 10},"
+        + " {kind: stale, target: pv_power, from_s: 0, to_s: 10}]\n"
+    )
+    assert ok.manual[0].source == "remote"
+    assert [f.kind for f in ok.active_faults(5)] == ["unavailable", "frozen", "stale"]
+    bad = [
+        _BASE
+        + _PUMP
+        + _PUMP.replace("devices: [", "devices: [{id: pump, physics: {kind: number}},"),
+        _BASE + _PUMP + "manual: [{at_s: 5, device: ghost, action: turn_off}]\n",
+        _BASE + _PUMP + "manual: [{at_s: 5, device: pump, action: explode}]\n",
+        _BASE + _PUMP + 'faults: [{kind: stale, target: "device:ghost", from_s: 0, to_s: 5}]\n',
+        _BASE + 'faults: [{kind: stale, target: "not an entity", from_s: 0, to_s: 5}]\n',
+        _BASE + "devices: [{id: pump, physics: {kind: switch}, control: {priority: 1}}]\n",
+        _BASE + "devices: [{id: Pump, physics: {kind: switch}}]\n",
+        _BASE + "outdoor: {amplitude_c: -1}\n",
+    ]
+    for text in bad:
+        with pytest.raises(ValidationError):
+            parse_scenario(text)
+
+
+def test_outdoor_temperature_is_a_daily_cosine() -> None:
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    sc = parse_scenario(_BASE + "outdoor: {mean_c: 20, amplitude_c: 6, peak_hour: 15}\n")
+    assert sc.outdoor.at(datetime(2026, 6, 21, 15, 0, tzinfo=UTC)) == pytest.approx(26.0)
+    assert sc.outdoor.at(datetime(2026, 6, 21, 3, 0, tzinfo=UTC)) == pytest.approx(14.0)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [n for n in BUNDLED if n not in ("summer_day", "winter_fog")],
+)
+def test_closed_loop_scenarios_declare_devices(name: str) -> None:
+    sc = load_scenario(name)
+    controlled = [d for d in sc.devices if d.template is not None]
+    assert controlled, "a closed-loop scenario controls at least one device"
+    assert sc.step_s <= 60  # the controller tick (ControlSettings.tick_s <= 60)

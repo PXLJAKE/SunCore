@@ -273,6 +273,33 @@ ADRs relevant to your task. Keep it short; history lives in git.
   subtracts the claims from the free surplus for later intents of that snapshot, incl.
   confirmed assisted proposals; failed/rejected writes return their claim
   (`tests/safety/test_claims.py`, review 3-B G1).
+- **WP8 simulator (branch `phase-3/b-controller`)** done: `suncore/sim/devices.py` (climate with
+  RC room model, inverter compressor, LG hourly integer-Wh counter and 5 min polled power sensor,
+  `int()` truncation, 2 s sleep and delayed cloud push; stepped water heater in the `select`,
+  `relays` and `water_heater` variants with a tank model and thermostat cut-off; switch and
+  number loads), `FakeHAConnection` executes the verified write services with HA's error shapes,
+  contexts (call context within 5 s, else an id-only one), faults (unavailable, stale, disconnect,
+  frozen) and manual user events; the device draw is part of the house balance. Ten scenario files
+  (`cloud_flicker`, `climate_min_run`, `climate_counter_only`, `climate_measured_slow`,
+  `sensor_dropout`, `inverter_hang`, `ha_disconnect`, `manual_override`, `water_heater_steps`,
+  `grid_limit`), `suncore/sim/stack.py` (`ControlStack`: cache, real drivers, real power models,
+  controller, real gate, watchdog - the reference composition; `demo_stack` for the demo) and
+  `suncore/sim/runner.py` (`ScenarioRunner` in virtual time: every sleep waits on simulated
+  time). Tests `-m simulator`: per-scenario bounds on switches, hold times and SunCore-caused
+  import (at most 3 % of the energy moved to the devices), fail-safe paths (shutdown, crash and
+  restart, emergency stop, mode change, disconnect, watchdog) end in the baseline, measured vs
+  counter-only equivalence, a 7-day run (`slow`, runs in CI). Demo devices are physical now (the
+  default demo has a demo user that runs the unit and the pump by the clock); the controller on
+  them in shadow mode is `ScenarioRunner(..., configs=demo_devices(catalog).devices)` /
+  `demo_stack(...)`. Findings fixed in separate commits (gate: switch history judged before the
+  write, baseline after an override; controller: base set-point with a late state, switched-on
+  flag, level 1 of a running unit). `EntityState.context` (`StateContext`) is new; the WebSocket
+  client does not parse the `c` key yet (only the simulator fills it) - WP9/ha-integration.
+  Still open for WP9: set the power-model cadence of idle sensors (the 60 s client resync is the
+  real freshness of an unchanged value, `DEFAULT_MEASURED_CADENCE_S` is 10 s), a failed release
+  while HA is unreachable is retried every tick by `check_device` (one `failed` decision per
+  device per tick for the whole outage), and the controller does not know about the gate's
+  releases (the first intent after one can meet `safety.min_pause`).
 - From the PR 3-A review (fixed in `fix(safety)`: per-device lock and re-checks before
   `apply()`, late confirmation of slow echoes, free-surplus semantics with input age, deferred
   release). Still for WP9: (2) the gate's `tz` must be injected from the site/region time

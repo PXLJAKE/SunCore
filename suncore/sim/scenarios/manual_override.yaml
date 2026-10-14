@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+name: manual_override
+description: The user overrides SunCore on a sunny day - the pool pump is switched off with the remote (a push with an id-only context), the air conditioner's temperature is changed in the Home Assistant UI. Both are respected until 04:00 the next day; the changed temperature becomes the new base set-point the shifts start from.
+start: "2026-07-15T08:00:00+02:00"
+duration_s: 100800
+step_s: 30
+house:
+  seed: 61
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.03}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 27.0, amplitude_c: 6.0}
+manual:
+  - {at_s: 9000, device: pool, action: turn_off, source: remote}
+  - {at_s: 10800, device: ac, action: set_temperature, value: 25, source: ui}
+devices:
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 10
+      min_run_s: 300
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 750}
+  - id: ac
+    template: lg.thinq_climate
+    physics:
+      kind: climate
+      initial_mode: cool
+      initial_setpoint_c: 24
+      initial_temp_c: 24.5
+      default_on_mode: cool
+      nominal_w: 900
+      ua_w_per_k: 250
+      internal_gain_w: 400
+      power_sensor: true
+      power_poll_s: 10
+    control:
+      priority: 20
+      comfort: {min_c: 21, max_c: 27}
+      power_model: {kind: measured, power_role: power, nominal_w: 900}

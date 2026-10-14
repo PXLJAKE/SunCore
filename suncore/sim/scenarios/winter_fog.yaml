@@ -9,6 +9,7 @@ house:
   pv: {kwp: 8.0, latitude: 48.0, longitude: 11.0}
   load: {noise_fraction: 0.15}
   battery: {capacity_wh: 10000, initial_soc_pct: 15}
+outdoor: {mean_c: 2.0, amplitude_c: 3.0}
 clouds:
   - {at_s: 0, factor: 0.15}
   - {at_s: 43200, factor: 0.25}

@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+name: climate_counter_only
+description: "The same unit and day as climate_measured_slow with only the LG hourly integer-Wh energy counter (no power sensor), so the counter-derived power model with its wider hysteresis."
+start: "2026-07-15T09:00:00+02:00"
+duration_s: 21600
+step_s: 5
+house:
+  seed: 31
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.03}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 29.0, amplitude_c: 4.0}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 7200, factor: 0.15}
+  - {at_s: 9000, factor: 1.0}
+devices:
+  - id: ac
+    template: lg.thinq_climate
+    physics:
+      kind: climate
+      initial_mode: cool
+      initial_setpoint_c: 24
+      initial_temp_c: 24.5
+      default_on_mode: cool
+      nominal_w: 900
+      ua_w_per_k: 250
+      internal_gain_w: 400
+    control:
+      priority: 10
+      comfort: {min_c: 21, max_c: 27}
+      power_model: {kind: counter_derived, energy_role: energy_today, nominal_w: 900, counter_update_s: 3600}

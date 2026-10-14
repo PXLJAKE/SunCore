@@ -26,6 +26,7 @@ from suncore.ha.connection import (
     ServiceCaller,
     ServiceCallerProvider,
     ServiceResult,
+    StateContext,
 )
 from suncore.ha.detect import (
     CRITERION_KEYS,
@@ -91,6 +92,7 @@ __all__ = [
     "ServiceCallerProvider",
     "ServiceResult",
     "SiteRole",
+    "StateContext",
     "SupervisorTransport",
     "Transport",
     "TransportConfigError",
