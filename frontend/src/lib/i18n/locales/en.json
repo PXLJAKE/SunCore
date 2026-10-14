@@ -494,6 +494,7 @@
   "safety.proposed": "Assisted mode: proposed, waiting for your confirmation.",
   "safety.rate_limited": "Not written: the device's write rate limit, {remaining_s} s left.",
   "safety.readback_mismatch": "Write not confirmed: the device did not report the new state.",
+  "safety.reconfigured": "The configuration changed: the device was returned to its previous state (after its protection time, if needed).",
   "safety.release_failed": "Returning the device to its previous state failed.",
   "safety.release_timeout": "Returning the device to its previous state did not finish in time.",
   "safety.released": "The device was returned to its previous state.",

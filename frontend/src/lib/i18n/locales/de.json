@@ -494,6 +494,7 @@
   "safety.proposed": "Assistierter Modus: vorgeschlagen, wartet auf deine Bestätigung.",
   "safety.rate_limited": "Nicht geschrieben: Schreibraten-Limit des Geräts, noch {remaining_s} s.",
   "safety.readback_mismatch": "Schreiben nicht bestätigt: Das Gerät hat den neuen Zustand nicht gemeldet.",
+  "safety.reconfigured": "Die Konfiguration wurde geändert: Das Gerät wurde in den vorherigen Zustand zurückgesetzt (falls nötig nach Ablauf seiner Schutzzeit).",
   "safety.release_failed": "Das Zurücksetzen des Geräts in den vorherigen Zustand ist fehlgeschlagen.",
   "safety.release_timeout": "Das Zurücksetzen des Geräts in den vorherigen Zustand wurde nicht rechtzeitig fertig.",
   "safety.released": "Das Gerät wurde in den vorherigen Zustand zurückgesetzt.",

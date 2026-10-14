@@ -25,7 +25,12 @@ recovery at start-up (``recover`` with the persisted runtime). Urgent triggers
 at once. Non-urgent triggers (mode change to shadow, device trip, restored connection)
 stop writing at once but defer the release write until the device's minimum run or
 pause time has elapsed; the deadline is persisted in the runtime and executed by
-:meth:`SafetyGate.poll`, which the control loop calls every tick.
+:meth:`SafetyGate.poll`, which the control loop calls every tick. A configuration change
+(:meth:`SafetyGate.handover`) releases devices that stay the same non-urgently - the next
+gate keeps the deferral (``recover(after_handover=True)``) - and changed devices at once.
+Every release first judges the observed state like :meth:`SafetyGate.observe`: a manual
+change that was not judged yet becomes the baseline (what the user left is given back).
+A switch is recorded in the runtime when it is sent, not when the read-back confirms it.
 
 Concurrency: a per-device ``asyncio.Lock`` serialises the write path, the release and
 the runtime updates. The write path re-checks the emergency stop, the effective mode,
@@ -40,7 +45,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from datetime import UTC, datetime, timedelta, tzinfo
 from types import MappingProxyType
 from typing import Final
@@ -126,6 +131,7 @@ REASON_RELEASE_DEFERRED: Final = Reason(key="safety.release_deferred")
 REASON_RELEASE_PENDING: Final = Reason(key="safety.release_pending")
 REASON_MODE_CHANGED: Final = Reason(key="safety.mode_changed")
 REASON_RATE_LIMITED: Final = Reason(key="safety.rate_limited")
+REASON_RECONFIGURED: Final = Reason(key="safety.reconfigured")
 
 MAX_CONSECUTIVE_FAILURES: Final = 3
 """After this many failed writes in a row the device scope trips (watchdog)."""
@@ -231,22 +237,62 @@ class SafetyGate:
 
     # --- lifecycle ---------------------------------------------------------------
 
-    async def recover(self) -> None:
+    async def recover(self, *, after_handover: bool = False) -> None:
         """Start-up: load the persisted runtime; release devices a crash left under control.
 
         A release that fails because HA is not connected yet leaves the device under
         control in the runtime; :meth:`connection_restored` releases it once online.
+
+        ``after_handover``: this gate replaces one that :meth:`handover` stopped (a
+        configuration change in the same process). A release that gate deferred for the
+        device's minimum run/pause time stays deferred (:meth:`poll` executes it); everything
+        else under control is released at once, and so is everything under an emergency stop.
         """
         self._emergency_stop = await self._store.load_emergency_stop()
         for runtime in await self._store.all_runtimes():
             self._runtimes[runtime.device_id] = runtime
             self._limiter.prime(runtime.device_id, runtime.last_write_ts)
-        await self._release_all(REASON_RECOVERY, origin=Origin.SAFETY)
+        only: list[str] | None = None
+        if after_handover and not self._emergency_stop:
+            now = self._now()
+            only = [
+                d
+                for d, rt in self._runtimes.items()
+                if rt.release_due_ts is None or rt.release_due_ts <= now
+            ]
+        await self._release_all(REASON_RECOVERY, origin=Origin.SAFETY, only=only)
 
     async def shutdown(self) -> None:
         """Release every device under control within ``release_deadline_s``."""
         await self._release_all(
             REASON_SHUTDOWN, origin=Origin.SAFETY, deadline_s=self._settings.release_deadline_s
+        )
+
+    async def handover(self, keep: Collection[str]) -> None:
+        """A configuration change replaces this gate: release without breaking protections.
+
+        Devices in ``keep`` stay the same device in the new configuration (identity and
+        control unchanged): their release respects the minimum run/pause time like a mode
+        change (deferred and persisted, executed by the next gate after
+        ``recover(after_handover=True)``), so a harmless edit (a rename, another device, the
+        site) cannot short-cycle a compressor. Every other device under control is released at
+        once: its entities or control changed, and only this gate's actuator knows how to
+        restore its baseline. Both within ``release_deadline_s``.
+        """
+        kept = frozenset(keep)
+        others = [d for d, rt in self._runtimes.items() if rt.under_control and d not in kept]
+        deadline = self._settings.release_deadline_s
+        await asyncio.gather(
+            self._release_all(
+                REASON_RECONFIGURED, origin=Origin.SAFETY, deadline_s=deadline, only=others
+            ),
+            self._release_all(
+                REASON_RECONFIGURED,
+                origin=Origin.SAFETY,
+                deadline_s=deadline,
+                urgent=False,
+                only=kept,
+            ),
         )
 
     async def emergency_stop(self) -> None:
@@ -385,11 +431,8 @@ class SafetyGate:
     ) -> None:
         pending = runtime.pending_action
         assert pending is not None
+        # The switch (if it was one) was recorded when the write was sent (``_write``).
         confirmed = overrides.confirm_pending(runtime)
-        if _was_transition(pending, device, runtime):
-            target = action_turns_on(pending, device)
-            if target is not None:
-                confirmed = confirmed.with_switch(runtime.pending_ts or now, on=target)
         await self._save(confirmed)
         count = self._failures.get(device.id, 0)
         if count <= 1:
@@ -631,6 +674,13 @@ class SafetyGate:
                 log.warning("safety.write_failed", device_id=device_id, error=str(exc)[:200])
                 failed_write = True
             runtime = runtime.model_copy(update={"last_write_ts": now})
+            target = action_turns_on(intent.action, device) if switched else None
+            if target is not None:
+                # Recorded when the switch is *sent*, not when it is confirmed: a slow echo
+                # (late confirmation), a release or a rebuild during the settle wait, or a
+                # cancelled submission must not leave a switch without its protection time.
+                # A write that did not take effect only over-protects (the safe direction).
+                runtime = runtime.with_switch(now, on=target)
             await self._save(runtime)
         if failed_write:
             await self._count_failure(device_id, now)
@@ -640,13 +690,7 @@ class SafetyGate:
         await self._sleep(self._settle_s(device))
         observed = await actuator.read_back()
         return await self._confirm(
-            intent,
-            device,
-            now,
-            observed=observed,
-            context_id=context_id,
-            mode=mode,
-            switched=switched,
+            intent, device, now, observed=observed, context_id=context_id, mode=mode
         )
 
     async def _confirm(
@@ -658,7 +702,6 @@ class SafetyGate:
         observed: Action | None,
         context_id: str | None,
         mode: OperatingMode,
-        switched: bool,
     ) -> Decision:
         """After the settle wait: compare the read-back, record the outcome."""
         device_id = device.id
@@ -688,10 +731,6 @@ class SafetyGate:
                 )
             else:
                 self._failures.pop(device_id, None)
-                if switched:
-                    target = action_turns_on(intent.action, device)
-                    if target is not None:
-                        runtime = runtime.with_switch(now, on=target)
                 update: dict[str, object] = {
                     "last_written": intent.action,
                     "last_write_context_id": context_id,
@@ -777,8 +816,10 @@ class SafetyGate:
                     intent, DecisionKind.REJECTED, now, (REASON_NO_ACTUATOR,), mode
                 )
             device = self._devices(device_id)
+            observed = await actuator.read_back()
+            runtime = await self._adopt_user_state(device, runtime, observed, now)
             if not urgent:
-                due = _protection_due(device, runtime, now)
+                due = _protection_due(device, runtime, now, observed)
                 if due is not None:
                     deferred = runtime.model_copy(
                         update={"release_due_ts": due, "release_due_reason": reason.key}
@@ -812,12 +853,9 @@ class SafetyGate:
                     "release_due_reason": None,
                 }
             )
-            if (
-                device is not None
-                and runtime.last_written is not None
-                and runtime.baseline is not None
-            ):
-                before = action_turns_on(runtime.last_written, device)
+            current = observed if observed is not None else runtime.last_written
+            if device is not None and current is not None and runtime.baseline is not None:
+                before = action_turns_on(current, device)
                 target = action_turns_on(runtime.baseline, device)
                 if before is not None and target is not None and before != target:
                     released = released.with_switch(now, on=target)
@@ -829,6 +867,37 @@ class SafetyGate:
                 intent, DecisionKind.ACCEPTED, now, (REASON_RELEASED, reason), mode
             )
 
+    async def _adopt_user_state(
+        self,
+        device: DeviceConfig | None,
+        runtime: DeviceRuntime,
+        observed: Action | None,
+        now: datetime,
+    ) -> DeviceRuntime:
+        """Right before a release: a manual change not judged yet becomes the baseline.
+
+        The override detection runs on the entity feed; a change can reach the release first
+        (made while SunCore was down - observations are only judged after ``recover()`` - or
+        during an outage, with the resync racing the release of ``connection_restored``).
+        The same value rule as :meth:`observe` decides; a detected change is what the user
+        left, so it is what the release gives back, and it is held per the override policy.
+        """
+        if device is None or observed is None:
+            return runtime
+        verdict = overrides.judge(observed, runtime, now, settle_s=self._settle_s(device))
+        if not verdict.override:
+            return runtime
+        updated = overrides.apply_verdict(runtime, verdict, now, device.override_policy, self._tz)
+        updated = updated.model_copy(update={"baseline": observed, "baseline_ts": now})
+        await self._save(updated)
+        log.info(
+            "safety.override_detected_at_release",
+            device_id=device.id,
+            until=updated.override_until,
+            reason=verdict.reason.key if verdict.reason else None,
+        )
+        return updated
+
     async def _release_all(
         self,
         reason: Reason,
@@ -836,8 +905,13 @@ class SafetyGate:
         origin: Origin,
         deadline_s: float | None = None,
         urgent: bool = True,
+        only: Collection[str] | None = None,
     ) -> None:
-        ids = [d for d, rt in self._runtimes.items() if rt.under_control]
+        ids = [
+            d
+            for d, rt in self._runtimes.items()
+            if rt.under_control and (only is None or d in only)
+        ]
         if not ids:
             return
         tasks = {
@@ -959,17 +1033,22 @@ class SafetyGate:
 
 
 def _protection_due(
-    device: DeviceConfig | None, runtime: DeviceRuntime, now: datetime
+    device: DeviceConfig | None,
+    runtime: DeviceRuntime,
+    now: datetime,
+    observed: Action | None = None,
 ) -> datetime | None:
     """When a release may switch the device without breaking min run/pause (``None`` = now).
 
-    Restoring the baseline is a switch only if the last written action and the baseline
-    differ in on/off; then the minimum run time (switching off) or pause time (switching
-    on) counted from the last switch must have elapsed.
+    Restoring the baseline is a switch only if the device's current state (observed, else
+    the last written action) and the baseline differ in on/off; then the minimum run time
+    (switching off) or pause time (switching on) counted from the last switch must have
+    elapsed.
     """
-    if device is None or runtime.last_written is None or runtime.baseline is None:
+    current = observed if observed is not None else runtime.last_written
+    if device is None or current is None or runtime.baseline is None:
         return None
-    before = action_turns_on(runtime.last_written, device)
+    before = action_turns_on(current, device)
     target = action_turns_on(runtime.baseline, device)
     if before is None or target is None or before == target:
         return None
