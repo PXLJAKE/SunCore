@@ -1,0 +1,17 @@
+# The demo has a static stepped water heater (select + probe on one registry device); the select
+# entity of the other demo devices does not exist, so the level role has one candidate.
+template: generic.water_heater_steps
+sim_scenario: summer_day
+user_input:
+  nominal_w: 3000
+  comfort: {min_c: 35, max_c: 60}
+roles:
+  level:
+    entity: select.sim_water_heater_level
+    criteria: [domain]
+  temperature:
+    entity: sensor.sim_water_heater_temperature
+    unit: "°C"
+  power:
+    # `same_device_as: level` - the demo boiler has no power sensor.
+    none: true

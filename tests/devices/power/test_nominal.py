@@ -9,6 +9,8 @@ from suncore.core.devices import (
     Mode,
     ModeControl,
     OnOffControl,
+    RelaysControl,
+    RelayStep,
     SetpointControl,
     Step,
     StepsControl,
@@ -63,6 +65,21 @@ def test_steps_use_the_step_power() -> None:
     # an unknown step index falls back to on/off
     assert est(model, DeviceState(step=9, on=True)).value_w == 3000
     assert est(NominalPowerModel(None, control), None).uncertainty_w == 3000
+
+
+def test_relays_use_the_step_power() -> None:
+    control = RelaysControl(
+        kind="relays",
+        roles=("a", "b"),
+        steps=(
+            RelayStep(relays=(), power_w=0),
+            RelayStep(relays=("a",), power_w=2000),
+            RelayStep(relays=("a", "b"), power_w=6000),
+        ),
+    )
+    model = NominalPowerModel(6000, control)
+    assert est(model, DeviceState(step=2)).value_w == 6000
+    assert est(model, DeviceState(step=1)).value_w == 2000
 
 
 def test_modes() -> None:

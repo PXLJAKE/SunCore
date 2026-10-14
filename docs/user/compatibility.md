@@ -22,6 +22,8 @@ It does **not** mean that the device is controlled yet: until the controller arr
 | `generic.climate` | device | Generic climate device | any | `energy_counter`, `hvac_modes`, `power_measured`, `temperature_setpoint` | not tested on hardware | 3 |
 | `generic.number_load` | device | Load with a number entity | any | `power_measured`, `power_setpoint` | not tested on hardware | 3 |
 | `generic.switch` | device | Switch or smart plug | any | `on_off`, `power_measured` | not tested on hardware | 2 |
+| `generic.water_heater_relays` | device | Water heater with 1-3 relays | any | `power_measured`, `power_setpoint` | not tested on hardware | 5 |
+| `generic.water_heater_steps` | device | Water heater with power levels (select entity) | any | `power_measured`, `power_setpoint` | not tested on hardware | 5 |
 | `lg.thinq_climate` | device | LG ThinQ air conditioner | `lg_thinq` | `energy_counter`, `fan_modes`, `hvac_modes`, `power_measured`, `preset_modes`, `temperature_setpoint` | not tested on hardware | 7 |
 
 ## Tariffs

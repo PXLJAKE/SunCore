@@ -76,6 +76,7 @@ class ControlKind(StrEnum):
     CONTINUOUS = "continuous"
     SETPOINT = "setpoint"
     MODE = "mode"
+    RELAYS = "relays"
 
 
 class PowerModel(_Frozen):
@@ -160,6 +161,54 @@ class StepsControl(_Frozen):
         return self
 
 
+class RelayStep(_Frozen):
+    """One level of a relay-switched load: the relays that are on and the power it draws."""
+
+    relays: Annotated[tuple[RoleName, ...], Field(max_length=3)] = ()
+    """Roles of the relays that are on at this step (empty = all off)."""
+    power_w: Annotated[float, Field(ge=0, le=1_000_000)]
+
+
+class RelaysControl(_Frozen):
+    """Discrete power levels made of 1-3 switch entities (e.g. a heater with three elements).
+
+    ``roles`` are the relay switches; step ``i`` means exactly the relays listed in
+    ``steps[i].relays`` are on and the others are off. Step 0 is the lowest level
+    (normally all off). Added to schema v1 as an additive union member (ADR-0012).
+    """
+
+    kind: Literal["relays"]
+    roles: Annotated[tuple[RoleName, ...], Field(min_length=1, max_length=3)]
+    steps: Annotated[tuple[RelayStep, ...], Field(min_length=2, max_length=8)]
+
+    @property
+    def role(self) -> RoleName:
+        """The first relay: the primary control entity (identity, duplicate-unit check)."""
+        return self.roles[0]
+
+    @model_validator(mode="after")
+    def _valid(self) -> Self:
+        if len(set(self.roles)) != len(self.roles):
+            raise invalid("relays_unique", "control.roles: relay roles must be unique")
+        powers = [s.power_w for s in self.steps]
+        if any(a >= b for a, b in itertools.pairwise(powers)):
+            raise invalid("steps_order", "control.steps: `power_w` must be strictly increasing")
+        for step in self.steps:
+            unknown = [r for r in step.relays if r not in self.roles]
+            if unknown:
+                raise invalid(
+                    "relay_step_unknown",
+                    "control.steps: relay `{role}` is not in `roles`",
+                    role=unknown[0],
+                )
+            if len(set(step.relays)) != len(step.relays):
+                raise invalid("relay_step_unique", "control.steps: a relay is listed twice")
+        sets = [frozenset(s.relays) for s in self.steps]
+        if len(set(sets)) != len(sets):
+            raise invalid("relay_step_distinct", "control.steps: two steps switch the same relays")
+        return self
+
+
 class ContinuousControl(_Frozen):
     """A number entity in W, A or % of ``nominal_w`` between ``min`` and ``max``."""
 
@@ -215,20 +264,22 @@ class ModeControl(_Frozen):
 
 
 ControlSpec = Annotated[
-    OnOffControl | StepsControl | ContinuousControl | SetpointControl | ModeControl,
+    OnOffControl | StepsControl | ContinuousControl | SetpointControl | ModeControl | RelaysControl,
     Field(discriminator="kind"),
 ]
 """How a device is driven and which role is written (ADR-0012 item 5)."""
 
 
 def control_roles(control: ControlSpec) -> tuple[RoleName, ...]:
-    """All entity roles a control writes (one)."""
+    """All entity roles a control writes (one, except for ``relays``)."""
+    if isinstance(control, RelaysControl):
+        return control.roles
     return (control.role,)
 
 
 def step_power_w(control: ControlSpec, step: int) -> float | None:
-    """Power of step ``step`` of a ``steps`` control (``None`` = not stepped)."""
-    if isinstance(control, StepsControl) and 0 <= step < len(control.steps):
+    """Power of step ``step`` of a ``steps`` or ``relays`` control (``None`` = not stepped)."""
+    if isinstance(control, StepsControl | RelaysControl) and 0 <= step < len(control.steps):
         return control.steps[step].power_w
     return None
 

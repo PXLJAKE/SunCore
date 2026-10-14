@@ -17,6 +17,7 @@ import structlog.testing
 from suncore.ha import websocket as ws_module
 from suncore.ha.cache import EntityCache
 from suncore.ha.connection import (
+    DEFAULT_WRITE_INTERVAL_S,
     AuthError,
     CommandError,
     CommandTimeoutError,
@@ -625,6 +626,7 @@ async def test_service_caller_rate_limits_and_reads_back(
     assert first.readback is not None
     assert first.readback.state == "100"
     assert first.response["echo"]["domain"] == "switch"
+    assert first.context_id == "ctx"  # result.context.id of the reply
 
     second = asyncio.create_task(caller.call_service("switch", "turn_off", return_response=True))
     await wait_until(lambda: 1.5 in clock.requested)  # limiter waits for the interval
@@ -634,6 +636,31 @@ async def test_service_caller_rate_limits_and_reads_back(
     assert result.readback is None
     assert sum(m["type"] == "call_service" for m in ha.received) == 2
     assert ha.received[-1]["return_response"] is True
+
+
+async def test_write_is_a_plain_rate_limited_call_with_the_context_id(
+    ha: FakeHA, make: Make
+) -> None:
+    conn = make()
+    await up(conn)
+    result = await conn.service_caller().write(
+        "climate",
+        "set_temperature",
+        service_data={"temperature": 22.0},
+        target={"entity_id": "climate.ac"},
+    )
+    sent = next(m for m in ha.received if m["type"] == "call_service")
+    assert (sent["domain"], sent["service"]) == ("climate", "set_temperature")
+    assert sent["target"] == {"entity_id": "climate.ac"}
+    assert sent["service_data"] == {"temperature": 22.0}
+    assert "return_response" not in sent
+    assert result.context_id == "ctx"
+    assert result.readback is None
+
+
+def test_connection_flood_floor_is_a_quarter_of_a_second() -> None:
+    assert DEFAULT_WRITE_INTERVAL_S == 0.25
+    assert RateLimiter()._min_interval == 0.25
 
 
 async def test_rate_limiter_spacing() -> None:

@@ -227,12 +227,17 @@ class ServiceCallerProvider(Protocol):
 # --- service capability -------------------------------------------------------
 
 
+DEFAULT_WRITE_INTERVAL_S: Final = 0.25
+"""Connection flood floor: minimum spacing of two service calls (lowered from 1 s in
+Phase 3; the per-device write rate limit of ``safety`` is the real protection)."""
+
+
 class RateLimiter:
     """Minimum spacing between writes. Clock and sleep are injected."""
 
     def __init__(
         self,
-        min_interval: float = 1.0,
+        min_interval: float = DEFAULT_WRITE_INTERVAL_S,
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -257,14 +262,23 @@ class RateLimiter:
 
 @dataclass(frozen=True, slots=True)
 class ServiceResult:
-    """Outcome of a service call: HA's response and the state read back afterwards."""
+    """Outcome of a service call: HA's response, the state read back afterwards and the
+    context id of the call (``result.context.id`` of the WebSocket reply)."""
 
     response: Any
     readback: EntityState | None
+    context_id: str | None = None
 
 
 Commander = Callable[[Mapping[str, Any]], Awaitable[Any]]
 StateReader = Callable[[str], Awaitable[EntityState | None]]
+
+
+def _context_id(result: Any) -> str | None:
+    """``result.context.id`` of a ``call_service`` reply (research/ha-websocket-api.md)."""
+    context = result.get("context") if isinstance(result, Mapping) else None
+    value = context.get("id") if isinstance(context, Mapping) else None
+    return value if isinstance(value, str) and value else None
 
 
 class ServiceCaller:
@@ -307,7 +321,23 @@ class ServiceCaller:
             payload["return_response"] = True
         result = await self._commander(payload)
         response = result.get("response") if isinstance(result, Mapping) else None
+        context_id = _context_id(result)
         readback = (
             await self._read_state(readback_entity_id) if readback_entity_id is not None else None
         )
-        return ServiceResult(response=response, readback=readback)
+        return ServiceResult(response=response, readback=readback, context_id=context_id)
+
+    async def write(
+        self,
+        domain: str,
+        service: str,
+        *,
+        service_data: Mapping[str, Any] | None = None,
+        target: Mapping[str, Any] | None = None,
+    ) -> ServiceResult:
+        """The narrow form drivers get (``suncore.devices.drivers.base.ServiceWriter``).
+
+        One rate-limited service call without response data or read-back: drivers read
+        back from the entity cache, never from ``get_states``.
+        """
+        return await self.call_service(domain, service, service_data=service_data, target=target)

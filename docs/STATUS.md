@@ -240,6 +240,18 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Open – Phase 3
 
+- **WP5/WP6 (branch `phase-3/b-controller`)** done: `suncore/devices/power/` (measured,
+  counter-derived, learned RLS, nominal, grid-balance validator, `create_power_model`) and
+  `suncore/devices/drivers/` (`OnOffDriver`, `ClimateDriver`, `StepsDriver` incl. the new
+  `relays` control kind, `NumberDriver`, `ModeDriver`, `create_driver`; not wired before WP9).
+  `ServiceCaller.write()` and `ServiceResult.context_id` carry the HA context id; the connection
+  flood floor is 0.25 s. Templates `generic.water_heater_steps` and `generic.water_heater_relays`
+  (simulator only, `UNVERIFIED`: the maintainer has no water heater). For WP7/WP9: the controller
+  should round set-points with `suncore.devices.setpoint.snap_setpoint` (device step from the
+  `target_temp_step` attribute) so the written value equals the intent; the composition root
+  passes `ServiceCaller.write` and an entity-cache lookup to `create_driver` (boundary rule 3 forbids
+  `service_caller()` outside `ha`/`safety`, so the wiring needs a small accessor in `safety`/`ha`).
+
 - From the PR 3-A review (fixed in `fix(safety)`: per-device lock and re-checks before
   `apply()`, late confirmation of slow echoes, free-surplus semantics with input age, deferred
   release). Still for WP9: (2) the gate's `tz` must be injected from the site/region time
@@ -276,7 +288,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
   limits and max switches/hour in `safety/`, read-back from the cache after a settle
   delay, try-acquire rate limiter, persisted emergency stop~~ done in WP2/WP3. Still open:
   retention for the `decision` table and the `RuntimeStore` implementation (WP4); the
-  1 s connection flood floor is lowered when WP6 wires the first driver; tables
+  connection flood floor is 0.25 s now (WP6); tables
   `plan_snapshot`/`template_override` and `timeseries.db` (Phase 4); an `AuthError` on
   reconnect needs a restart (document in the UI).
 - Phase 3 follow-up (review F6, A2): `core/identity.py` provides the rule; WP4 applies it
@@ -314,6 +326,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes, Tibber tomorrow-price publication time, Solcast default day-sensor count | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
 | Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA) | `docs/user/*/quick-start.md` | maintainer follows the quick start on HA OS |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
+| Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 

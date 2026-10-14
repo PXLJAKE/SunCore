@@ -66,6 +66,7 @@ import structlog
 
 from suncore.core.actions import is_read_only_action
 from suncore.ha.connection import (
+    DEFAULT_WRITE_INTERVAL_S,
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
     AuthError,
@@ -226,7 +227,7 @@ class WebSocketConnection:
         connect_timeout: float = 10.0,
         resync_interval: float = 60.0,
         stable_after: float = 30.0,
-        write_interval: float = 1.0,
+        write_interval: float = DEFAULT_WRITE_INTERVAL_S,
         secrets: SecretRegistry = DEFAULT_REGISTRY,
     ) -> None:
         self._transport = transport

@@ -41,6 +41,7 @@ from suncore.core.devices import (
     DeviceKind,
     OnOffControl,
     PowerModelKind,
+    RelaysControl,
     RoleName,
     SetpointControl,
     StepsControl,
@@ -354,8 +355,8 @@ class DeviceTemplate(TemplateHeader):
         _need(
             caps,
             Capability.POWER_SETPOINT,
-            isinstance(control, StepsControl | ContinuousControl),
-            "control is neither steps nor continuous",
+            isinstance(control, StepsControl | RelaysControl | ContinuousControl),
+            "control is neither steps, relays nor continuous",
         )
         _need(
             caps,

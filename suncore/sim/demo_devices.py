@@ -13,6 +13,12 @@ They give the setup wizard and the template conformance tests real content:
   refreshed only every 5 minutes, like the real polling (see ``device-integrations.md``);
 * a plug ``switch.sim_pool_pump`` with ``sensor.sim_pool_pump_power`` and an energy counter;
 * a number entity ``number.sim_heating_rod_limit`` (W limit of a load);
+* a stepped water heater (Phase 3 templates ``generic.water_heater_steps`` / ``_relays``):
+  ``select.sim_water_heater_level`` with its probe ``sensor.sim_water_heater_temperature`` (one
+  registry device) and three relay switches ``switch.sim_water_heater_relay_1..3`` (another
+  registry device).
+  Static placeholders for the template conformance tests; the water heater physics belong to
+  the Phase 3 simulator work package;
 * a Tibber-like price sensor ``sensor.sim_electricity_price`` (``EUR/kWh``, 15 min slots);
 * Solcast-like day sensors ``sensor.sim_solcast_forecast_today`` / ``..._tomorrow`` (kWh)
   whose ``detailedForecast`` attribute holds 30 min slots in kW average power (P50/P10/P90)
@@ -44,6 +50,13 @@ POOL_SWITCH_ID: Final = "switch.sim_pool_pump"
 POOL_POWER_ID: Final = "sensor.sim_pool_pump_power"
 POOL_ENERGY_ID: Final = "sensor.sim_pool_pump_energy"
 ROD_LIMIT_ID: Final = "number.sim_heating_rod_limit"
+WATER_HEATER_LEVEL_ID: Final = "select.sim_water_heater_level"
+WATER_HEATER_TEMP_ID: Final = "sensor.sim_water_heater_temperature"
+WATER_HEATER_RELAY_IDS: Final[tuple[str, ...]] = (
+    "switch.sim_water_heater_relay_1",
+    "switch.sim_water_heater_relay_2",
+    "switch.sim_water_heater_relay_3",
+)
 PRICE_ID: Final = "sensor.sim_electricity_price"
 FORECAST_TODAY_ID: Final = "sensor.sim_solcast_forecast_today"
 FORECAST_TOMORROW_ID: Final = "sensor.sim_solcast_forecast_tomorrow"
@@ -63,6 +76,9 @@ SIM_DEVICE_ENTITY_IDS: Final[tuple[str, ...]] = (
     POOL_POWER_ID,
     POOL_ENERGY_ID,
     ROD_LIMIT_ID,
+    WATER_HEATER_LEVEL_ID,
+    WATER_HEATER_TEMP_ID,
+    *WATER_HEATER_RELAY_IDS,
     PRICE_ID,
     FORECAST_TODAY_ID,
     FORECAST_TOMORROW_ID,
@@ -277,6 +293,25 @@ class DemoDevices:
                     "step": 100,
                     "mode": "slider",
                 },
+            ),
+            DemoEntity(
+                WATER_HEATER_LEVEL_ID,
+                "off",
+                {"friendly_name": "Sim water heater level", "options": ["off", "low", "high"]},
+            ),
+            DemoEntity(
+                WATER_HEATER_TEMP_ID,
+                "48.0",
+                {
+                    "friendly_name": "Sim water heater temperature",
+                    "unit_of_measurement": "°C",
+                    "device_class": "temperature",
+                    "state_class": "measurement",
+                },
+            ),
+            *(
+                DemoEntity(relay, "off", {"friendly_name": f"Sim water heater relay {index}"})
+                for index, relay in enumerate(WATER_HEATER_RELAY_IDS, start=1)
             ),
             DemoEntity(
                 PRICE_ID,

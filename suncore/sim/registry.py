@@ -37,6 +37,8 @@ DEV_AC: Final = "sim_dev_living_room_ac"
 DEV_AC_B: Final = "sim_dev_living_room_ac_smartthinq"
 DEV_POOL: Final = "sim_dev_pool_plug"
 DEV_ROD: Final = "sim_dev_heating_rod"
+DEV_WATER_HEATER: Final = "sim_dev_water_heater"
+DEV_WATER_HEATER_RELAYS: Final = "sim_dev_water_heater_relays"
 DEV_TIBBER: Final = "sim_dev_tibber"
 DEV_SOLCAST: Final = "sim_dev_solcast"
 
@@ -89,6 +91,22 @@ ENTITIES: Final[tuple[RegEntity, ...]] = (
     RegEntity(d.POOL_POWER_ID, SIM_PLATFORM, "Pool pump power", DEV_POOL, AREA_GARDEN),
     RegEntity(d.POOL_ENERGY_ID, SIM_PLATFORM, "Pool pump energy", DEV_POOL, AREA_GARDEN),
     RegEntity(d.ROD_LIMIT_ID, SIM_PLATFORM, "Heating rod limit", DEV_ROD, AREA_GARDEN),
+    RegEntity(
+        d.WATER_HEATER_LEVEL_ID, SIM_PLATFORM, "Water heater level", DEV_WATER_HEATER, AREA_GARDEN
+    ),
+    RegEntity(
+        d.WATER_HEATER_TEMP_ID,
+        SIM_PLATFORM,
+        "Water heater temperature",
+        DEV_WATER_HEATER,
+        AREA_GARDEN,
+    ),
+    *(
+        RegEntity(
+            relay, SIM_PLATFORM, f"Water heater relay {index}", DEV_WATER_HEATER_RELAYS, AREA_GARDEN
+        )
+        for index, relay in enumerate(d.WATER_HEATER_RELAY_IDS, start=1)
+    ),
     RegEntity(d.PRICE_ID, "tibber", "Electricity price", DEV_TIBBER, None, "electricity_price"),
     RegEntity(
         d.FORECAST_TODAY_ID,
@@ -124,6 +142,15 @@ _DEVICES: Final[tuple[tuple[str, str, str, str, str | None, str | None], ...]] =
     ),
     (DEV_POOL, "Pool pump plug", "SunCore Sim", "Smart plug", AREA_GARDEN, None),
     (DEV_ROD, "Heating rod controller", "SunCore Sim", "Power limiter", AREA_GARDEN, None),
+    (DEV_WATER_HEATER, "Water heater", "SunCore Sim", "Stepped water heater", AREA_GARDEN, None),
+    (
+        DEV_WATER_HEATER_RELAYS,
+        "Water heater relays",
+        "SunCore Sim",
+        "3-channel relay",
+        AREA_GARDEN,
+        None,
+    ),
     (DEV_TIBBER, "Home", "Tibber", "Price Sensor", None, "service"),
     (DEV_SOLCAST, "Solcast PV Forecast", "BJReplay", "Solcast PV Forecast", None, "service"),
 )

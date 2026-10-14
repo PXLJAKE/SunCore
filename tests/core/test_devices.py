@@ -24,9 +24,12 @@ from suncore.core.devices import (
     OnOffControl,
     PowerModel,
     PowerModelKind,
+    RelaysControl,
     SetpointControl,
     StepsControl,
     TimeWindow,
+    control_roles,
+    step_power_w,
 )
 from suncore.core.entities import EntityMeta
 
@@ -218,7 +221,14 @@ _CONTROL = TypeAdapter(ControlSpec)
 def test_control_kinds_match_the_enum() -> None:
     kinds = {
         c.model_fields["kind"].annotation.__args__[0]  # type: ignore[union-attr]
-        for c in (OnOffControl, StepsControl, ContinuousControl, SetpointControl, ModeControl)
+        for c in (
+            OnOffControl,
+            StepsControl,
+            ContinuousControl,
+            SetpointControl,
+            ModeControl,
+            RelaysControl,
+        )
     }
     assert kinds == {k.value for k in ControlKind}
 
@@ -425,3 +435,88 @@ def test_switch_on_opt_in_needs_a_mode_and_a_climate_device() -> None:
         OverridePolicy(kind="next_day", hours=2)
     with pytest.raises(ValidationError):
         OverridePolicy(kind="hours", hours=49)
+
+
+# --- relays control ------------------------------------------------------------------
+
+_RELAYS: dict[str, Any] = {
+    "kind": "relays",
+    "roles": ["r1", "r2", "r3"],
+    "steps": [
+        {"relays": [], "power_w": 0},
+        {"relays": ["r1"], "power_w": 2000},
+        {"relays": ["r1", "r2"], "power_w": 4000},
+        {"relays": ["r1", "r2", "r3"], "power_w": 6000},
+    ],
+}
+
+
+def test_relays_control_is_valid_and_exposes_its_roles() -> None:
+    control = _CONTROL.validate_python(_RELAYS)
+    assert isinstance(control, RelaysControl)
+    assert control.role == "r1"
+    assert control_roles(control) == ("r1", "r2", "r3")
+    assert control_roles(OnOffControl(kind="on_off", role="x")) == ("x",)
+    assert step_power_w(control, 2) == 4000
+    assert step_power_w(control, 9) is None
+    assert step_power_w(OnOffControl(kind="on_off", role="x"), 0) is None
+
+
+@pytest.mark.parametrize(
+    ("patch", "key"),
+    [
+        ({"roles": ["r1", "r1"]}, "relays_unique"),
+        ({"roles": []}, None),
+        ({"roles": ["a", "b", "c", "d"]}, None),
+        ({"steps": [{"relays": [], "power_w": 0}]}, None),
+        (
+            {"steps": [{"relays": [], "power_w": 0}, {"relays": ["zz"], "power_w": 10}]},
+            "relay_step_unknown",
+        ),
+        (
+            {"steps": [{"relays": [], "power_w": 0}, {"relays": ["r1", "r1"], "power_w": 10}]},
+            "relay_step_unique",
+        ),
+        (
+            {"steps": [{"relays": [], "power_w": 0}, {"relays": [], "power_w": 10}]},
+            "relay_step_distinct",
+        ),
+        (
+            {"steps": [{"relays": ["r1"], "power_w": 10}, {"relays": [], "power_w": 10}]},
+            "steps_order",
+        ),
+    ],
+)
+def test_relays_control_rejects_inconsistent_definitions(
+    patch: dict[str, Any], key: str | None
+) -> None:
+    with pytest.raises(ValidationError) as err:
+        _CONTROL.validate_python({**_RELAYS, **patch})
+    if key is not None:
+        assert any(f"suncore.{key}" == e["type"] for e in err.value.errors())
+
+
+def test_device_with_relays_needs_every_relay_mapped_and_distinct() -> None:
+    entities = {f"r{i}": {"entity_id": f"switch.heater_{i}"} for i in (1, 2, 3)}
+    cfg = DeviceConfig.model_validate(
+        _config(
+            id="boiler",
+            template_id="generic.water_heater_relays",
+            kind="water_heater",
+            entities=entities,
+            power_model={"kind": "nominal", "nominal_w": 6000},
+            control=_RELAYS,
+            comfort={"min_c": 35, "max_c": 60},
+        )
+    )
+    assert isinstance(cfg.control, RelaysControl)
+    missing = {k: v for k, v in entities.items() if k != "r3"}
+    with pytest.raises(ValidationError, match="r3"):
+        DeviceConfig.model_validate(
+            _config(kind="water_heater", entities=missing, control=_RELAYS, comfort=None)
+        )
+    same = {f"r{i}": {"entity_id": "switch.heater_1"} for i in (1, 2, 3)}
+    with pytest.raises(ValidationError, match="mapped to"):
+        DeviceConfig.model_validate(
+            _config(kind="water_heater", entities=same, control=_RELAYS, comfort=None)
+        )

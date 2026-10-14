@@ -12,6 +12,11 @@ import type {
 } from '../api/types';
 import { emptyRef, fromRef, slugify, toRef, uniqueId, type RefField } from './forms';
 
+/** The primary entity role a control writes (the first relay of a `relays` control). */
+export function controlRoleOf(control: ControlSpec): string {
+  return control.kind === 'relays' ? (control.roles[0] ?? '') : control.role;
+}
+
 /** Device kinds with a comfort band (core/devices.py THERMAL_KINDS). */
 export const THERMAL_KINDS: readonly DeviceKind[] = ['climate', 'water_heater', 'heat_pump'];
 
@@ -319,12 +324,12 @@ export function seemsConfiguredAlready(
   lookup: ReadonlyMap<string, UnitInfo>,
 ): boolean {
   if (form.kind !== 'climate') return false;
-  const chosen = toRef(form.entities[form.control.role] ?? emptyRef())?.entity_id;
+  const chosen = toRef(form.entities[controlRoleOf(form.control)] ?? emptyRef())?.entity_id;
   if (!chosen) return false;
   const mine = lookup.get(chosen);
   return others.some((d) => {
     if (d.id === form.id || d.kind !== 'climate') return false;
-    const other = d.entities?.[d.control.role]?.entity_id;
+    const other = d.entities?.[controlRoleOf(d.control)]?.entity_id;
     if (!other) return false;
     if (other === chosen) return true;
     const theirs = lookup.get(other);

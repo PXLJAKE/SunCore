@@ -23,6 +23,8 @@ drift).
 | device | `generic.switch` | any switch, optional power sensor | generic |
 | device | `generic.climate` | any `climate` entity, power measured (sensor may be on another device) or nominal | generic |
 | device | `generic.number_load` | load set through a number entity (W, A or %) | generic |
+| device | `generic.water_heater_steps` | water heater with power levels through one select entity, optional tank probe | generic, simulator only (`UNVERIFIED`: no hardware) |
+| device | `generic.water_heater_relays` | water heater with 1-3 heating elements switched by relays | generic, simulator only (`UNVERIFIED`: no hardware) |
 | tariff | `tibber.price` | Tibber dynamic price, curve from `tibber.get_prices` | from integration source |
 | forecast | `solcast.pv` | Solcast PV Forecast (HACS), `detailedForecast` P10/P50/P90 | from integration source |
 | region | `de` | Germany: EUR, `Europe/Berlin`, no remuneration at negative prices for new PV | law text `UNVERIFIED` here |
@@ -60,8 +62,8 @@ unverified: []                     # facts you could not verify; required if tes
   `price_now`, `price_curve`, `pv_curve`, `pv_quantiles`, `feed_in_tiers`,
   `negative_price_rule`. Where a validator can check the claim (for example
   `pv_quantiles` needs `p10_field` and `p90_field`) an unfounded one is an error.
-- Devices write through one role named by `defaults.control` (`on_off`, `steps`,
-  `continuous` in W/A/%, `setpoint` with a maximum shift, `mode`). Mode of operation
+- Devices write through the role(s) named by `defaults.control` (`on_off`, `steps`,
+  `relays` (1–3 switches), `continuous` in W/A/%, `setpoint` with a maximum shift, `mode`). Mode of operation
   (shadow/assisted/automatic) is **not** part of a template or a device; the `operation`
   config section is its only store.
 - Tariff and forecast curves come from `series`: an entity attribute
@@ -113,3 +115,4 @@ Every addition is recorded below with the SunCore version that introduced it.
 |---|---|
 | 0.3.0 (unreleased, Phase 2) | Initial schema v1 after the ADR-0012 review: matcher with `platforms`, `translation_key_pattern`, `unit_pattern`, digits in `domain`; `RoleSpec.same_device_as`; `PowerModelDefault` without required `nominal_w`, `counter_update_s`; `defaults.control` as `ControlSpec` (`on_off`, `steps`, `continuous`, `setpoint`, `mode`); `hysteresis_w`, `hysteresis_delay_s`, `settle_s`; `series` (`attribute` or `action`) for tariff and forecast, `price_includes`, optional `resolution_min` for tariffs; closed `capabilities` vocabulary; `min_app_version`; loader lint for unknown kind directories. |
 | 0.3.0 (unreleased, Phase 2) | `region.currency` is optional for `country: generic` (`None` = currency of the Home Assistant configuration). |
+| 0.4.0 (unreleased, Phase 3) | New `defaults.control` kind `relays` (additive union member, ADR-0012 policy): 1–3 switch roles (`roles`) and `steps`, each step naming the relays that are on (`relays`) and the power it draws (`power_w`, strictly increasing, relay sets distinct). `DeviceConfig` accepts the same control. Used by `generic.water_heater_relays`. |

@@ -640,7 +640,7 @@ export interface components {
             allow_switch_on: boolean;
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"];
             /** Entities */
             entities?: {
                 [key: string]: components["schemas"]["EntityRef"];
@@ -698,7 +698,7 @@ export interface components {
         DeviceDefaults: {
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"];
             /** Hysteresis Delay S */
             hysteresis_delay_s?: number | null;
             /** Hysteresis W */
@@ -1448,6 +1448,38 @@ export interface components {
             timezone?: string | null;
             /** Unverified */
             unverified?: string[];
+        };
+        /**
+         * RelayStep
+         * @description One level of a relay-switched load: the relays that are on and the power it draws.
+         */
+        RelayStep: {
+            /** Power W */
+            power_w: number;
+            /**
+             * Relays
+             * @default []
+             */
+            relays: string[];
+        };
+        /**
+         * RelaysControl
+         * @description Discrete power levels made of 1-3 switch entities (e.g. a heater with three elements).
+         *
+         *     ``roles`` are the relay switches; step ``i`` means exactly the relays listed in
+         *     ``steps[i].relays`` are on and the others are off. Step 0 is the lowest level
+         *     (normally all off). Added to schema v1 as an additive union member (ADR-0012).
+         */
+        RelaysControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "relays";
+            /** Roles */
+            roles: string[];
+            /** Steps */
+            steps: components["schemas"]["RelayStep"][];
         };
         /**
          * ReleaseAction
