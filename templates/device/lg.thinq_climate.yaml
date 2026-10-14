@@ -16,12 +16,13 @@ source:
   - title: "home-assistant/core lg_thinq entity.py (device ids, translation key suffix)"
     url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/lg_thinq/entity.py"
     date: 2026-10-13
-tested_with: []
+tested_with:
+  - { integration: lg_thinq, version: "2026.10.1" }
 capabilities: [energy_counter, temperature_setpoint, hvac_modes, preset_modes, fan_modes]
 unverified:
-  - "Read from the integration source (core 14f093e, 2026.11.0.dev0) only; not observed on a running Home Assistant or a real air conditioner."
+  - "Seen on core 2026.10.1 (RAC_0B0001_WW): unique ids end in _climate_air_conditioner and _energyUsage_today; translation keys themselves are inferred from the source."
   - "Exact entity ids and the property id part of the unique id (built at runtime from the device profile); the template therefore matches by platform and translation key."
-  - "Which HVAC modes, presets and fan modes a given model reports; LG never offers heat_cool (mapped to auto by the integration)."
+  - "Modes differ per model. RAC_0B0001_WW: hvac off/heat/cool/dry/auto/fan_only, fans auto/low/low_mid/medium/mid_high/high, no presets, no target_temp_step."
   - "Energy sensors exist only when the device API exposes `energyUsage`; sub-device layouts (sub_id) are unknown."
   - "min_run_s and min_pause_s are compressor-protective design defaults, not manufacturer data."
   - "target_temp_step depends on the model; the 1 °C set-point step is a safe default because the integration truncates the target to an integer when the step is >= 1."

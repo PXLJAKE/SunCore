@@ -3,10 +3,17 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-13 · **Phase:** 2 implemented, waiting for maintainer acceptance
-(PR 2-D, docs, stacked on 2-C) · **Branch:** `phase-2/*` (stacked on `main`)
+**Last update:** 2026-10-14 · **Phase:** 2 merged (#13–#16), maintainer test running ·
+**Branch:** `main`
 
 ## Done
+
+- **Phase 2 merged** (#13, #14, #15, #16, 2026-10-13). First automatic beta
+  bump on `main` worked (`0.3.0-beta.50`, pushed with `RELEASE_PLEASE_TOKEN`).
+  The maintainer installed it on HA OS 18.3 / core 2026.10.1 (amd64, KVM),
+  completed the wizard and sees plausible live flows; the panel follows the HA
+  theme accent colour. App memory 65 MiB, CPU < 0.1 % idle. LG ThinQ facts
+  checked live (see `research/device-integrations.md`, "Live check").
 
 - **Phase 1 accepted** (2026-10-13): the maintainer installed the beta on
   HA OS, mapped grid, PV, battery (SunSpec Modbus) and house sensors and
@@ -165,21 +172,21 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Open – Phase 1
 
-- Still to report by the maintainer: memory on the Pi, menu names in the
-  HA UI, whether the panel follows the HA theme. The GHCR packages
+- Still to report by the maintainer: menu names in the HA UI. Memory on
+  amd64 HA OS: 65 MiB (2026-10-14); the panel follows the HA theme. The GHCR packages
   `suncore`, `aarch64-suncore`, `amd64-suncore` and `suncore-beta` are public
   (anonymous pull verified on 2026-10-13).
 - ~~Beta app version bumped by hand~~ Done (Phase 2, WP10): `build.yml`
   derives `<next>-beta.<n>` and the `bump-beta` job commits it to
   `addon/suncore_beta/config.yaml` on `main` (ADR-0009 addendum). Needs
   push permission to `main`; the job uses the `RELEASE_PLEASE_TOKEN` secret
-  (set by the maintainer, already used for pushes to `main`) before
-  `GITHUB_TOKEN`; UNVERIFIED until the first run on `main`.
+  (set by the maintainer) before `GITHUB_TOKEN`; verified by the first run
+  on `main` (`0.3.0-beta.50`).
 - Done in PR 2-B: 422 issues are rendered as catalogue keys (`api.validation.*`),
   and `/api/v1/entities` is served from the entity catalogue (registry snapshot
   plus a state copy refreshed at most every 30 s, never a `get_states` per
-  request). The theme bridge from the ingress parent document is implemented
-  (PR 2-C) but `UNVERIFIED` on a real HA, see the table below.
+  request). The theme bridge follows the HA theme on the maintainer's HA
+  (accent colour confirmed 2026-10-14).
 - Python ICU library decision (ADR-0007 follow-up) deferred to Phase 6:
   in Phase 1 the backend only emits `Reason(key, args)`.
 - Phase 3 follow-ups: extend boundary rule 2 to `suncore.devices` drivers
@@ -199,6 +206,12 @@ ADRs relevant to your task. Keep it short; history lives in git.
   device = shadow" rule on device identity (id + `template_id` + entities) in
   put/import/restore of `devices` **and** put/restore of `operation`, not on the id alone.
   Decide whether an import resets the global mode to shadow (recommendation: yes).
+- Phase 3 follow-up (live LG check): the maintainer runs both `lg_thinq` and HACS
+  `smartthinq_sensors` for the same AC, so there are two climate entities per unit.
+  SunCore must control exactly one per physical unit (warn when two climate
+  entities in `devices` look like the same unit); offer the `smartthinq_sensors`
+  power sensor (`energy_current`, W) as an optional measured power source once its
+  update rate while running is known.
 - Phase 4 follow-up (A3): per-(domain, service) rate limiter with try-acquire/deadline for
   `call_action_response` before the first adapter calls it (boundary rule 7 then admits `app`
   together with the adapter wiring).
@@ -207,11 +220,9 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Next steps
 
-1. Maintainer: test the beta on HA OS (describe your system through the
-   wizard, with the Energy dashboard import, LG ThinQ, Tibber, Solcast; report
-   the `UNVERIFIED` items below), then merge in order #13 → #14 → #15 → #16
-   (2-A, 2-B, 2-C, 2-D).
-2. Release `0.2.0`/the next release-please PR for the stable app after Phase 2.
+1. Maintainer: watch the beta in surplus, check the summary system check at
+   noon, export a config backup; wizard walk-through with other people.
+2. Release the next release-please PR for the stable app after acceptance.
 3. Then the Phase 3 plan (`docs/plans/phase-3.md`: real-time controller and
    safety), including the Phase 3 follow-ups above.
 
@@ -223,17 +234,15 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
 | Open-Meteo tilted-irradiance parameters; Energy-Charts and aWATTar APIs and terms | `research/integrations.md` | Phase 4, session with network access |
 | Forecast.Solar / Open-Meteo Solar Forecast attribute names; Octopus attributes | `research/integrations.md` | Phase 4, read integration source |
-| Theme bridge: `window.parent.document` readable from the ingress iframe, HA theme variable names (`THEME_MAP`) and the `MutationObserver` on the parent `<html>` follow HA theme switches (implemented in PR 2-C, unit-tested with fake parent windows only; fallback `prefers-color-scheme` is unchanged) | `frontend/src/lib/theme/bridge.ts`, `frontend/README.md` | maintainer's HA OS: switch the HA theme light/dark and check the panel follows |
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
 | Registry and energy-prefs shapes on cores older than dev (single `config_entry_id` on devices, unified grid source); `unknown_command` code without the `energy` integration; Supervisor proxy passes registry commands | `research/ha-websocket-api.md` | first run on HA OS; parsers tolerate both shapes |
 | Section 51 EEG 2023 text could not be fetched; region `de` feed-in tiers are empty until the official BNetzA table is cited | `templates/region/de.yaml` | maintainer provides the table or a session with access to gesetze-im-internet.de |
 | Whether Tibber's `total` includes grid fees (country dependent) | `templates/tariff/tibber.price.yaml` | live check on the maintainer's Tibber account |
-| Live entity ids and LG `unique_id` property part, LG model-specific HVAC/fan modes, Tibber tomorrow-price publication time, Solcast default day-sensor count (LG, Tibber and Solcast templates are verified from source only) | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
+| LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes, `smartthinq_sensors` power sensor update rate while running, Tibber tomorrow-price publication time, Solcast default day-sensor count | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
 | Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA) | `docs/user/*/quick-start.md` | maintainer follows the quick start on HA OS |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
-| `bump-beta` job pushes the version commit to `main` (needs push permission for `github-actions[bot]` or `RELEASE_PLEASE_TOKEN` with bypass) | `.github/workflows/build.yml`, ADR-0009 addendum | maintainer: first run on `main` |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 
