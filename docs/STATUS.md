@@ -27,9 +27,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
     rewritten to the implementation (per-tick order, gate order, release paths, observed-baseline
     rule, handover/recover; all 8 Mermaid diagrams parse); plan "Deviations during
     implementation".
-  - Found while writing: the goals note `goals.stored_note` in the UI still says the goals are
-    used "by the planner in a later version", but the controller already uses the battery target
-    and "climate before export" (frontend string to correct in a follow-up).
+  - The goals note `goals.stored_note` now says the controller already uses the battery target
+    and "climate before export".
 
 - **Phase 3 – WP2 contracts v2 and WP3 safety layer** (branch `phase-3/a-safety`, signed off
   by `control-safety`):

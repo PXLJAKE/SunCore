@@ -365,7 +365,7 @@
   "goals.climate_hint": "Überschuss geht zuerst ins Kühlen oder Heizen, danach ins Netz.",
   "goals.error.time": "Gib die Uhrzeit als Stunden und Minuten ein.",
   "goals.grid_charge_night": "Nur nachts aus dem Netz laden",
-  "goals.stored_note": "Die Ziele werden jetzt gespeichert und in einer späteren Version vom Planer genutzt.",
+  "goals.stored_note": "Der Regler nutzt das Akku-Ziel und „Klima vor Einspeisung“ schon jetzt; die übrigen Ziele nutzt der Planer in einer späteren Version.",
   "goals.target_soc": "Ziel-Ladestand",
   "goals.target_time": "Bis",
   "goals.title": "Ziele",

@@ -365,7 +365,7 @@
   "goals.climate_hint": "Surplus goes to cooling or heating first, then to the grid.",
   "goals.error.time": "Enter the time as hours and minutes.",
   "goals.grid_charge_night": "Charge from the grid at night only",
-  "goals.stored_note": "The goals are stored now and used by the planner in a later version.",
+  "goals.stored_note": "The controller already uses the battery target and \"climate before export\"; the planner will use the other goals in a later version.",
   "goals.target_soc": "Target charge",
   "goals.target_time": "By",
   "goals.title": "Goals",
