@@ -18,6 +18,9 @@ should state the real period):
   :data:`IDLE_REFRESH_S` - the resync period;
 * the energy counter (``power_model.energy_role``): ``power_model.counter_update_s`` if set, else
   :data:`DEFAULT_COUNTER_CADENCE_S`;
+* the tank probe of a thermal device (``temperature`` role, ``core.control.heat_capped``):
+  :data:`IDLE_REFRESH_S` - it gates heating, so a quiet probe must not look stale before the
+  resync could refresh it (stale = no more heat);
 * every other entity of a device (control entities, daily counters such as ``energy_yesterday``)
   gets no cadence: the control layer only watches what the power model reads
   (``suncore.app.control``), and a control entity has no staleness (it is a state, not a sample).
@@ -31,6 +34,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Final
 
+from suncore.core.control import TEMPERATURE_ROLE, has_heat_limit
 from suncore.core.devices import DeviceConfig
 from suncore.ha.websocket import DEFAULT_RESYNC_INTERVAL_S
 
@@ -66,6 +70,9 @@ def device_cadences(devices: Iterable[DeviceConfig]) -> dict[str, float]:
         power = power_cadence_s(device)
         if power is not None and pm.power_role is not None:
             result[device.entities[pm.power_role].entity_id] = power
+        if has_heat_limit(device):
+            # The tank probe changes slowly: an unchanged reading is refreshed by the resync.
+            result[device.entities[TEMPERATURE_ROLE].entity_id] = IDLE_REFRESH_S
         counter = counter_cadence_s(device)
         if counter is not None and pm.energy_role is not None:
             result[device.entities[pm.energy_role].entity_id] = counter

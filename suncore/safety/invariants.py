@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from typing import Final
 
 from suncore.core.balance import FlowSnapshot
-from suncore.core.control import ControlSettings, DeviceState, PowerEstimate
+from suncore.core.control import ControlSettings, DeviceState, PowerEstimate, heat_capped
 from suncore.core.conversion import value_to_power_w
 from suncore.core.decisions import (
     Action,
@@ -354,9 +354,35 @@ def check_climate_switch_on(ctx: InvariantContext) -> Reason | None:
     return None
 
 
+def check_heat_limit(ctx: InvariantContext) -> Reason | None:
+    """No load increase for a thermal device at its ``comfort.max_c`` (water heater tank).
+
+    Applies to a device with a ``temperature`` probe and a comfort band (not climate set-point
+    control); a probe that is unknown, stale or not in °C counts as a full tank. Lowering and
+    switching off stay allowed; an increase is any action with a positive (or unknown)
+    added demand that is not a switch-off.
+    """
+    if isinstance(ctx.action, ReleaseAction) or not heat_capped(ctx.device, ctx.state):
+        return None
+    if action_turns_on(ctx.action, ctx.device) is False:
+        return None
+    delta = power_delta_w(ctx)
+    if delta is not None and delta <= 0:
+        return None
+    assert ctx.device.comfort is not None
+    temperature = None if ctx.state is None else ctx.state.temperature_c
+    if temperature is None:
+        return Reason(key="safety.heat_temperature_unknown")
+    return Reason(
+        key="safety.heat_limit",
+        args={"temperature_c": round(temperature, 1), "max_c": ctx.device.comfort.max_c},
+    )
+
+
 ALL_CHECKS: Final = (
     check_climate_switch_on,
     check_comfort,
+    check_heat_limit,
     check_change,
     check_min_run_pause,
     check_switch_rate,

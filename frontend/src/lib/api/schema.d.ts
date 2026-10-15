@@ -1019,6 +1019,8 @@ export interface components {
             setpoint_c?: number | null;
             /** Step */
             step?: number | null;
+            /** Temperature C */
+            temperature_c?: number | null;
             /** Ts */
             ts?: string | null;
             /** Value */

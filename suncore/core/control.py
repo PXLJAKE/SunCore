@@ -19,7 +19,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from suncore.core.balance import FlowSnapshot
 from suncore.core.decisions import Reason
-from suncore.core.devices import RESUME_TIME_DEFAULT
+from suncore.core.devices import RESUME_TIME_DEFAULT, DeviceConfig, SetpointControl
 from suncore.core.signals import Quality
 from suncore.core.validation import invalid
 
@@ -70,6 +70,10 @@ class DeviceState(_Frozen):
     quality: Quality = Quality.OK
     ts: AwareDatetime | None = None
     """When the newest contributing entity was refreshed."""
+    temperature_c: float | None = Field(default=None, allow_inf_nan=False)
+    """Measured temperature of a thermal device's ``temperature`` role (a tank probe) in °C;
+    ``None`` = no probe, or the probe is unavailable, stale or not in °C (the control stack
+    fills it from the entity cache, see :func:`heat_capped`)."""
 
     @property
     def known(self) -> bool:
@@ -265,10 +269,41 @@ class Plan(_Frozen):
         return DEFAULT_BATTERY_BAND if interval is None else interval.battery
 
 
+TEMPERATURE_ROLE: Final = "temperature"
+"""The role of a thermal device's own temperature probe (water heater tank)."""
+
+
+def has_heat_limit(device: DeviceConfig) -> bool:
+    """A thermal load whose ``comfort.max_c`` is enforced through its ``temperature`` probe.
+
+    Climate units (set-point control) keep their comfort band through the set-point; a
+    device without a probe cannot be limited (the template says so).
+    """
+    return (
+        device.comfort is not None
+        and TEMPERATURE_ROLE in device.entities
+        and not isinstance(device.control, SetpointControl)
+    )
+
+
+def heat_capped(device: DeviceConfig, state: DeviceState | None) -> bool:
+    """No more heat: the probe reads at or above ``comfort.max_c``, or is unknown/stale.
+
+    Shared by the controller (caps the device at level 0) and the gate's invariant (rejects
+    any load increase); an unknown temperature counts as a full tank (the safe direction).
+    """
+    if not has_heat_limit(device):
+        return False
+    assert device.comfort is not None
+    temperature = None if state is None else state.temperature_c
+    return temperature is None or temperature >= device.comfort.max_c
+
+
 __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single constant)
     "DEFAULT_BAND",
     "DEFAULT_BATTERY_BAND",
     "RESUME_TIME_DEFAULT",
+    "TEMPERATURE_ROLE",
     "BandPreference",
     "BatteryBand",
     "ControlSettings",
@@ -278,4 +313,6 @@ __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single cons
     "Plan",
     "PlanInterval",
     "PowerEstimate",
+    "has_heat_limit",
+    "heat_capped",
 ]

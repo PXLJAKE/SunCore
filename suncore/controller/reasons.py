@@ -40,8 +40,12 @@ RETRY_WAIT: Final = "controller.retry_wait"
 IN_FLIGHT: Final = "controller.in_flight"
 NO_SURPLUS: Final = "controller.no_surplus"
 IDLE: Final = "controller.idle"
+HEAT_LIMIT: Final = "controller.heat_limit"
+HEAT_TEMPERATURE_UNKNOWN: Final = "controller.heat_temperature_unknown"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
+    HEAT_LIMIT,
+    HEAT_TEMPERATURE_UNKNOWN,
     SURPLUS_ON,
     SURPLUS_GONE,
     SETPOINT_SHIFT,
@@ -124,6 +128,10 @@ def base_outside_comfort(setpoint_c: float, min_c: float, max_c: float) -> Reaso
         key=BASE_OUTSIDE_COMFORT,
         args={"setpoint_c": round(setpoint_c, 2), "min_c": min_c, "max_c": max_c},
     )
+
+
+def heat_limit(temperature_c: float, max_c: float) -> Reason:
+    return Reason(key=HEAT_LIMIT, args={"temperature_c": round(temperature_c, 1), "max_c": max_c})
 
 
 def climate_mode_unsupported(mode: str) -> Reason:

@@ -5,8 +5,9 @@
 #   number entity -> role `level` with `matcher.domain: number` and step values 0, 1, 2 ...
 #                    (written with `number.set_value`);
 #   1-3 relay switches (one per heating element) -> use `generic.water_heater_relays`.
-# The comfort band bounds the tank temperature: `max_c` is the temperature above which the
-# controller must not add heat (it needs the optional `temperature` probe to know it).
+# The comfort band bounds the tank temperature: at or above `max_c` SunCore adds no heat (the
+# controller caps the heater at level 0, the safety gate rejects any increase). It needs the
+# optional `temperature` probe; an unknown or stale probe counts as a full tank.
 id: generic.water_heater_steps
 kind: device
 schema_version: 1
@@ -36,7 +37,9 @@ unverified:
   - "Maintainer has no water heater - simulator only (select.sim_water_heater_level). Never run against hardware or a real integration."
   - "Step values (`off`, `low`, `high`) and their power_w are placeholders: set them to the select's own `options` (case-sensitive) and to what each level really draws."
   - "Which integration offers a stepped heater as a select entity is not known to the author; the template therefore matches any select."
-  - "Comfort band 35-60 C is a design default (not a legionella or manufacturer rule). The tank temperature probe is optional; without it the controller cannot enforce `max_c`."
+  - "Comfort band 35-60 C is a design default (not a legionella or manufacturer rule)."
+  - "With the optional tank probe (in °C) SunCore adds no heat at or above `max_c`; an unknown, stale or non-°C probe counts as full."
+  - "Without the tank probe `max_c` is not enforced: the heater's own thermostat must limit the tank temperature."
   - "min_run_s and min_pause_s are conservative design defaults for contactor-switched heating elements."
 device_kind: water_heater
 roles:

@@ -63,7 +63,14 @@ from suncore.controller.levels import (
     observed_level,
 )
 from suncore.controller.surplus import SiteSurplus
-from suncore.core.control import ControlSettings, DeviceBand, DeviceState, Plan, PowerEstimate
+from suncore.core.control import (
+    ControlSettings,
+    DeviceBand,
+    DeviceState,
+    Plan,
+    PowerEstimate,
+    heat_capped,
+)
 from suncore.core.decisions import Decision, DecisionKind, Intent, Origin, Reason, SetpointAction
 from suncore.core.devices import DeviceConfig, SetpointControl, TimeWindow
 from suncore.core.signals import Quality
@@ -607,6 +614,9 @@ class Allocator:
         else:
             current_lower = draw.committed_w
         cap, cap_reason = self._cap(m, inputs.plan.band_for(device.id, local), local)
+        heat = _heat_cap_reason(device, inputs.states.get(device.id))
+        if heat is not None:
+            cap, cap_reason = 0, heat
         return Candidate(
             device_id=device.id,
             table=m.table,
@@ -839,6 +849,17 @@ class Allocator:
             reasons=m.reasons,
             since=m.since,
         )
+
+
+def _heat_cap_reason(device: DeviceConfig, state: DeviceState | None) -> Reason | None:
+    """Level 0 for a thermal device at its ``comfort.max_c`` (or with an unknown probe)."""
+    if not heat_capped(device, state):
+        return None
+    assert device.comfort is not None
+    temperature = None if state is None else state.temperature_c
+    if temperature is None:
+        return rs.plain(rs.HEAT_TEMPERATURE_UNKNOWN)
+    return rs.heat_limit(temperature, device.comfort.max_c)
 
 
 def _at_reserve(site: SiteSurplus, reserve_soc_pct: float | None) -> bool:

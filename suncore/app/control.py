@@ -51,12 +51,18 @@ from suncore.controller import (
 from suncore.controller.loop import TickResult
 from suncore.core.balance import compute_flows
 from suncore.core.config import GoalsConfig
-from suncore.core.control import ControlSettings, DeviceState, PowerEstimate
+from suncore.core.control import (
+    TEMPERATURE_ROLE,
+    ControlSettings,
+    DeviceState,
+    PowerEstimate,
+    has_heat_limit,
+)
 from suncore.core.controlstate import ControlState, DeviceControlState, SiteControlState
 from suncore.core.decisions import Action, Decision, Reason
 from suncore.core.devices import DeviceConfig, control_roles
 from suncore.core.identity import identity_token
-from suncore.core.signals import Sample
+from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.devices.drivers import ClimateDriver, NumberDriver, create_driver
 from suncore.devices.power import create_power_model, restore_power_model
@@ -88,11 +94,32 @@ log = structlog.get_logger(__name__)
 DEFAULT_POWER_SAVE_INTERVAL_S: Final = 300.0
 """The learned power models are saved this often (and on shutdown)."""
 DEVIATION_HISTORY: Final = 100
+CELSIUS: Final = "°C"
+"""The only probe unit judged (HA ``UnitOfTemperature.CELSIUS``); °F counts as unknown."""
 
 DeviceActuator = StatefulActuator
 """What ``create_driver`` returns, structurally: the gate's actuator plus ``device_state``."""
 
 StateChangeListener = Callable[[], None]
+
+
+def probe_temperature_c(cache: EntityCache, device: DeviceConfig) -> float | None:
+    """The reading of a thermal device's ``temperature`` probe for ``core.control.heat_capped``.
+
+    Only a fresh, numeric reading in °C counts; anything else is ``None`` (= a full tank for the
+    controller and the gate). The drivers do not read the probe: it is not part of the control,
+    and only the cache knows its age.
+    """
+    ref = device.entities.get(TEMPERATURE_ROLE)
+    if ref is None:
+        return None
+    entry = cache.get(ref.entity_id)
+    sample = cache.sample(ref.entity_id)
+    if entry is None or sample is None or sample.quality is not Quality.OK:
+        return None
+    if entry.state.attributes.get("unit_of_measurement") != CELSIUS:
+        return None
+    return sample.value
 
 
 class ControlStack:
@@ -262,7 +289,14 @@ class ControlStack:
         return None if entry is None else entry.state
 
     def _device_state(self, device_id: str) -> DeviceState | None:
-        return self.drivers[device_id].device_state()
+        return self._with_temperature(
+            self._devices[device_id], self.drivers[device_id].device_state()
+        )
+
+    def _with_temperature(self, device: DeviceConfig, state: DeviceState) -> DeviceState:
+        if not has_heat_limit(device):
+            return state
+        return state.model_copy(update={"temperature_c": probe_temperature_c(self.cache, device)})
 
     def _power_cadence(self, device: DeviceConfig) -> float | None:
         role = device.power_model.power_role
@@ -601,7 +635,8 @@ class ControlStack:
         estimates: dict[str, PowerEstimate] = {}
         for device_id, device in self._devices.items():
             model = self.models[device_id]
-            state = self.drivers[device_id].device_state()
+            state = self._device_state(device_id)
+            assert state is not None
             dev_samples = self._device_samples(device, model)
             await self.gate.check_device(
                 device_id,
@@ -683,7 +718,7 @@ class ControlStack:
             global_mode=modes.global_mode,
             device_mode=modes.device_mode,
             effective_mode=modes.effective,
-            state=self.drivers[device.id].device_state(),
+            state=self._device_state(device.id),
             estimate=self.estimates.get(device.id),
             phase=None if view is None else view.phase.value,
             level=None if view is None else view.level,
@@ -707,4 +742,5 @@ __all__ = [
     "DEFAULT_POWER_SAVE_INTERVAL_S",
     "ControlStack",
     "DeviceActuator",
+    "probe_temperature_c",
 ]
