@@ -824,3 +824,52 @@ async def test_a_late_connected_handler_does_not_end_a_new_outage(demo_runtime: 
     assert await stack.tick() is None
     conn._set_state(ConnectionState.CONNECTED)
     await wait_for(lambda: not stack.lost and stack.watchdog.connected)
+
+
+async def test_a_device_removed_while_ha_is_down_is_released_once_it_is_back(
+    demo_runtime: Runtime,
+) -> None:
+    """Final review 3-B (B1): the handover's release of a removed device failed (HA down) and the
+    runtime was orphaned - the new stack had no actuator for it, the relay stayed on for ever."""
+    stack = await idle(stack_of(demo_runtime))
+    await wait_for(lambda: stack.recovered and stack.cache.get(POOL_SWITCH_ID) is not None)
+    conn = demo_runtime.connection
+    assert isinstance(conn, RecordingConnection)
+    await conn.service_caller().write("switch", "turn_on", target={"entity_id": POOL_SWITCH_ID})
+    await wait_for(
+        lambda: (view := stack.cache.get(POOL_SWITCH_ID)) is not None and view.state.state == "on"
+    )
+    pool = device(demo_runtime, POOL)
+    async with stack.gate._lock(POOL):
+        await stack.gate._save(
+            DeviceRuntime(
+                device_id=POOL,
+                identity=identity_token(pool),
+                baseline=SwitchAction(on=False),
+                last_written=SwitchAction(on=True),
+                last_write_ts=demo_runtime.clock(),
+            )
+        )
+    conn._set_state(ConnectionState.DISCONNECTED)
+    await wait_for(lambda: stack.lost)
+    devices = demo_runtime.devices
+    assert devices is not None
+    await demo_runtime.put_section(
+        "devices", DevicesConfig(devices=[d for d in devices.devices if d.id != POOL])
+    )
+    new = stack_of(demo_runtime)
+    assert POOL not in new.device_configs
+    runtime = new.store and await new.store.load_runtime(POOL)
+    assert runtime is not None
+    assert runtime.under_control  # the failed release is kept, not dropped
+    before = len(conn.call_log)
+    conn._set_state(ConnectionState.CONNECTED)
+    await wait_for(lambda: new.recovered)
+    await wait_for(lambda: not new.gate.is_orphaned(POOL))
+    # the old entity is back at its baseline (no longer subscribed: read the call log)
+    offs = [
+        c
+        for c in conn.call_log[before:]
+        if c.entity_ids == (POOL_SWITCH_ID,) and c.service == "turn_off" and c.error is None
+    ]
+    assert offs

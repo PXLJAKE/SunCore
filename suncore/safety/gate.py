@@ -65,6 +65,7 @@ from suncore.core.decisions import (
     SetpointAction,
 )
 from suncore.core.devices import DeviceConfig, OverridePolicy
+from suncore.core.identity import identity_token
 from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
 from suncore.safety import overrides
@@ -132,6 +133,10 @@ REASON_RELEASE_PENDING: Final = Reason(key="safety.release_pending")
 REASON_MODE_CHANGED: Final = Reason(key="safety.mode_changed")
 REASON_RATE_LIMITED: Final = Reason(key="safety.rate_limited")
 REASON_RECONFIGURED: Final = Reason(key="safety.reconfigured")
+REASON_ORPHANED: Final = Reason(key="safety.orphaned")
+"""The device SunCore controlled was removed or re-mapped and could not be released."""
+REASON_ORPHAN_DROPPED: Final = Reason(key="safety.orphan_dropped")
+"""An orphaned runtime without the old actuator: reported, then dropped (manual check needed)."""
 
 MAX_CONSECUTIVE_FAILURES: Final = 3
 """After this many failed writes in a row the device scope trips (watchdog)."""
@@ -167,8 +172,15 @@ class SafetyGate:
         watchdog: Watchdog | None = None,
         tz: tzinfo = UTC,
         sleep: Sleeper | None = None,
+        predecessor: SafetyGate | None = None,
     ) -> None:
         self._clock = clock
+        # Actuators of devices a configuration change removed or re-mapped while their release
+        # failed (``handover``): used only to release them, never to write (the identity of the
+        # runtime selects them). Dropped once the release succeeded.
+        self._release_only: dict[str, tuple[Actuator, DeviceConfig]] = (
+            predecessor._leftovers() if predecessor is not None else {}
+        )
         self._sink = sink
         self._actuators: Mapping[str, Actuator] = MappingProxyType(dict(actuators or {}))
         self._modes: ModeProvider = modes if modes is not None else AllShadow()
@@ -277,7 +289,9 @@ class SafetyGate:
         ``recover(after_handover=True)``), so a harmless edit (a rename, another device, the
         site) cannot short-cycle a compressor. Every other device under control is released at
         once: its entities or control changed, and only this gate's actuator knows how to
-        restore its baseline. Both within ``release_deadline_s``.
+        restore its baseline. Both within ``release_deadline_s``. A release that fails (Home
+        Assistant down) is not lost: the successor gate is built with ``predecessor=self`` and
+        keeps this gate's actuator for that release only (``recover``, ``connection_restored``).
         """
         kept = frozenset(keep)
         others = [d for d, rt in self._runtimes.items() if rt.under_control and d not in kept]
@@ -401,6 +415,8 @@ class SafetyGate:
         async with self._lock(device_id):
             now = self._now()
             runtime = await self._runtime(device_id)
+            if self._is_orphan(device_id, runtime):
+                return overrides.NO_OVERRIDE  # another device's runtime: nothing to judge
             settle = self._settle_s(device)
             if overrides.pending_expired(runtime, now, settle):
                 runtime = overrides.clear_pending(runtime)
@@ -517,6 +533,7 @@ class SafetyGate:
         runtime = overrides.expire(current, now)
         if runtime is not current:  # only the expiry is saved, never a stale copy
             await self._save(runtime)
+        runtime = await self._own_runtime(device_id, runtime)
         device = self._devices(device_id)
         if mode is OperatingMode.SHADOW:
             reasons: tuple[Reason, ...] = (REASON_SHADOW_MODE,)
@@ -526,10 +543,9 @@ class SafetyGate:
         pause = self._watchdog.pause_reason(device_id, now)
         if pause is not None:
             return await self._decide(intent, DecisionKind.REJECTED, now, (pause,), mode)
-        if runtime.release_pending and not isinstance(intent.action, ReleaseAction):
-            return await self._decide(
-                intent, DecisionKind.REJECTED, now, (REASON_RELEASE_PENDING,), mode
-            )
+        held_back = self._held_back(intent, runtime)
+        if held_back is not None:
+            return await self._decide(intent, DecisionKind.REJECTED, now, (held_back,), mode)
         if runtime.is_held(now) and intent.origin is not Origin.USER:
             return await self._decide(
                 intent,
@@ -655,6 +671,7 @@ class SafetyGate:
                     update={
                         "baseline": baseline,
                         "baseline_ts": now,
+                        "identity": identity_token(device),
                         "base_setpoint_c": baseline.setpoint_c
                         if isinstance(baseline, SetpointAction)
                         else runtime.base_setpoint_c,
@@ -754,7 +771,9 @@ class SafetyGate:
             intent, DecisionKind.ACCEPTED, after, intent.reasons, mode, observed=observed
         )
 
-    def _blocked(self, intent: Intent, runtime: DeviceRuntime, now: datetime) -> Reason | None:
+    def _blocked(  # noqa: PLR0911 - one return per verdict
+        self, intent: Intent, runtime: DeviceRuntime, now: datetime
+    ) -> Reason | None:
         """Re-check, right before ``apply()``, everything that may have changed meanwhile."""
         if self._emergency_stop:
             return REASON_EMERGENCY_STOP
@@ -768,13 +787,15 @@ class SafetyGate:
             return pause
         if runtime.release_pending:
             return REASON_RELEASE_PENDING
+        if runtime.under_control and self._is_orphan(intent.asset_id, runtime):
+            return REASON_ORPHANED
         if runtime.is_held(now) and intent.origin is not Origin.USER:
             return REASON_OVERRIDE_HELD
         return None
 
     # --- release -------------------------------------------------------------------------
 
-    async def release_device(
+    async def release_device(  # noqa: PLR0911 - one return per verdict
         self,
         device_id: str,
         reason: Reason,
@@ -805,19 +826,21 @@ class SafetyGate:
                     reasons=(reason,),
                     origin=origin,
                 )
-            actuator = self._actuators.get(device_id)
             if not runtime.under_control:
                 return await self._decide(
                     intent, DecisionKind.REJECTED, now, (REASON_NOT_UNDER_CONTROL,), mode
                 )
+            actuator, device = self._release_target(device_id, runtime)
             if actuator is None:
+                if self._is_orphan(device_id, runtime):
+                    return await self._drop_orphan(intent, runtime, now, mode)
                 return await self._decide(
                     intent, DecisionKind.REJECTED, now, (REASON_NO_ACTUATOR,), mode
                 )
-            device = self._devices(device_id)
+            orphan = self._is_orphan(device_id, runtime)
             observed = await actuator.read_back()
             runtime = await self._adopt_user_state(device, runtime, observed, now)
-            if not urgent:
+            if not urgent and not orphan:
                 due = _protection_due(device, runtime, now, observed)
                 if due is not None:
                     deferred = runtime.model_copy(
@@ -836,8 +859,16 @@ class SafetyGate:
                 await actuator.release(runtime.baseline)
             except Exception as exc:
                 log.warning("safety.release_failed", device_id=device_id, error=str(exc)[:200])
+                reasons = (REASON_RELEASE_FAILED, reason)
+                if orphan:
+                    reasons = (REASON_RELEASE_FAILED, REASON_ORPHANED)
+                return await self._decide(intent, DecisionKind.FAILED, now, reasons, mode)
+            if orphan:
+                # The old device is back at its baseline; a device now using the id starts clean.
+                self._release_only.pop(device_id, None)
+                await self._save(DeviceRuntime(device_id=device_id))
                 return await self._decide(
-                    intent, DecisionKind.FAILED, now, (REASON_RELEASE_FAILED, reason), mode
+                    intent, DecisionKind.ACCEPTED, now, (REASON_RELEASED, REASON_ORPHANED), mode
                 )
             released = runtime.model_copy(
                 update={
@@ -865,6 +896,75 @@ class SafetyGate:
             return await self._decide(
                 intent, DecisionKind.ACCEPTED, now, (REASON_RELEASED, reason), mode
             )
+
+    def _is_orphan(self, device_id: str, runtime: DeviceRuntime) -> bool:
+        """The runtime belongs to a device that is no longer configured as it was taken over."""
+        if runtime.identity is None:
+            return False
+        device = self._devices(device_id)
+        return device is None or identity_token(device) != runtime.identity
+
+    def _held_back(self, intent: Intent, runtime: DeviceRuntime) -> Reason | None:
+        """Writing waits for a release: of another device's runtime, or a deferred one."""
+        if runtime.under_control and self._is_orphan(intent.asset_id, runtime):
+            return REASON_ORPHANED
+        if runtime.release_pending and not isinstance(intent.action, ReleaseAction):
+            return REASON_RELEASE_PENDING
+        return None
+
+    async def _own_runtime(self, device_id: str, runtime: DeviceRuntime) -> DeviceRuntime:
+        """Released history of a removed/re-mapped device is not the configured device's: the
+        device now using the id starts clean (protection times, holds)."""
+        if runtime.under_control or not self._is_orphan(device_id, runtime):
+            return runtime
+        fresh = DeviceRuntime(device_id=device_id)
+        await self._save(fresh)
+        return fresh
+
+    def _leftovers(self) -> dict[str, tuple[Actuator, DeviceConfig]]:
+        """For the successor gate: what can still release a device this gate left under control."""
+        out = dict(self._release_only)
+        for device_id, runtime in self._runtimes.items():
+            actuator = self._actuators.get(device_id)
+            device = self._devices(device_id)
+            if runtime.under_control and actuator is not None and device is not None:
+                out[device_id] = (actuator, device)
+        return out
+
+    def is_orphaned(self, device_id: str) -> bool:
+        """A removed or re-mapped device is still under control (its release is pending)."""
+        runtime = self._runtimes.get(device_id)
+        return runtime is not None and runtime.under_control and self._is_orphan(device_id, runtime)
+
+    def _release_target(
+        self, device_id: str, runtime: DeviceRuntime
+    ) -> tuple[Actuator | None, DeviceConfig | None]:
+        """The actuator and configuration that can restore ``runtime``'s baseline."""
+        if not self._is_orphan(device_id, runtime):
+            return self._actuators.get(device_id), self._devices(device_id)
+        entry = self._release_only.get(device_id)
+        if entry is None or identity_token(entry[1]) != runtime.identity:
+            return None, None
+        return entry
+
+    async def _drop_orphan(
+        self, intent: Intent, runtime: DeviceRuntime, now: datetime, mode: OperatingMode
+    ) -> Decision:
+        """No actuator knows the old device any more (a restart since the change): report it.
+
+        The runtime is dropped so that a device now using the id never inherits a foreign
+        baseline (a release would write it to the *new* entities). The decision tells the user
+        to check the old device by hand.
+        """
+        log.error(
+            "safety.orphan_dropped",
+            device_id=runtime.device_id,
+            baseline=None if runtime.baseline is None else runtime.baseline.model_dump(),
+        )
+        await self._save(DeviceRuntime(device_id=runtime.device_id))
+        return await self._decide(
+            intent, DecisionKind.FAILED, now, (REASON_ORPHAN_DROPPED, REASON_ORPHANED), mode
+        )
 
     async def _adopt_user_state(
         self,
@@ -1113,6 +1213,7 @@ _DEFAULT_POLICY: Final = OverridePolicy()
 __all__ = [
     "MAX_CONSECUTIVE_FAILURES",
     "REASON_EMERGENCY_STOP",
+    "REASON_ORPHANED",
     "REASON_OVERRIDE_HELD",
     "REASON_SHADOW_MODE",
     "Clock",

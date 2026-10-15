@@ -71,6 +71,7 @@ from suncore.ha.connection import (
 )
 from suncore.safety.gate import (
     REASON_EMERGENCY_STOP,
+    REASON_ORPHANED,
     REASON_OVERRIDE_HELD,
     REASON_RELEASE_PENDING,
     DecisionSink,
@@ -127,6 +128,8 @@ class ControlStack:
         after_handover: this stack replaces one stopped by :meth:`handover` (a configuration
             change): releases that stack deferred for a protection time stay deferred
             (``gate.recover(after_handover=True)``).
+        predecessor: the gate of the replaced stack: devices it could not release (removed or
+            re-mapped while Home Assistant was down) are released with its actuators.
     """
 
     def __init__(  # noqa: PLR0915 - the composition root of the control layer
@@ -152,6 +155,7 @@ class ControlStack:
         power_save_interval_s: float = DEFAULT_POWER_SAVE_INTERVAL_S,
         attach: bool = True,
         after_handover: bool = False,
+        predecessor: SafetyGate | None = None,
     ) -> None:
         self._connection = connection
         self._after_handover = after_handover
@@ -216,6 +220,7 @@ class ControlStack:
             watchdog=self.watchdog,
             tz=tz,
             sleep=sleep,
+            predecessor=predecessor,
         )
         self.deviations: deque[DeviationEvent] = deque(maxlen=DEVIATION_HISTORY)
         self.loop = ControllerLoop(
@@ -570,6 +575,8 @@ class ControlStack:
                 blocked[device_id] = REASON_EMERGENCY_STOP
             elif (pause := self.watchdog.pause_reason(device_id, now)) is not None:
                 blocked[device_id] = pause
+            elif self.gate.is_orphaned(device_id):
+                blocked[device_id] = REASON_ORPHANED
             elif runtime is not None and runtime.release_pending:
                 blocked[device_id] = REASON_RELEASE_PENDING
             elif runtime is not None and runtime.is_held(now):

@@ -208,7 +208,9 @@ class Runtime:
             log.warning("control.timezone_unknown_using_utc")
         return UTC
 
-    def _new_stack(self, *, after_handover: bool = False) -> ControlStack:
+    def _new_stack(
+        self, *, after_handover: bool = False, predecessor: SafetyGate | None = None
+    ) -> ControlStack:
         devices = list(self.devices.devices) if self.devices is not None else []
         site = self.site
         battery = None if site is None else site.battery
@@ -234,6 +236,7 @@ class Runtime:
             power_store=self.power_store,
             attach=False,
             after_handover=after_handover,
+            predecessor=predecessor,
         )
         stack.add_listener(self._notify_control)
         return stack
@@ -251,7 +254,9 @@ class Runtime:
             old, self.stack = self.stack, None
             if old is not None:
                 await old.handover(self._unchanged_devices(old.device_configs))
-            new = self._new_stack(after_handover=old is not None)
+            new = self._new_stack(
+                after_handover=old is not None, predecessor=None if old is None else old.gate
+            )
             self.stack = new
             if self._started:
                 await new.start()

@@ -461,6 +461,8 @@
   "controller.no_surplus": "Nicht genug Überschuss: {surplus_w} W verfügbar, {need_w} W nötig.",
   "controller.idle": "Bereit; nichts zu ändern.",
   "safety.emergency_stop": "Not-Aus ist aktiv: Es wird nichts geschaltet.",
+  "safety.orphan_dropped": "Das entfernte oder neu zugeordnete Gerät konnte nicht zurückgesetzt werden (nach einem Neustart nicht mehr bekannt): Bitte von Hand prüfen.",
+  "safety.orphaned": "Das von SunCore gesteuerte Gerät wurde entfernt oder neu zugeordnet; SunCore setzt es zurück, sobald es möglich ist.",
   "safety.shadow_mode": "Schattenmodus: nur berechnet, es wurde nichts geschaltet.",
   "safety.climate_switch_on_mode": "Nicht eingeschaltet: Modus {mode} ist nicht der konfigurierte Einschaltmodus ({allowed}).",
   "safety.late_confirmed": "Das Gerät hat den früheren Schreibvorgang verspätet bestätigt.",
