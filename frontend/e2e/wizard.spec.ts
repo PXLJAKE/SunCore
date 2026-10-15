@@ -113,7 +113,7 @@ test.describe('setup wizard', () => {
 
     // 9 mode
     await expect(page).toHaveURL(/#\/setup\/mode$/);
-    await expect(page.getByTestId('mode-note')).toContainText('Only shadow mode is active');
+    await expect(page.getByTestId('mode-note')).toContainText('Shadow: SunCore only calculates');
     await page.getByRole('radio', { name: /Assisted mode/ }).check();
     await expectNoAxeViolations(page);
     await next(page).click();
