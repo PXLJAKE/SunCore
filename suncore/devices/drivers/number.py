@@ -17,6 +17,9 @@ exactly the value that will be written (the gate confirms a write within 1 W).
 
 A control whose ``min`` is above zero cannot be switched off through the number; a request for
 less than ``min`` writes ``min``.
+
+``UNVERIFIED`` (docs/STATUS.md): tested against the simulator only; no real ``number`` load has
+been driven yet.
 """
 
 from __future__ import annotations

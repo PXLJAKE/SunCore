@@ -7,6 +7,9 @@ Core validates the option against the entity's ``options`` (select) and the pres
 writes modes that the device's ``control.modes`` lists - the controller may choose nothing else -
 and writes only on change. The release restores the user's own mode verbatim, even one that is
 not in ``control.modes``.
+
+``UNVERIFIED`` (docs/STATUS.md): the ``select`` and preset paths are tested against the simulator
+only; no real device has been driven yet.
 """
 
 from __future__ import annotations

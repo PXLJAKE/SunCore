@@ -16,6 +16,9 @@
 Read-back maps the state to the matching ``StepAction``; a value that matches no step is
 reported as ``ModeAction`` (select option / number value / ``relays:<roles>``), a different
 kind, so override detection sees "the user changed it" and the release can restore it.
+
+``UNVERIFIED`` (docs/STATUS.md): the ``select``, ``number`` and ``relays`` paths are tested against
+the simulator only - no water heater or relay board has been driven on real hardware.
 """
 
 from __future__ import annotations

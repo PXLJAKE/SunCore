@@ -24,6 +24,13 @@ Read-back kinds. The gate compares the read-back with the *kind* of action it wr
 driver reports ``SwitchAction`` after a switch intent and ``SetpointAction`` after a
 set-point intent (or before anything was written: that is the takeover baseline). An off
 unit is always ``SwitchAction(on=False)``.
+
+``UNVERIFIED`` (docs/STATUS.md, "Known problems and UNVERIFIED items"): only the ``lg_thinq`` paths
+come from source reading, every other climate integration is simulator-tested only; no live write
+has been made yet. Open in detail: ``lg_thinq`` raising ``TypeError`` from ``set_temperature`` when
+the device reports ``step is None``; the push latency after a command (the gate's settle time and
+the late confirmation absorb it, the real value is unmeasured); the ``climate.turn_on`` fallback
+for a ``switch_on_hvac_mode`` that is not in ``hvac_modes``.
 """
 
 from __future__ import annotations
