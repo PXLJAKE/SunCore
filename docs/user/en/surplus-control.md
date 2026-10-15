@@ -17,7 +17,8 @@ Every 5 seconds (app option `controller_interval_s`) the controller does the sam
    it** (see [Battery and goals](#battery-and-goals)), plus what the controlled devices draw
    right now. It keeps 100 W unallocated (measurement noise, small loads) and subtracts
    what the devices already hold. What is left is the **free surplus** you see in the
-   **Surplus** card on the **Now** view, next to **Deficit** and **Running on surplus**. In shadow or assisted mode a device
+   **Surplus** card on the **Now** view, next to **Deficit** and **Running on surplus**.
+   In shadow or assisted mode a device
    is counted as if it were running (the controller assumes its planned level), so the card
    adds **Would run (not switched)**: that power is **not** really drawn, and the free surplus
    shows what would be left. Compare the **Surplus** card with Home Assistant using the
