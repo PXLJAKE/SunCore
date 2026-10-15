@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Wizard state: the stored sections and one form per section. Each step edits its slice of a
 // form and saves the section with PUT; `wizard.completed_steps` makes the wizard resumable.
-import { api } from '../api/client';
+import { api, controlApi } from '../api/client';
 import { describeError, FormError, type FailedRequest } from '../api/errors';
 import type {
   DeviceConfig,
   DevicesConfig,
   ForecastConfig,
   GoalsConfig,
+  OperatingMode,
   OperationConfig,
   RegionConfig,
   SiteConfig,
@@ -245,7 +246,28 @@ export class WizardStore {
       this.operation,
       this.devices.map((d) => d.id),
     );
-    const saved = await api.putSection<OperationConfig>('operation', body);
+    // The full document may only keep or lower modes; raising goes through the mode
+    // endpoints, and a device above shadow needs its identity token from the control state.
+    const current = this.saved.operation;
+    const currentModes: Record<string, OperatingMode> = current?.device_modes ?? {};
+    const wanted: Record<string, OperatingMode> = body.device_modes ?? {};
+    let saved: OperationConfig | null = current;
+    if (body.mode !== (current?.mode ?? 'shadow')) {
+      saved = await controlApi.setGlobalMode(body.mode ?? 'shadow');
+    }
+    let identities: Record<string, string> | null = null;
+    const ids = [...Object.keys(currentModes), ...Object.keys(wanted)];
+    for (const id of ids.filter((x, i) => ids.indexOf(x) === i)) {
+      const want = wanted[id] ?? 'shadow';
+      if (want === (currentModes[id] ?? 'shadow')) continue;
+      if (want !== 'shadow' && identities === null) {
+        const state = await controlApi.state();
+        identities = Object.fromEntries(state.devices.map((d) => [d.device_id, d.identity]));
+      }
+      const identity = want === 'shadow' ? null : (identities?.[id] ?? null);
+      saved = await controlApi.setDeviceMode(id, want, identity);
+    }
+    saved ??= await api.putSection<OperationConfig>('operation', body);
     this.saved = { ...this.saved, operation: saved };
     this.operation = operationFormFromConfig(saved);
   }

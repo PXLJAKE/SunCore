@@ -44,7 +44,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
     the new kinds; the device editor carries the Phase 3 fields through (UI in WP10).
   - Decisions: the watchdog judges a slow sensor's staleness as
     `age > cadence × stale_cadence_factor` (2) because `subscribe_entities` has no
-    `last_reported`; ~~the app sets cadences per entity (WP9)~~ (done, `suncore/app/cadence.py`). `release()` bypasses min
+    `last_reported`; ~~the app sets cadences per entity (WP9)~~ (done, `suncore/app/cadence.py`).
+    `release()` bypasses min
     run/pause (restoring the user's state is the safe direction; noted as a risk).
 
 - **Phase 3 – WP4 storage** (branch `phase-3/a-safety`): migration `0003_runtime.sql` (DB
@@ -348,7 +349,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
   `POST /control/emergency-stop` and `/clear` (`{active}`), `POST /devices/{id}/override`
   (`{action: boost|pause|resume, minutes?, until?}`; boost is a timed hold, SunCore keeps its
   hands off and drives nothing; pause also releases a device SunCore controls, respecting min
-  run/pause; a pause `until` the past is 422 `api.validation.override_until_past`), `GET /proposals`, `POST /proposals/{intent_id}/confirm`
+  run/pause; a pause `until` the past is 422 `api.validation.override_until_past`),
+  `GET /proposals`, `POST /proposals/{intent_id}/confirm`
   (the gate's decision) and `/dismiss` (204), `GET /decisions?limit&device_id&kind=..`,
   `PUT /operation/mode` `{mode}`, `PUT /operation/devices/{id}` `{mode, identity?}` (identity
   required above shadow, 409 `device_identity_changed`), `PUT /config/operation` may not raise

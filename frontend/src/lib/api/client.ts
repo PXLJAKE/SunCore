@@ -5,11 +5,14 @@ import type {
   CheckResult,
   ConfigHistoryEntry,
   ConfigSectionName,
+  ControlState,
   EnergyPrefs,
   EntityCandidate,
   HistoryRestore,
   ImportResult,
   Info,
+  OperatingMode,
+  OperationConfig,
   PreviewResult,
   SiteConfig,
   TemplateDetail,
@@ -150,6 +153,22 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fragment),
+    }),
+};
+
+export const controlApi = {
+  state: () => request<ControlState>(`${API_PREFIX}control/state`),
+  setGlobalMode: (mode: OperatingMode) =>
+    request<OperationConfig>(`${API_PREFIX}operation/mode`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    }),
+  setDeviceMode: (id: string, mode: OperatingMode, identity: string | null) =>
+    request<OperationConfig>(`${API_PREFIX}operation/devices/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, identity }),
     }),
 };
 
