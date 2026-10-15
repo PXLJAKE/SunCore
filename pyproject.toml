@@ -99,6 +99,7 @@ module = [
   "suncore.controller.*",
   "suncore.safety.*",
   "suncore.devices.*",
+  "suncore.app.control",
 ]
 strict = true
 
