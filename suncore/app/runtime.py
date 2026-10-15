@@ -457,6 +457,17 @@ class Runtime:
           identity token, so a stale document cannot grant a mode to a device that was re-mapped
           meanwhile (``ModeRaiseRejectedError``). Lowered devices are released.
         """
+        if name in ("operation", "devices"):
+            # Serialised with the mode changes: the raise check and the identity rule of a
+            # devices put judge the modes that are stored when they run.
+            async with self._operation_lock:
+                stored = await self._put_section(name, model)
+        else:
+            stored = await self._put_section(name, model)
+        self._notify()
+        return stored
+
+    async def _put_section(self, name: str, model: BaseModel) -> BaseModel:
         if name == "operation":
             assert isinstance(model, OperationConfig)
             self._reject_raise(model)
@@ -467,7 +478,6 @@ class Runtime:
             await self._apply_operation(stored)
         else:
             await self._apply_stored(name, stored, before)
-        self._notify()
         return stored
 
     async def _apply_stored(
@@ -529,15 +539,17 @@ class Runtime:
     async def set_device_mode(
         self, device_id: str, mode: OperatingMode, identity: str | None
     ) -> OperationConfig:
-        device = next(
-            (d for d in (self.devices.devices if self.devices else []) if d.id == device_id),
-            None,
-        )
-        if device is None:
-            raise UnknownDeviceError(device_id)
-        if mode is not OperatingMode.SHADOW and identity != identity_token(device):
-            raise DeviceIdentityChangedError(device_id)
+        # The identity is checked under the lock that also serialises ``devices`` puts: a
+        # re-mapping cannot slip in between the check and the stored mode.
         async with self._operation_lock:
+            device = next(
+                (d for d in (self.devices.devices if self.devices else []) if d.id == device_id),
+                None,
+            )
+            if device is None:
+                raise UnknownDeviceError(device_id)
+            if mode is not OperatingMode.SHADOW and identity != identity_token(device):
+                raise DeviceIdentityChangedError(device_id)
             current = self.modes.operation
             modes = dict(current.device_modes)
             if mode is OperatingMode.SHADOW:

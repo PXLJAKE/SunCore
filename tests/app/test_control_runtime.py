@@ -879,3 +879,26 @@ async def test_a_device_removed_while_ha_is_down_is_released_once_it_is_back(
         if c.entity_ids == (POOL_SWITCH_ID,) and c.service == "turn_off" and c.error is None
     ]
     assert offs
+
+
+async def test_the_identity_is_checked_under_the_operation_lock(demo_runtime: Runtime) -> None:
+    """Final review 3-B (N5): the token was checked before the lock, so a devices put that ran
+    while the mode change waited could re-map the device under a granted mode."""
+    pool = device(demo_runtime, POOL)
+    token = identity_token(pool)
+    async with demo_runtime._operation_lock:
+        pending = asyncio.ensure_future(
+            demo_runtime.set_device_mode(POOL, OperatingMode.AUTOMATIC, token)
+        )
+        await asyncio.sleep(0)
+        # what a devices put does while holding the lock: the pool is re-mapped
+        devices = demo_runtime.devices
+        assert devices is not None
+        switch = pool.entities["switch"].model_copy(update={"entity_id": "switch.another_relay"})
+        remapped = pool.model_copy(update={"entities": {**pool.entities, "switch": switch}})
+        demo_runtime.devices = devices.model_copy(
+            update={"devices": [remapped if d.id == POOL else d for d in devices.devices]}
+        )
+    with pytest.raises(DeviceIdentityChangedError):
+        await pending
+    assert demo_runtime.modes.device_mode(POOL) is OperatingMode.SHADOW
