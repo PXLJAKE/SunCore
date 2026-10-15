@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError } from '../api/client';
+import { ApiError, controlApi } from '../api/client';
 import { controlState, device } from '../control/fixtures';
 import { ControlActions } from './control.svelte';
 import { live } from './live.svelte';
@@ -10,7 +10,7 @@ let actions: ControlActions;
 beforeEach(() => {
   actions = new ControlActions();
   live.control = null;
-  vi.spyOn(api, 'controlState').mockResolvedValue(
+  vi.spyOn(controlApi, 'state').mockResolvedValue(
     controlState({ devices: [device({ identity: 'tok-2' })] }),
   );
 });
@@ -18,7 +18,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('device mode', () => {
   it('sends the identity token above shadow and none for shadow', async () => {
-    const put = vi.spyOn(api, 'setDeviceMode').mockResolvedValue({} as never);
+    const put = vi.spyOn(controlApi, 'setDeviceMode').mockResolvedValue({} as never);
     await actions.setDeviceMode({ deviceId: 'ac', mode: 'automatic', identity: 'tok-1' });
     await actions.setDeviceMode({ deviceId: 'ac', mode: 'assisted', identity: 'tok-1' });
     await actions.setDeviceMode({ deviceId: 'ac', mode: 'shadow', identity: 'tok-1' });
@@ -30,14 +30,14 @@ describe('device mode', () => {
   });
 
   it('keeps the token the user decided on, even when the state moved on meanwhile', async () => {
-    const put = vi.spyOn(api, 'setDeviceMode').mockResolvedValue({} as never);
+    const put = vi.spyOn(controlApi, 'setDeviceMode').mockResolvedValue({} as never);
     live.control = controlState({ devices: [device({ identity: 'tok-9' })] });
     await actions.setDeviceMode({ deviceId: 'ac', mode: 'automatic', identity: 'tok-1' });
     expect(put).toHaveBeenCalledWith('ac', 'automatic', 'tok-1');
   });
 
   it('reports a changed device (409) with its catalogue key and refreshes the state', async () => {
-    vi.spyOn(api, 'setDeviceMode').mockRejectedValue(
+    vi.spyOn(controlApi, 'setDeviceMode').mockRejectedValue(
       new ApiError(409, 'api.error.device_identity_changed'),
     );
     const ok = await actions.setDeviceMode({ deviceId: 'ac', mode: 'automatic', identity: 'old' });
@@ -49,7 +49,7 @@ describe('device mode', () => {
   });
 
   it('clears the error on the next attempt', async () => {
-    vi.spyOn(api, 'setDeviceMode')
+    vi.spyOn(controlApi, 'setDeviceMode')
       .mockRejectedValueOnce(new ApiError(409, 'api.error.device_identity_changed'))
       .mockResolvedValue({} as never);
     await actions.setDeviceMode({ deviceId: 'ac', mode: 'automatic', identity: 'old' });
@@ -61,7 +61,7 @@ describe('device mode', () => {
   it('ignores a second request while one is in flight', async () => {
     let release: () => void = () => {};
     const put = vi
-      .spyOn(api, 'setDeviceMode')
+      .spyOn(controlApi, 'setDeviceMode')
       .mockImplementation(() => new Promise((resolve) => (release = () => resolve({} as never))));
     const first = actions.setDeviceMode({ deviceId: 'ac', mode: 'assisted', identity: 't' });
     expect(actions.busy['ac']).toBe(true);
@@ -76,14 +76,14 @@ describe('device mode', () => {
 
 describe('other actions', () => {
   it('sets the global mode', async () => {
-    const put = vi.spyOn(api, 'setGlobalMode').mockResolvedValue({} as never);
+    const put = vi.spyOn(controlApi, 'setGlobalMode').mockResolvedValue({} as never);
     expect(await actions.setGlobalMode('assisted')).toBe(true);
     expect(put).toHaveBeenCalledWith('assisted');
   });
 
   it('stops and clears the emergency stop under one scope', async () => {
-    const stop = vi.spyOn(api, 'emergencyStop').mockResolvedValue({ active: true });
-    const clear = vi.spyOn(api, 'clearEmergencyStop').mockResolvedValue({ active: false });
+    const stop = vi.spyOn(controlApi, 'emergencyStop').mockResolvedValue({ active: true });
+    const clear = vi.spyOn(controlApi, 'clearEmergencyStop').mockResolvedValue({ active: false });
     await actions.emergencyStop();
     await actions.clearEmergencyStop();
     expect(stop).toHaveBeenCalledOnce();
@@ -91,15 +91,15 @@ describe('other actions', () => {
   });
 
   it('keeps a failed emergency stop visible', async () => {
-    vi.spyOn(api, 'emergencyStop').mockRejectedValue(new ApiError(0, 'api.error.network'));
+    vi.spyOn(controlApi, 'emergencyStop').mockRejectedValue(new ApiError(0, 'api.error.network'));
     expect(await actions.emergencyStop()).toBe(false);
     expect(actions.errors['emergency']).toBe('api.error.network');
   });
 
   it('sends overrides and proposal decisions', async () => {
-    const override = vi.spyOn(api, 'override').mockResolvedValue(device());
-    const confirm = vi.spyOn(api, 'confirmProposal').mockResolvedValue({} as never);
-    const dismiss = vi.spyOn(api, 'dismissProposal').mockResolvedValue(undefined);
+    const override = vi.spyOn(controlApi, 'override').mockResolvedValue(device());
+    const confirm = vi.spyOn(controlApi, 'confirmProposal').mockResolvedValue({} as never);
+    const dismiss = vi.spyOn(controlApi, 'dismissProposal').mockResolvedValue(undefined);
     await actions.override({ device_id: 'ac' }, { action: 'boost', minutes: 30 });
     await actions.confirmProposal('p1');
     await actions.dismissProposal('p2');
@@ -109,11 +109,11 @@ describe('other actions', () => {
   });
 
   it('turns an expired proposal (404) into a message and refreshes the list', async () => {
-    vi.spyOn(api, 'confirmProposal').mockRejectedValue(
+    vi.spyOn(controlApi, 'confirmProposal').mockRejectedValue(
       new ApiError(404, 'api.error.unknown_proposal'),
     );
     expect(await actions.confirmProposal('gone')).toBe(false);
     expect(actions.errors['gone']).toBe('api.error.unknown_proposal');
-    expect(api.controlState).toHaveBeenCalled();
+    expect(controlApi.state).toHaveBeenCalled();
   });
 });

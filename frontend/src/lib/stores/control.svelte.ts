@@ -2,7 +2,7 @@
 // Actions on the control layer (emergency stop, modes, overrides, proposals). The state itself
 // arrives over the one WebSocket (LiveStore.control); after an action the control state is read
 // once so the page does not wait for the next tick, and a stale identity token is refreshed.
-import { api } from '../api/client';
+import { controlApi } from '../api/client';
 import { describeError } from '../api/errors';
 import type { DeviceControlState, OperatingMode, OverrideCommand } from '../api/types';
 import { live } from './live.svelte';
@@ -52,22 +52,22 @@ export class ControlActions {
   /** Read the control state once; the live feed keeps it current afterwards. */
   async refresh(): Promise<void> {
     try {
-      live.setControl(await api.controlState());
+      live.setControl(await controlApi.state());
     } catch {
       // the next WebSocket message brings the state
     }
   }
 
   emergencyStop(): Promise<boolean> {
-    return this.run('emergency', () => api.emergencyStop());
+    return this.run('emergency', () => controlApi.emergencyStop());
   }
 
   clearEmergencyStop(): Promise<boolean> {
-    return this.run('emergency', () => api.clearEmergencyStop());
+    return this.run('emergency', () => controlApi.clearEmergencyStop());
   }
 
   setGlobalMode(mode: OperatingMode): Promise<boolean> {
-    return this.run('global', () => api.setGlobalMode(mode));
+    return this.run('global', () => controlApi.setGlobalMode(mode));
   }
 
   /**
@@ -76,7 +76,7 @@ export class ControlActions {
    */
   setDeviceMode(req: ModeRequest): Promise<boolean> {
     return this.run(req.deviceId, () =>
-      api.setDeviceMode(req.deviceId, req.mode, req.mode === 'shadow' ? null : req.identity),
+      controlApi.setDeviceMode(req.deviceId, req.mode, req.mode === 'shadow' ? null : req.identity),
     );
   }
 
@@ -84,15 +84,15 @@ export class ControlActions {
     device: Pick<DeviceControlState, 'device_id'>,
     command: OverrideCommand,
   ): Promise<boolean> {
-    return this.run(device.device_id, () => api.override(device.device_id, command));
+    return this.run(device.device_id, () => controlApi.override(device.device_id, command));
   }
 
   confirmProposal(intentId: string): Promise<boolean> {
-    return this.run(intentId, () => api.confirmProposal(intentId));
+    return this.run(intentId, () => controlApi.confirmProposal(intentId));
   }
 
   dismissProposal(intentId: string): Promise<boolean> {
-    return this.run(intentId, () => api.dismissProposal(intentId));
+    return this.run(intentId, () => controlApi.dismissProposal(intentId));
   }
 }
 

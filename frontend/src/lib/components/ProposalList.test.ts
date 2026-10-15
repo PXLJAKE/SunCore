@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../api/client';
+import { controlApi } from '../api/client';
 import { controlState, proposal } from '../control/fixtures';
 import { applyLanguage } from '../i18n/index.svelte';
 import { control } from '../stores/control.svelte';
@@ -15,7 +15,7 @@ beforeEach(() => {
   control.busy = {};
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
   vi.setSystemTime(new Date('2026-06-21T09:30:00Z'));
-  vi.spyOn(api, 'controlState').mockResolvedValue(controlState());
+  vi.spyOn(controlApi, 'state').mockResolvedValue(controlState());
 });
 afterEach(() => {
   cleanup();
@@ -44,8 +44,8 @@ describe('ProposalList', () => {
   });
 
   it('confirms and dismisses through the API', async () => {
-    const confirm = vi.spyOn(api, 'confirmProposal').mockResolvedValue({} as never);
-    const dismiss = vi.spyOn(api, 'dismissProposal').mockResolvedValue(undefined);
+    const confirm = vi.spyOn(controlApi, 'confirmProposal').mockResolvedValue({} as never);
+    const dismiss = vi.spyOn(controlApi, 'dismissProposal').mockResolvedValue(undefined);
     render(ProposalList, {
       props: {
         proposals: [proposal('p1', '2026-06-21T09:32:00Z'), proposal('p2', '2026-06-21T09:32:00Z')],

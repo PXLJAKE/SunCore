@@ -149,7 +149,29 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: text,
     }),
-  controlState: () => request<ControlState>(`${API_PREFIX}control/state`),
+  templates: (kind?: TemplateKind) =>
+    request<TemplateList>(`${API_PREFIX}templates${query({ kind })}`),
+  template: (id: string) =>
+    request<TemplateDetail>(`${API_PREFIX}templates/${encodeURIComponent(id)}`),
+  energyPrefs: () => request<EnergyPrefs>(`${API_PREFIX}wizard/energy-prefs`),
+  /** System check of the stored site, or of an unsaved one. */
+  check: (site?: SiteConfig) =>
+    request<CheckResult>(`${API_PREFIX}wizard/check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(site ? { site } : {}),
+    }),
+  /** Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment. */
+  preview: (fragment: Record<string, unknown>) =>
+    request<PreviewResult>(`${API_PREFIX}preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fragment),
+    }),
+};
+
+export const controlApi = {
+  state: () => request<ControlState>(`${API_PREFIX}control/state`),
   emergencyStop: () => send<{ active: boolean }>('POST', `${API_PREFIX}control/emergency-stop`),
   clearEmergencyStop: () =>
     send<{ active: boolean }>('POST', `${API_PREFIX}control/emergency-stop/clear`),
@@ -175,31 +197,16 @@ export const api = {
     return request<Decision[]>(`${API_PREFIX}decisions?${search.toString()}`);
   },
   setGlobalMode: (mode: OperatingMode) =>
-    send<OperationConfig>('PUT', `${API_PREFIX}operation/mode`, { mode }),
-  /** Above shadow the server needs the `identity` token of the control state (409 if stale). */
-  setDeviceMode: (deviceId: string, mode: OperatingMode, identity: string | null) =>
-    send<OperationConfig>('PUT', `${API_PREFIX}operation/devices/${encodeURIComponent(deviceId)}`, {
-      mode,
-      identity,
-    }),
-  templates: (kind?: TemplateKind) =>
-    request<TemplateList>(`${API_PREFIX}templates${query({ kind })}`),
-  template: (id: string) =>
-    request<TemplateDetail>(`${API_PREFIX}templates/${encodeURIComponent(id)}`),
-  energyPrefs: () => request<EnergyPrefs>(`${API_PREFIX}wizard/energy-prefs`),
-  /** System check of the stored site, or of an unsaved one. */
-  check: (site?: SiteConfig) =>
-    request<CheckResult>(`${API_PREFIX}wizard/check`, {
-      method: 'POST',
+    request<OperationConfig>(`${API_PREFIX}operation/mode`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(site ? { site } : {}),
+      body: JSON.stringify({ mode }),
     }),
-  /** Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment. */
-  preview: (fragment: Record<string, unknown>) =>
-    request<PreviewResult>(`${API_PREFIX}preview`, {
-      method: 'POST',
+  setDeviceMode: (id: string, mode: OperatingMode, identity: string | null) =>
+    request<OperationConfig>(`${API_PREFIX}operation/devices/${encodeURIComponent(id)}`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fragment),
+      body: JSON.stringify({ mode, identity }),
     }),
 };
 

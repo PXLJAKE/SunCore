@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The decision log view: server-side filtered by device and kind; a slower answer of an older
 // filter never replaces the answer of the current one.
-import { api } from '../api/client';
+import { controlApi } from '../api/client';
 import { describeError } from '../api/errors';
 import type { Decision, DecisionKind } from '../api/types';
 
@@ -37,7 +37,7 @@ export class DecisionLogStore {
     const mine = ++this.seq;
     this.loading = true;
     try {
-      const items = await api.decisions({
+      const items = await controlApi.decisions({
         limit: LOG_LIMIT,
         deviceId: this.deviceId || undefined,
         kinds: this.kinds,

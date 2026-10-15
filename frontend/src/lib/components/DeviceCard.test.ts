@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError } from '../api/client';
+import { ApiError, controlApi } from '../api/client';
 import { controlState, device } from '../control/fixtures';
 import { applyLanguage } from '../i18n/index.svelte';
 import { control } from '../stores/control.svelte';
@@ -11,7 +11,7 @@ beforeEach(() => {
   applyLanguage('en');
   control.errors = {};
   control.busy = {};
-  vi.spyOn(api, 'controlState').mockResolvedValue(controlState());
+  vi.spyOn(controlApi, 'state').mockResolvedValue(controlState());
 });
 afterEach(() => {
   cleanup();
@@ -32,7 +32,7 @@ describe('DeviceCard', () => {
   });
 
   it('marks the pressed mode and applies assisted at once with the identity', async () => {
-    const put = vi.spyOn(api, 'setDeviceMode').mockResolvedValue({} as never);
+    const put = vi.spyOn(controlApi, 'setDeviceMode').mockResolvedValue({} as never);
     render(DeviceCard, { props: { device: device() } });
     expect(modeButton(/Shadow mode/).getAttribute('aria-pressed')).toBe('true');
     await fireEvent.click(modeButton(/Assisted mode/));
@@ -40,7 +40,7 @@ describe('DeviceCard', () => {
   });
 
   it('asks before switching to automatic and only then writes', async () => {
-    const put = vi.spyOn(api, 'setDeviceMode').mockResolvedValue({} as never);
+    const put = vi.spyOn(controlApi, 'setDeviceMode').mockResolvedValue({} as never);
     render(DeviceCard, { props: { device: device() } });
     await fireEvent.click(modeButton(/Automatic mode/));
     const dialog = screen.getByTestId('auto-dialog-ac');
@@ -52,7 +52,7 @@ describe('DeviceCard', () => {
   });
 
   it('writes nothing when the confirmation is cancelled', async () => {
-    const put = vi.spyOn(api, 'setDeviceMode').mockResolvedValue({} as never);
+    const put = vi.spyOn(controlApi, 'setDeviceMode').mockResolvedValue({} as never);
     render(DeviceCard, { props: { device: device() } });
     await fireEvent.click(modeButton(/Automatic mode/));
     await fireEvent.click(
@@ -63,7 +63,7 @@ describe('DeviceCard', () => {
 
   it('sends the token that was shown when the dialog opened, and reports a 409', async () => {
     const put = vi
-      .spyOn(api, 'setDeviceMode')
+      .spyOn(controlApi, 'setDeviceMode')
       .mockRejectedValue(new ApiError(409, 'api.error.device_identity_changed'));
     const { rerender } = render(DeviceCard, { props: { device: device() } });
     await fireEvent.click(modeButton(/Automatic mode/));
@@ -95,7 +95,7 @@ describe('DeviceCard', () => {
   });
 
   it('shows a hold with its end and resumes on request', async () => {
-    const override = vi.spyOn(api, 'override').mockResolvedValue(device());
+    const override = vi.spyOn(controlApi, 'override').mockResolvedValue(device());
     const until = new Date(2026, 5, 22, 4, 0).toISOString();
     render(DeviceCard, {
       props: {
