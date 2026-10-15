@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Tiny hash router (`#/`, `#/settings`, `#/setup[/<step>]`): independent of the ingress base path.
+// Tiny hash router (`#/`, `#/settings`, `#/decisions`, `#/setup[/<step>]`): independent of the ingress base path.
 import { isStepId, type StepId } from './wizard/steps';
 
-export type Route = 'now' | 'settings' | 'setup';
+export type Route = 'now' | 'settings' | 'setup' | 'decisions';
 
 export interface Location {
   route: Route;
@@ -12,6 +12,7 @@ export interface Location {
 
 export function parseLocation(hash: string): Location {
   const path = hash.replace(/^#/, '').split('?')[0] ?? '';
+  if (path === '/decisions') return { route: 'decisions', step: null };
   if (path === '/settings') return { route: 'settings', step: null };
   if (path === '/setup' || path === '/setup/') return { route: 'setup', step: null };
   if (path.startsWith('/setup/')) {

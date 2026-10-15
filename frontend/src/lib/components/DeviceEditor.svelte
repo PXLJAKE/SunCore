@@ -11,14 +11,22 @@
   import {
     controlRoleOf,
     powerModelOptions,
+    roleByDeviceClass,
+    OVERRIDE_HOURS_MAX,
+    OVERRIDE_HOURS_MIN,
+    POWER_UPDATE_MAX,
+    POWER_UPDATE_MIN,
     preferredPowerKind,
     seemsConfiguredAlready,
+    SLOW_POWER_SENSOR,
+    SWITCH_ON_MODES,
     THERMAL_KINDS,
     validateDeviceForm,
     type DeviceForm,
     type DeviceFormError,
     type UnitInfo,
   } from '../wizard/deviceForm';
+  import { emptyRef, toRef } from '../wizard/forms';
   import { loadCandidates } from '../stores/candidates';
   import { issuesAt } from '../wizard/issues';
   import FieldIssues from './FieldIssues.svelte';
@@ -49,7 +57,7 @@
   }: Props = $props();
 
   const uid = $props.id();
-  const UNIT = { w: 'W', min: 'min', c: '°C', a: 'A', pct: '%' } as const;
+  const UNIT = { w: 'W', min: 'min', c: '°C', a: 'A', pct: '%', s: 's', h: 'h' } as const;
   const KIND_LABEL: Record<PowerModelKind, MessageKey> = {
     measured: 'device.power.measured',
     counter_derived: 'device.power.counter_derived',
@@ -74,6 +82,17 @@
         return t('device.error.comfort_order');
       case 'power_model_unavailable':
         return t('device.error.power_unavailable');
+      case 'hvac_mode_missing':
+        return t('device.error.hvac_mode_missing');
+      case 'override_hours':
+        return t('device.error.override_hours', {
+          min: OVERRIDE_HOURS_MIN,
+          max: OVERRIDE_HOURS_MAX,
+        });
+      case 'resume_time':
+        return t('device.error.resume_time');
+      case 'power_update':
+        return t('device.error.power_update', { min: POWER_UPDATE_MIN, max: POWER_UPDATE_MAX });
     }
   };
 
@@ -90,6 +109,12 @@
     ),
   );
   const at = (...p: (string | number)[]) => issuesAt(issues, ...p);
+  const HVAC_LABEL: Record<(typeof SWITCH_ON_MODES)[number], MessageKey> = {
+    heat: 'device.hvac.heat',
+    cool: 'device.hvac.cool',
+    heat_cool: 'device.hvac.heat_cool',
+    auto: 'device.hvac.auto',
+  };
 
   function track(role: string, c: EntityCandidate | null): void {
     const id = c?.device_id ?? null;
@@ -136,6 +161,27 @@
     const opt = options.find((o) => o.kind === form.powerKind);
     const preferred = preferredPowerKind(template, form.entities);
     if (!kindTouched || (opt && !opt.available)) form.powerKind = preferred;
+  });
+
+  // A power sensor that is known to be slow (LG air conditioner through smartthinq_sensors:
+  // 300 s) gets its update period preset, so the sensor is not called stale after a minute. Only
+  // until the user touches the field; clearing it is allowed.
+  let updateTouched = $state(false);
+  const slowPreset = $derived(SLOW_POWER_SENSOR[form.templateId] ?? null);
+  const powerSensorMapped = $derived(
+    roleByDeviceClass(template, 'power').some(
+      (r) => toRef(form.entities[r] ?? emptyRef()) !== null,
+    ),
+  );
+  $effect(() => {
+    if (updateTouched || slowPreset === null) return;
+    if (
+      form.powerKind === 'measured' &&
+      powerSensorMapped &&
+      form.powerRoles.powerUpdateS === null
+    ) {
+      form.powerRoles.powerUpdateS = slowPreset;
+    }
   });
 
   function submit(): void {
@@ -207,6 +253,20 @@
         min={0}
         hint={t('device.nominal_hint')}
         issues={at('power_model', 'nominal_w')}
+      />
+    {/if}
+    {#if form.powerKind === 'measured' && powerSensorMapped}
+      <NumberField
+        label={t('device.power_update')}
+        bind:value={form.powerRoles.powerUpdateS}
+        unit={UNIT.s}
+        min={POWER_UPDATE_MIN}
+        max={POWER_UPDATE_MAX}
+        step={1}
+        hint={slowPreset !== null
+          ? t('device.power_update_hint_slow')
+          : t('device.power_update_hint')}
+        issues={at('power_model', 'power_update_s')}
       />
     {/if}
   </fieldset>
@@ -283,6 +343,77 @@
     </div>
   </fieldset>
 
+  {#if form.kind === 'climate'}
+    <fieldset class="card" data-testid="switch-on">
+      <legend>{t('device.switch_on')}</legend>
+      <p class="hint">{t('device.switch_on_hint')}</p>
+      <label class="check">
+        <input type="checkbox" bind:checked={form.allowSwitchOn} data-testid="allow-switch-on" />
+        {t('device.allow_switch_on')}
+      </label>
+      {#if form.allowSwitchOn}
+        <div class="field">
+          <label for="{uid}-hvac">{t('device.switch_on_mode')}</label>
+          <select
+            id="{uid}-hvac"
+            class="input"
+            data-testid="switch-on-mode"
+            value={form.switchOnHvacMode ?? ''}
+            aria-invalid={attempted && form.switchOnHvacMode === null ? 'true' : undefined}
+            onchange={(e) =>
+              (form.switchOnHvacMode =
+                SWITCH_ON_MODES.find((m) => m === e.currentTarget.value) ?? null)}
+          >
+            <option value="" disabled>{t('device.switch_on_choose')}</option>
+            {#each SWITCH_ON_MODES as m (m)}
+              <option value={m}>{t(HVAC_LABEL[m])}</option>
+            {/each}
+          </select>
+          <FieldIssues issues={at('switch_on_hvac_mode')} id="{uid}-hvac-err" />
+        </div>
+      {/if}
+      <FieldIssues issues={at('allow_switch_on')} id="{uid}-allow-err" />
+    </fieldset>
+  {/if}
+
+  <fieldset class="card" data-testid="override-policy">
+    <legend>{t('device.override')}</legend>
+    <p class="hint">{t('device.override_hint')}</p>
+    <div class="radios" role="radiogroup" aria-label={t('device.override')}>
+      <label class="radio">
+        <input type="radio" name="{uid}-ovr" value="next_day" bind:group={form.overrideKind} />
+        {t('device.override_next_day')}
+      </label>
+      <label class="radio">
+        <input type="radio" name="{uid}-ovr" value="hours" bind:group={form.overrideKind} />
+        {t('device.override_hours')}
+      </label>
+    </div>
+    {#if form.overrideKind === 'next_day'}
+      <div class="field">
+        <label for="{uid}-resume">{t('device.override_time')}</label>
+        <input
+          id="{uid}-resume"
+          class="input time"
+          type="time"
+          bind:value={form.overrideResumeTime}
+        />
+        <FieldIssues issues={at('override_policy', 'resume_time')} id="{uid}-resume-err" />
+      </div>
+    {:else}
+      <NumberField
+        label={t('device.override_hours_label')}
+        bind:value={form.overrideHours}
+        unit={UNIT.h}
+        min={OVERRIDE_HOURS_MIN}
+        max={OVERRIDE_HOURS_MAX}
+        step={1}
+        issues={at('override_policy', 'hours')}
+      />
+    {/if}
+    <FieldIssues issues={at('override_policy')} id="{uid}-ovr-err" />
+  </fieldset>
+
   {#if (template.unverified ?? []).length > 0 && template.tested_with.length === 0}
     <p class="notice warn">{t('template.untested_long')}</p>
   {/if}
@@ -316,6 +447,9 @@
 </section>
 
 <style>
+  .time {
+    max-width: 10rem;
+  }
   .actions {
     display: flex;
     flex-wrap: wrap;

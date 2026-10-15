@@ -5,6 +5,13 @@ import type {
   CheckResult,
   ConfigHistoryEntry,
   ConfigSectionName,
+  ControlState,
+  Decision,
+  DecisionKind,
+  DeviceControlState,
+  OperatingMode,
+  OperationConfig,
+  OverrideCommand,
   EnergyPrefs,
   EntityCandidate,
   HistoryRestore,
@@ -70,7 +77,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, key, issues);
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+function send<T>(method: 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
+  return request<T>(
+    path,
+    body === undefined ? { method } : { method, headers: JSON_HEADERS, body: JSON.stringify(body) },
+  );
 }
 
 export const api = {
@@ -131,6 +148,39 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: text,
+    }),
+  controlState: () => request<ControlState>(`${API_PREFIX}control/state`),
+  emergencyStop: () => send<{ active: boolean }>('POST', `${API_PREFIX}control/emergency-stop`),
+  clearEmergencyStop: () =>
+    send<{ active: boolean }>('POST', `${API_PREFIX}control/emergency-stop/clear`),
+  override: (deviceId: string, command: OverrideCommand) =>
+    send<DeviceControlState>(
+      'POST',
+      `${API_PREFIX}devices/${encodeURIComponent(deviceId)}/override`,
+      command,
+    ),
+  proposals: () => request<Decision[]>(`${API_PREFIX}proposals`),
+  confirmProposal: (intentId: string) =>
+    send<Decision>('POST', `${API_PREFIX}proposals/${encodeURIComponent(intentId)}/confirm`),
+  dismissProposal: (intentId: string) =>
+    send<void>('POST', `${API_PREFIX}proposals/${encodeURIComponent(intentId)}/dismiss`),
+  /** The decision log, newest first; `kinds` and `deviceId` filter on the server. */
+  decisions: (
+    opts: { limit?: number; deviceId?: string; kinds?: readonly DecisionKind[] } = {},
+  ) => {
+    const search = new URLSearchParams();
+    search.set('limit', String(opts.limit ?? 100));
+    if (opts.deviceId) search.set('device_id', opts.deviceId);
+    for (const k of opts.kinds ?? []) search.append('kind', k);
+    return request<Decision[]>(`${API_PREFIX}decisions?${search.toString()}`);
+  },
+  setGlobalMode: (mode: OperatingMode) =>
+    send<OperationConfig>('PUT', `${API_PREFIX}operation/mode`, { mode }),
+  /** Above shadow the server needs the `identity` token of the control state (409 if stale). */
+  setDeviceMode: (deviceId: string, mode: OperatingMode, identity: string | null) =>
+    send<OperationConfig>('PUT', `${API_PREFIX}operation/devices/${encodeURIComponent(deviceId)}`, {
+      mode,
+      identity,
     }),
   templates: (kind?: TemplateKind) =>
     request<TemplateList>(`${API_PREFIX}templates${query({ kind })}`),

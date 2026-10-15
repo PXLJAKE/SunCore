@@ -12,6 +12,11 @@
     { value: 'assisted', label: 'mode.assisted', hint: 'mode.hint.assisted' },
     { value: 'automatic', label: 'mode.automatic', hint: 'mode.hint.automatic' },
   ];
+  const LABEL: Record<OperatingMode, MessageKey> = {
+    shadow: 'mode.shadow',
+    assisted: 'mode.assisted',
+    automatic: 'mode.automatic',
+  };
 
   async function onsave(): Promise<void> {
     await wizard.saveOperation();
@@ -19,7 +24,7 @@
 </script>
 
 <WizardShell step="mode" intro={t('mode.intro')} {save} {onsave}>
-  <p class="notice info" data-testid="mode-note">{t('mode.note_shadow_only')}</p>
+  <p class="notice info" data-testid="mode-note">{t('mode.note')}</p>
 
   <fieldset class="card">
     <legend>{t('mode.global')}</legend>
@@ -35,37 +40,28 @@
           />
           <span>
             <span class="name">{t(m.label)}</span>
-            {#if m.value !== 'shadow'}<span class="chip-tag">{t('mode.later')}</span>{/if}
             <span class="hint block">{t(m.hint)}</span>
           </span>
         </label>
       {/each}
     </div>
+    <p class="hint">{t('mode.global_hint')}</p>
   </fieldset>
 
   <fieldset class="card">
     <legend>{t('mode.devices')}</legend>
     <p class="hint">{t('mode.devices_hint')}</p>
-    {#each wizard.devices as d (d.id)}
-      <div class="field">
-        <label for="{uid}-{d.id}">{d.name}</label>
-        <select
-          id="{uid}-{d.id}"
-          class="input"
-          value={wizard.operation.deviceModes[d.id] ?? 'shadow'}
-          onchange={(e) =>
-            (wizard.operation.deviceModes[d.id] = e.currentTarget.value as OperatingMode)}
-        >
-          {#each MODES as m (m.value)}
-            <option value={m.value}
-              >{t(m.label)}{m.value === 'shadow' ? '' : ` (${t('mode.later')})`}</option
-            >
-          {/each}
-        </select>
-      </div>
-    {:else}
-      <p class="hint">{t('mode.no_devices')}</p>
-    {/each}
+    <ul class="devices" data-testid="mode-devices">
+      {#each wizard.devices as d (d.id)}
+        <li>
+          <span>{d.name}</span>
+          <span class="chip-tag">{t(LABEL[wizard.operation.deviceModes[d.id] ?? 'shadow'])}</span>
+        </li>
+      {:else}
+        <li class="hint">{t('mode.no_devices')}</li>
+      {/each}
+    </ul>
+    <a href="#/" class="link">{t('mode.open_now')}</a>
   </fieldset>
 </WizardShell>
 
@@ -88,5 +84,22 @@
   }
   .block {
     display: block;
+  }
+  .devices {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+  .devices li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .link {
+    justify-self: start;
   }
 </style>

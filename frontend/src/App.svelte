@@ -6,6 +6,8 @@
   import { router } from './lib/router.svelte';
   import { app } from './lib/stores/app.svelte';
   import { live, type LinkStatus } from './lib/stores/live.svelte';
+  import EmergencyBanner from './lib/components/EmergencyBanner.svelte';
+  import EmergencyStop from './lib/components/EmergencyStop.svelte';
   import Now from './lib/views/Now.svelte';
   import Settings from './lib/views/Settings.svelte';
   import Setup from './lib/views/Setup.svelte';
@@ -29,7 +31,8 @@
 
   // Fall back to the decision reasons while /info has not arrived.
   const mode = $derived<OperatingMode | null>(
-    app.info?.mode ??
+    live.control?.global_mode ??
+      app.info?.mode ??
       (live.decisions.some((d) => d.reasons.some((r) => r.key === 'safety.shadow_mode'))
         ? 'shadow'
         : null),
@@ -76,6 +79,9 @@
   <h1 class="brand">{t('app.title')}</h1>
   <nav aria-label={t('nav.label')}>
     <a href="#/" aria-current={router.route === 'now' ? 'page' : undefined}>{t('nav.now')}</a>
+    <a href="#/decisions" aria-current={router.route === 'decisions' ? 'page' : undefined}
+      >{t('nav.decisions')}</a
+    >
     <a
       href="#/settings"
       aria-current={router.route === 'settings' || router.route === 'setup' ? 'page' : undefined}
@@ -83,6 +89,7 @@
     >
   </nav>
   <div class="status">
+    <EmergencyStop />
     {#if mode}
       <span class="badge mode" class:shadow={mode === 'shadow'} data-testid="mode-badge"
         >{t(MODE[mode])}</span
@@ -100,6 +107,8 @@
   </div>
 </header>
 
+<EmergencyBanner />
+
 {#if app.info?.demo}
   <div class="demo" role="note" data-testid="demo-banner">{t('demo.banner')}</div>
 {/if}
@@ -109,6 +118,10 @@
     <Setup />
   {:else if router.route === 'settings'}
     <Settings />
+  {:else if router.route === 'decisions'}
+    {#await import('./lib/views/Decisions.svelte') then view}
+      <view.default />
+    {/await}
   {:else}
     <Now />
   {/if}

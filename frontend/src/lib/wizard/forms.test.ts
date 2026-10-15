@@ -17,6 +17,7 @@ import {
   normaliseName,
   preferredPowerKind,
   seemsConfiguredAlready,
+  SLOW_POWER_SENSOR,
   uniqueName,
   validateDeviceForm,
 } from './deviceForm';
@@ -347,6 +348,7 @@ describe('device form', () => {
       energy_role: null,
       nominal_w: null,
       counter_update_s: null,
+      power_update_s: null,
     });
     expect(dev.entities?.power?.invert_sign).toBe(true);
     form.entities.energy = ref('sensor.e', true);
@@ -472,6 +474,7 @@ describe('optional power sensor of another device (climate templates)', () => {
       energy_role: null,
       nominal_w: null,
       counter_update_s: null,
+      power_update_s: null,
     });
     expect(dev.entities?.power?.entity_id).toBe('sensor.ac_energy_current');
     // the user keeps the learned model: the power sensor then only trains it
@@ -486,6 +489,132 @@ describe('optional power sensor of another device (climate templates)', () => {
     expect(powerModelOptions(LG, form.entities).find((o) => o.kind === 'measured')?.available).toBe(
       true,
     );
+  });
+});
+
+describe('Phase 3 device fields', () => {
+  const climate = (): ReturnType<typeof newDeviceForm> => {
+    const form = newDeviceForm(LG, 'Living room AC', 0);
+    form.entities.climate = ref('climate.living_room');
+    form.comfortMin = 20;
+    form.comfortMax = 26;
+    return form;
+  };
+
+  it('starts a new device without switch-on permission and with the next-day policy', () => {
+    const dev = deviceFromForm(climate(), 'ac', LG);
+    expect(dev).toMatchObject({
+      allow_switch_on: false,
+      switch_on_hvac_mode: null,
+      override_policy: { kind: 'next_day', resume_time: '04:00:00', hours: null },
+    });
+  });
+
+  it('stores allow_switch_on with its HVAC mode, and requires the mode', () => {
+    const form = climate();
+    form.allowSwitchOn = true;
+    expect(validateDeviceForm(form, LG).map((e) => e.key)).toContain('hvac_mode_missing');
+    form.switchOnHvacMode = 'cool';
+    expect(validateDeviceForm(form, LG).map((e) => e.key)).not.toContain('hvac_mode_missing');
+    expect(deviceFromForm(form, 'ac', LG)).toMatchObject({
+      allow_switch_on: true,
+      switch_on_hvac_mode: 'cool',
+    });
+  });
+
+  it('drops the HVAC mode again when the permission is off or the device is no climate', () => {
+    const form = climate();
+    form.allowSwitchOn = true;
+    form.switchOnHvacMode = 'heat';
+    form.allowSwitchOn = false;
+    expect(deviceFromForm(form, 'ac', LG)).toMatchObject({
+      allow_switch_on: false,
+      switch_on_hvac_mode: null,
+    });
+    const plug = newDeviceForm(TEMPLATE, 'Pump', 0);
+    plug.allowSwitchOn = true;
+    plug.switchOnHvacMode = 'heat';
+    expect(deviceFromForm(plug, 'pump', TEMPLATE)).toMatchObject({
+      allow_switch_on: false,
+      switch_on_hvac_mode: null,
+    });
+  });
+
+  it('builds the override policy: a time of the next day, or hours', () => {
+    const form = climate();
+    form.overrideResumeTime = '05:30';
+    expect(deviceFromForm(form, 'ac', LG).override_policy).toEqual({
+      kind: 'next_day',
+      resume_time: '05:30:00',
+      hours: null,
+    });
+    form.overrideKind = 'hours';
+    form.overrideHours = 6;
+    expect(deviceFromForm(form, 'ac', LG).override_policy).toEqual({
+      kind: 'hours',
+      resume_time: '05:30:00',
+      hours: 6,
+    });
+  });
+
+  it('validates hours (1-48, whole) and the resume time', () => {
+    const form = climate();
+    form.overrideKind = 'hours';
+    for (const bad of [null, 0, 49, 2.5]) {
+      form.overrideHours = bad;
+      expect(
+        validateDeviceForm(form, LG).map((e) => e.key),
+        String(bad),
+      ).toContain('override_hours');
+    }
+    form.overrideHours = 48;
+    expect(validateDeviceForm(form, LG).map((e) => e.key)).not.toContain('override_hours');
+    form.overrideKind = 'next_day';
+    form.overrideResumeTime = '';
+    expect(validateDeviceForm(form, LG).map((e) => e.key)).toContain('resume_time');
+  });
+
+  it('loads a stored policy and the update period of the power sensor', () => {
+    const stored = {
+      ...deviceFromForm(climate(), 'ac', LG),
+      allow_switch_on: true,
+      switch_on_hvac_mode: 'heat_cool',
+      override_policy: { kind: 'hours', resume_time: '04:00:00', hours: 12 },
+      power_model: { kind: 'measured', power_role: 'power', power_update_s: 300 },
+      entities: { climate: ref('climate.a'), power: ref('sensor.p') },
+    } as unknown as DeviceConfig;
+    const form = deviceFormFromConfig(stored, LG);
+    expect(form).toMatchObject({
+      allowSwitchOn: true,
+      switchOnHvacMode: 'heat_cool',
+      overrideKind: 'hours',
+      overrideHours: 12,
+      overrideResumeTime: '04:00',
+    });
+    expect(form.powerRoles.powerUpdateS).toBe(300);
+    const out = deviceFromForm(form, 'ac', LG);
+    expect(out.power_model.power_update_s).toBe(300);
+    expect(out.override_policy).toMatchObject({ kind: 'hours', hours: 12 });
+  });
+
+  it('stores power_update_s only for the measured model and validates its range', () => {
+    const form = climate();
+    form.entities.power = ref('sensor.ac_energy_current');
+    form.powerKind = 'measured';
+    form.powerRoles.powerUpdateS = 300;
+    expect(deviceFromForm(form, 'ac', LG).power_model.power_update_s).toBe(300);
+    form.powerRoles.powerUpdateS = 0;
+    expect(validateDeviceForm(form, LG).map((e) => e.key)).toContain('power_update');
+    form.powerRoles.powerUpdateS = 86_401;
+    expect(validateDeviceForm(form, LG).map((e) => e.key)).toContain('power_update');
+    form.powerRoles.powerUpdateS = 300;
+    form.powerKind = 'learned';
+    form.nominalW = 900;
+    expect(deviceFromForm(form, 'ac', LG).power_model.power_update_s).toBeNull();
+  });
+
+  it('knows that the LG power sensor polls every 300 s', () => {
+    expect(SLOW_POWER_SENSOR['lg.thinq_climate']).toBe(300);
   });
 });
 
