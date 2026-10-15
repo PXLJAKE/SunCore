@@ -30,6 +30,9 @@ test.describe('Now view: devices', () => {
     await expect(pump.getByTestId('mode-shadow')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('site-summary')).toContainText('Free surplus');
     await expect(page.getByTestId('site-summary')).toContainText('Deficit');
+    // Everything is in shadow: virtual levels are shown as "would run", not as running load
+    await expect(page.getByTestId('site-would-run')).toBeVisible();
+    await expect(card(page, 'heating_rod').getByTestId('would-run')).toContainText('not switched');
 
     // the reasons are rendered through the catalogue, never as raw keys
     await pump.getByText('Why?').click();
@@ -71,6 +74,8 @@ test.describe('Now view: devices', () => {
   test('a stale identity answers 409 and the card says so', async ({ page }) => {
     await openNow(page);
     const pump = card(page, 'pool_pump');
+    // Mock: the demo never re-maps a device, so the server's 409 answer is made up here (the real
+    // route is covered by the backend API tests).
     await page.route('**/api/v1/operation/devices/pool_pump', (route) =>
       route.fulfill({
         status: 409,
@@ -170,7 +175,7 @@ test.describe('assisted proposals', () => {
     observed: null,
   });
 
-  async function injectProposals(page: Page, ids: string[]): Promise<void> {
+  async function injectProposals(page: Page, ids: string[], handled: Set<string>): Promise<void> {
     await page.routeWebSocket('**/api/v1/live', (ws) => {
       const server = ws.connectToServer();
       server.onMessage((message) => {
@@ -178,18 +183,21 @@ test.describe('assisted proposals', () => {
           type: string;
           control?: { proposals: unknown[] };
         };
-        if (frame.control) frame.control.proposals = ids.map(proposal);
+        if (frame.control)
+          frame.control.proposals = ids.filter((id) => !handled.has(id)).map(proposal);
         ws.send(JSON.stringify(frame));
       });
     });
   }
 
   test('lists, counts down, confirms and dismisses', async ({ page }) => {
-    await injectProposals(page, ['p1', 'p2']);
+    const handled = new Set<string>();
+    await injectProposals(page, ['p1', 'p2'], handled);
     const calls: string[] = [];
     await page.route('**/api/v1/proposals/*/*', (route) => {
       const url = new URL(route.request().url());
       calls.push(url.pathname.split('/').slice(-2).join('/'));
+      handled.add(url.pathname.split('/').slice(-2)[0]!);
       return url.pathname.endsWith('dismiss')
         ? route.fulfill({ status: 204 })
         : route.fulfill({
@@ -208,6 +216,51 @@ test.describe('assisted proposals', () => {
     await list.getByTestId('proposal-confirm').first().click();
     await list.getByTestId('proposal-dismiss').last().click();
     await expect.poll(() => calls).toEqual(expect.arrayContaining(['p1/confirm', 'p2/dismiss']));
+    // the UI follows: the gate's answer is shown and the handled proposals are gone
+    await expect(page.getByTestId('confirm-result')).toContainText('Suggestion for Pool pump');
+    await expect(page.getByTestId('confirm-result')).toContainText('Executed');
+    await expect(page.getByTestId('proposals')).toHaveCount(0);
+  });
+});
+
+test.describe('overall mode (setup step)', () => {
+  test.afterEach(async ({ request }) => resetDemo(request));
+
+  test('raising it to automatic is confirmed and names the devices already on automatic', async ({
+    page,
+    request,
+  }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('device-cards')).toBeVisible();
+    await page.request.put('/api/v1/operation/mode', { data: { mode: 'assisted' } });
+    await card(page, 'pool_pump').getByTestId('mode-automatic').click();
+    await page
+      .getByTestId('auto-dialog-pool_pump')
+      .getByRole('button', { name: 'Switch to automatic' })
+      .click();
+    await expect(card(page, 'pool_pump').getByTestId('mode-automatic')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await page.goto('/#/setup/mode');
+    await expect(page.getByTestId('mode-devices')).toContainText('Pool pump');
+    await expect(
+      page.getByTestId('mode-devices').locator('li', { hasText: 'Pool pump' }),
+    ).toContainText('Automatic mode');
+    await page.getByRole('radio', { name: /Automatic mode/ }).check();
+    await page.getByTestId('wizard-next').click();
+    const dialog = page.getByTestId('mode-dialog');
+    await expect(dialog.getByTestId('mode-dialog-devices')).toContainText('Pool pump');
+    await expectNoAxeViolations(page);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByText('The overall mode was not changed')).toBeVisible();
+    expect((await (await request.get('/api/v1/config/operation')).json()).mode).toBe('assisted');
+
+    await page.getByTestId('wizard-next').click();
+    await dialog.getByTestId('mode-dialog-confirm').click();
+    await expect(page).toHaveURL(/#\/setup\/summary$/);
+    expect((await (await request.get('/api/v1/config/operation')).json()).mode).toBe('automatic');
   });
 });
 

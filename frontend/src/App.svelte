@@ -5,6 +5,7 @@
   import type { OperatingMode } from './lib/api/types';
   import { router } from './lib/router.svelte';
   import { app } from './lib/stores/app.svelte';
+  import { control } from './lib/stores/control.svelte';
   import { live, type LinkStatus } from './lib/stores/live.svelte';
   import EmergencyBanner from './lib/components/EmergencyBanner.svelte';
   import EmergencyStop from './lib/components/EmergencyStop.svelte';
@@ -41,6 +42,8 @@
   onMount(() => {
     const stopRouter = router.listen();
     void app.load();
+    // The emergency stop must show even before the first live snapshot.
+    void control.refresh();
     live.start();
     return () => {
       stopRouter();

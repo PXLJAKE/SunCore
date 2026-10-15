@@ -2,7 +2,16 @@
 import { describe, expect, it } from 'vitest';
 import { describeAction } from './actions';
 import { device } from './fixtures';
-import { clock, holdDay, openProposals, secondsLeft, stateView } from './present';
+import {
+  allocationSplit,
+  clock,
+  holdDay,
+  openProposals,
+  qualityKey,
+  secondsLeft,
+  stateView,
+  virtualDraw,
+} from './present';
 
 describe('holdDay', () => {
   const now = new Date(2026, 5, 21, 23, 0);
@@ -81,5 +90,33 @@ describe('describeAction', () => {
     expect(describeAction({ kind: 'step', step: 2 }, w).key).toBe('action.step');
     expect(describeAction({ kind: 'mode', mode: 'eco' }, w).key).toBe('action.mode');
     expect(describeAction({ kind: 'release' }, w).key).toBe('action.release');
+  });
+});
+
+describe('allocation split', () => {
+  const est = (v: number) => ({ value_w: v, uncertainty_w: 10, quality: 'ok' as const, age_s: 1 });
+  it('counts only the level above what is measured as "would run" outside automatic', () => {
+    const shadow = device({ committed_w: 3000, estimate: est(5) });
+    const real = device({
+      device_id: 'b',
+      effective_mode: 'automatic',
+      committed_w: 750,
+      estimate: est(740),
+    });
+    expect(virtualDraw(shadow)).toBe(2995);
+    expect(virtualDraw(real)).toBe(0);
+    expect(allocationSplit(3750, [shadow, real])).toEqual({ running: 755, wouldRun: 2995 });
+  });
+  it('ignores differences within the noise', () => {
+    expect(virtualDraw(device({ committed_w: 40, estimate: est(0) }))).toBe(0);
+  });
+});
+
+describe('qualityKey', () => {
+  it('is null for good values', () => {
+    expect(qualityKey('ok')).toBeNull();
+    expect(qualityKey(undefined)).toBeNull();
+    expect(qualityKey('stale')).toBe('quality.stale');
+    expect(qualityKey('invalid')).toBe('quality.invalid');
   });
 });

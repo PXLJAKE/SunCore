@@ -24,7 +24,9 @@ describe('DeviceCard', () => {
   it('shows state, power with uncertainty and the effective mode', () => {
     render(DeviceCard, { props: { device: device() } });
     expect(screen.getByRole('heading', { name: 'Living room AC' })).toBeTruthy();
-    expect(screen.getByTestId('state').textContent).toBe('Set-point 24 °C (your setting: 25 °C)');
+    expect(screen.getByTestId('state').textContent?.trim()).toBe(
+      'Set-point 24 °C (your setting: 25 °C)',
+    );
     expect(screen.getByTestId('power').textContent?.trim().replace(/\s/g, ' ')).toBe(
       '≈ 850 W ± 300 W',
     );
@@ -149,5 +151,42 @@ describe('DeviceCard', () => {
     expect(why.textContent).toContain('Would have switched');
     expect(why.querySelectorAll('li').length).toBe(2);
     expect(why.textContent).not.toContain('controller.surplus_on');
+  });
+
+  it('marks values of bad quality', () => {
+    render(DeviceCard, {
+      props: {
+        device: device({
+          state: { on: true, quality: 'unavailable' },
+          estimate: { value_w: 0, uncertainty_w: 500, quality: 'stale', age_s: 900 },
+        }),
+      },
+    });
+    expect(screen.getByTestId('state-quality').textContent).toBe('Unavailable');
+    expect(screen.getByTestId('power-quality').textContent).toBe('Outdated');
+  });
+
+  it('says "would run" for a virtual level in shadow mode, and not in automatic mode', () => {
+    const shadow = device({
+      committed_w: 3000,
+      estimate: { value_w: 5, uncertainty_w: 10, quality: 'ok', age_s: 1 },
+    });
+    const { unmount } = render(DeviceCard, { props: { device: shadow } });
+    expect(screen.getByTestId('would-run').textContent).toMatch(
+      /Would run at ≈ 3\s?kW, not switched/,
+    );
+    unmount();
+    render(DeviceCard, { props: { device: { ...shadow, effective_mode: 'automatic' } } });
+    expect(screen.queryByTestId('would-run')).toBeNull();
+  });
+
+  it('shows the unit of an adjustable load', () => {
+    render(DeviceCard, {
+      props: {
+        device: device({ kind: 'number_load', state: { on: true, value: 12, quality: 'ok' } }),
+        unit: 'A',
+      },
+    });
+    expect(screen.getByTestId('state').textContent?.trim()).toBe('Level 12 A');
   });
 });

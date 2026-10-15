@@ -19,7 +19,12 @@ Alle 5 Sekunden (App-Option `controller_interval_s`) macht der Regler dieselben 
    gesteuerten Geräte gerade aufnehmen. 100 W bleiben unverteilt (Messrauschen, kleine
    Verbraucher), und was die Geräte schon belegen, wird abgezogen. Der Rest ist der **freie
    Überschuss**, den du in der Karte **Überschuss** der Ansicht **Jetzt** siehst, neben
-   **Defizit** und **Geräten zugeteilt**.
+   **Defizit** und **Läuft mit Überschuss**. Im Schatten- oder assistierten Modus zählt ein Gerät
+   so, als liefe es (der Regler nimmt seine geplante Stufe an); deshalb zeigt die Karte zusätzlich
+   **Würde laufen (nicht geschaltet)**: Diese Leistung wird **nicht** wirklich bezogen, und der
+   freie Überschuss zeigt, was übrig bliebe. Vergleiche die Karte **Überschuss** mit Home
+   Assistant anhand von **Läuft mit Überschuss**; eine Gerätekarte sagt im selben Fall
+   **Würde mit … laufen, nicht geschaltet**.
 2. **Glättung gegen Wolkenflackern.** Der verfügbare Wert ist der Median der letzten
    60 Sekunden, eine einzelne Wolkenkante bewegt ihn also nicht. Die Streuung der Werte in
    diesem Fenster zählt als Unsicherheit: Flackert die Sonne, wird das Band breiter, und
@@ -40,8 +45,8 @@ Alle 5 Sekunden (App-Option `controller_interval_s`) macht der Regler dieselben 
    LG-ThinQ-Klimagerät bringt 10 Minuten Mindestlaufzeit und 5 Minuten Mindestpause mit; das
    sind verdichterschonende Entwurfswerte, keine Herstellerangaben. Hysterese, Verzögerung,
    Schaltvorgänge pro Stunde und Einschwingzeit kommen aus der Vorlage (oder den
-   App-Standards); der Geräte-Editor bietet Mindestlaufzeit und Mindestpause, Experten-
-   Einstellungen für den Rest folgen in einer späteren Version.
+   App-Standards); der Geräte-Editor bietet Mindestlaufzeit und Mindestpause, Experteneinstellungen
+   für den Rest folgen in einer späteren Version.
 
 Der Regler **schlägt nur vor**, was zu tun ist. Eine getrennte Sicherheitsschicht prüft jeden
 einzelnen Schreibvorgang noch einmal mit denselben Zahlen, kann ihn mit einer Begründung
@@ -255,7 +260,9 @@ anhand von Belegen, nicht aus Hoffnung.
    siehst. Exportiere unter **Einstellungen** eine Sicherung.
 2. **Im Schattenmodus bleiben** (Standard). SunCore protokolliert jetzt Einträge **Hätte
    geschaltet**. Öffne abends das **Entscheidungsprotokoll**, filtere nach dem Gerät und lies die
-   Gründe.
+   Gründe. **Würde laufen (nicht geschaltet)** auf der Karte **Überschuss** und die Zeile „Würde
+   … laufen“ auf der Gerätekarte sind Annahmen von SunCore, keine Messwerte: Es wird nichts
+   geschaltet.
 3. **Einen Tag beobachten, besser zwei oder drei.** Frage dich: Entstehen die Einträge, wenn
    wirklich Überschuss da war? Gibt es alle paar Minuten Einträge (zu nervös: erhöhe im
    Geräte-Editor Mindestlaufzeit und Mindestpause) oder nie (die Ziele halten die Batterie an

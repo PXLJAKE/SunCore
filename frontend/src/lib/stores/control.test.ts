@@ -108,6 +108,23 @@ describe('other actions', () => {
     expect(dismiss).toHaveBeenCalledWith('p2');
   });
 
+  it('keeps the gate decision of a confirmed proposal', async () => {
+    const decision = { kind: 'rejected', intent: { asset_id: 'ac' }, reasons: [] } as never;
+    vi.spyOn(controlApi, 'confirmProposal').mockResolvedValue(decision);
+    await actions.confirmProposal('p1');
+    expect(actions.lastConfirm).toBe(decision);
+  });
+
+  it('prefers the field issue of a 422 over the generic message', async () => {
+    vi.spyOn(controlApi, 'override').mockRejectedValue(
+      new ApiError(422, 'api.error.validation', [
+        { key: 'api.validation.override_until_past', args: {}, loc: ['body', 'until'] },
+      ]),
+    );
+    await actions.override({ device_id: 'ac' }, { action: 'pause', until: '2020-01-01T00:00:00Z' });
+    expect(actions.errors['ac']).toBe('api.validation.override_until_past');
+  });
+
   it('turns an expired proposal (404) into a message and refreshes the list', async () => {
     vi.spyOn(controlApi, 'confirmProposal').mockRejectedValue(
       new ApiError(404, 'api.error.unknown_proposal'),

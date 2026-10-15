@@ -56,3 +56,35 @@ export function nameMap(devices: readonly Pick<DeviceControlState, 'device_id' |
 /** Proposals that can still be confirmed (oldest first, as the server sends them). */
 export const openProposals = (proposals: readonly Decision[], now: number): Decision[] =>
   proposals.filter((p) => secondsLeft(p.expires_at, now) !== 0);
+
+/**
+ * Power a device is only assumed to draw in shadow or assisted mode (the controller's virtual
+ * level is above what the sensors see). The API has no split, so it is derived here:
+ * `committed_w` is `max(real, virtual)` for such devices.
+ */
+export function virtualDraw(d: DeviceControlState): number {
+  if (d.effective_mode === 'automatic') return 0;
+  const real = d.estimate?.value_w ?? 0;
+  const extra = (d.committed_w ?? 0) - real;
+  return extra > Math.max(50, d.estimate?.uncertainty_w ?? 0) ? extra : 0;
+}
+
+/** What the allocation counts, split into power that really runs and power that only "would" run. */
+export function allocationSplit(
+  allocatedW: number,
+  devices: readonly DeviceControlState[],
+): { running: number; wouldRun: number } {
+  const wouldRun = devices.reduce((sum, d) => sum + virtualDraw(d), 0);
+  return { running: Math.max(0, allocatedW - wouldRun), wouldRun };
+}
+
+export type Quality = 'ok' | 'stale' | 'unavailable' | 'invalid';
+/** Catalogue key for a value of bad quality, `null` when the value can be trusted. */
+export function qualityKey(
+  q: Quality | undefined | null,
+): 'quality.stale' | 'quality.unavailable' | 'quality.invalid' | null {
+  if (q === 'stale') return 'quality.stale';
+  if (q === 'unavailable') return 'quality.unavailable';
+  if (q === 'invalid') return 'quality.invalid';
+  return null;
+}

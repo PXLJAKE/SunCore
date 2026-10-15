@@ -1,8 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type { OperatingMode } from '../../api/types';
+  import { FormError } from '../../api/errors';
+  import ConfirmDialog from '../../components/ConfirmDialog.svelte';
   import WizardShell from '../../components/WizardShell.svelte';
   import { t, type MessageKey } from '../../i18n/index.svelte';
+  import { live } from '../../stores/live.svelte';
   import { SaveState, wizard } from '../../stores/wizard.svelte';
 
   const save = new SaveState();
@@ -18,7 +21,35 @@
     automatic: 'mode.automatic',
   };
 
+  /** Device mode as the running controller has it; the stored form only before the first state. */
+  const modeOf = (id: string): OperatingMode =>
+    live.control?.devices.find((d) => d.device_id === id)?.device_mode ??
+    wizard.operation.deviceModes[id] ??
+    'shadow';
+  const automaticNames = $derived(
+    (live.control?.devices ?? []).filter((d) => d.device_mode === 'automatic').map((d) => d.name),
+  );
+
+  // Raising the overall mode to automatic is confirmed first: devices already set to automatic
+  // start acting at once.
+  let asking = $state(false);
+  let answer: ((yes: boolean) => void) | null = null;
+  const ask = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      answer = resolve;
+      asking = true;
+    });
+  function decide(yes: boolean): void {
+    asking = false;
+    answer?.(yes);
+    answer = null;
+  }
+
   async function onsave(): Promise<void> {
+    const current = wizard.saved.operation?.mode ?? 'shadow';
+    if (wizard.operation.mode === 'automatic' && current !== 'automatic' && !(await ask())) {
+      throw new FormError(['mode.confirm_declined']);
+    }
     await wizard.saveOperation();
   }
 </script>
@@ -55,7 +86,7 @@
       {#each wizard.devices as d (d.id)}
         <li>
           <span>{d.name}</span>
-          <span class="chip-tag">{t(LABEL[wizard.operation.deviceModes[d.id] ?? 'shadow'])}</span>
+          <span class="chip-tag">{t(LABEL[modeOf(d.id)])}</span>
         </li>
       {:else}
         <li class="hint">{t('mode.no_devices')}</li>
@@ -64,6 +95,23 @@
     <a href="#/" class="link">{t('mode.open_now')}</a>
   </fieldset>
 </WizardShell>
+
+<ConfirmDialog
+  open={asking}
+  title={t('mode.confirm_title')}
+  confirmLabel={t('mode.confirm_action')}
+  danger
+  onconfirm={() => decide(true)}
+  oncancel={() => decide(false)}
+  testid="mode-dialog"
+>
+  <p>{t('mode.confirm_text')}</p>
+  <p data-testid="mode-dialog-devices">
+    {automaticNames.length > 0
+      ? t('mode.confirm_devices', { names: automaticNames.join(', ') })
+      : t('mode.confirm_none')}
+  </p>
+</ConfirmDialog>
 
 <style>
   .mode {

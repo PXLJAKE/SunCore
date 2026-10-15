@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type { DeviceControlState, OperatingMode } from '../api/types';
-  import { holdDay, MODE_ORDER, stateView } from '../control/present';
+  import { holdDay, MODE_ORDER, qualityKey, stateView, virtualDraw } from '../control/present';
   import {
     t,
     tDateTime,
@@ -20,8 +20,10 @@
     device: DeviceControlState;
     /** Reference time for "held until tomorrow" (injected for tests). */
     now?: Date;
+    /** Unit of an adjustable load's value (W, A, %) from the device configuration. */
+    unit?: string;
   }
-  let { device, now }: Props = $props();
+  let { device, now, unit }: Props = $props();
 
   const uid = $props.id();
   const MODE_LABEL: Record<OperatingMode, MessageKey> = {
@@ -43,6 +45,9 @@
   const busy = $derived(control.busy[device.device_id] ?? false);
   const error = $derived(control.errors[device.device_id] ?? null);
   const limitedByGlobal = $derived(device.effective_mode !== device.device_mode);
+  const stateBad = $derived(qualityKey(device.state?.quality));
+  const powerBad = $derived(qualityKey(estimate?.quality));
+  const virtualW = $derived(virtualDraw(device));
   const num = (v: number): string => tNumber(v, { maximumFractionDigits: 1 });
 
   function stateText(): string {
@@ -54,7 +59,9 @@
       case 'step':
         return t('card.state.step', { step: view.step });
       case 'level':
-        return t('card.state.level', { value: num(view.value) });
+        return unit
+          ? t('card.state.level_unit', { value: num(view.value), unit })
+          : t('card.state.level', { value: num(view.value) });
       case 'setpoint':
         return view.base == null
           ? t('card.state.setpoint', { value: num(view.setpoint) })
@@ -114,7 +121,11 @@
   <dl class="facts">
     <div>
       <dt>{t('card.state')}</dt>
-      <dd data-testid="state">{stateText()}</dd>
+      <dd data-testid="state">
+        {stateText()}
+        {#if stateBad}<span class="chip-tag warn" data-testid="state-quality">{t(stateBad)}</span
+          >{/if}
+      </dd>
     </div>
     <div>
       <dt>{t('card.power')}</dt>
@@ -127,7 +138,14 @@
         {:else}
           {t('card.power_unknown')}
         {/if}
+        {#if powerBad}<span class="chip-tag warn" data-testid="power-quality">{t(powerBad)}</span
+          >{/if}
       </dd>
+      {#if virtualW > 0}
+        <dd class="virtual" data-testid="would-run">
+          {t('card.would_run', { power: tPower(device.committed_w ?? virtualW) })}
+        </dd>
+      {/if}
     </div>
   </dl>
 
@@ -261,6 +279,11 @@
     margin: 0;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+  }
+  .virtual {
+    font-weight: 400;
+    font-size: 0.875rem;
+    color: var(--secondary-text-color);
   }
   .badges {
     list-style: none;

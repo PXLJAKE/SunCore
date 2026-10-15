@@ -4,7 +4,7 @@
 // once so the page does not wait for the next tick, and a stale identity token is refreshed.
 import { controlApi } from '../api/client';
 import { describeError } from '../api/errors';
-import type { DeviceControlState, OperatingMode, OverrideCommand } from '../api/types';
+import type { Decision, DeviceControlState, OperatingMode, OverrideCommand } from '../api/types';
 import { live } from './live.svelte';
 
 /** Scope of an error message: `global`, `emergency`, or a device id / intent id. */
@@ -20,6 +20,8 @@ export interface ModeRequest {
 export class ControlActions {
   /** Catalogue key of the last failed action per scope. */
   errors = $state<Record<ErrorScope, string>>({});
+  /** The gate's answer to the last confirmed proposal (shown until closed). */
+  lastConfirm = $state.raw<Decision | null>(null);
   /** Scopes with a request in flight. */
   busy = $state<Record<ErrorScope, boolean>>({});
 
@@ -39,7 +41,9 @@ export class ControlActions {
       await fn();
       return true;
     } catch (e) {
-      this.errors = { ...this.errors, [scope]: describeError(e).key };
+      // A 422 names the offending field: that key is more useful than the generic one.
+      const failed = describeError(e);
+      this.errors = { ...this.errors, [scope]: failed.issues[0]?.key ?? failed.key };
       return false;
     } finally {
       const rest = { ...this.busy };
@@ -87,8 +91,11 @@ export class ControlActions {
     return this.run(device.device_id, () => controlApi.override(device.device_id, command));
   }
 
+  /** Confirm a proposal; `lastConfirm` then holds the gate's decision. */
   confirmProposal(intentId: string): Promise<boolean> {
-    return this.run(intentId, () => controlApi.confirmProposal(intentId));
+    return this.run(intentId, async () => {
+      this.lastConfirm = await controlApi.confirmProposal(intentId);
+    });
   }
 
   dismissProposal(intentId: string): Promise<boolean> {

@@ -17,7 +17,11 @@ Every 5 seconds (app option `controller_interval_s`) the controller does the sam
    it** (see [Battery and goals](#battery-and-goals)), plus what the controlled devices draw
    right now. It keeps 100 W unallocated (measurement noise, small loads) and subtracts
    what the devices already hold. What is left is the **free surplus** you see in the
-   **Surplus** card on the **Now** view, next to **Deficit** and **Allocated to devices**.
+   **Surplus** card on the **Now** view, next to **Deficit** and **Running on surplus**. In shadow or assisted mode a device
+   is counted as if it were running (the controller assumes its planned level), so the card
+   adds **Would run (not switched)**: that power is **not** really drawn, and the free surplus
+   shows what would be left. Compare the **Surplus** card with Home Assistant using the
+   **Running** value; a device card says **Would run at …, not switched** in the same case.
 2. **Smoothing against cloud flicker.** The available value is the median of the last
    60 seconds, so a single cloud edge does not move it. The spread of the values in that
    window counts as uncertainty: when the sun flickers, the band widens, and SunCore only
@@ -240,6 +244,8 @@ day with sun. The window of a few days is the point: you decide on evidence, not
    the **Surplus** card against what you see in Home Assistant. Export a backup under
    **Settings**.
 2. **Stay in shadow mode** (the default). SunCore now logs **Would have switched** entries.
+   The **Would run (not switched)** value on the **Surplus** card and the "would run" line on
+   the device card are what SunCore assumes, not measurements: nothing is switched.
    Open the **Decision log** in the evening, filter for the device and read the reasons.
 3. **Watch for a day, better two or three.** Ask yourself: do the entries happen when there
    really was surplus? Are there entries every few minutes (too nervous: raise the minimum
