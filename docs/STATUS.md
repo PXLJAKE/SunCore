@@ -3,10 +3,33 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-15 · **Phase:** 3 in progress (plan approved, WP1–WP3 on
-`phase-3/a-safety`, WP5–WP9 on `phase-3/b-controller`) · **Branch:** `phase-3/b-controller`
+**Last update:** 2026-10-15 · **Phase:** 3 implemented (3-A `phase-3/a-safety`, 3-B
+`phase-3/b-controller`, 3-C `phase-3/c-ui`), waiting for the maintainer's shadow-mode test ·
+**Branch:** `phase-3/c-ui`
 
 ## Done
+
+- **Phase 3 – PR 3-C (WP10 UI, WP11 docs, branch `phase-3/c-ui`)**, stacked on 3-B:
+  - UI: *Now* view with a **Surplus** card (free surplus, deficit, allocated) and a card per
+    device (state, estimate with uncertainty, mode switch with a confirmation and the device's
+    identity token for automatic, held/handing-back/paused badges, **Why?**, **Take over
+    manually**: hold N minutes, pause until/resume, **Resume now**); the **Emergency stop** in
+    the header of every view with a banner and a confirmed **Back to normal**; assisted proposals
+    (confirm/dismiss, expiry); the **Decision log** view with device and outcome filters; the
+    operating mode step sets only the overall mode (device modes live on the Now view); the
+    device editor offers switch-on opt-in, override policy and `power_update_s`. Vitest and
+    Playwright E2E (emergency stop, mode switch, proposals, decision log, device editor), axe.
+  - Screenshots from the demo: `now-*`, `decisions-*`, `estop-*` (light/dark, phone/tablet, en/de).
+  - Docs: user guide `docs/user/<lang>/surplus-control.md` (en/de: how surplus control works,
+    modes, climate, water heater, manual changes, emergency stop, fail-safe, "Why?", a "first
+    device to automatic" walk-through, known limitations); quick start en/de, app `DOCS.md`
+    (stable and beta), README, compatibility intro (generator text) updated; architecture §4–§6
+    rewritten to the implementation (per-tick order, gate order, release paths, observed-baseline
+    rule, handover/recover; all 8 Mermaid diagrams parse); plan "Deviations during
+    implementation".
+  - Found while writing: the goals note `goals.stored_note` in the UI still says the goals are
+    used "by the planner in a later version", but the controller already uses the battery target
+    and "climate before export" (frontend string to correct in a follow-up).
 
 - **Phase 3 – WP2 contracts v2 and WP3 safety layer** (branch `phase-3/a-safety`, signed off
   by `control-safety`):
@@ -406,14 +429,20 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Next steps
 
-1. Maintainer: watch the beta in surplus, check the summary system check at
-   noon, export a config backup; wizard walk-through with other people.
-2. Release the next release-please PR for the stable app after acceptance.
-3. Phase 3 (plan `docs/plans/phase-3.md`, approved): open PR 3-B (`phase-3/b-controller`,
-   WP5-WP9, signed off by `control-safety` and the final reviewer) after the maintainer's
-   answer on its size; then WP10 (UI: control cards, modes, proposals, decision log, emergency
-   stop; `power_update_s` in the wizard/device editor) and WP11 (docs) as PR 3-C; exit = shadow
-   run on the maintainer's system and one device switched to automatic.
+1. Maintainer: install the beta (export a configuration backup first: schema 3 cannot be opened
+   by earlier versions), keep everything in **shadow mode**, read `docs/user/en/surplus-control.md`
+   (or `de`) and check the **Decision log** after a day with sun: are the "would have" entries
+   plausible? Check the summary system check at noon.
+2. Answer the open questions: (a) battery share without any goal is "battery first" (devices only
+   get what would be exported) - intended? (b) a **Hold** (API `boost`) leaves the device alone
+   and drives nothing - intended? (c) non-urgent hand-backs (mode to shadow, device trip,
+   reconnect) wait for the device's min run/pause, emergency stop and shutdown do not - OK?
+   (d) PR 3-B was larger than R8 allowed (see the plan's deviations) - accept?
+3. Phase 3 exit: switch **one** device to automatic following the guide's walk-through and report
+   the first live writes (the climate unit's counter-only estimate and the cloud echo delay are
+   the interesting parts). Then merge 3-A, 3-B, 3-C and release.
+4. Release the next release-please PR for the stable app after acceptance.
+5. Phase 4 (forecasts, tariffs, planner, battery) starts after the maintainer's acceptance.
 
 ## Known problems and `UNVERIFIED` items
 
@@ -430,10 +459,10 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | Section 51 EEG 2023 text could not be fetched; region `de` feed-in tiers are empty until the official BNetzA table is cited | `templates/region/de.yaml` | maintainer provides the table or a session with access to gesetze-im-internet.de |
 | Whether Tibber's `total` includes grid fees (country dependent) | `templates/tariff/tibber.price.yaml` | live check on the maintainer's Tibber account |
 | LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes, Tibber tomorrow-price publication time, Solcast default day-sensor count | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
-| Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA) | `docs/user/*/quick-start.md` | maintainer follows the quick start on HA OS |
+| Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA); the surplus control guide is written from the code and the demo, its walk-through has not been followed on a real system | `docs/user/*/quick-start.md`, `docs/user/*/surplus-control.md` | maintainer follows the quick start and the first-device walk-through on HA OS |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
 | Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |
-| Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (the device editor and the wizard do not offer `power_update_s` yet, WP10) |
+| Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (`power_update_s` is in the device editor since WP10) |
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |

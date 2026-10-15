@@ -142,143 +142,236 @@ convert at the boundary (e.g. Kostal reports battery positive = discharging).
 
 ## 4. Planner, controller, safety in time
 
+The planner arrives in Phase 4; until then the controller consumes `Plan.default()`, which allows
+everything. The control layer (Phase 3) is composed in one place, `suncore/app/control.py`
+(`ControlStack`): entity cache, one driver and one power model per device, the controller
+(`suncore/controller`), the safety gate with its watchdog (`suncore/safety`) and the connection
+life cycle. The runtime, the demo and the simulator all use this same stack; only the connection
+and the clock differ.
+
 ```mermaid
 sequenceDiagram
-    participant S as Scheduler
-    participant P as Planner
+    participant S as ControlStack
+    participant X as Entity cache
+    participant M as Power model
     participant C as Controller
-    participant F as Safety
+    participant F as Safety gate
     participant D as Device driver
     participant H as Home Assistant
 
-    S->>P: tick (15 min) or event (prices, forecast, deviation, config, override)
-    P->>P: build model, solve (≤ 8 s) or heuristic
-    P-->>S: Plan {bands per interval, reasons, assumptions}
-    loop every 5–10 s
-        S->>C: tick with latest Signals + current Plan
-        C->>C: surplus, priorities, hysteresis, min run/pause
-        C-->>F: Intents (device → target state/power, reason)
-        F->>F: invariants, mode, overrides, rate limits, plausibility
-        alt accepted (automatic mode)
-            F->>D: apply(intent)
-            D->>H: call_service / write register
-            D->>H: read back
-            D-->>F: result
-        else shadow / assisted / rejected
-            F->>F: log "would have" / "proposed" / "rejected: invariant"
+    Note over S,H: Planner (Phase 4): every 15 min or on events, Plan with bands per interval
+    loop every tick_s (5 s), skipped while the HA connection is lost
+        S->>X: samples (never get_states)
+        S->>F: check_site (watchdog, a trip releases all devices)
+        loop per device
+            S->>F: check_device (watchdog, a trip releases that device)
+            S->>M: observe, estimate (value and uncertainty)
         end
-        F-->>S: Decisions → log, UI
+        S->>C: step(now, flows, states, estimates, blocked, limits, goals, plan)
+        C->>C: surplus, priorities, hysteresis, min run and pause, back-off
+        C-->>S: intents only on change, GateInputs snapshot, device views
+        S->>F: submit(intent) as a task
+        F->>F: stale, emergency stop, mode, watchdog, hold, invariants
+        alt automatic and accepted
+            F->>D: apply(intent) after baseline read-back
+            D->>H: call_service
+            F->>D: settle, read_back
+            D-->>F: observed state
+        else shadow, assisted or rejected
+            F->>F: log would have, proposed or rejected with reasons
+        end
+        F-->>S: Decision to log and UI, fed back to the controller
+        S->>F: poll (deferred releases)
     end
-    Note over F,H: Watchdog: stale inputs or lost connection → release control, safe state
+    H-->>X: state changes, with the context id
+    X-->>F: observe(device, state, context id) for override detection
+    Note over F,H: Watchdog trip or lost connection: stop writing, release, cool-down
 ```
 
-Deviation events: the controller reports when actual SoC, PV or load leave
-the plan's assumption corridor; the scheduler then re-plans early (rate
-limited to once per 5 minutes).
+**Per-tick order** (`ControlStack.tick`, documented in `suncore/controller/loop.py`; the
+simulator follows it too):
+
+1. One injected `now` for the whole tick; nothing else reads a clock.
+2. Inputs come from the entity cache. `check_site` feeds the site watchdog; per device
+   `check_device` (watchdog), then the power model `observe` and `estimate`.
+3. `blocked` collects every device the controller must leave alone with the gate's reason:
+   emergency stop, watchdog pause, orphaned runtime, release pending, manual hold.
+4. `Controller.step`: smoothed surplus (median over `smoothing_s` with a spread as uncertainty),
+   priority allocation, hysteresis machines, deficit back-off. It returns the intents (only on
+   change, so the decision log does not fill every 5 s) and the `GateInputs` snapshot stamped with
+   `now`; the gate treats a missing or old snapshot as unknown surplus and refuses to add load.
+5. Every intent goes to `gate.submit` as a task (a settle wait never stalls the tick) and the
+   decision is fed back with `controller.report`. `gate.poll()` then runs deferred releases, also
+   on ticks without intents.
+
+Outside the tick: `gate.observe` from the cache listener, `gate.recover()` after the first
+successful connect (never before; observations are ignored until then),
+`connection_lost()` / `connection_restored()` from the connection listener. While the connection
+is lost the tick does nothing: nothing can be written or released, and the watchdog is already in
+its safe state.
+
+**The gate's order** for one intent: stale intent, emergency stop, effective mode, watchdog
+pause, manual hold, invariants (grid import caused by SunCore, import limit, comfort band, min
+run and pause, switches per hour, write rate, write only on change, battery reserve, heat limit),
+then by mode: shadow logs `shadow` (the invariants that would have fired are included), assisted
+logs `proposed` (valid `proposal_ttl_s`; `confirm` re-submits as `Origin.USER` through the same
+checks), automatic acquires the rate limiter, records the takeover baseline on the first write,
+applies, settles, reads back and logs `accepted` or `failed`. The write path re-checks emergency
+stop, mode, watchdog and hold right before `apply()` under a per-device lock. The free surplus is
+claimed per `GateInputs` snapshot, so several intents of one tick cannot together exceed it.
+
+Deviation events: the controller reports when actual SoC, PV or load leave the plan's assumption
+corridor; the scheduler then re-plans early (rate limited to once per 5 minutes) from Phase 4 on.
 
 ## 5. Safety state machine (per device and global)
 
+Three things are independent: the **operating mode** (global and per device, effective mode =
+the lower of both, new devices and imports start in shadow), the **hold** of a manual override
+and the **safe state** of the watchdog (per scope: the site or one device).
+
 ```mermaid
 stateDiagram-v2
-    [*] --> Shadow
-    Shadow --> Assisted: user enables
-    Assisted --> Automatic: user enables
-    Automatic --> Assisted: user disables
-    Assisted --> Shadow: user disables
-    Automatic --> Held: manual override detected
-    Held --> Automatic: override timeout
-    Automatic --> SafeState: invariant tripped / stale data / connection lost
-    Assisted --> SafeState: invariant tripped
-    SafeState --> Shadow: conditions clear + cool-down
-    Automatic --> Shadow: global emergency "back to normal"
-    Assisted --> Shadow: global emergency "back to normal"
-    Held --> Shadow: global emergency "back to normal"
+    [*] --> Running
+    state Running {
+        [*] --> Shadow
+        Shadow --> Assisted: user raises the mode
+        Assisted --> Automatic: user raises the mode
+        Automatic --> Assisted: user lowers the mode
+        Assisted --> Shadow: user lowers the mode, release
+        Automatic --> Shadow: user lowers the mode, release
+        Automatic --> Held: manual change, boost or pause
+        Held --> Automatic: override time over or resume
+    }
+    Running --> SafeState: watchdog trip
+    SafeState --> Cooldown: inputs plausible again
+    Cooldown --> SafeState: new fault
+    Cooldown --> Running: cool-down over, same mode as before
+    Running --> EmergencyStop: emergency stop
+    SafeState --> EmergencyStop: emergency stop
+    EmergencyStop --> Running: back to normal, modes unchanged
 ```
 
-`SafeState` means: stop writing, release hardware control (inverter back
-to self-consumption via timeout/heartbeat stop, devices left in their
-current user-visible mode), notify. Invariants (BRIEF §5) are pure
-functions over `(Intent, Signals, Config)` and are property-tested.
+The diagram is per scope for `SafeState` and `Cooldown` (the site or one device) and global for
+`EmergencyStop`. "Back to normal" changes no mode, it only lifts the stop: each device then acts in
+its own effective mode again (shadow and assisted devices still do nothing on their own). The
+emergency stop is persisted and survives a restart. A hold also applies to assisted devices in
+the same way (the gate answers `held`).
+
+**Safe state** means: the gate rejects intents for the scope, and devices under control are
+released. A site fault (grid, PV, battery, house signals, HA connection) pauses every device, a
+device's own fault only that device. The scope returns to normal after the faults have been clear
+for `safe_state_cooldown_s` (120 s).
+
+**Release** gives a device back: the driver restores the **baseline**, the state recorded at the
+takeover (climate: set-point and HVAC mode). Paths:
+
+| Trigger | Urgency | Notes |
+|---|---|---|
+| Emergency stop, shutdown, crash recovery, site trip, three failed writes | at once | bounded by `release_deadline_s` (10 s) where it blocks a stop |
+| Mode lowered to shadow, device trip, restored connection, pause | deferred | writing stops at once; the write waits for the device's min run or pause time (`release_due_ts`, persisted, executed by `poll`) |
+| Configuration change (`gate.handover(keep)`) | unchanged devices deferred, changed ones at once | the successor stack executes the deferral (`recover(after_handover=True)`); a failed release survives in `predecessor` |
+| Removed or re-mapped device | with the old actuator | `predecessor` gate or reported as `safety.orphan_dropped` |
+
+**Observed-baseline rule.** A release gives back what the user left, not the state of the
+takeover: when the override detection sees a manual change, the observed state becomes the
+baseline, and every release first judges the observed state itself (`_adopt_user_state`), so a
+change that was not judged yet (made while SunCore was down, or during an outage) is not
+overwritten. Override detection is value-based: after the settle time a state that differs from
+the last write is manual; the context id only counts as positive proof of "ours", because push
+integrations echo our writes with fresh id-only contexts. A write whose read-back failed stays
+pending for a while, so a late echo is a `late_confirmed`, not an override.
+
+**Crash and restart.** The runtime (baseline, last write, switch history, hold, release
+deadline, emergency stop) is persisted in `device_runtime` and `safety_state`. `recover()` loads
+it after the first successful connect and releases whatever a crash left under control.
 
 ## 6. Device model
 
 ```mermaid
 classDiagram
-    class Asset {
-        id
-        kind: grid|pv|battery|device
-        name
-        capabilities: set
-        signals: dict[str, Signal]
-    }
     class DeviceConfig {
         template_id
         priority: int
-        control_kind: onoff|steps|continuous|setpoint|mode
-        power_model: PowerModel
-        constraints: Constraints
-        windows: list[TimeWindow]
-        comfort: ComfortBounds
-        mode: shadow|assisted|automatic
+        control: onoff|steps|relays|continuous|setpoint|mode
+        power_model: PowerModelSpec
+        min_run_s
+        min_pause_s
+        max_switches_per_hour
+        hysteresis_w
+        hysteresis_delay_s
+        settle_s
+        comfort: ComfortBand
+        windows: list~TimeWindow~
+        allow_switch_on
+        switch_on_hvac_mode
+        override_policy: next_day|hours
     }
-    class PowerModel {
+    class PowerEstimator {
         <<interface>>
-        estimate(signals) PowerEstimate
-        learn(history)
+        observe(now, state, samples)
+        estimate(now, state, samples) PowerEstimate
     }
     class MeasuredPower
     class CounterDerivedPower {
-        latency
         quantisation
+        latency
     }
     class LearnedPower {
-        features: mode, Δtemp, outdoor_temp
+        RLS: mode, delta temp, outdoor temp
     }
     class NominalPower
-    class Constraints {
-        min_run_s
-        min_pause_s
-        max_switches_per_h
-        hysteresis_w
-        hysteresis_delay_s
-        ramp_w_per_s
-    }
-    class Driver {
+    class Actuator {
         <<interface>>
-        read() DeviceState
-        apply(Intent) WriteResult
-        release()
+        apply(Intent) context id
+        read_back() Action
+        release(baseline)
     }
-    class HAEntityDriver
-    class ModbusDriver
-    class EvccDriver
+    class OnOffDriver
+    class ClimateDriver
+    class StepsDriver
+    class NumberDriver
+    class ModeDriver
     class Template {
         id
         kind
         schema_version
-        capabilities
-        entity_mapping
+        roles
         defaults
         source
     }
+    class SafetyGate {
+        modes: ModeProvider
+        runtime: DeviceRuntime
+    }
 
-    Asset "1" --> "1" DeviceConfig
-    DeviceConfig --> PowerModel
-    DeviceConfig --> Constraints
-    DeviceConfig --> Template
-    PowerModel <|.. MeasuredPower
-    PowerModel <|.. CounterDerivedPower
-    PowerModel <|.. LearnedPower
-    PowerModel <|.. NominalPower
-    Driver <|.. HAEntityDriver
-    Driver <|.. ModbusDriver
-    Driver <|.. EvccDriver
-    Template --> Driver : selects
+    DeviceConfig --> PowerEstimator : create_power_model
+    DeviceConfig --> Template : instantiated from
+    DeviceConfig --> Actuator : create_driver
+    PowerEstimator <|.. MeasuredPower
+    PowerEstimator <|.. CounterDerivedPower
+    PowerEstimator <|.. LearnedPower
+    PowerEstimator <|.. NominalPower
+    Actuator <|.. OnOffDriver
+    Actuator <|.. ClimateDriver
+    Actuator <|.. StepsDriver
+    Actuator <|.. NumberDriver
+    Actuator <|.. ModeDriver
+    SafetyGate --> Actuator : only caller of apply and release
 ```
 
-`PowerEstimate` carries a value and an uncertainty; the controller widens
-hysteresis with uncertainty, which is how counter-only devices (LG ThinQ
-climate) and measured devices share one control path (BRIEF §4.5).
+The operating mode is not part of `DeviceConfig`: the `operation` section is the only store, the
+gate reads it through an injected `ModeProvider` (`ConfigModes`), and a device whose identity (id,
+template, mapped entities) changed falls back to shadow. The `relays` control kind (1 to 3
+switches, each step names the relays that are on) was added to schema v1 for the water heater
+(ADR-0012 policy, additive).
+
+`PowerEstimate` carries a value and an uncertainty; the controller widens the hysteresis with
+uncertainty, which is how counter-only devices (the hourly Wh counter of the LG ThinQ climate)
+and measured devices share one control path (BRIEF §4.5). A device's power cadence (a 5 minute
+sensor, an hourly counter) is known to the watchdog, so a slow sensor is not stale before
+`cadence * stale_cadence_factor`. The drivers are created by `safety.wiring.build_actuators`, so
+the connection's writer never appears outside `ha`, `safety` and `sim` (boundary rule 3), and only
+the gate calls `apply()` and `release()` (`tests/safety/test_boundary.py`).
 
 ## 7. Storage layout (ADR-0004)
 
@@ -299,7 +392,7 @@ erDiagram
         datetime ts
         text asset_id
         text layer "planner|controller|safety"
-        text kind "intent|accepted|rejected|shadow|override"
+        text kind "accepted|rejected|shadow|proposed|held|failed"
         json payload
         json reasons
     }

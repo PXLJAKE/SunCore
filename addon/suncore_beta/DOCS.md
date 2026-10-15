@@ -6,10 +6,10 @@ and a real-time surplus controller in one app.
 > This is the **beta channel**. It receives new versions earlier than the
 > stable app and may contain bugs. Please report what you find.
 
-## What SunCore does today (Phase 2)
+## What SunCore does today (Phase 3)
 
-SunCore is **pre-alpha**. This version helps you describe your installation
-and shows your energy flow live:
+SunCore is **pre-alpha**. This version helps you describe your installation,
+shows your energy flow live and can distribute your solar surplus to devices:
 
 - **Setup assistant**: ten steps for region, Energy dashboard import, grid,
   solar, battery, tariff, devices, priorities and goals, operating mode and
@@ -19,9 +19,20 @@ and shows your energy flow live:
   adjustable load, Tibber, Solcast, regions) with a gallery; see the
   [compatibility list](https://github.com/pxljake/suncore/blob/main/docs/user/compatibility.md).
 - **Live energy flow** between solar, grid, battery and house.
-- **Shadow mode** is always on: SunCore never switches a device and never
-  writes a set-point. Your choice of operating mode is stored for a later
-  version.
+- **Surplus control** every 5 seconds: free surplus by priority, with hysteresis,
+  minimum run and pause times and smoothing against cloud flicker, and no
+  grid import caused by SunCore. Climate units get their set-point shifted
+  inside your comfort band; switches, adjustable loads and stepped water
+  heaters (simulator only) follow the surplus.
+- **Shadow mode is the default**, for the whole system and for every new
+  device: SunCore only logs what it *would have* done. A device is controlled
+  only after you set the overall mode **and** the device to automatic (or to
+  assisted, where you confirm every action).
+- **Safety layer**: invariants, manual changes are respected, watchdogs,
+  hand-back of devices on shutdown, crash recovery and connection loss, and a
+  persisted **Emergency stop** in the header of every view.
+- **"Why?" and decision log**: every decision has its reasons in plain
+  language.
 - Values that are outdated, unavailable or invalid are marked as such
   instead of being guessed.
 
@@ -55,7 +66,8 @@ Supported architectures: `amd64` and `aarch64`.
 the assistant; **Earlier versions** restores a previous save; **Export
 configuration** and **Import configuration** back up everything as a file.
 The settings are stored in the app's `/data` folder and are part of the app
-backup.
+backup. This version uses database schema 3, which earlier versions cannot open:
+export the configuration before updating.
 
 ### Sign convention
 
@@ -72,12 +84,23 @@ for you if not. On a sunny day with a charging battery, PV must be positive
 and the battery arrow must point into the battery. Power sensors in W and kW
 are understood; other units are rejected rather than guessed.
 
+## Surplus control
+
+How the controller decides, the three operating modes, what happens when you
+change a device yourself, the emergency stop, the fail-safe behaviour and a
+step-by-step guide for your first device are in
+[Surplus control](https://github.com/pxljake/suncore/blob/main/docs/user/en/surplus-control.md)
+([Deutsch](https://github.com/pxljake/suncore/blob/main/docs/user/de/surplus-control.md)).
+Short version: leave everything in shadow mode first, read the **Decision log**
+for a day, then switch **one** device to automatic. Surplus control has never
+run against real hardware yet; the guide lists what is unverified.
+
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
 | `log_level` | `info` | Log verbosity: `debug`, `info`, `warning`, `error`. |
-| `controller_interval_s` | `5` | Real-time controller tick in seconds (2–60). Not used yet, because nothing is controlled. |
+| `controller_interval_s` | `5` | Real-time controller tick in seconds (2–60). |
 | `demo_mode` | `false` | Run with simulated data instead of your Home Assistant (see below). |
 
 Change options on the app's **Configuration** tab and restart the app.
@@ -117,15 +140,16 @@ again and restart to see your own data.
 
 ## What is not there yet
 
-No forecasts, planner, device control, history charts or tariff prices in
-use (they are only stored), and no Home Assistant entities (MQTT discovery
-follows in a later phase; the Mosquitto app is not needed yet). See the
+No forecasts, planner, history charts or tariff prices in use (they are
+only stored), no battery or inverter control, no charge point (wallbox)
+control, and no Home Assistant entities (MQTT discovery follows in a later
+phase; the Mosquitto app is not needed yet). See the
 [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 ## Privacy
 
 SunCore runs locally. It needs no account, sends no telemetry and makes no
-cloud requests in this version. Your configuration stays in the app's
+cloud requests of its own in this version. Your configuration stays in the app's
 `/data` folder.
 
 ## Support

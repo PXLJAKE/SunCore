@@ -1,9 +1,11 @@
 # Quick start
 
-SunCore is **pre-alpha** (Phase 2). This version helps you describe your
-installation with a setup assistant and shows your energy flow live. It runs
-in **shadow mode**: nothing is switched and no set-point is written. The full
-app description is in [`addon/suncore/DOCS.md`](../../../addon/suncore/DOCS.md).
+SunCore is **pre-alpha** (Phase 3). This version helps you describe your
+installation with a setup assistant, shows your energy flow live and can
+control devices from your solar surplus. It starts in **shadow mode**:
+nothing is switched and no set-point is written until you switch a device to
+automatic yourself, see [Surplus control](surplus-control.md). The full app
+description is in [`addon/suncore/DOCS.md`](../../../addon/suncore/DOCS.md).
 
 ## 1. Install
 
@@ -29,7 +31,8 @@ continue where you stopped (**Continue setup** in Settings). If you used the
 Phase 1 version, you land in the assistant once with your old sensors
 already filled in.
 
-Nothing is switched while you set up. Every sensor you pick shows its live
+Nothing is switched while you set up (and not afterwards either, until you say so).
+Every sensor you pick shows its live
 value, so you can check it right away. Sign convention used everywhere:
 **grid positive = import**, **battery positive = charging**, solar positive
 = generation.
@@ -129,17 +132,22 @@ Is your device missing? See
 ### Priorities and goals
 
 Drag devices by their handle, or use the arrow buttons or the arrow keys,
-to decide who gets surplus first. Position 1 is served first. Goals (target
-charge of the battery by a time, climate before export, grid charging at
-night only) are stored now and used by later versions.
+to decide who gets surplus first. Position 1 is served first. Goals decide
+whether the battery's charging power counts as surplus for devices (target
+charge of the battery, climate before export); see
+[Battery and goals](surplus-control.md#battery-and-goals). Grid charging at
+night only is stored for a later version.
 
 ![Step Priorities and goals](../../assets/screenshots/wizard-priorities-tablet-light-en.png)
 
 ### Operating mode
 
-Choose **Shadow mode**, **Assisted mode** or **Automatic mode**. In this
-version only shadow mode is active; the other choices are stored and marked
-"active from a later version".
+Choose the **overall mode**: **Shadow mode** (the default: SunCore calculates
+and logs, switches nothing), **Assisted mode** (it suggests, you confirm) or
+**Automatic mode** (it acts by itself). This step only sets the overall mode.
+Each device has its own mode, which you change on the **Now** view, and a device
+acts only in the lower of the two, so automatic needs both. Leave it on shadow
+for now.
 
 ![Step Operating mode](../../assets/screenshots/wizard-mode-tablet-light-en.png)
 
@@ -158,18 +166,26 @@ The panel follows the dark theme of your device as well:
 
 ## 4. What shadow mode means
 
-SunCore calculates what it would do and logs it, but switches nothing and
-writes no set-point, whatever you choose in the operating mode step. This
-is a hard rule of the safety layer in this version, not a setting you can
-lose by accident. Control arrives in a later phase, device by device and
-only after you switch a device on explicitly.
+SunCore calculates what it would do and logs it as **Would have switched**, but
+switches nothing and writes no set-point. Shadow mode is the default for the
+whole system and for every new device. A device is only controlled when **both**
+the overall mode and the device's own mode are set to automatic (or assisted,
+where you confirm every action). Run in shadow mode for a day or more, read the
+log and only then switch a single device: the step-by-step guide is
+[Take your first device to automatic](surplus-control.md#8-take-your-first-device-to-automatic).
 
 ## 5. The Now view
 
 After **Finish setup** the **Now** page shows solar, grid, battery and house
-with animated flows.
+with animated flows, the **Surplus** card and a card for every device with its
+state, estimated power, mode switch and **Why?**. The red **Emergency stop**
+button in the header hands every device back at once.
 
 ![Now view on a tablet, light theme](../../assets/screenshots/now-tablet-light-en.png)
+
+The **Decision log** lists every decision with its reasons. How it all works,
+what happens when you change a device yourself and what SunCore does when
+something fails is in [Surplus control](surplus-control.md).
 
 ## 6. Change things later
 
@@ -218,8 +234,11 @@ the matching step.
 ## What SunCore cannot do yet
 
 Be aware before you rely on it. This version has no forecasts or planner
-(your tariff and forecast choices are only stored), does not control any
-device (shadow mode only), no history charts, no battery control and no
-Home Assistant entities. Compared with evcc (charge points and heaters),
-EMHASS and Predbat (battery optimisation), SunCore currently only observes.
-The [roadmap](../../roadmap.md) shows when each part arrives.
+(your tariff and forecast choices are only stored), no history charts, no
+battery control, no charge point (wallbox) control and no Home Assistant
+entities. Its surplus control has never run against real hardware yet: that is
+what your shadow-mode run is for. Compared with evcc (charge points and
+heaters), EMHASS and Predbat (battery optimisation), SunCore currently
+controls consumers from real surplus only. The list of open points is in
+[Known limitations](surplus-control.md#known-limitations-and-unverified); the
+[roadmap](../../roadmap.md) shows when each part arrives.

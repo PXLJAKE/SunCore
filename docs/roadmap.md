@@ -56,20 +56,24 @@ Exit: maintainer's system fully described through the wizard, still shadow
 mode. ⏸ waiting for the maintainer (he describes his system via the wizard
 on HA OS).
 
-## Phase 3 – Real-time controller and safety ⬜
+## Phase 3 – Real-time controller and safety ⏸
 
-| Milestone | Acceptance |
-|---|---|
-| Controller | surplus computation, priority allocation, hysteresis, min run/pause, no oscillation (simulator test with cloud flicker) |
-| Safety | invariants property-tested, modes shadow/assisted/automatic per device, override detection, watchdogs, fail-safe |
-| Power models | measured, counter-derived (LG ThinQ Wh), learned, nominal – equal behaviour in simulator |
-| Devices | climate (both power models), water heater (stepped), switchable loads |
-| Decision log + Why | every decision logged with reasons, visible in UI |
-| `control-safety` review | documented in each PR |
+Implemented in PRs 3-A to 3-C; waiting for the maintainer's shadow-mode test and the first device
+switched to automatic.
+
+| Milestone | Acceptance | Status |
+|---|---|---|
+| Controller | surplus computation, priority allocation, hysteresis, min run/pause, no oscillation (simulator test with cloud flicker) | ✅ |
+| Safety | invariants property-tested, modes shadow/assisted/automatic per device, override detection, watchdogs, fail-safe | ✅ |
+| Power models | measured, counter-derived (LG ThinQ Wh), learned, nominal – equal behaviour in simulator | ✅ |
+| Devices | climate (both power models), water heater (stepped, simulator only), switchable loads | ✅ |
+| Decision log + Why | every decision logged with reasons, visible in UI | ✅ |
+| `control-safety` review | documented in each PR | ✅ |
+| User guide | surplus control, modes, emergency stop, first device to automatic (en/de) | ✅ |
 
 Exit: climate surplus control runs in shadow mode on the maintainer's
 system with plausible "would have" entries; maintainer switches one device
-to automatic.
+to automatic. ⏸ waiting for the maintainer (shadow run on HA OS, then one device to automatic).
 
 ## Phase 4 – Forecasts, tariffs, planner, battery ⬜
 
