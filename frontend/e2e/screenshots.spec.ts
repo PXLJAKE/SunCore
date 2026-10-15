@@ -41,6 +41,52 @@ for (const shot of shots) {
   });
 }
 
+// Decision log (rows appear a few ticks after the demo start) and the emergency stop: Now with
+// the stop active (banner, "Back to normal"). The stop is cleared again afterwards.
+const controlShots = [
+  { view: 'decisions', scheme: 'light', locale: 'en-US' },
+  { view: 'decisions', scheme: 'dark', locale: 'en-US' },
+  { view: 'decisions', scheme: 'light', locale: 'de-DE' },
+  { view: 'estop', scheme: 'light', locale: 'en-US' },
+  { view: 'estop', scheme: 'dark', locale: 'en-US' },
+  { view: 'estop', scheme: 'light', locale: 'de-DE' },
+] as const;
+
+for (const shot of controlShots) {
+  test(`${shot.view} ${shot.scheme} ${shot.locale}`, async ({ browser, request }, info) => {
+    test.skip(info.project.name === 'desktop', 'docs use phone and tablet');
+    const ctx = await browser.newContext({
+      colorScheme: shot.scheme,
+      locale: shot.locale,
+      viewport: info.project.use.viewport ?? { width: 1024, height: 768 },
+      hasTouch: info.project.use.hasTouch,
+    });
+    try {
+      const page = await ctx.newPage();
+      await page.goto(shot.view === 'decisions' ? '/#/decisions' : '/');
+      await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
+      if (shot.view === 'decisions') {
+        await expect(page.getByTestId('log-list').locator('li').first()).toBeVisible({
+          timeout: 40_000,
+        });
+      } else {
+        await expect(page.getByTestId('device-cards')).toBeVisible();
+        await page.getByTestId('estop').click();
+        await expect(page.getByTestId('estop-banner')).toBeVisible();
+      }
+      await page.waitForTimeout(1500);
+      const name = `${shot.view}-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
+      await page.screenshot({
+        path: `${dir}/${name}.png`,
+        fullPage: info.project.name === 'tablet',
+      }); // phone: first screen only (size)
+    } finally {
+      await ctx.close();
+      await request.post('/api/v1/control/emergency-stop/clear');
+    }
+  });
+}
+
 // Wizard steps of the fully configured demo for the docs. Long pages, so tablet only
 // (skill demo-screenshots: keep each PNG under 300 kB); light en/de for every step,
 // dark en/de for the device gallery and the summary.
