@@ -228,7 +228,7 @@
   "decision.kind.rejected": "Abgelehnt",
   "decision.kind.shadow": "Hätte geschaltet",
   "decision.kind.proposed": "Vorgeschlagen",
-  "decision.kind.held": "Zurückgehalten (manuelle Änderung)",
+  "decision.kind.held": "Zurückgehalten",
   "decision.kind.failed": "Fehlgeschlagen",
   "decisions.empty": "Noch keine Entscheidungen.",
   "decisions.open_log": "Entscheidungsprotokoll öffnen",

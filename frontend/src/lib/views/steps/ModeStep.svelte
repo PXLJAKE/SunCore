@@ -26,8 +26,9 @@
     live.control?.devices.find((d) => d.device_id === id)?.device_mode ??
     wizard.operation.deviceModes[id] ??
     'shadow';
+  // Without a live control state yet, fall back to the saved per-device modes.
   const automaticNames = $derived(
-    (live.control?.devices ?? []).filter((d) => d.device_mode === 'automatic').map((d) => d.name),
+    wizard.devices.filter((d) => modeOf(d.id) === 'automatic').map((d) => d.name),
   );
 
   // Raising the overall mode to automatic is confirmed first: devices already set to automatic

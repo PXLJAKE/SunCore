@@ -64,8 +64,11 @@ export const openProposals = (proposals: readonly Decision[], now: number): Deci
  */
 export function virtualDraw(d: DeviceControlState): number {
   if (d.effective_mode === 'automatic') return 0;
-  const real = d.estimate?.value_w ?? 0;
-  const extra = (d.committed_w ?? 0) - real;
+  // Like the controller: a device that is not seen as on, or whose estimate cannot be trusted,
+  // really draws nothing, so its whole planned level only "would run".
+  const trusted = d.estimate?.quality === 'ok' || d.estimate?.quality === 'stale';
+  if (d.state?.on === false || !trusted) return Math.max(0, d.committed_w ?? 0);
+  const extra = (d.committed_w ?? 0) - (d.estimate?.value_w ?? 0);
   return extra > Math.max(50, d.estimate?.uncertainty_w ?? 0) ? extra : 0;
 }
 

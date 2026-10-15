@@ -228,7 +228,7 @@
   "decision.kind.rejected": "Rejected",
   "decision.kind.shadow": "Would have switched",
   "decision.kind.proposed": "Proposed",
-  "decision.kind.held": "Held (manual change)",
+  "decision.kind.held": "Held",
   "decision.kind.failed": "Failed",
   "decisions.empty": "No decisions yet.",
   "decisions.open_log": "Open the decision log",

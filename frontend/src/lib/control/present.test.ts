@@ -110,6 +110,12 @@ describe('allocation split', () => {
   it('ignores differences within the noise', () => {
     expect(virtualDraw(device({ committed_w: 40, estimate: est(0) }))).toBe(0);
   });
+  it('counts the whole level of an off device or an untrusted estimate as "would run"', () => {
+    const off = device({ committed_w: 40, estimate: est(0), state: { on: false, quality: 'ok' } });
+    expect(virtualDraw(off)).toBe(40);
+    const stale = { ...est(500), quality: 'unavailable' as const };
+    expect(virtualDraw(device({ committed_w: 600, estimate: stale }))).toBe(600);
+  });
 });
 
 describe('qualityKey', () => {
