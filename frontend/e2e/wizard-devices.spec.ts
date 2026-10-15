@@ -115,7 +115,20 @@ test.describe('devices and priorities', () => {
     await model.selectOption('learned');
     await expect(model).toHaveValue('learned');
     await model.selectOption('measured');
+    // the LG power sensor polls every 300 s: preset, with the reason
+    const interval = editor.getByLabel('Update interval of the power sensor');
+    await expect(interval).toHaveValue('300');
+    await expect(editor).toContainText('updates every 300 seconds');
+
+    // Phase 3: opt-in switch-on needs its HVAC mode; the override policy can be hours
+    await editor.getByTestId('allow-switch-on').check();
     await editor.getByLabel('Name').fill('Living room AC');
+    await page.getByTestId('device-save').click();
+    await expect(page.getByTestId('device-errors')).toContainText('Choose the mode');
+    await editor.getByTestId('switch-on-mode').selectOption('cool');
+    await editor.getByLabel('For a number of hours').check();
+    await editor.getByLabel('Hours', { exact: true }).fill('6');
+    await expectNoAxeViolations(page);
     await page.getByTestId('device-save').click();
     await expect(page.getByTestId('devices-notice')).toContainText('was added');
     let stored = (await (await request.get('/api/v1/config/devices')).json()).devices;
@@ -125,7 +138,15 @@ test.describe('devices and priorities', () => {
         climate: { entity_id: 'climate.sim_living_room_ac' },
         power: { entity_id: 'sensor.sim_living_room_ac_energy_current' },
       },
-      power_model: { kind: 'measured', power_role: 'power', energy_role: null },
+      power_model: {
+        kind: 'measured',
+        power_role: 'power',
+        energy_role: null,
+        power_update_s: 300,
+      },
+      allow_switch_on: true,
+      switch_on_hvac_mode: 'cool',
+      override_policy: { kind: 'hours', hours: 6 },
     });
 
     // the same air conditioner through the other integration: hint, never a block
@@ -225,6 +246,8 @@ test.describe('devices and priorities', () => {
     await openStep(page, 'priorities');
     const rows = page.getByTestId('prio-list').getByRole('listitem');
     const handle = page.getByRole('button', { name: /^Reorder Alpha/ });
+    // The header is taller on a phone: bring the whole list into the viewport first.
+    await page.getByTestId('prio-list').scrollIntoViewIfNeeded();
     const from = (await handle.boundingBox())!;
     const lastRow = (await rows.nth(2).boundingBox())!;
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);

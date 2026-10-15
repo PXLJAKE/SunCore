@@ -88,8 +88,10 @@
       >{t('nav.settings')}</a
     >
   </nav>
-  <div class="status">
+  <div class="estop">
     <EmergencyStop />
+  </div>
+  <div class="status">
     {#if mode}
       <span class="badge mode" class:shadow={mode === 'shadow'} data-testid="mode-badge"
         >{t(MODE[mode])}</span
@@ -173,8 +175,32 @@
     background: var(--primary-color);
     color: var(--text-primary-color);
   }
-  .status {
+  .estop {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  @media (max-width: 640px) {
+    .brand {
+      order: 1;
+    }
+    .estop {
+      order: 2;
+    }
+    nav {
+      order: 3;
+      width: 100%;
+    }
+    nav a {
+      padding: 0 10px;
+    }
+    .status {
+      order: 4;
+      margin-left: 0;
+    }
+  }
+  .status {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
