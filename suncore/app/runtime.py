@@ -132,6 +132,7 @@ class Runtime:
     _control_listeners: list[Callable[[], None]] = field(default_factory=list)
     _last_update: datetime | None = None
     _connect_task: asyncio.Task[None] | None = None
+    _tz_task: asyncio.Future[None] | None = None
     _unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _tempdir: tempfile.TemporaryDirectory[str] | None = None
     _prune_task: asyncio.Task[None] | None = None
@@ -139,6 +140,9 @@ class Runtime:
     _operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _started: bool = False
     _ha_timezone: str | None = None
+    _tz_learnt: bool = False
+    """Home Assistant's time zone was asked for (or a region makes it irrelevant)."""
+    _tz_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     @property
     def gate(self) -> SafetyGate:
@@ -238,6 +242,7 @@ class Runtime:
             attach=False,
             after_handover=after_handover,
             predecessor=predecessor,
+            defer_recover=not self._time_zone_settled(),
         )
         stack.add_listener(self._notify_control)
         return stack
@@ -255,8 +260,11 @@ class Runtime:
             old, self.stack = self.stack, None
             if old is not None:
                 await old.handover(self._unchanged_devices(old.device_configs))
+            # Only a recovered stack can have taken anything over: before that the store holds
+            # crash leftovers, which the new stack's recover releases at once.
+            handed = old is not None and old.recovered
             new = self._new_stack(
-                after_handover=old is not None, predecessor=None if old is None else old.gate
+                after_handover=handed, predecessor=old.gate if old is not None and handed else None
             )
             self.stack = new
             if self._started:
@@ -299,7 +307,26 @@ class Runtime:
         except Exception as exc:  # AuthError and friends: reported via state, not fatal
             log.error("ha.connect_failed", error_type=type(exc).__name__, error=str(exc))
             return
-        await self._learn_ha_timezone()
+        await self._prepare_control()
+
+    def _time_zone_settled(self) -> bool:
+        return self.region is not None or self._tz_learnt
+
+    async def _prepare_control(self) -> None:
+        """Learn Home Assistant's time zone, then let the stack recover (once per process).
+
+        A time zone learnt *after* the first ``recover()`` rebuilt the stack in the middle of
+        it (final review 3-B, N7); the stack therefore waits (``defer_recover``) until the zone
+        is known or asking for it failed.
+        """
+        async with self._tz_lock:
+            if not self._tz_learnt:
+                try:
+                    await self._learn_ha_timezone()
+                finally:
+                    self._tz_learnt = True
+        if self.stack is not None:
+            self.stack.allow_recover()
 
     async def _learn_ha_timezone(self) -> None:
         """Without a region the override resume time is local to Home Assistant's zone."""
@@ -327,12 +354,12 @@ class Runtime:
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
-        for task in (self._connect_task, self._prune_task):
+        for task in (self._connect_task, self._prune_task, self._tz_task):
             if task is not None:
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
-        self._connect_task = self._prune_task = None
+        self._connect_task = self._prune_task = self._tz_task = None
         async with self._stack_lock:
             if self.stack is not None:
                 await self.stack.shutdown()
@@ -369,6 +396,13 @@ class Runtime:
     def _on_state(self, state: ConnectionState) -> None:
         if self.stack is not None:
             self.stack.on_state(state)
+        if (
+            state is ConnectionState.CONNECTED
+            and self._started
+            and not self._time_zone_settled()
+            and self._tz_task is None
+        ):
+            self._tz_task = asyncio.ensure_future(self._prepare_control())
         self._notify()
         for listener in list(self._health_listeners):
             try:

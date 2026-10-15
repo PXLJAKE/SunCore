@@ -157,6 +157,9 @@ class ControlStack:
             (``gate.recover(after_handover=True)``).
         predecessor: the gate of the replaced stack: devices it could not release (removed or
             re-mapped while Home Assistant was down) are released with its actuators.
+        defer_recover: wait for :meth:`allow_recover` before ``gate.recover()`` (the runtime
+            first learns Home Assistant's time zone, whose change would rebuild the stack in
+            the middle of the recovery).
     """
 
     def __init__(  # noqa: PLR0915 - the composition root of the control layer
@@ -183,8 +186,10 @@ class ControlStack:
         attach: bool = True,
         after_handover: bool = False,
         predecessor: SafetyGate | None = None,
+        defer_recover: bool = False,
     ) -> None:
         self._connection = connection
+        self._recover_allowed = not defer_recover
         self._after_handover = after_handover
         self._site = site
         self._devices = {d.id: d for d in devices}
@@ -383,10 +388,18 @@ class ControlStack:
         if self._connection.state is ConnectionState.CONNECTED:
             await self.recover()
 
+    def allow_recover(self) -> None:
+        """End ``defer_recover``: recover now if the link is up (else on the first connect)."""
+        if self._recover_allowed:
+            return
+        self._recover_allowed = True
+        if self._connection.state is ConnectionState.CONNECTED and not self.stopped:
+            self._spawn(self._connected())
+
     async def recover(self) -> None:
         """Restore the learned power models, then ``gate.recover()``; idempotent."""
         async with self._lifecycle:
-            if self.recovered or self.stopped:
+            if self.recovered or self.stopped or not self._recover_allowed:
                 return
             await self._restore_models()
             await self.gate.recover(after_handover=self._after_handover)
@@ -401,8 +414,10 @@ class ControlStack:
     async def run(self) -> None:
         """Tick every ``settings.tick_s`` while :attr:`ready`; recover when the link comes up."""
         while not self.stopped:
-            if self._connection.state is ConnectionState.CONNECTED and (
-                not self.recovered or self._lost
+            if (
+                self._connection.state is ConnectionState.CONNECTED
+                and self._recover_allowed
+                and (not self.recovered or self._lost)
             ):
                 # Retries a failed recover and ends an outage whose restore it had cut short.
                 try:

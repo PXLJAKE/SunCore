@@ -7,6 +7,7 @@ Everything runs on the fake Home Assistant of ``suncore.sim``; no network.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -902,3 +903,28 @@ async def test_the_identity_is_checked_under_the_operation_lock(demo_runtime: Ru
     with pytest.raises(DeviceIdentityChangedError):
         await pending
     assert demo_runtime.modes.device_mode(POOL) is OperatingMode.SHADOW
+
+
+async def test_the_ha_time_zone_is_learnt_before_the_first_recover(tmp_path: Path) -> None:
+    """Final review 3-B (N7): without a region the time zone learnt after the first connect
+    rebuilt the stack while (or right after) it recovered; now the stack waits for it."""
+
+    class SlowConfig(GatedConnection):
+        async def get_config(self) -> Mapping[str, Any]:
+            await asyncio.sleep(0.05)  # a real round trip: the recovery would run meanwhile
+            return await super().get_config()
+
+    conn = SlowConfig()
+    runtime = await build_runtime(demo_settings(tmp_path), env={}, connection=conn)
+    runtime.region = None  # as if no region was ever stored
+    runtime.stack = runtime._new_stack()
+    try:
+        await runtime.start()
+        first = stack_of(runtime)
+        conn.open.set()
+        await wait_for(lambda: (s := runtime.stack) is not None and s is not first and s.recovered)
+        assert not first.recovered  # the stack built before the zone was known never recovered
+        assert str(stack_of(runtime).gate._tz) == str(runtime._timezone())
+        assert runtime._ha_timezone is not None
+    finally:
+        await runtime.stop()
