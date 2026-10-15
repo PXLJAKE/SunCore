@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-14 · **Phase:** 3 in progress (plan approved, WP1–WP3 on
+**Last update:** 2026-10-15 · **Phase:** 3 in progress (plan approved, WP1–WP3 on
 `phase-3/a-safety`, WP5–WP9 on `phase-3/b-controller`) · **Branch:** `phase-3/b-controller`
 
 ## Done
@@ -308,7 +308,11 @@ ADRs relevant to your task. Keep it short; history lives in git.
 - **WP9 runtime and API (branch `phase-3/b-controller`)** done. `control-safety` review of
   3-B: four `fix(...)` commits (handover on config changes, switches recorded when sent, release
   gives back unjudged manual changes, level 1 with a base outside the comfort band, stale
-  CONNECTED handler, lazy runtime load race, pause releases, holds never shortened).
+  CONNECTED handler, lazy runtime load race, pause releases, holds never shortened). Final
+  review: orphaned runtimes of removed/re-mapped devices are released with the old actuator
+  (`predecessor` gate) or reported (`safety.orphan_dropped`); a water heater's `max_c` is
+  enforced through its tank probe (`core.control.heat_capped`, controller cap + gate invariant
+  `check_heat_limit`); time zone learnt before the first recover; `app.control` is mypy-strict.
   *Composition*: `suncore/app/control.py` `ControlStack` is the one control composition (the
   simulator's WP8 stack was generalised, not duplicated; `sim/stack.py` re-exports it): drivers
   via `suncore/safety/wiring.py` `build_actuators(connection, devices, make)` (the connection's
@@ -342,16 +346,17 @@ ADRs relevant to your task. Keep it short; history lives in git.
   [{state, estimate value/uncertainty, three modes, controller phase/level, `identity`,
   `held`/`held_until`, `release_pending`, `paused`, `reasons`, `last_decision`}], `proposals`),
   `POST /control/emergency-stop` and `/clear` (`{active}`), `POST /devices/{id}/override`
-  (`{action: boost|pause|resume, minutes?, until?}`; boost and pause are timed holds, SunCore
-  keeps its hands off, nothing is driven), `GET /proposals`, `POST /proposals/{intent_id}/confirm`
+  (`{action: boost|pause|resume, minutes?, until?}`; boost is a timed hold, SunCore keeps its
+  hands off and drives nothing; pause also releases a device SunCore controls, respecting min
+  run/pause; a pause `until` the past is 422 `api.validation.override_until_past`), `GET /proposals`, `POST /proposals/{intent_id}/confirm`
   (the gate's decision) and `/dismiss` (204), `GET /decisions?limit&device_id&kind=..`,
   `PUT /operation/mode` `{mode}`, `PUT /operation/devices/{id}` `{mode, identity?}` (identity
   required above shadow, 409 `device_identity_changed`), `PUT /config/operation` may not raise
   a mode (409 `mode_raise_rejected`). Live feed: `snapshot.control` and `{type: "control"}`
   messages. Frontend: types regenerated, `LiveStore.control` (UI is WP10). The backend has no
   "active from a later version" hint (it is the frontend string `mode.later`, WP10).
-  Open: pause does not release a controlled device; boost does not drive the device (maintainer
-  question); `tz` falls back to UTC without region and HA config.
+  Open: boost does not drive the device (maintainer question); `tz` falls back to UTC without
+  region and HA config (the stack recovers only after HA's zone was asked for).
 - From the PR 3-A review (fixed in `fix(safety)`: per-device lock and re-checks before
   `apply()`, late confirmation of slow echoes, free-surplus semantics with input age, deferred
   release). ~~Still for WP9: (2) the gate's `tz` from the site/region time zone; (8) the
@@ -402,9 +407,11 @@ ADRs relevant to your task. Keep it short; history lives in git.
 1. Maintainer: watch the beta in surplus, check the summary system check at
    noon, export a config backup; wizard walk-through with other people.
 2. Release the next release-please PR for the stable app after acceptance.
-3. Phase 3 starts in a new session: write and approve `docs/plans/phase-3.md`
-   (real-time controller and safety, roadmap Phase 3) from this file, the
-   roadmap and the Phase 3 follow-ups above. Nothing of Phase 3 exists yet.
+3. Phase 3 (plan `docs/plans/phase-3.md`, approved): open PR 3-B (`phase-3/b-controller`,
+   WP5-WP9, signed off by `control-safety` and the final reviewer) after the maintainer's
+   answer on its size; then WP10 (UI: control cards, modes, proposals, decision log, emergency
+   stop; `power_update_s` in the wizard/device editor) and WP11 (docs) as PR 3-C; exit = shadow
+   run on the maintainer's system and one device switched to automatic.
 
 ## Known problems and `UNVERIFIED` items
 
