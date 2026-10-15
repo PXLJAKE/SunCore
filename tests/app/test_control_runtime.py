@@ -28,6 +28,7 @@ from suncore.core.controlstate import (
     DeviceIdentityChangedError,
     ModeRaiseRejectedError,
     OverrideCommand,
+    OverrideUntilPastError,
     UnknownDeviceError,
     UnknownProposalError,
 )
@@ -534,6 +535,11 @@ async def test_override_boost_pause_resume(demo_runtime: Runtime) -> None:
     assert not paused.under_control or paused.release_pending
     state = await demo_runtime.override_device(POOL, OverrideCommand(action="resume"))
     assert not state.held
+    with pytest.raises(OverrideUntilPastError):
+        await demo_runtime.override_device(
+            POOL, OverrideCommand(action="pause", until=demo_runtime.clock() - timedelta(minutes=1))
+        )
+    assert not stack.gate.runtime_of(POOL).is_held(demo_runtime.clock())  # type: ignore[union-attr]
     with pytest.raises(UnknownDeviceError):
         await demo_runtime.override_device("nope", OverrideCommand(action="resume"))
 

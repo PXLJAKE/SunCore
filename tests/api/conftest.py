@@ -33,6 +33,7 @@ from suncore.core.controlstate import (
     DeviceControlState,
     DeviceIdentityChangedError,
     OverrideCommand,
+    OverrideUntilPastError,
     UnknownDeviceError,
     UnknownProposalError,
 )
@@ -307,6 +308,8 @@ class FakeServices:
     async def override_device(self, device_id: str, command: OverrideCommand) -> DeviceControlState:
         if device_id != "pool":
             raise UnknownDeviceError(device_id)
+        if command.until is not None and command.until <= datetime(2026, 1, 1, tzinfo=UTC):
+            raise OverrideUntilPastError(device_id)
         self.calls.append(("override", (device_id, command)))
         return make_device_state(device_id, held=command.action != "resume")
 

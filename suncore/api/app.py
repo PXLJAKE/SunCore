@@ -73,8 +73,10 @@ from suncore.core.controlstate import (
     DeviceIdentityChangedError,
     ModeRaiseRejectedError,
     OverrideCommand,
+    OverrideUntilPastError,
     UnknownDeviceError,
     UnknownProposalError,
+    override_until_past,
 )
 from suncore.core.decisions import Decision, DecisionKind
 from suncore.core.site import SiteConfig
@@ -293,6 +295,12 @@ def _register_control(app: FastAPI, services: Services) -> None:
             return await services.override_device(device_id, body)
         except UnknownDeviceError as exc:
             raise HTTPException(status_code=404, detail=ERR_UNKNOWN_DEVICE) from exc
+        except OverrideUntilPastError as exc:
+            # Same 422 body as a request validation error: only the service knows the clock.
+            error = override_until_past()
+            raise RequestValidationError(
+                [{"type": error.type, "loc": ("body", "until"), "msg": error.message()}]
+            ) from exc
 
     @app.get(f"{API_PREFIX}/proposals", response_model=list[Decision])
     async def proposals() -> list[Decision]:

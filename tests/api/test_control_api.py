@@ -127,6 +127,22 @@ async def test_override_errors_are_catalogue_keys(services: FakeServices) -> Non
     assert stray.json()["issues"][0]["key"] == "api.validation.override_minutes_only_boost"
 
 
+async def test_a_pause_until_the_past_is_a_validation_error(services: FakeServices) -> None:
+    async with client_for(create_app(services)) as client:
+        past = await client.post(
+            "/api/v1/devices/pool/override",
+            json={"action": "pause", "until": "2025-06-21T18:00:00Z"},
+        )
+    assert past.status_code == 422
+    assert past.json() == {
+        "detail": "api.error.validation",
+        "issues": [
+            {"loc": ["body", "until"], "key": "api.validation.override_until_past", "args": {}}
+        ],
+    }
+    assert [c for c in services.calls if c[0] == "override"] == []
+
+
 async def test_proposals_confirm_and_dismiss(services: FakeServices) -> None:
     services.proposal_list = [proposal(1), proposal(2)]
     async with client_for(create_app(services)) as client:

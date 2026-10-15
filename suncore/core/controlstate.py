@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Annotated, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from suncore.core.control import DeviceState, PowerEstimate
 from suncore.core.decisions import Decision, OperatingMode, Reason
@@ -169,6 +170,15 @@ class DeviceIdentityChangedError(RuntimeError):
     """The device changed since the caller read its identity token."""
 
 
+class OverrideUntilPastError(ValueError):
+    """A pause ``until`` a time that has already passed (judged with the app's clock)."""
+
+
+def override_until_past() -> PydanticCustomError:
+    """The validation error the API reports for :class:`OverrideUntilPastError` (``loc`` until)."""
+    return invalid("override_until_past", "override: `until` is in the past")
+
+
 class ModeRaiseRejectedError(RuntimeError):
     """A full-document ``operation`` put tried to raise a mode (only lowering is allowed)."""
 
@@ -182,7 +192,9 @@ __all__ = [
     "ModeRequest",
     "OverrideAction",
     "OverrideCommand",
+    "OverrideUntilPastError",
     "SiteControlState",
     "UnknownDeviceError",
     "UnknownProposalError",
+    "override_until_past",
 ]

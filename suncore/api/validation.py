@@ -104,6 +104,7 @@ VALIDATION_KEYS: Final[dict[str, str]] = {
     "suncore.override_minutes_only_boost": "api.validation.override_minutes_only_boost",
     "suncore.override_next_day": "api.validation.override_next_day",
     "suncore.override_until_only_pause": "api.validation.override_until_only_pause",
+    "suncore.override_until_past": "api.validation.override_until_past",
     "suncore.para14a_signal_needs_flag": "api.validation.para14a_signal_needs_flag",
     "suncore.percent_needs_nominal": "api.validation.percent_needs_nominal",
     "suncore.plan_interval_order": "api.validation.plan_interval_order",

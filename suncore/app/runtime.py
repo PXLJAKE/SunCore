@@ -39,6 +39,7 @@ from suncore.core.controlstate import (
     DeviceIdentityChangedError,
     ModeRaiseRejectedError,
     OverrideCommand,
+    OverrideUntilPastError,
     UnknownDeviceError,
     UnknownProposalError,
 )
@@ -598,6 +599,8 @@ class Runtime:
             until: datetime | None = self.clock() + timedelta(minutes=command.minutes)
             await stack.gate.hold(device_id, until)
         elif command.action == "pause":
+            if command.until is not None and command.until <= self.clock():
+                raise OverrideUntilPastError(device_id)
             # "Hands off" gives the device back: a unit SunCore switched on must not keep
             # running on SunCore's behalf for the whole pause (no SunCore-caused import). The
             # release respects the minimum run/pause time (deferred, executed by ``poll``).

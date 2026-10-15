@@ -48,6 +48,7 @@
   "api.validation.override_boost_minutes": "A boost needs a duration in minutes.",
   "api.validation.override_minutes_only_boost": "Only a boost takes a duration.",
   "api.validation.override_until_only_pause": "Only a pause takes an end time.",
+  "api.validation.override_until_past": "The end of the pause is in the past.",
   "api.validation.power_update_without_role": "An update interval for the power sensor needs a power sensor.",
   "api.validation.mode_identity_required": "Raising a device above shadow mode needs its identity token.",
   "api.validation.override_next_day": "The override policy \"next day\" takes no number of hours.",

@@ -48,6 +48,7 @@
   "api.validation.override_boost_minutes": "Ein Boost braucht eine Dauer in Minuten.",
   "api.validation.override_minutes_only_boost": "Nur ein Boost hat eine Dauer.",
   "api.validation.override_until_only_pause": "Nur eine Pause hat eine Endzeit.",
+  "api.validation.override_until_past": "Das Ende der Pause liegt in der Vergangenheit.",
   "api.validation.power_update_without_role": "Ein Aktualisierungsintervall für den Leistungssensor braucht einen Leistungssensor.",
   "api.validation.mode_identity_required": "Um ein Gerät über den Schattenmodus zu heben, braucht es seine Identitätskennung.",
   "api.validation.override_next_day": "Die Override-Regel „nächster Tag“ nimmt keine Stundenzahl.",
