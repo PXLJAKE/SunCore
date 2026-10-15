@@ -597,7 +597,7 @@ describe('Phase 3 device fields', () => {
     expect(out.override_policy).toMatchObject({ kind: 'hours', hours: 12 });
   });
 
-  it('stores power_update_s only for the measured model and validates its range', () => {
+  it('stores power_update_s for the measured and learned model and validates its range', () => {
     const form = climate();
     form.entities.power = ref('sensor.ac_energy_current');
     form.powerKind = 'measured';
@@ -610,6 +610,18 @@ describe('Phase 3 device fields', () => {
     form.powerRoles.powerUpdateS = 300;
     form.powerKind = 'learned';
     form.nominalW = 900;
+    // learned also reads the power sensor: the period stays (round trip through the stored device)
+    const learned = deviceFromForm(form, 'ac', LG);
+    expect(learned.power_model).toMatchObject({
+      kind: 'learned',
+      power_role: 'power',
+      power_update_s: 300,
+    });
+    expect(deviceFormFromConfig(learned, LG).powerRoles.powerUpdateS).toBe(300);
+    form.powerKind = 'counter_derived';
+    expect(deviceFromForm(form, 'ac', LG).power_model.power_update_s).toBeNull();
+    form.powerKind = 'learned';
+    form.entities.power = ref('');
     expect(deviceFromForm(form, 'ac', LG).power_model.power_update_s).toBeNull();
   });
 

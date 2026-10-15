@@ -268,7 +268,10 @@ export function powerModelFromForm(
     energy_role: energy,
     nominal_w: kind === 'learned' || kind === 'nominal' ? form.nominalW : null,
     counter_update_s: energy !== null ? form.powerRoles.counterUpdateS : null,
-    power_update_s: kind === 'measured' && powerRole !== null ? form.powerRoles.powerUpdateS : null,
+    power_update_s:
+      (kind === 'measured' || kind === 'learned') && powerRole !== null
+        ? form.powerRoles.powerUpdateS
+        : null,
   };
 }
 
@@ -377,7 +380,7 @@ export function validateDeviceForm(form: DeviceForm, template: DeviceTemplate): 
   }
   const upd = form.powerRoles.powerUpdateS;
   if (
-    form.powerKind === 'measured' &&
+    (form.powerKind === 'measured' || form.powerKind === 'learned') &&
     upd != null &&
     (!Number.isInteger(upd) || upd < POWER_UPDATE_MIN || upd > POWER_UPDATE_MAX)
   ) {

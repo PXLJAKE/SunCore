@@ -114,6 +114,8 @@ test.describe('devices and priorities', () => {
     await expect(model).toHaveValue('measured');
     await model.selectOption('learned');
     await expect(model).toHaveValue('learned');
+    // learned reads the power sensor too: the update interval stays available
+    await expect(editor.getByLabel('Update interval of the power sensor')).toHaveValue('300');
     await model.selectOption('measured');
     // the LG power sensor polls every 300 s: preset, with the reason
     const interval = editor.getByLabel('Update interval of the power sensor');

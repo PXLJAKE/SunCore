@@ -176,7 +176,7 @@
   $effect(() => {
     if (updateTouched || slowPreset === null) return;
     if (
-      form.powerKind === 'measured' &&
+      (form.powerKind === 'measured' || form.powerKind === 'learned') &&
       powerSensorMapped &&
       form.powerRoles.powerUpdateS === null
     ) {
@@ -255,7 +255,7 @@
         issues={at('power_model', 'nominal_w')}
       />
     {/if}
-    {#if form.powerKind === 'measured' && powerSensorMapped}
+    {#if (form.powerKind === 'measured' || form.powerKind === 'learned') && powerSensorMapped}
       <NumberField
         label={t('device.power_update')}
         bind:value={form.powerRoles.powerUpdateS}
