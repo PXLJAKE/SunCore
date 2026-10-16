@@ -1,7 +1,9 @@
 # Phase 4 – Forecasts, tariffs, planner, battery
 
-Status: **draft, waiting for the maintainer's approval** (questions in §6; bold defaults apply
-where he does not answer)
+Status: **approved** by the maintainer on 2026-10-16 (answers in §6: commit and push after every
+WP, Opus takes the Fable roles, battery "as full as possible", grid charging by a price level and
+a schedule instead of a fixed night window, calibration charge optional and off; defaults
+otherwise)
 Source of truth: [`docs/BRIEF.md`](../BRIEF.md) §3 (two control layers), §4.1 (battery, weather),
 §4.2, §4.3, §4.4, §4.5 (battery rules of the surplus distribution), §4.8, §4.9 (plan view, only
 the part Phase 4 needs), §4.10 steps 4–6 and 10, §5, §8, §9, §10;
@@ -330,6 +332,24 @@ Bold = default if there is no answer.
     reasons), the full chart with Gantt/zoom in Phase 5**.
 11. **Calibration charge:** **off by default; if on, once every 30 days to 100 %, scheduled into
     a sunny day by the planner**.
+
+### Answers (2026-10-16)
+
+- Every WP ends with a commit **and a push**, so nothing is lost when the session's usage quota
+  runs out.
+- **Opus takes the Fable roles** (`optimizer-engineer`, `control-safety`, `reviewer`, advisor).
+- Question 1 (PR structure), 2, 3, 5, 6, 8, 9, 10: defaults.
+- Question 11: the calibration charge is built for other users, **off by default**.
+- Battery strategy of the maintainer: **"keep the battery as full as possible"** – a strategy
+  option `prefer_full` (target 100 % as early as the P10 forecast allows, PV surplus to the battery
+  before consumers until full, discharge only for the house); self-consumption stays the default
+  for new installations.
+- Question 7: instead of a fixed night window, grid charging is allowed by **a price level**
+  (charge only when the import price is at or below a user-set level, currency/kWh) **and a
+  schedule** (weekly time windows, default: always allowed inside the price level). The spread rule
+  (efficiency + degradation + margin) still applies on dynamic tariffs; the existing
+  `goals.grid_charge_night_only` is migrated to a schedule 22:00–06:00. Grid charging stays off
+  until the user sets a level or a schedule.
 
 ## 7. Out of scope for Phase 4
 
