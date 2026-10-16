@@ -3,7 +3,7 @@
 # Defaults are omitted on purpose: the app linter rejects redundant defaults and
 # the obsolete `watchdog` key (health is a Docker HEALTHCHECK in the Dockerfile).
 name: SunCore
-version: "0.2.0" # x-release-please-version
+version: "0.3.0" # x-release-please-version
 slug: suncore
 description: Energy management – forecasts, planner and real-time surplus control, explainable and safe by default.
 url: https://github.com/pxljake/suncore
