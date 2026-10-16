@@ -26,7 +26,7 @@ export class LiveStore {
   flows = $state.raw<Flows | null>(null);
   health = $state.raw<Health | null>(null);
   decisions = $state.raw<Decision[]>([]);
-  /** Control layer state (devices, site surplus, proposals); WP10 renders it. */
+  /** Control layer state (devices, site surplus, proposals). */
   control = $state.raw<ControlState | null>(null);
   connection = $state<ConnectionState>('connecting');
   haveSnapshot = $state(false);
@@ -43,7 +43,7 @@ export class LiveStore {
         this.flows = msg.flows;
         this.health = msg.health;
         this.decisions = msg.decisions;
-        this.control = msg.control;
+        this.control = msg.control ?? null;
         this.haveSnapshot = true;
         this.flowUpdates += 1;
         break;
@@ -61,6 +61,11 @@ export class LiveStore {
         this.control = msg.control;
         break;
     }
+  }
+
+  /** A fresher control state than the last WebSocket message (answer of a REST action). */
+  setControl(control: ControlState): void {
+    this.control = control;
   }
 
   setConnection(state: ConnectionState): void {

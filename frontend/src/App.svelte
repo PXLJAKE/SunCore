@@ -5,7 +5,10 @@
   import type { OperatingMode } from './lib/api/types';
   import { router } from './lib/router.svelte';
   import { app } from './lib/stores/app.svelte';
+  import { control } from './lib/stores/control.svelte';
   import { live, type LinkStatus } from './lib/stores/live.svelte';
+  import EmergencyBanner from './lib/components/EmergencyBanner.svelte';
+  import EmergencyStop from './lib/components/EmergencyStop.svelte';
   import Now from './lib/views/Now.svelte';
   import Settings from './lib/views/Settings.svelte';
   import Setup from './lib/views/Setup.svelte';
@@ -29,7 +32,8 @@
 
   // Fall back to the decision reasons while /info has not arrived.
   const mode = $derived<OperatingMode | null>(
-    app.info?.mode ??
+    live.control?.global_mode ??
+      app.info?.mode ??
       (live.decisions.some((d) => d.reasons.some((r) => r.key === 'safety.shadow_mode'))
         ? 'shadow'
         : null),
@@ -38,6 +42,8 @@
   onMount(() => {
     const stopRouter = router.listen();
     void app.load();
+    // The emergency stop must show even before the first live snapshot.
+    void control.refresh();
     live.start();
     return () => {
       stopRouter();
@@ -76,12 +82,18 @@
   <h1 class="brand">{t('app.title')}</h1>
   <nav aria-label={t('nav.label')}>
     <a href="#/" aria-current={router.route === 'now' ? 'page' : undefined}>{t('nav.now')}</a>
+    <a href="#/decisions" aria-current={router.route === 'decisions' ? 'page' : undefined}
+      >{t('nav.decisions')}</a
+    >
     <a
       href="#/settings"
       aria-current={router.route === 'settings' || router.route === 'setup' ? 'page' : undefined}
       >{t('nav.settings')}</a
     >
   </nav>
+  <div class="estop">
+    <EmergencyStop />
+  </div>
   <div class="status">
     {#if mode}
       <span class="badge mode" class:shadow={mode === 'shadow'} data-testid="mode-badge"
@@ -100,6 +112,8 @@
   </div>
 </header>
 
+<EmergencyBanner />
+
 {#if app.info?.demo}
   <div class="demo" role="note" data-testid="demo-banner">{t('demo.banner')}</div>
 {/if}
@@ -109,6 +123,10 @@
     <Setup />
   {:else if router.route === 'settings'}
     <Settings />
+  {:else if router.route === 'decisions'}
+    {#await import('./lib/views/Decisions.svelte') then view}
+      <view.default />
+    {/await}
   {:else}
     <Now />
   {/if}
@@ -160,8 +178,32 @@
     background: var(--primary-color);
     color: var(--text-primary-color);
   }
-  .status {
+  .estop {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  @media (max-width: 640px) {
+    .brand {
+      order: 1;
+    }
+    .estop {
+      order: 2;
+    }
+    nav {
+      order: 3;
+      width: 100%;
+    }
+    nav a {
+      padding: 0 10px;
+    }
+    .status {
+      order: 4;
+      margin-left: 0;
+    }
+  }
+  .status {
     display: flex;
     align-items: center;
     flex-wrap: wrap;

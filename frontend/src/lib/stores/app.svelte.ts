@@ -2,7 +2,7 @@
 // App-level REST state: /info, the site config (which nodes the Now view shows), the region
 // (language) and the wizard state (first start redirect).
 import { api, ApiError } from '../api/client';
-import type { Info, RegionConfig, SiteConfig, WizardState } from '../api/types';
+import type { DevicesConfig, Info, RegionConfig, SiteConfig, WizardState } from '../api/types';
 import { applyLanguage } from '../i18n/index.svelte';
 
 export class AppStore {
@@ -12,20 +12,24 @@ export class AppStore {
   /** `undefined` = not loaded yet, `null` = the wizard was never started. */
   wizard = $state.raw<WizardState | null | undefined>(undefined);
   region = $state.raw<RegionConfig | null>(null);
+  /** Configured devices (units of adjustable loads on the cards). */
+  devices = $state.raw<DevicesConfig | null>(null);
   error = $state<string | null>(null);
 
   async load(): Promise<void> {
     try {
-      const [info, site, wizard, region] = await Promise.all([
+      const [info, site, wizard, region, devices] = await Promise.all([
         api.info(),
         api.getSite(),
         api.getSection<WizardState>('wizard'),
         api.getSection<RegionConfig>('region'),
+        api.getSection<DevicesConfig>('devices'),
       ]);
       this.info = info;
       this.site = site;
       this.wizard = wizard;
       this.region = region;
+      this.devices = devices;
       if (region) applyLanguage(region.language);
       this.error = null;
     } catch (e) {

@@ -1,13 +1,18 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type { Decision } from '../api/types';
-  import { t, tDynamic, tTime, type MessageKey } from '../i18n/index.svelte';
+  import { describeAction } from '../control/actions';
+  import { t, tDateTime, tDynamic, tPower, tTime, type MessageKey } from '../i18n/index.svelte';
 
   interface Props {
-    decisions: Decision[];
+    decisions: readonly Decision[];
     limit?: number;
+    /** Device id -> name; unknown ids are shown as they are. */
+    names?: ReadonlyMap<string, string>;
+    /** Date and time instead of the time only (the full log). */
+    withDate?: boolean;
   }
-  let { decisions, limit = 5 }: Props = $props();
+  let { decisions, limit = 5, names, withDate = false }: Props = $props();
 
   const KIND: Record<Decision['kind'], MessageKey> = {
     accepted: 'decision.kind.accepted',
@@ -28,9 +33,14 @@
     {#each shown as d (d.intent.id + d.ts + d.kind)}
       <li>
         <span class="meta">
-          <time datetime={d.ts}>{tTime(new Date(d.ts))}</time>
-          <span class="asset">{d.intent.asset_id}</span>
+          <time datetime={d.ts}>{withDate ? tDateTime(new Date(d.ts)) : tTime(new Date(d.ts))}</time
+          >
+          <span class="asset">{names?.get(d.intent.asset_id) ?? d.intent.asset_id}</span>
           <span class="kind {d.kind}">{t(KIND[d.kind])}</span>
+          {#if d.intent.action}
+            {@const a = describeAction(d.intent.action, tPower)}
+            <span class="action">{t(a.key, a.args)}</span>
+          {/if}
         </span>
         <span class="reasons">
           {#each d.reasons as r, i (i)}
@@ -64,8 +74,12 @@
   .kind {
     font-weight: 600;
   }
-  .kind.rejected {
+  .kind.rejected,
+  .kind.failed {
     color: var(--error-color);
+  }
+  .action {
+    color: var(--primary-text-color);
   }
   .reason {
     display: block;

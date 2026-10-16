@@ -45,8 +45,8 @@ HEADER = """\
 
 This list is generated from the built-in templates in `templates/`. A template describes how
 SunCore finds the entities of a device, tariff or forecast source and which defaults it uses.
-It does **not** mean that the device is controlled yet: until the controller arrives
-(Phase 3) SunCore only observes, and all devices run in shadow mode.
+It does **not** mean that the device is controlled: every device starts in shadow mode, and
+a template only tested in the simulator has never run against real hardware.
 
 - **Tested with** names the integration versions a contributor verified the template against
   on a running Home Assistant. *not tested on hardware* means the template was written from

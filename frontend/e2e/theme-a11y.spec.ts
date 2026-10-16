@@ -47,6 +47,7 @@ for (const scheme of ['light', 'dark'] as const) {
     for (const [name, hash] of [
       ['now', '#/'],
       ['settings', '#/settings'],
+      ['decisions', '#/decisions'],
     ] as const) {
       test(`${name} view has no axe violations`, async ({ page }) => {
         await page.goto(`/${hash}`);
@@ -69,6 +70,8 @@ test('keyboard: skip link and navigation are reachable', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Skip to content' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Now' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('link', { name: 'Decision log', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#\/settings$/);

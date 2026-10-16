@@ -40,6 +40,7 @@ import {
   type TariffForm,
 } from '../wizard/tariffForm';
 import { app } from './app.svelte';
+import { control } from './control.svelte';
 
 export const WIZARD_VERSION = 1;
 
@@ -241,6 +242,11 @@ export class WizardStore {
     this.goals = goalsFormFromConfig(saved);
   }
 
+  /**
+   * Store the operating mode. The full `operation` document may only keep or lower modes, so the
+   * overall mode goes through `PUT operation/mode`; modes of single devices are changed on the
+   * Now view (with the device's identity token), never here.
+   */
   async saveOperation(): Promise<void> {
     const body = operationFromForm(
       this.operation,
@@ -270,6 +276,8 @@ export class WizardStore {
     saved ??= await api.putSection<OperationConfig>('operation', body);
     this.saved = { ...this.saved, operation: saved };
     this.operation = operationFormFromConfig(saved);
+    // The header and the cards follow the live feed; read the new state without waiting for it.
+    await control.refresh();
   }
 
   // --- progress ------------------------------------------------------------------------

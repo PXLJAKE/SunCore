@@ -7,6 +7,7 @@ import type {
   DeviceConfig,
   DeviceKind,
   DeviceTemplate,
+  OverridePolicy,
   PowerModel,
   PowerModelKind,
 } from '../api/types';
@@ -19,6 +20,30 @@ export function controlRoleOf(control: ControlSpec): string {
 
 /** Device kinds with a comfort band (core/devices.py THERMAL_KINDS). */
 export const THERMAL_KINDS: readonly DeviceKind[] = ['climate', 'water_heater', 'heat_pump'];
+
+/** HVAC modes SunCore may switch a climate unit on with (core/devices.py). */
+export const SWITCH_ON_MODES = ['heat', 'cool', 'heat_cool', 'auto'] as const;
+export type SwitchOnMode = (typeof SWITCH_ON_MODES)[number];
+
+/** Bounds of `OverridePolicy.hours` (core/devices.py). */
+export const OVERRIDE_HOURS_MIN = 1;
+export const OVERRIDE_HOURS_MAX = 48;
+/** Bounds of `PowerModel.power_update_s`. */
+export const POWER_UPDATE_MIN = 1;
+export const POWER_UPDATE_MAX = 86_400;
+
+/**
+ * Templates whose optional power sensor is known to be slow, with its update period in seconds:
+ * the `smartthinq_sensors` `energy_current` sensor of an LG air conditioner polls every 300 s.
+ * Without the period the watchdog would call the sensor stale after about a minute.
+ */
+export const SLOW_POWER_SENSOR: Readonly<Record<string, number>> = { 'lg.thinq_climate': 300 };
+
+const DEFAULT_RESUME_TIME = '04:00';
+
+/** `HH:MM:SS` of the API to the `HH:MM` of a time input. */
+const toTimeInput = (value: string | undefined): string =>
+  (value ?? '').slice(0, 5) || DEFAULT_RESUME_TIME;
 
 /** Comfort band suggested for a device whose template has none; the user can change it. */
 export const DEFAULT_COMFORT: ComfortBand = { min_c: 20, max_c: 26 };
@@ -37,8 +62,23 @@ export interface DeviceForm {
   powerKind: PowerModelKind;
   nominalW: number | null;
   /** Fields of the power model the form does not edit. */
-  powerRoles: { power: string | null; energy: string | null; counterUpdateS: number | null };
+  powerRoles: {
+    power: string | null;
+    energy: string | null;
+    counterUpdateS: number | null;
+    /** Update period of a slow power sensor (seconds); `null` = not declared. */
+    powerUpdateS: number | null;
+  };
   control: ControlSpec;
+  /** Climate only: SunCore may switch the unit on (opt-in). */
+  allowSwitchOn: boolean;
+  /** HVAC mode used to switch on; required with `allowSwitchOn`. */
+  switchOnHvacMode: SwitchOnMode | null;
+  /** How long a manual change is respected: until a time of the next day, or N hours. */
+  overrideKind: OverridePolicy['kind'];
+  /** `HH:MM`, local time (kind `next_day`). */
+  overrideResumeTime: string;
+  overrideHours: number | null;
   comfortMin: number | null;
   comfortMax: number | null;
   minRunMin: number | null;
@@ -140,8 +180,14 @@ export function newDeviceForm(
       power: d.power_model.power_role ?? null,
       energy: d.power_model.energy_role ?? null,
       counterUpdateS: d.power_model.counter_update_s ?? null,
+      powerUpdateS: null,
     },
     control: structuredClone(d.control),
+    allowSwitchOn: false,
+    switchOnHvacMode: null,
+    overrideKind: 'next_day',
+    overrideResumeTime: DEFAULT_RESUME_TIME,
+    overrideHours: null,
     comfortMin: comfort?.min_c ?? null,
     comfortMax: comfort?.max_c ?? null,
     minRunMin: secToMin(d.min_run_s),
@@ -179,8 +225,14 @@ export function deviceFormFromConfig(
       power: pm.power_role ?? null,
       energy: pm.energy_role ?? null,
       counterUpdateS: pm.counter_update_s ?? null,
+      powerUpdateS: pm.power_update_s ?? null,
     },
     control: structuredClone(cfg.control),
+    allowSwitchOn: cfg.allow_switch_on ?? false,
+    switchOnHvacMode: cfg.switch_on_hvac_mode ?? null,
+    overrideKind: cfg.override_policy?.kind ?? 'next_day',
+    overrideResumeTime: toTimeInput(cfg.override_policy?.resume_time),
+    overrideHours: cfg.override_policy?.hours ?? null,
     comfortMin: cfg.comfort?.min_c ?? null,
     comfortMax: cfg.comfort?.max_c ?? null,
     minRunMin: secToMin(cfg.min_run_s),
@@ -216,6 +268,10 @@ export function powerModelFromForm(
     energy_role: energy,
     nominal_w: kind === 'learned' || kind === 'nominal' ? form.nominalW : null,
     counter_update_s: energy !== null ? form.powerRoles.counterUpdateS : null,
+    power_update_s:
+      (kind === 'measured' || kind === 'learned') && powerRole !== null
+        ? form.powerRoles.powerUpdateS
+        : null,
   };
 }
 
@@ -237,15 +293,9 @@ export function deviceFromForm(
   const base = form.base;
   return {
     windows: base?.windows ?? [],
-    // Phase 3 fields (plan WP2): kept from the stored device; the editor UI follows in WP10.
-    allow_switch_on: base?.allow_switch_on ?? false,
-    switch_on_hvac_mode: base?.switch_on_hvac_mode ?? null,
-    override_policy: base?.override_policy ?? {
-      kind: 'next_day',
-      resume_time: '04:00:00',
-      hours: null,
-    },
     ...(base ?? {}),
+    ...switchOnFromForm(form),
+    override_policy: overridePolicyFromForm(form),
     ...form.protection,
     id,
     template_id: form.templateId,
@@ -261,6 +311,22 @@ export function deviceFromForm(
   };
 }
 
+/** Only a climate unit can be switched on through an HVAC mode; the mode is stored with it. */
+function switchOnFromForm(
+  form: DeviceForm,
+): Pick<DeviceConfig, 'allow_switch_on' | 'switch_on_hvac_mode'> {
+  const on = form.kind === 'climate' && form.allowSwitchOn;
+  return { allow_switch_on: on, switch_on_hvac_mode: on ? form.switchOnHvacMode : null };
+}
+
+/** `hours` belongs to the `hours` policy only, the resume time to `next_day`. */
+export function overridePolicyFromForm(form: DeviceForm): OverridePolicy {
+  const resume_time = `${form.overrideResumeTime || DEFAULT_RESUME_TIME}:00`;
+  return form.overrideKind === 'hours'
+    ? { kind: 'hours', resume_time, hours: form.overrideHours }
+    : { kind: 'next_day', resume_time, hours: null };
+}
+
 function isCounterRole(template: Pick<DeviceTemplate, 'roles'> | null, role: string): boolean {
   return template?.roles[role]?.matcher.device_class === 'energy';
 }
@@ -272,7 +338,11 @@ export type DeviceFormError =
   | { key: 'nominal_missing' }
   | { key: 'comfort_missing' }
   | { key: 'comfort_order' }
-  | { key: 'power_model_unavailable' };
+  | { key: 'power_model_unavailable' }
+  | { key: 'hvac_mode_missing' }
+  | { key: 'override_hours' }
+  | { key: 'resume_time' }
+  | { key: 'power_update' };
 
 export function validateDeviceForm(form: DeviceForm, template: DeviceTemplate): DeviceFormError[] {
   const errors: DeviceFormError[] = [];
@@ -296,6 +366,25 @@ export function validateDeviceForm(form: DeviceForm, template: DeviceTemplate): 
     !(form.comfortMin < form.comfortMax)
   ) {
     errors.push({ key: 'comfort_order' });
+  }
+  if (form.kind === 'climate' && form.allowSwitchOn && form.switchOnHvacMode === null) {
+    errors.push({ key: 'hvac_mode_missing' });
+  }
+  if (form.overrideKind === 'hours') {
+    const h = form.overrideHours;
+    if (h == null || !Number.isInteger(h) || h < OVERRIDE_HOURS_MIN || h > OVERRIDE_HOURS_MAX) {
+      errors.push({ key: 'override_hours' });
+    }
+  } else if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(form.overrideResumeTime)) {
+    errors.push({ key: 'resume_time' });
+  }
+  const upd = form.powerRoles.powerUpdateS;
+  if (
+    (form.powerKind === 'measured' || form.powerKind === 'learned') &&
+    upd != null &&
+    (!Number.isInteger(upd) || upd < POWER_UPDATE_MIN || upd > POWER_UPDATE_MAX)
+  ) {
+    errors.push({ key: 'power_update' });
   }
   return errors;
 }

@@ -1,9 +1,11 @@
 # Schnellstart
 
-SunCore ist **Pre-Alpha** (Phase 2). Diese Version hilft dir mit einem
-Einrichtungs-Assistenten, deine Anlage zu beschreiben, und zeigt deinen
-Energiefluss live an. Sie läuft im **Schattenmodus**: Es wird nichts
-geschaltet und kein Sollwert geschrieben. Die vollständige App-Beschreibung
+SunCore ist **Pre-Alpha** (Phase 3). Diese Version hilft dir mit einem
+Einrichtungs-Assistenten, deine Anlage zu beschreiben, zeigt deinen
+Energiefluss live an und kann Geräte aus deinem Solarüberschuss steuern. Sie
+startet im **Schattenmodus**: Es wird nichts geschaltet und kein Sollwert
+geschrieben, bis du selbst ein Gerät auf Automatik stellst, siehe
+[Überschusssteuerung](surplus-control.md). Die vollständige App-Beschreibung
 (englisch) steht in [`addon/suncore/DOCS.md`](../../../addon/suncore/DOCS.md).
 
 ## 1. Installieren
@@ -33,7 +35,8 @@ du aufgehört hast (**Einrichtung fortsetzen** in den Einstellungen). Hast du
 die Phase-1-Version genutzt, landest du einmalig im Assistenten, mit deinen
 alten Sensoren schon eingetragen.
 
-Während der Einrichtung wird nichts geschaltet. Zu jedem gewählten Sensor
+Während der Einrichtung wird nichts geschaltet (und danach auch nicht, bis du es erlaubst).
+Zu jedem gewählten Sensor
 siehst du den aktuellen Wert und kannst ihn sofort prüfen.
 Vorzeichenkonvention überall: **Netz positiv = Bezug**, **Batterie positiv
 = Laden**, Solar positiv = Erzeugung.
@@ -141,17 +144,22 @@ Fehlt dein Gerät? Siehe
 Ziehe die Geräte am Griff oder nutze die Pfeil-Schaltflächen oder die Pfeiltasten, um festzulegen, wer
 den Überschuss zuerst bekommt. Position 1 wird zuerst bedient. Ziele
 (Ziel-Ladestand der Batterie zu einer Uhrzeit, Klimagerät vor der
-Einspeisung, nur nachts aus dem Netz laden) werden jetzt gespeichert und in
-späteren Versionen genutzt.
+Einspeisung, nur nachts aus dem Netz laden) entscheiden
+jetzt, ob die Ladeleistung der Batterie für Geräte als Überschuss zählt (Ziel-Ladestand,
+Klimagerät vor Einspeisung); siehe
+[Batterie und Ziele](surplus-control.md#batterie-und-ziele). Nur nachts aus dem Netz laden wird
+für eine spätere Version gespeichert.
 
 ![Schritt Prioritäten und Ziele](../../assets/screenshots/wizard-priorities-tablet-light-de.png)
 
 ### Betriebsmodus
 
-Wähle **Schattenmodus**, **Assistierter Modus** oder **Automatikmodus**. In
-dieser Version ist nur der Schattenmodus aktiv; die anderen Auswahlen
-werden gespeichert und sind mit „ab einer späteren Version aktiv“
-gekennzeichnet.
+Wähle den **Gesamtmodus**: **Schattenmodus** (Standard: SunCore rechnet und
+protokolliert, schaltet nichts), **Assistierter Modus** (es schlägt vor, du
+bestätigst) oder **Automatikmodus** (es handelt selbstständig). Dieser Schritt
+setzt nur den Gesamtmodus. Jedes Gerät hat einen eigenen Modus, den du in der
+Ansicht **Jetzt** änderst, und ein Gerät handelt nur im niedrigeren von beiden,
+Automatik braucht also beides. Lass es vorerst auf Schatten.
 
 ![Schritt Betriebsmodus](../../assets/screenshots/wizard-mode-tablet-light-de.png)
 
@@ -170,19 +178,30 @@ Das Panel folgt auch dem dunklen Design deines Geräts:
 
 ## 4. Was Schattenmodus bedeutet
 
-SunCore berechnet, was es tun würde, und protokolliert es, schaltet aber
-nichts und schreibt keinen Sollwert, egal was du im Schritt Betriebsmodus
-wählst. Das ist in dieser Version eine feste Regel der Sicherheitsschicht
-und keine Einstellung, die du aus Versehen verlieren kannst. Die Steuerung
-kommt in einer späteren Phase, Gerät für Gerät und erst, nachdem du ein
-Gerät ausdrücklich freigibst.
+SunCore berechnet, was es tun würde, und protokolliert es als **Hätte
+geschaltet**, schaltet aber nichts und schreibt keinen Sollwert. Der
+Schattenmodus ist der Standard für das ganze System und für jedes neue Gerät.
+Ein Gerät wird nur gesteuert, wenn **sowohl** der Gesamtmodus **als auch** der
+eigene Modus des Geräts auf Automatik (oder assistiert, wo du jede Aktion
+bestätigst) stehen. Lass SunCore einen Tag oder länger im Schattenmodus laufen,
+lies das Protokoll und stelle erst dann ein einzelnes Gerät um: Die
+Schritt-für-Schritt-Anleitung ist
+[Dein erstes Gerät auf Automatik](surplus-control.md#8-dein-erstes-gerät-auf-automatik).
 
 ## 5. Die Ansicht Jetzt
 
 Nach **Einrichtung abschließen** zeigt die Ansicht **Jetzt** Solar, Netz,
-Batterie und Haus mit animierten Flüssen.
+Batterie und Haus mit animierten Flüssen, die Karte **Überschuss** und eine
+Karte je Gerät mit Zustand, geschätzter Leistung, Modus-Umschalter und
+**Warum?**. Die rote Schaltfläche **Not-Aus** in der Kopfzeile gibt alle Geräte
+sofort zurück.
 
 ![Ansicht Jetzt auf einem Tablet, helles Design](../../assets/screenshots/now-tablet-light-de.png)
+
+Das **Entscheidungsprotokoll** (Ansicht **Entscheidungen**) listet jede
+Entscheidung mit ihren Gründen. Wie das alles funktioniert, was passiert, wenn
+du ein Gerät selbst änderst, und was SunCore bei Fehlern tut, steht in der
+[Überschusssteuerung](surplus-control.md).
 
 ## 6. Später ändern
 
@@ -238,8 +257,11 @@ einem Link **Öffnen** zum passenden Schritt.
 
 Bedenke das, bevor du dich darauf verlässt. Diese Version hat keine
 Prognosen und keinen Planer (deine Tarif- und Prognose-Angaben werden nur
-gespeichert), steuert kein Gerät (nur Schattenmodus), hat keine
-Verlaufsdiagramme, keine Batteriesteuerung und keine Home-Assistant-
-Entitäten. Verglichen mit evcc (Ladepunkte und Heizstäbe), EMHASS und
-Predbat (Batterieoptimierung) beobachtet SunCore derzeit nur. Die
+gespeichert), keine Verlaufsdiagramme, keine Batteriesteuerung, keine
+Wallbox-Steuerung und keine Home-Assistant-Entitäten. Die Überschusssteuerung
+lief noch nie an echter Hardware: Dafür ist dein Schattenlauf da. Verglichen
+mit evcc (Ladepunkte und Heizstäbe), EMHASS und Predbat (Batterieoptimierung)
+steuert SunCore derzeit nur Verbraucher aus echtem Überschuss. Die Liste der
+offenen Punkte steht in den
+[Bekannten Grenzen](surplus-control.md#bekannte-grenzen-und-unverified); die
 [Roadmap](../../roadmap.md) zeigt, wann welcher Teil kommt.

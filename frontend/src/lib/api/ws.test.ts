@@ -78,6 +78,7 @@ describe('backoffDelay', () => {
 describe('parseMessage', () => {
   it('accepts known types and rejects junk', () => {
     expect(parseMessage(flowsFrame)?.type).toBe('flows');
+    expect(parseMessage('{"type":"control","control":{}}')?.type).toBe('control');
     expect(parseMessage('{"type":"nope"}')).toBeNull();
     expect(parseMessage('not json')).toBeNull();
     expect(parseMessage('null')).toBeNull();

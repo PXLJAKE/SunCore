@@ -340,6 +340,49 @@ Answered by the maintainer on 2026-10-14; bold defaults applied where he did not
 8. Import resets the global mode to shadow: **yes** (default).
 9. Controller tick **5 s**, smoothing window **60 s** (default).
 
+### Answers after implementation (2026-10-16)
+
+The maintainer asked for the safe, simple choice everywhere ("sicher, nichts kaputt, nicht
+verkompliziert"), so every open question keeps the behaviour as built:
+
+- PR 3-B stays one PR.
+- Without any goal the battery comes first; "climate before export" frees the battery's charging
+  power for all controlled devices (as implemented).
+- Hold (API `boost`) stays a pure hold; pause gives a controlled device back.
+- Non-urgent hand-backs wait for min run/pause; emergency stop, shutdown and crash recovery give
+  back at once.
+- A configuration change resets a running set-point shift to the base (no short-cycling).
+- A change found at restart is respected under the override policy (next day 04:00 by default).
+- Failed switch attempts count towards max switches per hour.
+- The version is left to release-please (no `min_app_version` on the relays template).
+- No deterministic demo proposal; the proposal E2E keeps its marked mock.
+
+## Deviations during implementation
+
+Recorded after PR 3-C; none changes ADR-0011.
+
+- **Model budget.** The Fable credits ran out during Phase 3. By the maintainer's decision the
+  controller, safety and review work (including the `control-safety` and `reviewer` passes) was
+  done with Opus instead of Fable.
+- **PR 3-B was larger than risk R8 allowed.** It contains WP5 to WP9 (about 24 000 added lines
+  over 3-A, tests included, against the ~3 000 line threshold) and was not split into 3-B1 and
+  3-B2; the maintainer was asked about the size. The review fixes of `control-safety` went in as
+  separate `fix(...)` commits.
+- **Extra water heater template.** Next to `generic.water_heater_steps` there is
+  `generic.water_heater_relays` (1 to 3 relays, the new additive `relays` control kind, schema v1
+  changelog 0.4.0). Both are simulator-only and `UNVERIFIED`. A water heater's `max_c` is enforced
+  through a tank probe (`core.control.heat_capped`, controller cap and a gate invariant); an unknown
+  probe counts as full.
+- **Operating mode step.** The wizard step only sets the **overall mode** (`PUT
+  /api/v1/operation/mode`); the modes of single devices are changed on the Now view. A stored
+  `operation` document may keep or lower modes but never raise them (409
+  `api.error.mode_raise_rejected`), and raising a device above shadow needs its identity token.
+- **Boost.** `boost` in the API is a timed hold: SunCore leaves the device alone and drives nothing
+  (the UI calls it "Hold"). Whether it should drive the device is a question to the maintainer.
+- **Documentation.** The guide `docs/user/<lang>/surplus-control.md` replaces the separate pages
+  planned for modes, overrides, emergency stop and power models; power models are explained in the
+  climate section.
+
 ## 7. Out of scope for Phase 3
 
 Battery control and inverter writes (Phase 4, Kostal registers not verified); planner,
