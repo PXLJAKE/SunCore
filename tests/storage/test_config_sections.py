@@ -12,6 +12,13 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel
 
+from suncore.core.battery import (
+    BatteryModel,
+    BatterySettings,
+    BatteryStrategy,
+    GridChargePolicy,
+    RiskLevel,
+)
 from suncore.core.config import (
     SECTION_MODELS,
     BatteryTarget,
@@ -19,6 +26,7 @@ from suncore.core.config import (
     ExportTariff,
     ExportTier,
     ForecastConfig,
+    ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
     OperationConfig,
@@ -35,6 +43,7 @@ from suncore.core.devices import (
     PowerModelKind,
 )
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
+from suncore.core.tariff import NIGHT_WINDOW
 from suncore.storage import (
     ConfigCorruptError,
     ConfigStore,
@@ -219,8 +228,14 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
     ),
     "forecast": st.builds(
         ForecastConfig,
-        forecast_template_ids=st.just(["solcast.pv"]),
-        forecast_entities=st.just({"today": EntityRef(entity_id="sensor.fc_today")}),
+        sources=st.just(
+            [
+                ForecastSourceConfig(
+                    template_id="solcast.pv",
+                    entities={"today": EntityRef(entity_id="sensor.fc_today")},
+                )
+            ]
+        ),
     ),
     "devices": _devices(),
     "goals": st.builds(
@@ -228,12 +243,28 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
         battery_target=st.none()
         | st.builds(BatteryTarget, soc_pct=_pct, time=st.sampled_from(["06:30", "23:59", "00:00"])),
         climate_before_export=st.booleans(),
-        grid_charge_night_only=st.booleans(),
+        grid_charge_schedule=st.sampled_from([None, NIGHT_WINDOW]),
+        conservative_planning=st.booleans(),
     ),
     "operation": st.builds(
         OperationConfig,
         mode=_modes,
         device_modes=st.dictionaries(_ids.map(lambda i: f"ghost_{i}"), _modes, max_size=3),
+    ),
+    "battery": st.builds(
+        BatterySettings,
+        model=st.none()
+        | st.builds(
+            BatteryModel,
+            capacity_wh=st.floats(1000, 50_000),
+            max_charge_w=st.floats(100, 20_000),
+            max_discharge_w=st.floats(100, 20_000),
+        ),
+        strategy=st.sampled_from(list(BatteryStrategy)),
+        risk=st.sampled_from(list(RiskLevel)),
+        grid_charge=st.sampled_from(
+            [GridChargePolicy(), GridChargePolicy(enabled=True, max_price=0.12)]
+        ),
     ),
     "wizard": st.builds(
         WizardState,
@@ -483,17 +514,21 @@ async def test_tariff_v1_forecast_fields_move_to_the_forecast_section(db: Databa
     # A plain read already drops the moved fields (document migration)...
     tariff = await store.get("tariff")
     assert isinstance(tariff, TariffConfig)
-    assert tariff.schema_version == 2
-    # ...and the start-up migration keeps them in their new section.
+    assert tariff.schema_version == 3
+    # ...and the start-up migration keeps them in their new section (forecast v2).
     assert await store.migrate_legacy_forecast() is True
     forecast = await store.get("forecast")
     assert forecast == ForecastConfig(
-        forecast_template_ids=["solcast.pv"],
-        forecast_entities={"today": EntityRef(entity_id="sensor.fc_today")},
+        sources=[
+            ForecastSourceConfig(
+                template_id="solcast.pv",
+                entities={"today": EntityRef(entity_id="sensor.fc_today")},
+            )
+        ]
     )
     row = await db.fetchone("SELECT schema_version, body FROM config_doc WHERE section='tariff'")
     assert row is not None
-    assert int(str(row[0])) == 2
+    assert int(str(row[0])) == 3
     assert "forecast_entities" not in json.loads(str(row[1]))
     assert [h.schema_version for h in await store.history("tariff")] == [1]
     assert await store.migrate_legacy_forecast() is False  # idempotent
@@ -501,7 +536,7 @@ async def test_tariff_v1_forecast_fields_move_to_the_forecast_section(db: Databa
 
 async def test_legacy_forecast_migration_keeps_an_existing_forecast_section(db: Database) -> None:
     store = ConfigStore(db)
-    mine = ForecastConfig(forecast_template_ids=["other.pv"])
+    mine = ForecastConfig(sources=[ForecastSourceConfig(template_id="other.pv")])
     await store.put("forecast", mine)
     await _store_v1_tariff(db, V1_TARIFF)
     assert await store.migrate_legacy_forecast() is True
@@ -529,7 +564,7 @@ async def test_import_of_a_v1_tariff_export_carries_the_forecast_over(db: Databa
     assert await store.import_json(data) == ["forecast", "tariff"]
     forecast = await store.get("forecast")
     assert isinstance(forecast, ForecastConfig)
-    assert forecast.forecast_template_ids == ["solcast.pv"]
+    assert forecast.template_ids == ["solcast.pv"]
 
 
 def test_section_models_match_the_api_registry() -> None:

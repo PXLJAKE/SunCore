@@ -133,10 +133,10 @@ def test_validation_message_names_the_field(tmp_path: Path) -> None:
 
 
 def test_unknown_kind_directory_is_an_error(builtin: Path) -> None:
-    battery = builtin / "battery"
-    battery.mkdir()
-    (battery / "kostal.plenticore.yaml").write_text("id: x\n", encoding="utf-8")
-    with pytest.raises(BuiltinTemplateError, match="unknown template kind directory `battery`"):
+    unknown = builtin / "inverter"
+    unknown.mkdir()
+    (unknown / "kostal.plenticore.yaml").write_text("id: x\n", encoding="utf-8")
+    with pytest.raises(BuiltinTemplateError, match="unknown template kind directory `inverter`"):
         load_templates(builtin)
 
 

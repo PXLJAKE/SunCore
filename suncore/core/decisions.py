@@ -20,9 +20,11 @@ import json
 import re
 from collections.abc import Mapping
 from enum import StrEnum, unique
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Final, Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+
+from suncore.core.validation import invalid
 
 ReasonArg = str | int | float | bool
 """Scalar placeholder values a catalogue message may interpolate."""
@@ -113,6 +115,7 @@ class ActionKind(StrEnum):
     STEP = "step"
     MODE = "mode"
     RELEASE = "release"
+    BATTERY = "battery"
 
 
 class SwitchAction(_FrozenModel):
@@ -171,8 +174,44 @@ class ReleaseAction(_FrozenModel):
     kind: Literal[ActionKind.RELEASE] = ActionKind.RELEASE
 
 
+class BatteryAction(_FrozenModel):
+    """Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP9).
+
+    Every field is optional, at least one must be set; a missing field leaves that limit
+    as it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a
+    charging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the
+    inverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at
+    or above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the
+    grid. Until the battery path exists the gate rejects this action
+    (``safety.battery_not_supported``); nothing is written.
+    """
+
+    kind: Literal[ActionKind.BATTERY] = ActionKind.BATTERY
+    max_charge_w: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    max_discharge_w: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    min_soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    grid_charge_w: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> Self:
+        if (
+            self.max_charge_w is None
+            and self.max_discharge_w is None
+            and self.min_soc_pct is None
+            and self.grid_charge_w is None
+        ):
+            raise invalid("battery_action_empty", "battery action: at least one limit must be set")
+        return self
+
+
 Action = Annotated[
-    SwitchAction | PowerSetpointAction | SetpointAction | StepAction | ModeAction | ReleaseAction,
+    SwitchAction
+    | PowerSetpointAction
+    | SetpointAction
+    | StepAction
+    | ModeAction
+    | ReleaseAction
+    | BatteryAction,
     Field(discriminator="kind"),
 ]
 """Typed action target; the ``kind`` field selects the variant."""
@@ -263,6 +302,7 @@ __all__ = [
     "REASON_KEY_PATTERN",
     "Action",
     "ActionKind",
+    "BatteryAction",
     "Decision",
     "DecisionKind",
     "Intent",

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Mapping
-from typing import Annotated, Final, Literal, Self
+from typing import Annotated, Any, Final, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -21,15 +21,17 @@ from pydantic import (
     model_validator,
 )
 
+from suncore.core.battery import BatterySettings
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig, DeviceId, RoleName, TemplateId
 from suncore.core.site import EntityRef, SiteConfig
+from suncore.core.tariff import HHMM_PATTERN, NIGHT_WINDOW, PriceFormula, TouTariff, WeeklySchedule
 from suncore.core.validation import invalid
 
 REGION_ID_PATTERN: Final = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$"
 """Region id: ``de`` or ``<country>.<variant>``; also the region template id pattern."""
 STEP_PATTERN: Final = r"^[a-z][a-z0-9_]{0,47}$"
-TIME_PATTERN: Final = r"^([01]\d|2[0-3]):[0-5]\d$"
+TIME_PATTERN: Final = HHMM_PATTERN
 
 Price = Annotated[float, Field(ge=0, le=100)]
 """Currency per kWh."""
@@ -70,12 +72,21 @@ class RegionConfig(_Frozen):
 
 
 class ImportTariff(_Frozen):
-    """How the price of imported energy is obtained."""
+    """How the price of imported energy is obtained.
 
-    kind: Literal["fixed", "dynamic"]
+    * ``fixed``: one ``fixed_price``.
+    * ``dynamic``: a price source (``template_id`` and/or ``price_entity``); ``formula``
+      turns a spot-only price into the end price (tariff v3; ``None`` = the source's price
+      is used as it is, e.g. Tibber's all-in price).
+    * ``tou``: fixed time-of-use prices (HT/NT, seasonal) in ``tou`` (tariff v3).
+    """
+
+    kind: Literal["fixed", "dynamic", "tou"]
     template_id: TemplateId | None = None
     price_entity: EntityRef | None = None
     fixed_price: Price | None = None
+    formula: PriceFormula | None = None
+    tou: TouTariff | None = None
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -89,15 +100,34 @@ class ImportTariff(_Frozen):
                     "import_fixed_extra",
                     "tariff.import: kind `fixed` takes no `template_id`/`price_entity`",
                 )
-        elif self.template_id is None and self.price_entity is None:
+        elif self.kind == "dynamic":
+            if self.template_id is None and self.price_entity is None:
+                raise invalid(
+                    "import_dynamic_needs_source",
+                    "tariff.import: kind `dynamic` needs `template_id` or `price_entity`",
+                )
+            if self.fixed_price is not None:
+                raise invalid(
+                    "import_dynamic_extra", "tariff.import: kind `dynamic` takes no `fixed_price`"
+                )
+        else:
+            if self.tou is None:
+                raise invalid("import_tou_needs_periods", "tariff.import: kind `tou` needs `tou`")
+            if (
+                self.fixed_price is not None
+                or self.template_id is not None
+                or self.price_entity is not None
+            ):
+                raise invalid(
+                    "import_tou_extra",
+                    "tariff.import: kind `tou` takes no fixed price, template or price entity",
+                )
+        if self.formula is not None and self.kind != "dynamic":
             raise invalid(
-                "import_dynamic_needs_source",
-                "tariff.import: kind `dynamic` needs `template_id` or `price_entity`",
+                "import_formula_dynamic_only", "tariff.import: `formula` needs kind `dynamic`"
             )
-        elif self.fixed_price is not None:
-            raise invalid(
-                "import_dynamic_extra", "tariff.import: kind `dynamic` takes no `fixed_price`"
-            )
+        if self.tou is not None and self.kind != "tou":
+            raise invalid("import_tou_only", "tariff.import: `tou` needs kind `tou`")
         return self
 
 
@@ -145,7 +175,10 @@ class ExportTariff(_Frozen):
 
 
 class TariffConfig(_Frozen):
-    """Import and export prices (the forecast sources live in :class:`ForecastConfig`)."""
+    """Import and export prices (the forecast sources live in :class:`ForecastConfig`).
+
+    v3 (Phase 4): ``import.formula`` and kind ``tou``; v2 documents are valid v3 bodies.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
     """``import`` is a Python keyword: the JSON key is ``import``, ``import_`` is accepted too.
@@ -154,7 +187,7 @@ class TariffConfig(_Frozen):
     before the alias existed (key ``import_``) still load.
     """
 
-    schema_version: int = 2
+    schema_version: int = 3
     import_: ImportTariff = Field(alias="import")
     export: ExportTariff
 
@@ -165,27 +198,98 @@ class TariffConfig(_Frozen):
 # --- forecast -----------------------------------------------------------------
 
 
-class ForecastConfig(_Frozen):
-    """PV forecast sources: templates and the entities of their roles.
+class ForecastSourceConfig(_Frozen):
+    """One PV forecast source: its template, the entities of its roles and its weight.
 
-    Independent of the tariff so that the wizard can store the choice without prices.
+    ``weight_mode = auto`` blends by measured skill (inverse MAE, WP5); ``manual`` uses
+    ``weight`` (relative, normalised over all sources by the blender).
     """
 
-    schema_version: int = 1
-    forecast_template_ids: list[TemplateId] = Field(default_factory=list)
-    forecast_entities: dict[RoleName, EntityRef] = Field(default_factory=dict)
-    """Forecast role (e.g. ``today``, ``tomorrow``) to entity."""
+    template_id: TemplateId
+    entities: dict[RoleName, EntityRef] = Field(default_factory=dict)
+    """Role of the template (e.g. ``forecast_today``) to entity."""
+    weight_mode: Literal["auto", "manual"] = "auto"
+    weight: Annotated[float, Field(gt=0, le=1)] | None = None
 
     @model_validator(mode="after")
-    def _unique_templates(self) -> Self:
-        if len(set(self.forecast_template_ids)) != len(self.forecast_template_ids):
+    def _weight(self) -> Self:
+        if self.weight_mode == "manual" and self.weight is None:
+            raise invalid("forecast_manual_weight", "forecast: a manual weight needs `weight`")
+        if self.weight_mode == "auto" and self.weight is not None:
             raise invalid(
-                "forecast_templates_unique", "forecast: forecast_template_ids must be unique"
+                "forecast_auto_weight", "forecast: `weight` is only used with weight_mode manual"
             )
         return self
 
+
+class LearningSettings(_Frozen):
+    """What SunCore may learn from history (forecast calibration, load model).
+
+    Kept in the ``forecast`` section because it governs how forecasts are produced. Before
+    ``min_history_days`` of history exist, calibration and the ML load model only collect
+    statistics and change nothing. ``load_ml_mode``: ``off``; ``shadow`` (default) = the
+    optional ML load model runs in parallel and is only scored and shown for comparison;
+    ``auto`` = it is used when it beats the profile forecast in the accuracy statistics -
+    it never replaces the profiles otherwise.
+    """
+
+    min_history_days: Annotated[int, Field(ge=1, le=365)] = 30
+    load_ml_mode: Literal["off", "shadow", "auto"] = "shadow"
+
+
+class ForecastConfig(_Frozen):
+    """PV forecast sources (schema v2: several sources, blending, learning settings).
+
+    Independent of the tariff so that the wizard can store the choice without prices.
+    Forecast uncertainty is handled by the learned risk model and the battery section's
+    ``risk`` level, not by a flat discount.
+    """
+
+    schema_version: int = 2
+    sources: Annotated[list[ForecastSourceConfig], Field(max_length=8)] = Field(
+        default_factory=list
+    )
+    learning: LearningSettings = LearningSettings()
+
+    @model_validator(mode="after")
+    def _unique_templates(self) -> Self:
+        ids = [s.template_id for s in self.sources]
+        if len(set(ids)) != len(ids):
+            raise invalid("forecast_templates_unique", "forecast: every template only once")
+        return self
+
+    @property
+    def template_ids(self) -> list[str]:
+        return [s.template_id for s in self.sources]
+
     def entity_refs(self) -> list[EntityRef]:
-        return list(self.forecast_entities.values())
+        refs: dict[str, EntityRef] = {}
+        for source in self.sources:
+            for ref in source.entities.values():
+                refs.setdefault(ref.entity_id, ref)
+        return list(refs.values())
+
+
+def migrate_forecast_v1_to_v2(body: dict[str, Any]) -> dict[str, Any]:
+    """v1 (template ids + one role map) -> v2 (one source per template, weights auto).
+
+    v1 kept a single role map for all templates, so it cannot say which entity belongs to
+    which template. Every source gets the whole map: the adapter reads only the roles its
+    template defines, nothing is lost, and the wizard writes clean per-source maps on the
+    next save. (Only one forecast template, ``solcast.pv``, existed in v1.)
+    """
+    ids = body.pop("forecast_template_ids", None) or []
+    entities = body.pop("forecast_entities", None) or {}
+    if not isinstance(ids, list) or not isinstance(entities, dict):
+        msg = "forecast v1: `forecast_template_ids` must be a list, `forecast_entities` a map"
+        raise TypeError(msg)
+    body["sources"] = [{"template_id": i, "entities": dict(entities)} for i in ids]
+    return body
+
+
+def migrate_tariff_v2_to_v3(body: dict[str, Any]) -> dict[str, Any]:
+    """Tariff v3 only adds optional fields (``formula``, kind ``tou``): unchanged body."""
+    return body
 
 
 # --- devices ------------------------------------------------------------------
@@ -226,10 +330,35 @@ class BatteryTarget(_Frozen):
 
 
 class GoalsConfig(_Frozen):
-    schema_version: int = 1
+    """User goals (schema v2).
+
+    v2 drops ``grid_charge_night_only`` (answers 2026-10-16, question 7): grid charging is
+    allowed by a price level and/or a schedule in the ``battery`` section's
+    :class:`~suncore.core.battery.GridChargePolicy`. ``grid_charge_schedule`` carries the
+    window a v1 document implied (``True`` -> 22:00-06:00 daily) so the choice is not
+    lost; the planner uses it as the policy's schedule when the policy has none. **It never
+    enables grid charging**: that stays off until the user enables the policy with a level
+    or a schedule. ``conservative_planning`` = targets are planned on P10 PV (default on).
+    """
+
+    schema_version: int = 2
     battery_target: BatteryTarget | None = None
     climate_before_export: bool = False
-    grid_charge_night_only: bool = True
+    grid_charge_schedule: WeeklySchedule | None = None
+    conservative_planning: bool = True
+
+
+def migrate_goals_v1_to_v2(body: dict[str, Any]) -> dict[str, Any]:
+    """``grid_charge_night_only`` (v1 default ``True``) -> ``grid_charge_schedule``.
+
+    ``True`` becomes the night window 22:00-06:00 every day, ``False`` no schedule. Grid
+    charging itself is *not* enabled by this migration (see :class:`GoalsConfig`).
+    """
+    night_only = body.pop("grid_charge_night_only", True)
+    body["grid_charge_schedule"] = (
+        NIGHT_WINDOW.model_dump(mode="json") if night_only is True else None
+    )
+    return body
 
 
 # --- operation ----------------------------------------------------------------
@@ -280,5 +409,6 @@ SECTION_MODELS: Final[Mapping[str, type[BaseModel]]] = {
     "goals": GoalsConfig,
     "operation": OperationConfig,
     "wizard": WizardState,
+    "battery": BatterySettings,
 }
 """All configuration sections by name and their document model (API and storage share it)."""

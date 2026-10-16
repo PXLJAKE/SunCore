@@ -14,6 +14,7 @@ from suncore.core.config import (
     DevicesConfig,
     ExportTariff,
     ForecastConfig,
+    ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
     OperationConfig,
@@ -193,7 +194,7 @@ def test_tariff_section() -> None:
         ),
     )
     assert [r.entity_id for r in t.entity_refs()] == ["sensor.p"]
-    assert t.schema_version == 2
+    assert t.schema_version == 3
     assert TariffConfig.model_validate_json(t.model_dump_json()) == t
     with pytest.raises(ValidationError):  # forecast fields moved to ForecastConfig
         TariffConfig.model_validate(
@@ -202,15 +203,29 @@ def test_tariff_section() -> None:
 
 
 def test_forecast_section() -> None:
+    today = {"today": EntityRef(entity_id="sensor.fc_today")}
     f = ForecastConfig(
-        forecast_template_ids=["forecast.solcast"],
-        forecast_entities={"today": EntityRef(entity_id="sensor.fc_today")},
+        sources=[
+            ForecastSourceConfig(template_id="forecast.solcast", entities=today),
+            ForecastSourceConfig(
+                template_id="b.pv", entities=today, weight_mode="manual", weight=0.3
+            ),
+        ]
     )
-    assert ForecastConfig().forecast_template_ids == []
-    assert [r.entity_id for r in f.entity_refs()] == ["sensor.fc_today"]
+    assert ForecastConfig().sources == []
+    assert ForecastConfig().learning.min_history_days == 30
+    assert ForecastConfig().learning.load_ml_mode == "shadow"
+    assert f.template_ids == ["forecast.solcast", "b.pv"]
+    assert [r.entity_id for r in f.entity_refs()] == ["sensor.fc_today"]  # shared, listed once
     assert ForecastConfig.model_validate_json(f.model_dump_json()) == f
-    with pytest.raises(ValidationError, match="unique"):
-        ForecastConfig(forecast_template_ids=["a.b", "a.b"])
+    with pytest.raises(ValidationError, match="every template only once"):
+        ForecastConfig(sources=[ForecastSourceConfig(template_id="a.b")] * 2)
+    with pytest.raises(ValidationError, match="needs `weight`"):
+        ForecastSourceConfig(template_id="a.b", weight_mode="manual")
+    with pytest.raises(ValidationError, match="only used with"):
+        ForecastSourceConfig(template_id="a.b", weight=0.5)
+    with pytest.raises(ValidationError):
+        ForecastConfig.model_validate({"safety_discount_pct": 10})
 
 
 # --- devices -----------------------------------------------------------------------------
@@ -249,7 +264,9 @@ def test_operation_without_modes_of() -> None:
 def test_goals() -> None:
     g = GoalsConfig()
     assert g.battery_target is None
-    assert g.grid_charge_night_only is True
+    assert g.grid_charge_schedule is None
+    assert g.conservative_planning is True
+    assert g.schema_version == 2
     assert BatteryTarget(soc_pct=80, time="06:30").time == "06:30"
     for bad in ("6:30", "24:00", "06:60", "06:30:00", ""):
         with pytest.raises(ValidationError):

@@ -19,13 +19,18 @@ VALID: dict[str, dict[str, Any]] = {
         "export": {"kind": "fixed", "fixed_price": 0.08},
     },
     "forecast": {
-        "forecast_template_ids": ["solcast.pv"],
-        "forecast_entities": {"today": {"entity_id": "sensor.fc_today"}},
+        "sources": [
+            {"template_id": "solcast.pv", "entities": {"today": {"entity_id": "sensor.fc_today"}}}
+        ],
     },
     "devices": {"devices": []},
     "goals": {"climate_before_export": True},
     "operation": {"mode": "shadow", "device_modes": {}},
     "wizard": {"completed": False, "completed_steps": ["region"]},
+    "battery": {
+        "model": {"capacity_wh": 10_000, "max_charge_w": 5000, "max_discharge_w": 5000},
+        "strategy": "prefer_full",
+    },
 }
 
 

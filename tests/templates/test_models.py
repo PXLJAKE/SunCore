@@ -36,7 +36,7 @@ def test_union_dispatches_on_kind(kind: str) -> None:
 
 def test_unknown_kind_rejected() -> None:
     doc = device_doc()
-    doc["kind"] = "battery"
+    doc["kind"] = "inverter"
     with pytest.raises(ValidationError, match="kind"):
         TEMPLATE_ADAPTER.validate_python(doc)
 

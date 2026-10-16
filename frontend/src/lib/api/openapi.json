@@ -77,7 +77,7 @@
       },
       "AttributeSeries": {
         "additionalProperties": false,
-        "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).",
+        "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).\n\n``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's\nvalue to the list of points when the attribute is a mapping (``None`` = the attribute\nitself is the list). The period length of a point is the template's\n``resolution_min``.",
         "properties": {
           "attribute": {
             "maxLength": 200,
@@ -87,6 +87,19 @@
           },
           "fields": {
             "$ref": "#/components/schemas/SeriesFields"
+          },
+          "list_path": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "List Path"
           },
           "roles": {
             "items": {
@@ -111,6 +124,72 @@
           "fields"
         ],
         "title": "AttributeSeries",
+        "type": "object"
+      },
+      "BatteryAction": {
+        "additionalProperties": false,
+        "description": "Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP9).\n\nEvery field is optional, at least one must be set; a missing field leaves that limit\nas it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a\ncharging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the\ninverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at\nor above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the\ngrid. Until the battery path exists the gate rejects this action\n(``safety.battery_not_supported``); nothing is written.",
+        "properties": {
+          "grid_charge_w": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Charge W"
+          },
+          "kind": {
+            "const": "battery",
+            "default": "battery",
+            "title": "Kind",
+            "type": "string"
+          },
+          "max_charge_w": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Charge W"
+          },
+          "max_discharge_w": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Discharge W"
+          },
+          "min_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Soc Pct"
+          }
+        },
+        "title": "BatteryAction",
         "type": "object"
       },
       "BatteryConfig": {
@@ -202,6 +281,220 @@
         "title": "BatteryConfig",
         "type": "object"
       },
+      "BatteryModeMeaning": {
+        "description": "What selecting a battery mode option does.",
+        "enum": [
+          "auto",
+          "force_charge",
+          "no_discharge",
+          "no_charge",
+          "other"
+        ],
+        "title": "BatteryModeMeaning",
+        "type": "string"
+      },
+      "BatteryModeOption": {
+        "additionalProperties": false,
+        "properties": {
+          "meaning": {
+            "$ref": "#/components/schemas/BatteryModeMeaning"
+          },
+          "value": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "meaning"
+        ],
+        "title": "BatteryModeOption",
+        "type": "object"
+      },
+      "BatteryModel": {
+        "additionalProperties": false,
+        "description": "What the planner knows about the battery.\n\nThe planning floor is ``reserve_pct + bms_drift_margin_pct``: the reserve is the user's\nbackup energy, the drift margin keeps SunCore off the BMS's own cut-off when the SoC\nreading sags (the maintainer's BMS drops from 10 % to 6-7 %). SunCore never plans to\ndischarge below it; ``max_soc_pct`` caps charging (battery care).",
+        "properties": {
+          "bms_drift_margin_pct": {
+            "default": 5.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Bms Drift Margin Pct",
+            "type": "number"
+          },
+          "capacity_wh": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000000.0,
+            "title": "Capacity Wh",
+            "type": "number"
+          },
+          "charge_efficiency": {
+            "default": 0.95,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Charge Efficiency",
+            "type": "number"
+          },
+          "degradation_cost_per_kwh": {
+            "default": 0.04,
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Degradation Cost Per Kwh",
+            "type": "number"
+          },
+          "discharge_efficiency": {
+            "default": 0.95,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Discharge Efficiency",
+            "type": "number"
+          },
+          "grid_charge_margin_per_kwh": {
+            "default": 0.03,
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Grid Charge Margin Per Kwh",
+            "type": "number"
+          },
+          "max_charge_w": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Max Charge W",
+            "type": "number"
+          },
+          "max_discharge_w": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Max Discharge W",
+            "type": "number"
+          },
+          "max_soc_pct": {
+            "default": 100.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Max Soc Pct",
+            "type": "number"
+          },
+          "reserve_pct": {
+            "default": 10.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Reserve Pct",
+            "type": "number"
+          }
+        },
+        "required": [
+          "capacity_wh",
+          "max_charge_w",
+          "max_discharge_w"
+        ],
+        "title": "BatteryModel",
+        "type": "object"
+      },
+      "BatterySettings": {
+        "additionalProperties": false,
+        "description": "Configuration section ``battery`` (schema v1).\n\n``adapter_template_id = None`` means *observe only*: SunCore reads the battery through\nthe ``site`` section and plans with it, but never writes. With an adapter, ``entities``\nmaps the template's roles; the battery starts in shadow like every device (the mode\nlives in the ``operation`` section). ``target_by_time`` uses ``goals.battery_target``\n(target SoC and time); reserve and max SoC are part of ``model``.",
+        "properties": {
+          "adapter_template_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter Template Id"
+          },
+          "autarky_weight_per_kwh": {
+            "default": 0.01,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Autarky Weight Per Kwh",
+            "type": "number"
+          },
+          "bridge_next_day": {
+            "default": true,
+            "title": "Bridge Next Day",
+            "type": "boolean"
+          },
+          "calibration": {
+            "$ref": "#/components/schemas/CalibrationCharge",
+            "default": {
+              "enabled": false,
+              "interval_days": 30,
+              "target_soc_pct": 100.0
+            }
+          },
+          "entities": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/EntityRef"
+              }
+            },
+            "title": "Entities",
+            "type": "object"
+          },
+          "grid_charge": {
+            "$ref": "#/components/schemas/GridChargePolicy",
+            "default": {
+              "enabled": false
+            }
+          },
+          "model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "morning_buffer_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Morning Buffer Pct"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/RiskLevel",
+            "default": "cautious"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "strategy": {
+            "$ref": "#/components/schemas/BatteryStrategy",
+            "default": "self_consumption"
+          }
+        },
+        "title": "BatterySettings",
+        "type": "object"
+      },
+      "BatteryStrategy": {
+        "description": "How the planner uses the battery (plan §1 item 5, answers 2026-10-16).",
+        "enum": [
+          "self_consumption",
+          "prefer_full",
+          "target_by_time"
+        ],
+        "title": "BatteryStrategy",
+        "type": "string"
+      },
       "BatteryTarget": {
         "additionalProperties": false,
         "description": "Be at ``soc_pct`` by local time ``time`` (``HH:MM``).",
@@ -225,6 +518,170 @@
         "title": "BatteryTarget",
         "type": "object"
       },
+      "BatteryTemplate": {
+        "additionalProperties": false,
+        "description": "Battery adapter template (Phase 4, ADR-0006/ADR-0012 kind ``battery``).\n\n``roles`` are the readable and writable entities (e.g. ``soc``, ``power``,\n``min_soc_number``, ``max_charge_number``, ``max_discharge_number``, ``mode_select``,\n``force_charge_switch``); ``controls`` says what each *writable* role expresses. A\nrole without a control is read only. Writes go through the safety gate only.",
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "maxItems": 32,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "controls": {
+            "maxProperties": 8,
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "discriminator": {
+                  "mapping": {
+                    "force_charge": "#/components/schemas/ForceChargeSwitchControl",
+                    "grid_charge_power": "#/components/schemas/NumberLimitControl",
+                    "max_charge": "#/components/schemas/NumberLimitControl",
+                    "max_discharge": "#/components/schemas/NumberLimitControl",
+                    "min_soc": "#/components/schemas/NumberLimitControl",
+                    "mode": "#/components/schemas/ModeSelectControl"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/NumberLimitControl"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ModeSelectControl"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ForceChargeSwitchControl"
+                  }
+                ]
+              }
+            },
+            "title": "Controls",
+            "type": "object"
+          },
+          "id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "battery",
+            "title": "Kind",
+            "type": "string"
+          },
+          "min_app_version": {
+            "anyOf": [
+              {
+                "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min App Version"
+          },
+          "name": {
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Name",
+            "type": "string"
+          },
+          "roles": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/RoleSpec"
+              }
+            },
+            "title": "Roles",
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "settle_s": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settle S"
+          },
+          "source": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "minItems": 1,
+            "title": "Source",
+            "type": "array"
+          },
+          "tested_with": {
+            "items": {
+              "$ref": "#/components/schemas/TestedWith"
+            },
+            "title": "Tested With",
+            "type": "array"
+          },
+          "unverified": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Unverified",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "name",
+          "source",
+          "tested_with",
+          "capabilities",
+          "kind",
+          "roles"
+        ],
+        "title": "BatteryTemplate",
+        "type": "object"
+      },
+      "CalibrationCharge": {
+        "additionalProperties": false,
+        "description": "Periodic full charge for the BMS's SoC calibration (off by default, question 11).\n\nWhen enabled the planner schedules a charge to ``target_soc_pct`` once every\n``interval_days`` into a sunny day (from PV; grid only if the policy allows it).",
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "interval_days": {
+            "default": 30,
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Interval Days",
+            "type": "integer"
+          },
+          "target_soc_pct": {
+            "default": 100.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Target Soc Pct",
+            "type": "number"
+          }
+        },
+        "title": "CalibrationCharge",
+        "type": "object"
+      },
       "Capability": {
         "description": "What a template provides.",
         "enum": [
@@ -241,7 +698,13 @@
           "pv_curve",
           "pv_quantiles",
           "feed_in_tiers",
-          "negative_price_rule"
+          "negative_price_rule",
+          "battery_soc",
+          "min_soc_limit",
+          "charge_limit",
+          "discharge_limit",
+          "grid_charge",
+          "battery_modes"
         ],
         "title": "Capability",
         "type": "string"
@@ -584,6 +1047,7 @@
               {
                 "discriminator": {
                   "mapping": {
+                    "battery": "#/components/schemas/BatteryAction",
                     "mode": "#/components/schemas/ModeAction",
                     "power_setpoint": "#/components/schemas/PowerSetpointAction",
                     "release": "#/components/schemas/ReleaseAction",
@@ -611,6 +1075,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/ReleaseAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/BatteryAction"
                   }
                 ]
               },
@@ -821,6 +1288,19 @@
               "kind": "next_day",
               "resume_time": "04:00:00"
             }
+          },
+          "planner_value_per_kwh": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planner Value Per Kwh"
           },
           "power_model": {
             "$ref": "#/components/schemas/PowerModel"
@@ -2075,35 +2555,96 @@
         "title": "FlowsOut",
         "type": "object"
       },
+      "ForceChargeSwitchControl": {
+        "additionalProperties": false,
+        "description": "A ``switch`` role: on = force charging (from the grid if PV is short), off = auto.",
+        "properties": {
+          "kind": {
+            "const": "force_charge",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ForceChargeSwitchControl",
+        "type": "object"
+      },
       "ForecastConfig": {
         "additionalProperties": false,
-        "description": "PV forecast sources: templates and the entities of their roles.\n\nIndependent of the tariff so that the wizard can store the choice without prices.",
+        "description": "PV forecast sources (schema v2: several sources, blending, learning settings).\n\nIndependent of the tariff so that the wizard can store the choice without prices.\nForecast uncertainty is handled by the learned risk model and the battery section's\n``risk`` level, not by a flat discount.",
         "properties": {
-          "forecast_entities": {
+          "learning": {
+            "$ref": "#/components/schemas/LearningSettings",
+            "default": {
+              "load_ml_mode": "shadow",
+              "min_history_days": 30
+            }
+          },
+          "schema_version": {
+            "default": 2,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastSourceConfig"
+            },
+            "maxItems": 8,
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "title": "ForecastConfig",
+        "type": "object"
+      },
+      "ForecastSourceConfig": {
+        "additionalProperties": false,
+        "description": "One PV forecast source: its template, the entities of its roles and its weight.\n\n``weight_mode = auto`` blends by measured skill (inverse MAE, WP5); ``manual`` uses\n``weight`` (relative, normalised over all sources by the blender).",
+        "properties": {
+          "entities": {
             "patternProperties": {
               "^[a-z][a-z0-9_]{0,31}$": {
                 "$ref": "#/components/schemas/EntityRef"
               }
             },
-            "title": "Forecast Entities",
+            "title": "Entities",
             "type": "object"
           },
-          "forecast_template_ids": {
-            "items": {
-              "maxLength": 64,
-              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
-              "type": "string"
-            },
-            "title": "Forecast Template Ids",
-            "type": "array"
+          "template_id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+            "title": "Template Id",
+            "type": "string"
           },
-          "schema_version": {
-            "default": 1,
-            "title": "Schema Version",
-            "type": "integer"
+          "weight": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          },
+          "weight_mode": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "manual"
+            ],
+            "title": "Weight Mode",
+            "type": "string"
           }
         },
-        "title": "ForecastConfig",
+        "required": [
+          "template_id"
+        ],
+        "title": "ForecastSourceConfig",
         "type": "object"
       },
       "ForecastTemplate": {
@@ -2234,6 +2775,7 @@
       },
       "GoalsConfig": {
         "additionalProperties": false,
+        "description": "User goals (schema v2).\n\nv2 drops ``grid_charge_night_only`` (answers 2026-10-16, question 7): grid charging is\nallowed by a price level and/or a schedule in the ``battery`` section's\n:class:`~suncore.core.battery.GridChargePolicy`. ``grid_charge_schedule`` carries the\nwindow a v1 document implied (``True`` -> 22:00-06:00 daily) so the choice is not\nlost; the planner uses it as the policy's schedule when the policy has none. **It never\nenables grid charging**: that stays off until the user enables the policy with a level\nor a schedule. ``conservative_planning`` = targets are planned on P10 PV (default on).",
         "properties": {
           "battery_target": {
             "anyOf": [
@@ -2250,18 +2792,64 @@
             "title": "Climate Before Export",
             "type": "boolean"
           },
-          "grid_charge_night_only": {
+          "conservative_planning": {
             "default": true,
-            "title": "Grid Charge Night Only",
+            "title": "Conservative Planning",
             "type": "boolean"
           },
+          "grid_charge_schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeeklySchedule"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schema_version": {
-            "default": 1,
+            "default": 2,
             "title": "Schema Version",
             "type": "integer"
           }
         },
         "title": "GoalsConfig",
+        "type": "object"
+      },
+      "GridChargePolicy": {
+        "additionalProperties": false,
+        "description": "When the battery may be charged from the grid (answers 2026-10-16, question 7).\n\nOff by default. When enabled, a ``max_price`` (charge only at or below this import\nprice) and/or a ``schedule`` (only inside these weekly windows) must be set; both given\nmeans both must hold. On a dynamic tariff the planner's spread rule\n(:meth:`BatteryModel.grid_charge_pays`) applies in addition.",
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "max_price": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": -10.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Price"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeeklySchedule"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "GridChargePolicy",
         "type": "object"
       },
       "GridConfig": {
@@ -2376,6 +2964,27 @@
         "title": "GridConfig",
         "type": "object"
       },
+      "GridFeeWindow": {
+        "additionalProperties": false,
+        "description": "A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3).",
+        "properties": {
+          "fee": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Fee",
+            "type": "number"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TouWindow"
+          }
+        },
+        "required": [
+          "window",
+          "fee"
+        ],
+        "title": "GridFeeWindow",
+        "type": "object"
+      },
       "HealthMessage": {
         "additionalProperties": false,
         "properties": {
@@ -2475,7 +3084,7 @@
       },
       "ImportTariff": {
         "additionalProperties": false,
-        "description": "How the price of imported energy is obtained.",
+        "description": "How the price of imported energy is obtained.\n\n* ``fixed``: one ``fixed_price``.\n* ``dynamic``: a price source (``template_id`` and/or ``price_entity``); ``formula``\n  turns a spot-only price into the end price (tariff v3; ``None`` = the source's price\n  is used as it is, e.g. Tibber's all-in price).\n* ``tou``: fixed time-of-use prices (HT/NT, seasonal) in ``tou`` (tariff v3).",
         "properties": {
           "fixed_price": {
             "anyOf": [
@@ -2490,10 +3099,21 @@
             ],
             "title": "Fixed Price"
           },
+          "formula": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceFormula"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "kind": {
             "enum": [
               "fixed",
-              "dynamic"
+              "dynamic",
+              "tou"
             ],
             "title": "Kind",
             "type": "string"
@@ -2520,6 +3140,16 @@
               }
             ],
             "title": "Template Id"
+          },
+          "tou": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TouTariff"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2564,6 +3194,7 @@
           "action": {
             "discriminator": {
               "mapping": {
+                "battery": "#/components/schemas/BatteryAction",
                 "mode": "#/components/schemas/ModeAction",
                 "power_setpoint": "#/components/schemas/PowerSetpointAction",
                 "release": "#/components/schemas/ReleaseAction",
@@ -2591,6 +3222,9 @@
               },
               {
                 "$ref": "#/components/schemas/ReleaseAction"
+              },
+              {
+                "$ref": "#/components/schemas/BatteryAction"
               }
             ],
             "title": "Action"
@@ -2630,6 +3264,31 @@
           "origin"
         ],
         "title": "Intent",
+        "type": "object"
+      },
+      "LearningSettings": {
+        "additionalProperties": false,
+        "description": "What SunCore may learn from history (forecast calibration, load model).\n\nKept in the ``forecast`` section because it governs how forecasts are produced. Before\n``min_history_days`` of history exist, calibration and the ML load model only collect\nstatistics and change nothing. ``load_ml_mode``: ``off``; ``shadow`` (default) = the\noptional ML load model runs in parallel and is only scored and shown for comparison;\n``auto`` = it is used when it beats the profile forecast in the accuracy statistics -\nit never replaces the profiles otherwise.",
+        "properties": {
+          "load_ml_mode": {
+            "default": "shadow",
+            "enum": [
+              "off",
+              "shadow",
+              "auto"
+            ],
+            "title": "Load Ml Mode",
+            "type": "string"
+          },
+          "min_history_days": {
+            "default": 30,
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Min History Days",
+            "type": "integer"
+          }
+        },
+        "title": "LearningSettings",
         "type": "object"
       },
       "LiveMessage": {
@@ -2754,6 +3413,32 @@
         "title": "ModeRequest",
         "type": "object"
       },
+      "ModeSelectControl": {
+        "additionalProperties": false,
+        "description": "A ``select`` role choosing the battery's operating mode.",
+        "properties": {
+          "kind": {
+            "const": "mode",
+            "title": "Kind",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/BatteryModeOption"
+            },
+            "maxItems": 16,
+            "minItems": 2,
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "options"
+        ],
+        "title": "ModeSelectControl",
+        "type": "object"
+      },
       "NegativePriceRule": {
         "description": "Feed-in remuneration during negative spot prices.",
         "enum": [
@@ -2763,6 +3448,61 @@
         ],
         "title": "NegativePriceRule",
         "type": "string"
+      },
+      "NumberLimitControl": {
+        "additionalProperties": false,
+        "description": "A ``number`` role that sets a battery limit.\n\n``min_soc``: discharge floor in ``%`` (discharge lock / reserve); ``max_charge`` and\n``max_discharge``: power limits; ``grid_charge_power``: forced charging power from the\ngrid. ``min``/``max``/``step`` are the entity's range in ``unit`` (``%`` of the\nbattery's maximum power for the power kinds).",
+        "properties": {
+          "kind": {
+            "enum": [
+              "min_soc",
+              "max_charge",
+              "max_discharge",
+              "grid_charge_power"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "max": {
+            "exclusiveMinimum": 0.0,
+            "title": "Max",
+            "type": "number"
+          },
+          "min": {
+            "minimum": 0.0,
+            "title": "Min",
+            "type": "number"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "unit": {
+            "enum": [
+              "W",
+              "kW",
+              "%"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "unit",
+          "min",
+          "max"
+        ],
+        "title": "NumberLimitControl",
+        "type": "object"
       },
       "OnOffControl": {
         "additionalProperties": false,
@@ -3251,6 +3991,58 @@
         "title": "PreviewOut",
         "type": "object"
       },
+      "PriceFormula": {
+        "additionalProperties": false,
+        "description": "Spot price -> end price (BRIEF §4.4).\n\n``end = (spot * spot_multiplier + grid_fee(at) + levies + margin) * (1 + vat_pct/100)``\n\n``grid_fee(at)`` is the fee of the first ``grid_fee_windows`` entry containing ``at``,\nelse ``grid_fee``. VAT is applied to the whole sum, as on a German bill; a negative\nspot price can make the end price negative. Only for ``price_includes = spot_only``\nsources - an all-in price never gets the formula on top.",
+        "properties": {
+          "grid_fee": {
+            "default": 0.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Grid Fee",
+            "type": "number"
+          },
+          "grid_fee_windows": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/GridFeeWindow"
+            },
+            "maxItems": 12,
+            "title": "Grid Fee Windows",
+            "type": "array"
+          },
+          "levies": {
+            "default": 0.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Levies",
+            "type": "number"
+          },
+          "margin": {
+            "default": 0.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Margin",
+            "type": "number"
+          },
+          "spot_multiplier": {
+            "default": 1.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Spot Multiplier",
+            "type": "number"
+          },
+          "vat_pct": {
+            "default": 0.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Vat Pct",
+            "type": "number"
+          }
+        },
+        "title": "PriceFormula",
+        "type": "object"
+      },
       "PvArray": {
         "additionalProperties": false,
         "description": "One PV array (roof plane / inverter input). Everything but ``name`` is optional.",
@@ -3620,6 +4412,16 @@
         },
         "title": "ReleaseAction",
         "type": "object"
+      },
+      "RiskLevel": {
+        "description": "How sure the plan must be that a battery target is met (forecast/buffer concept).\n\nThe planner plans the target on a quantile of the net energy forecast (PV minus load):\n``cautious`` meets it with probability 0.9 (10 % quantile), ``balanced`` 0.75 (25 %),\n``bold`` 0.5 (median).",
+        "enum": [
+          "cautious",
+          "balanced",
+          "bold"
+        ],
+        "title": "RiskLevel",
+        "type": "string"
       },
       "RoleSpec": {
         "additionalProperties": false,
@@ -4133,7 +4935,7 @@
       },
       "TariffConfig": {
         "additionalProperties": false,
-        "description": "Import and export prices (the forecast sources live in :class:`ForecastConfig`).",
+        "description": "Import and export prices (the forecast sources live in :class:`ForecastConfig`).\n\nv3 (Phase 4): ``import.formula`` and kind ``tou``; v2 documents are valid v3 bodies.",
         "properties": {
           "export": {
             "$ref": "#/components/schemas/ExportTariff"
@@ -4142,7 +4944,7 @@
             "$ref": "#/components/schemas/ImportTariff"
           },
           "schema_version": {
-            "default": 2,
+            "default": 3,
             "title": "Schema Version",
             "type": "integer"
           }
@@ -4338,6 +5140,7 @@
           "template": {
             "discriminator": {
               "mapping": {
+                "battery": "#/components/schemas/BatteryTemplate",
                 "device": "#/components/schemas/DeviceTemplate",
                 "forecast": "#/components/schemas/ForecastTemplate",
                 "region": "#/components/schemas/RegionTemplate",
@@ -4357,6 +5160,9 @@
               },
               {
                 "$ref": "#/components/schemas/RegionTemplate"
+              },
+              {
+                "$ref": "#/components/schemas/BatteryTemplate"
               }
             ],
             "title": "Template"
@@ -4595,6 +5401,112 @@
         "title": "TimeWindow",
         "type": "object"
       },
+      "TouPeriod": {
+        "additionalProperties": false,
+        "description": "A price that applies inside ``window``, optionally only in some ``months``.",
+        "properties": {
+          "months": {
+            "anyOf": [
+              {
+                "items": {
+                  "maximum": 12.0,
+                  "minimum": 1.0,
+                  "type": "integer"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Months"
+          },
+          "price": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Price",
+            "type": "number"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TouWindow"
+          }
+        },
+        "required": [
+          "window",
+          "price"
+        ],
+        "title": "TouPeriod",
+        "type": "object"
+      },
+      "TouTariff": {
+        "additionalProperties": false,
+        "description": "Fixed time-of-use import tariff (HT/NT, seasonal).\n\nThe first period in list order that applies wins; outside every period ``base_price``\napplies. Overlaps are therefore allowed and resolved by order (put the special case\nfirst).",
+        "properties": {
+          "base_price": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Base Price",
+            "type": "number"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/TouPeriod"
+            },
+            "maxItems": 24,
+            "minItems": 1,
+            "title": "Periods",
+            "type": "array"
+          }
+        },
+        "required": [
+          "base_price",
+          "periods"
+        ],
+        "title": "TouTariff",
+        "type": "object"
+      },
+      "TouWindow": {
+        "additionalProperties": false,
+        "description": "A local time window on a set of weekdays, e.g. NT Mon-Fri 22:00-06:00.\n\n* ``end`` before ``start`` crosses midnight; the part after midnight belongs to the\n  weekday the window *started* on (Fri 22:00-06:00 covers Saturday 00:00-06:00, not\n  Friday 00:00-06:00).\n* ``start == end`` is the whole day (00:00-00:00 = 24 h).\n* ``start`` is included, ``end`` is excluded.",
+        "properties": {
+          "days": {
+            "default": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "items": {
+              "maximum": 6.0,
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "title": "Days",
+            "type": "array",
+            "uniqueItems": true
+          },
+          "end": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "TouWindow",
+        "type": "object"
+      },
       "ValidationErrorOut": {
         "additionalProperties": false,
         "description": "422 body of a request that failed validation.",
@@ -4669,6 +5581,26 @@
         "title": "ValidationIssueOut",
         "type": "object"
       },
+      "WeeklySchedule": {
+        "additionalProperties": false,
+        "description": "Union of weekly windows (grid-charge schedule, HT/NT windows, §14a module 3).",
+        "properties": {
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/TouWindow"
+            },
+            "maxItems": 28,
+            "minItems": 1,
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "windows"
+        ],
+        "title": "WeeklySchedule",
+        "type": "object"
+      },
       "WizardState": {
         "additionalProperties": false,
         "properties": {
@@ -4709,6 +5641,78 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/config/battery": {
+      "get": {
+        "operationId": "get_config_battery",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/BatterySettings"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Battery"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the battery section"
+      },
+      "put": {
+        "operationId": "put_config_battery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatterySettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatterySettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the battery section"
+      }
+    },
     "/api/v1/config/devices": {
       "get": {
         "operationId": "get_config_devices",
@@ -6128,7 +7132,8 @@
                     "device",
                     "tariff",
                     "forecast",
-                    "region"
+                    "region",
+                    "battery"
                   ],
                   "type": "string"
                 },

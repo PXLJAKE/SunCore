@@ -119,6 +119,7 @@ def test_enums_are_stable_strings() -> None:
         "step",
         "mode",
         "release",
+        "battery",
     ]
 
 

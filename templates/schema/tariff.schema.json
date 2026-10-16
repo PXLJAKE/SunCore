@@ -78,7 +78,7 @@
     },
     "AttributeSeries": {
       "additionalProperties": false,
-      "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).",
+      "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).\n\n``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's\nvalue to the list of points when the attribute is a mapping (``None`` = the attribute\nitself is the list). The period length of a point is the template's\n``resolution_min``.",
       "properties": {
         "attribute": {
           "maxLength": 200,
@@ -88,6 +88,20 @@
         },
         "fields": {
           "$ref": "#/$defs/SeriesFields"
+        },
+        "list_path": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "List Path"
         },
         "roles": {
           "items": {
@@ -130,7 +144,13 @@
         "pv_curve",
         "pv_quantiles",
         "feed_in_tiers",
-        "negative_price_rule"
+        "negative_price_rule",
+        "battery_soc",
+        "min_soc_limit",
+        "charge_limit",
+        "discharge_limit",
+        "grid_charge",
+        "battery_modes"
       ],
       "title": "Capability",
       "type": "string"

@@ -21,6 +21,7 @@ from suncore.core.balance import Flow, FlowSnapshot
 from suncore.core.control import ControlSettings, DeviceState
 from suncore.core.decisions import (
     Action,
+    BatteryAction,
     Decision,
     DecisionKind,
     Intent,
@@ -1203,3 +1204,30 @@ def test_n1_a_deferred_release_is_not_re_deferred_on_every_tick() -> None:
     rt = h.gate.runtime_of("pool")
     assert rt is not None
     assert rt.release_pending
+
+
+# --- battery actions (Phase 4 WP2): explicitly unsupported until WP9 ---------------------
+
+
+@pytest.mark.parametrize("mode", [OperatingMode.SHADOW, OperatingMode.ASSISTED, AUTO])
+def test_battery_action_is_rejected_and_never_written(mode: OperatingMode) -> None:
+    h = make_harness(global_mode=mode, device_mode=mode)
+    d = asyncio.run(h.gate.submit(make_intent(BatteryAction(grid_charge_w=3000))))
+    assert d.kind is DecisionKind.REJECTED
+    assert [r.key for r in d.reasons] == ["safety.battery_not_supported"]
+    assert h.apply_calls == 0
+    assert h.gate.proposals() == ()
+
+
+def test_invariant_helpers_treat_battery_actions_as_no_device_change() -> None:
+    from suncore.safety.invariants import (  # noqa: PLC0415
+        action_matches_state,
+        action_turns_on,
+        expected_power_w,
+    )
+
+    action = BatteryAction(min_soc_pct=20)
+    device = switch_device()
+    assert action_turns_on(action, device) is None
+    assert expected_power_w(action, device, None) is None
+    assert action_matches_state(action, DeviceState(on=True)) is False

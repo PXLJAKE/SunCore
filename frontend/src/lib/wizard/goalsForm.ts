@@ -7,8 +7,16 @@ export interface GoalsForm {
   targetSoc: number | null;
   targetTime: string;
   climateBeforeExport: boolean;
+  /** Goals v2: `true` = the grid-charge schedule is the night window 22:00-06:00. It never
+   * enables grid charging (that is the battery section's policy). */
   gridChargeNightOnly: boolean;
+  conservativePlanning: boolean;
 }
+
+/** The night window goals v1's `grid_charge_night_only` migrates to (22:00-06:00 daily). */
+export const NIGHT_SCHEDULE: NonNullable<GoalsConfig['grid_charge_schedule']> = {
+  windows: [{ days: [0, 1, 2, 3, 4, 5, 6], start: '22:00', end: '06:00' }],
+};
 
 export const DEFAULT_TARGET_TIME = '18:00';
 
@@ -18,19 +26,21 @@ export function goalsFormFromConfig(cfg: GoalsConfig | null): GoalsForm {
     targetSoc: cfg?.battery_target?.soc_pct ?? 100,
     targetTime: cfg?.battery_target?.time ?? DEFAULT_TARGET_TIME,
     climateBeforeExport: cfg?.climate_before_export ?? false,
-    gridChargeNightOnly: cfg?.grid_charge_night_only ?? true,
+    gridChargeNightOnly: cfg ? cfg.grid_charge_schedule != null : true,
+    conservativePlanning: cfg?.conservative_planning ?? true,
   };
 }
 
 export function goalsFromForm(form: GoalsForm): GoalsConfig {
   return {
-    schema_version: 1,
+    schema_version: 2,
     battery_target:
       form.targetEnabled && form.targetSoc != null
         ? { soc_pct: form.targetSoc, time: form.targetTime }
         : null,
     climate_before_export: form.climateBeforeExport,
-    grid_charge_night_only: form.gridChargeNightOnly,
+    grid_charge_schedule: form.gridChargeNightOnly ? NIGHT_SCHEDULE : null,
+    conservative_planning: form.conservativePlanning,
   };
 }
 
