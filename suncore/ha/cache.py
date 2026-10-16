@@ -125,6 +125,13 @@ class EntityCache:
     def __len__(self) -> int:
         return len(self._entries)
 
+    def set_max_age_overrides(self, overrides: Mapping[str, float]) -> None:
+        """Replace the per-entity maximum ages (slow sensors; the composition root's cadences)."""
+        if any(age <= 0 for age in overrides.values()):
+            msg = "maximum ages must be positive"
+            raise ValueError(msg)
+        self._overrides = dict(overrides)
+
     def max_age_s(self, entity_id: str) -> float:
         return self._overrides.get(entity_id, self._max_age_s)
 

@@ -87,12 +87,29 @@ class ConnectionState(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class StateContext:
+    """The HA context of the change that produced a state (``State.context``).
+
+    A change SunCore caused through ``call_service`` carries the id of that call (positive
+    proof, research/ha-websocket-api.md "Context propagation"); an integration push has a
+    fresh id and no user; a change started in the HA UI has the user's id.
+    """
+
+    id: str
+    user_id: str | None = None
+    parent_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class EntityState:
     """A Home Assistant entity state.
 
     Timestamps are epoch seconds (HA's own compressed format uses floats). A value is
     ``None`` when the source does not carry it: the compressed stream has no
-    ``last_reported``; ``get_states`` has all three.
+    ``last_reported``; ``get_states`` has all three. ``context`` is the HA context of the change
+    that produced the state: parsed from the ``c`` key of ``subscribe_entities`` (a string id or
+    a dict, merged across diffs) and from the ``context`` dict of ``get_states``; ``None`` where
+    the source carries none.
     """
 
     entity_id: str
@@ -101,6 +118,7 @@ class EntityState:
     last_changed: float | None = None
     last_updated: float | None = None
     last_reported: float | None = None
+    context: StateContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,12 +245,17 @@ class ServiceCallerProvider(Protocol):
 # --- service capability -------------------------------------------------------
 
 
+DEFAULT_WRITE_INTERVAL_S: Final = 0.25
+"""Connection flood floor: minimum spacing of two service calls (lowered from 1 s in
+Phase 3; the per-device write rate limit of ``safety`` is the real protection)."""
+
+
 class RateLimiter:
     """Minimum spacing between writes. Clock and sleep are injected."""
 
     def __init__(
         self,
-        min_interval: float = 1.0,
+        min_interval: float = DEFAULT_WRITE_INTERVAL_S,
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -257,14 +280,23 @@ class RateLimiter:
 
 @dataclass(frozen=True, slots=True)
 class ServiceResult:
-    """Outcome of a service call: HA's response and the state read back afterwards."""
+    """Outcome of a service call: HA's response, the state read back afterwards and the
+    context id of the call (``result.context.id`` of the WebSocket reply)."""
 
     response: Any
     readback: EntityState | None
+    context_id: str | None = None
 
 
 Commander = Callable[[Mapping[str, Any]], Awaitable[Any]]
 StateReader = Callable[[str], Awaitable[EntityState | None]]
+
+
+def _context_id(result: Any) -> str | None:
+    """``result.context.id`` of a ``call_service`` reply (research/ha-websocket-api.md)."""
+    context = result.get("context") if isinstance(result, Mapping) else None
+    value = context.get("id") if isinstance(context, Mapping) else None
+    return value if isinstance(value, str) and value else None
 
 
 class ServiceCaller:
@@ -307,7 +339,23 @@ class ServiceCaller:
             payload["return_response"] = True
         result = await self._commander(payload)
         response = result.get("response") if isinstance(result, Mapping) else None
+        context_id = _context_id(result)
         readback = (
             await self._read_state(readback_entity_id) if readback_entity_id is not None else None
         )
-        return ServiceResult(response=response, readback=readback)
+        return ServiceResult(response=response, readback=readback, context_id=context_id)
+
+    async def write(
+        self,
+        domain: str,
+        service: str,
+        *,
+        service_data: Mapping[str, Any] | None = None,
+        target: Mapping[str, Any] | None = None,
+    ) -> ServiceResult:
+        """The narrow form drivers get (``suncore.devices.drivers.base.ServiceWriter``).
+
+        One rate-limited service call without response data or read-back: drivers read
+        back from the entity cache, never from ``get_states``.
+        """
+        return await self.call_service(domain, service, service_data=service_data, target=target)

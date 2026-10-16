@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // One WebSocket subscription feeds every view (docs/architecture.md section 9).
 import { liveUrl } from '../api/client';
-import type { Decision, Flows, Health, LiveMessage } from '../api/types';
+import type { ControlState, Decision, Flows, Health, LiveMessage } from '../api/types';
 import { LiveClient, type ConnectionState } from '../api/ws';
 
 export type LinkStatus = 'connecting' | 'live' | 'ha_down' | 'degraded' | 'offline';
@@ -26,6 +26,8 @@ export class LiveStore {
   flows = $state.raw<Flows | null>(null);
   health = $state.raw<Health | null>(null);
   decisions = $state.raw<Decision[]>([]);
+  /** Control layer state (devices, site surplus, proposals); WP10 renders it. */
+  control = $state.raw<ControlState | null>(null);
   connection = $state<ConnectionState>('connecting');
   haveSnapshot = $state(false);
   /** Flow messages received since start (tests and the E2E "values update" check). */
@@ -41,6 +43,7 @@ export class LiveStore {
         this.flows = msg.flows;
         this.health = msg.health;
         this.decisions = msg.decisions;
+        this.control = msg.control;
         this.haveSnapshot = true;
         this.flowUpdates += 1;
         break;
@@ -53,6 +56,9 @@ export class LiveStore {
         break;
       case 'decisions':
         this.decisions = msg.decisions;
+        break;
+      case 'control':
+        this.control = msg.control;
         break;
     }
   }

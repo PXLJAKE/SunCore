@@ -26,6 +26,7 @@ start: "2026-06-21T00:00:00+02:00"
 duration_s: 172800
 step_s: 60
 house: {seed: 1, pv: {kwp: 8.0, latitude: 48.0, longitude: 11.0}}
+outdoor: {mean_c: 27.0, amplitude_c: 7.0}
 clouds:
   - {at_s: 0, factor: 1.0}
 """
@@ -124,7 +125,7 @@ def test_no_entities_before_the_first_step(scenario: Scenario) -> None:
     assert DemoDevices(scenario).entities() == []
 
 
-# --- registry payloads -------------------------------------------------------------
+# --- registry payloads -----------------------------------------------------------------
 
 
 def test_every_entity_has_a_registry_entry_and_a_known_device_and_area() -> None:
@@ -182,7 +183,7 @@ def test_energy_prefs_reference_existing_statistics() -> None:
     assert battery["capacity"] == 10.0
 
 
-# --- connection accessors ------------------------------------------------------------
+# --- connection accessors --------------------------------------------------------------
 
 
 @pytest.fixture
@@ -246,7 +247,8 @@ def test_second_integration_power_sensor_is_polled_every_five_minutes(scenario: 
     changes = [i for i in range(1, len(values)) if values[i] != values[i - 1]]
     assert changes
     assert all(i % 5 == 0 for i in changes)  # sample and hold: changes only on 5 min slots
-    assert max(values) == d.AC_POWER_W
+    # the unit really cools a hot afternoon: its power is physical, not a constant
+    assert d.AC_STANDBY_W < max(values) <= d.AC_POWER_W
     assert min(values) == d.AC_STANDBY_W
     attrs = history[0][d.AC_B_POWER_ID].attributes
     assert (attrs["unit_of_measurement"], attrs["device_class"], attrs["state_class"]) == (

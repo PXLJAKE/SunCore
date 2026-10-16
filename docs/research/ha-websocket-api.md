@@ -541,6 +541,40 @@ Context in `subscribe_entities` (`const.py:914-918`, `messages.py:195-254`, `cor
   an optional `get_states` refresh. The Phase 1 cache currently derives age from the
   subscription stream; Phase 3 must add the refresh for slow sensors.
 
+**Implemented in Phase 3 WP9** (`suncore/app/cadence.py`, `suncore/ha/websocket.py`):
+
+- The client parses `c` into `EntityState.context` (string id, or dict; `c` diffs are merged onto
+  the previous context, see above) and the `context` dict of `get_states`
+  (`context_from_wire`, `merge_context`); `ControlStack.on_update` hands the context id to
+  `gate.observe`.
+- No extra periodic `get_states` for slow entities: the client's 60 s resync *is* that refresh
+  (a full `get_states` whose `last_reported` is compared with the cached copy), so a sensor that
+  keeps reporting an unchanged value is refreshed at least every 60 s. A sensor that is quiet
+  *and* does not re-report (nothing moves `last_reported`) cannot be told from a dead one, hence
+  the cadences: power sensor `power_model.power_update_s` or 60 s, energy counter
+  `power_model.counter_update_s` or 300 s (`UNVERIFIED` default); stale after `cadence x 2` in the
+  cache and in the watchdog. The control layer only watches the entities the power model reads.
+
+### State attributes and presets the drivers read back (Phase 3 WP6)
+
+Read on 2026-10-14 against the same `dev` commit `c433453ac565f083a4515ec5edfbdbede48ebf24`
+(`homeassistant/components/{number,select,climate}/{__init__,const}.py`,
+`climate/services.py`, `climate/services.yaml`):
+
+- `number` capability attributes (`NumberEntityCapabilityAttribute`): `min`, `max`, `step`,
+  `mode`; the unit is the usual `unit_of_measurement` state attribute.
+- `select` capability attribute (`SelectEntityCapabilityAttribute`): `options`; the state is the
+  current option (or `unknown`).
+- `climate` capability attributes (`ClimateEntityCapabilityAttribute`): `hvac_modes`, `min_temp`,
+  `max_temp`, `target_temp_step` (only present when the entity has a step), `preset_modes`
+  (with the `PRESET_MODE` feature); state attributes (`ClimateEntityStateAttribute`):
+  `current_temperature`, `temperature`, `target_temp_high`, `target_temp_low`, `preset_mode`;
+  `supported_features` is the integer bit set.
+- `climate.set_preset_mode`: field `preset_mode` (required, string), registered with
+  `required_features = [ClimateEntityFeature.PRESET_MODE]` (`climate/services.py`).
+- `input_select.select_option` / `input_number.set_value` were **not** read; the drivers use
+  only `select` and `number`.
+
 ### Verification (Phase 3 WP1)
 
 Read on 2026-10-14, `home-assistant/core` `dev` `c433453ac565f083a4515ec5edfbdbede48ebf24`:

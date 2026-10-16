@@ -253,6 +253,7 @@
               "continuous": "#/$defs/ContinuousControl",
               "mode": "#/$defs/ModeControl",
               "on_off": "#/$defs/OnOffControl",
+              "relays": "#/$defs/RelaysControl",
               "setpoint": "#/$defs/SetpointControl",
               "steps": "#/$defs/StepsControl"
             },
@@ -273,6 +274,9 @@
             },
             {
               "$ref": "#/$defs/ModeControl"
+            },
+            {
+              "$ref": "#/$defs/RelaysControl"
             }
           ],
           "title": "Control"
@@ -1076,6 +1080,70 @@
         "country"
       ],
       "title": "RegionTemplate",
+      "type": "object"
+    },
+    "RelayStep": {
+      "additionalProperties": false,
+      "description": "One level of a relay-switched load: the relays that are on and the power it draws.",
+      "properties": {
+        "power_w": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Power W",
+          "type": "number"
+        },
+        "relays": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Relays",
+          "type": "array"
+        }
+      },
+      "required": [
+        "power_w"
+      ],
+      "title": "RelayStep",
+      "type": "object"
+    },
+    "RelaysControl": {
+      "additionalProperties": false,
+      "description": "Discrete power levels made of 1-3 switch entities (e.g. a heater with three elements).\n\n``roles`` are the relay switches; step ``i`` means exactly the relays listed in\n``steps[i].relays`` are on and the others are off. Step 0 is the lowest level\n(normally all off). Added to schema v1 as an additive union member (ADR-0012).",
+      "properties": {
+        "kind": {
+          "const": "relays",
+          "title": "Kind",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Roles",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/RelayStep"
+          },
+          "maxItems": 8,
+          "minItems": 2,
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "roles",
+        "steps"
+      ],
+      "title": "RelaysControl",
       "type": "object"
     },
     "RoleSpec": {

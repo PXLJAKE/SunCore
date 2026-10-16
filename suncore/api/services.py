@@ -8,7 +8,7 @@ talks to this protocol. ``suncore.app.runtime`` implements it for the real proce
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Protocol
@@ -16,7 +16,9 @@ from typing import Any, Final, Protocol
 from pydantic import BaseModel
 
 from suncore.core.balance import FlowSnapshot
-from suncore.core.decisions import Decision
+from suncore.core.config import OperationConfig
+from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
+from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
@@ -152,7 +154,62 @@ class Services(Protocol):
         """Current flows, ``None`` while no site is configured."""
         ...
 
-    async def decisions(self, limit: int) -> list[Decision]: ...
+    async def decisions(
+        self,
+        limit: int,
+        *,
+        device_id: str | None = None,
+        kinds: Collection[DecisionKind] | None = None,
+    ) -> list[Decision]:
+        """Newest first; ``device_id`` filters by the decision's device, ``kinds`` by kind."""
+        ...
+
+    # --- control (Phase 3 WP9) ---------------------------------------------------------
+
+    def control_state(self) -> ControlState:
+        """Per-device and site state of the control layer as of the latest tick."""
+        ...
+
+    async def emergency_stop(self) -> None:
+        """Release every device and refuse all writes until cleared; persisted, idempotent."""
+        ...
+
+    async def clear_emergency_stop(self) -> None:
+        """Allow control again (modes are unchanged); idempotent."""
+        ...
+
+    async def override_device(self, device_id: str, command: OverrideCommand) -> DeviceControlState:
+        """Boost / pause / resume one device; raises :class:`UnknownDeviceError`."""
+        ...
+
+    def proposals(self) -> list[Decision]:
+        """Open assisted-mode proposals, oldest first."""
+        ...
+
+    async def confirm_proposal(self, intent_id: str) -> Decision:
+        """Confirm a proposal (it is re-submitted as the user's intent) and return the gate's
+        decision; raises :class:`UnknownProposalError`."""
+        ...
+
+    async def dismiss_proposal(self, intent_id: str) -> None:
+        """Drop a proposal; raises :class:`UnknownProposalError`."""
+        ...
+
+    async def set_global_mode(self, mode: OperatingMode) -> OperationConfig:
+        """Set the global operating mode and apply it (devices that fall to shadow are released)."""
+        ...
+
+    async def set_device_mode(
+        self, device_id: str, mode: OperatingMode, identity: str | None
+    ) -> OperationConfig:
+        """Set one device's mode. Raising it above shadow needs the device's current identity
+        token (``DeviceControlState.identity``): raises :class:`UnknownDeviceError`,
+        :class:`DeviceIdentityChangedError`."""
+        ...
+
+    def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` whenever the control state may have changed (tick, decision, mode)."""
+        ...
 
     async def export_config(self) -> dict[str, Any]: ...
 

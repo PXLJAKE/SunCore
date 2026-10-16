@@ -6,17 +6,23 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
 1. Only ``suncore.safety.gate`` may call ``.apply(...)`` and ``.release(...)`` - the
    actuator write and the hardware release (Phase 3: the only write paths).
 2. Only ``suncore.safety`` may import ``suncore.safety.actuator``; driver modules
-   (``suncore.devices.drivers``, Phase 3 WP6) may only be imported by ``suncore.safety``
-   and the composition root ``suncore.app``.
-3. Only ``suncore.ha`` and ``suncore.safety`` may reference an attribute
-   named ``call_service`` (the connector exposes it only through a
+   (``suncore.devices.drivers``, Phase 3 WP6) may only be imported by ``suncore.safety``,
+   the composition root ``suncore.app`` and the simulator's closed-loop composition
+   ``suncore.sim`` (Phase 3 WP8; nothing in production imports ``suncore.sim`` but the demo).
+3. Only ``suncore.ha`` and ``suncore.safety`` (and the simulator, which *is* the fake
+   Home Assistant and composes the closed-loop test bed, Phase 3 WP8) may reference an
+   attribute named ``call_service`` (the connector exposes it only through a
    capability object handed to safety).
    The same holds for the name ``service_caller`` (the capability accessor) and
-   for imports or references of ``ServiceCaller`` / ``ServiceCallerProvider``.
+   for imports or references of ``ServiceCaller`` / ``ServiceCallerProvider``. The composition
+   root never names them: it hands the *connection* and a driver factory to
+   ``suncore.safety.wiring.build_actuators`` (part of ``safety``), and only
+   ``suncore.app.control`` constructs the ``SafetyGate`` (Phase 3 WP9, last two tests).
 4. Dependency rule (docs/architecture.md §2): ``suncore.core`` imports no
    sibling package; ``suncore.safety`` imports only ``suncore.core`` and
    itself; ``suncore.templates`` imports only ``suncore.core`` and itself (plus
-   yaml/pydantic, ADR-0012).
+   yaml/pydantic, ADR-0012); ``suncore.controller`` imports only ``suncore.core``
+   and itself (Phase 3 WP7: drivers, power models and the gate are injected).
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
 6. ``suncore.safety`` imports neither ``suncore.core.config`` nor ``suncore.storage`` and
@@ -46,10 +52,12 @@ SAFETY = "suncore.safety"
 HA = "suncore.ha"
 CORE = "suncore.core"
 TEMPLATES = "suncore.templates"
+CONTROLLER = "suncore.controller"
 ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
-DRIVER_IMPORTERS = (SAFETY, "suncore.app")
+SIM = "suncore.sim"
+DRIVER_IMPORTERS = (SAFETY, "suncore.app", SIM)
 WRITE_CALLS = ("apply", "release")
 API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
@@ -221,7 +229,7 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
 def test_call_service_is_confined_to_ha_and_safety(path: Path) -> None:
     """Rule 3: HA service calls are a write capability owned by ha/ and safety/."""
     module = module_name(path)
-    if in_package(module, HA) or in_package(module, SAFETY):
+    if in_package(module, HA) or in_package(module, SAFETY) or in_package(module, SIM):
         return
     offenders = fmt(path, attribute_refs(parse(path), "call_service"))
     assert not offenders, f"call_service referenced outside suncore.ha/safety: {offenders}"
@@ -231,7 +239,7 @@ def test_call_service_is_confined_to_ha_and_safety(path: Path) -> None:
 def test_service_caller_is_confined_to_ha_and_safety(path: Path) -> None:
     """Rule 3b: the write capability and its accessor never leave ha/ and safety/."""
     module = module_name(path)
-    if in_package(module, HA) or in_package(module, SAFETY):
+    if in_package(module, HA) or in_package(module, SAFETY) or in_package(module, SIM):
         return
     tree = parse(path)
     lines = list(attribute_refs(tree, "service_caller"))
@@ -262,7 +270,7 @@ def test_api_does_not_import_write_side_packages(path: Path) -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_dependency_rule(path: Path) -> None:
-    """Rule 4: core imports no sibling; safety and templates import only core and itself."""
+    """Rule 4: core imports no sibling; safety, templates, controller only core and itself."""
     module = module_name(path)
     if in_package(module, CORE):
         allowed = (CORE,)
@@ -270,6 +278,8 @@ def test_dependency_rule(path: Path) -> None:
         allowed = (CORE, SAFETY)
     elif in_package(module, TEMPLATES):
         allowed = (CORE, TEMPLATES)
+    elif in_package(module, CONTROLLER):
+        allowed = (CORE, CONTROLLER)
     else:
         return
     offenders = fmt(
@@ -500,3 +510,42 @@ def test_templates_rule_rejects_siblings() -> None:
         and not any(in_package(imported, pkg) for pkg in (CORE, TEMPLATES))
     }
     assert bad == {1, 3}
+
+
+def test_only_the_control_stack_constructs_the_gate() -> None:
+    """Phase 3 WP9: production code builds the gate in exactly one place.
+
+    ``suncore.app.control.ControlStack`` is the composition root of the control layer (the
+    simulator and the demo run the same class); a second ``SafetyGate(...)`` outside ``safety``
+    would be a second, unreviewed wiring of drivers to the gate.
+    """
+    builders = []
+    for path in SOURCES:
+        module = module_name(path)
+        if in_package(module, SAFETY):
+            continue
+        for node in ast.walk(parse(path)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name | ast.Attribute)
+                and getattr(node.func, "id", getattr(node.func, "attr", "")) == "SafetyGate"
+            ):
+                builders.append(module)
+    assert builders == ["suncore.app.control"]
+
+
+def test_the_write_capability_is_taken_from_the_connection_inside_safety() -> None:
+    """The composition root hands the *connection* to ``safety.wiring``; only that module (and
+    ``ha``/``sim``) touches ``service_caller``, so rule 3b stays as strict as it was."""
+    users = []
+    for path in SOURCES:
+        if list(attribute_refs(parse(path), "service_caller")):
+            users.append(module_name(path))
+    assert sorted(users) == [
+        "suncore.ha.connection",
+        "suncore.ha.websocket",
+        "suncore.safety.wiring",
+        "suncore.sim.fake_ha",
+    ]
+    app = PACKAGE / "app" / "control.py"
+    assert "suncore.safety.wiring" in {m for _, m in imported_modules(app, parse(app))}

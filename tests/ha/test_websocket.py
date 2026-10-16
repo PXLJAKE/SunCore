@@ -17,6 +17,7 @@ import structlog.testing
 from suncore.ha import websocket as ws_module
 from suncore.ha.cache import EntityCache
 from suncore.ha.connection import (
+    DEFAULT_WRITE_INTERVAL_S,
     AuthError,
     CommandError,
     CommandTimeoutError,
@@ -27,6 +28,7 @@ from suncore.ha.connection import (
     NotConnectedError,
     RateLimiter,
     ServiceCallerProvider,
+    StateContext,
 )
 from suncore.ha.redact import RedactingFilter, SecretRegistry, redact_processor
 from suncore.ha.transport import DirectTransport
@@ -307,6 +309,7 @@ async def test_get_states_and_config(ha: FakeHA, make: Make) -> None:
         last_changed=1000.0,
         last_updated=1000.0,
         last_reported=1000.0,
+        context=StateContext(id="ctx"),
     )
     assert (await conn.get_config())["version"] == "2026.11.0"
 
@@ -625,6 +628,7 @@ async def test_service_caller_rate_limits_and_reads_back(
     assert first.readback is not None
     assert first.readback.state == "100"
     assert first.response["echo"]["domain"] == "switch"
+    assert first.context_id == "ctx"  # result.context.id of the reply
 
     second = asyncio.create_task(caller.call_service("switch", "turn_off", return_response=True))
     await wait_until(lambda: 1.5 in clock.requested)  # limiter waits for the interval
@@ -634,6 +638,31 @@ async def test_service_caller_rate_limits_and_reads_back(
     assert result.readback is None
     assert sum(m["type"] == "call_service" for m in ha.received) == 2
     assert ha.received[-1]["return_response"] is True
+
+
+async def test_write_is_a_plain_rate_limited_call_with_the_context_id(
+    ha: FakeHA, make: Make
+) -> None:
+    conn = make()
+    await up(conn)
+    result = await conn.service_caller().write(
+        "climate",
+        "set_temperature",
+        service_data={"temperature": 22.0},
+        target={"entity_id": "climate.ac"},
+    )
+    sent = next(m for m in ha.received if m["type"] == "call_service")
+    assert (sent["domain"], sent["service"]) == ("climate", "set_temperature")
+    assert sent["target"] == {"entity_id": "climate.ac"}
+    assert sent["service_data"] == {"temperature": 22.0}
+    assert "return_response" not in sent
+    assert result.context_id == "ctx"
+    assert result.readback is None
+
+
+def test_connection_flood_floor_is_a_quarter_of_a_second() -> None:
+    assert DEFAULT_WRITE_INTERVAL_S == 0.25
+    assert RateLimiter()._min_interval == 0.25
 
 
 async def test_rate_limiter_spacing() -> None:
@@ -698,3 +727,40 @@ async def test_token_never_appears_in_logs(
         assert TOKEN not in text
         assert "wrong-token-value" not in text
     assert "probe" in stdlib.getvalue()
+
+
+# --- contexts (Phase 3 WP9) ------------------------------------------------------------
+
+
+async def test_contexts_from_the_stream_and_the_resync(ha: FakeHA, make: Make) -> None:
+    """``c`` is a string id in the snapshot, merged across diffs; ``get_states`` has a dict."""
+    conn = make()
+    updates = record(conn)
+    await conn.subscribe_entities(["sensor.a"])
+    await up(conn)
+    first = updates[0].changed["sensor.a"]
+    assert first.context == StateContext(id="ctx")
+
+    # a UI change by a user: dict with the keys that differ (id and user_id)
+    await ha.change("sensor.a", state="1", c={"id": "ui-1", "user_id": "alice"}, lc=1010.0)
+    await wait_until(lambda: updates[-1].changed.get("sensor.a", first).state == "1")
+    assert updates[-1].changed["sensor.a"].context == StateContext(id="ui-1", user_id="alice")
+
+    # the same human again: a bare string - user_id is unchanged, not None
+    await ha.change("sensor.a", state="2", c="ui-2", lc=1020.0)
+    await wait_until(lambda: updates[-1].changed["sensor.a"].state == "2")
+    assert updates[-1].changed["sensor.a"].context == StateContext(id="ui-2", user_id="alice")
+
+    # an integration push afterwards: user_id cleared, new id
+    await ha.change("sensor.a", state="3", c={"user_id": None, "id": "push-1"}, lc=1030.0)
+    await wait_until(lambda: updates[-1].changed["sensor.a"].state == "3")
+    assert updates[-1].changed["sensor.a"].context == StateContext(id="push-1")
+
+    # a change without a context key keeps the context
+    await ha.change("sensor.a", state="4", lc=1040.0)
+    await wait_until(lambda: updates[-1].changed["sensor.a"].state == "4")
+    assert updates[-1].changed["sensor.a"].context == StateContext(id="push-1")
+
+    # get_states carries the full dict
+    states = await conn.get_states()
+    assert next(s for s in states if s.entity_id == "sensor.a").context == StateContext(id="ctx")

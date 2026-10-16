@@ -222,6 +222,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/control/emergency-stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Emergency Stop
+         * @description Release every device (baseline restored) and refuse all writes until cleared.
+         */
+        post: operations["emergency_stop_api_v1_control_emergency_stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/control/emergency-stop/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear Emergency Stop
+         * @description Allow control again; the operating modes are unchanged.
+         */
+        post: operations["clear_emergency_stop_api_v1_control_emergency_stop_clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/control/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Control State
+         * @description Per device: observed state, power estimate with uncertainty, effective mode, hold and
+         *     release state, the controller's reasons and the newest gate decision; for the site the
+         *     smoothed total and free surplus and the deficit; the open proposals.
+         */
+        get: operations["control_state_api_v1_control_state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/decisions": {
         parameters: {
             query?: never;
@@ -229,10 +291,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Decisions */
+        /**
+         * Decisions
+         * @description The decision log, newest first. ``device_id`` keeps one device's decisions, ``kind``
+         *     (repeatable) the given kinds (``shadow``, ``accepted``, ``proposed``, ...).
+         */
         get: operations["decisions_api_v1_decisions_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{device_id}/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Override
+         * @description Boost (N minutes), pause (until a time or until resumed) or resume one device.
+         */
+        post: operations["override_api_v1_devices__device_id__override_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -282,6 +368,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operation/devices/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Device Mode
+         * @description Set one device's mode. Anything above shadow needs the device's ``identity`` token
+         *     from the control state; shadow never does.
+         */
+        put: operations["set_device_mode_api_v1_operation_devices__device_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operation/mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Global Mode
+         * @description Set the global operating mode. A device runs in ``min(global, device)``; lowering to
+         *     shadow releases the controlled devices (after their minimum run or pause time).
+         */
+        put: operations["set_global_mode_api_v1_operation_mode_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/preview": {
         parameters: {
             query?: never;
@@ -296,6 +424,64 @@ export interface paths {
          * @description Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment.
          */
         post: operations["preview_api_v1_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Proposals
+         * @description Open assisted-mode proposals, oldest first (valid until ``expires_at``).
+         */
+        get: operations["proposals_api_v1_proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proposals/{intent_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Proposal
+         * @description Confirm: the proposal is submitted as the user's intent; the answer is the gate's
+         *     decision (``accepted``, ``rejected`` by an invariant, ``failed`` ...).
+         */
+        post: operations["confirm_proposal_api_v1_proposals__intent_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proposals/{intent_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss Proposal */
+        post: operations["dismiss_proposal_api_v1_proposals__intent_id__dismiss_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -575,6 +761,36 @@ export interface components {
             voltage_v: number;
         };
         /**
+         * ControlMessage
+         * @description The control state changed (tick, decision, mode, emergency stop, override, proposal).
+         */
+        ControlMessage: {
+            control: components["schemas"]["ControlState"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "control";
+        };
+        /**
+         * ControlState
+         * @description Everything the control layer exposes after a tick.
+         */
+        ControlState: {
+            /** Active */
+            active: boolean;
+            /** Devices */
+            devices: components["schemas"]["DeviceControlState"][];
+            /** Emergency Stop */
+            emergency_stop: boolean;
+            global_mode: components["schemas"]["OperatingMode"];
+            /** Proposals */
+            proposals: components["schemas"]["Decision"][];
+            site: components["schemas"]["SiteControlState"] | null;
+            /** Ts */
+            ts: string | null;
+        };
+        /**
          * Decision
          * @description The safety gate's verdict on an intent, as stored in the decision log.
          */
@@ -640,7 +856,7 @@ export interface components {
             allow_switch_on: boolean;
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"];
             /** Entities */
             entities?: {
                 [key: string]: components["schemas"]["EntityRef"];
@@ -692,13 +908,59 @@ export interface components {
             windows: components["schemas"]["TimeWindow"][];
         };
         /**
+         * DeviceControlState
+         * @description One controlled device as the "Now" view shows it.
+         */
+        DeviceControlState: {
+            /** Base Setpoint C */
+            base_setpoint_c: number | null;
+            /** Committed W */
+            committed_w: number | null;
+            /** Device Id */
+            device_id: string;
+            device_mode: components["schemas"]["OperatingMode"];
+            effective_mode: components["schemas"]["OperatingMode"];
+            estimate: components["schemas"]["PowerEstimate"] | null;
+            /** Expected Power W */
+            expected_power_w: number | null;
+            global_mode: components["schemas"]["OperatingMode"];
+            /** Held */
+            held: boolean;
+            /** Held Until */
+            held_until: string | null;
+            /** Identity */
+            identity: string;
+            kind: components["schemas"]["DeviceKind"];
+            last_decision: components["schemas"]["Decision"] | null;
+            /** Level */
+            level: number | null;
+            /** Name */
+            name: string;
+            paused: components["schemas"]["Reason"] | null;
+            /** Phase */
+            phase: string | null;
+            /** Reasons */
+            reasons: components["schemas"]["Reason"][];
+            /** Release Due */
+            release_due: string | null;
+            /** Release Pending */
+            release_pending: boolean;
+            /** Since */
+            since: string | null;
+            state: components["schemas"]["DeviceState"] | null;
+            /** Top */
+            top: number | null;
+            /** Under Control */
+            under_control: boolean;
+        };
+        /**
          * DeviceDefaults
          * @description Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.
          */
         DeviceDefaults: {
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"];
             /** Hysteresis Delay S */
             hysteresis_delay_s?: number | null;
             /** Hysteresis W */
@@ -725,6 +987,45 @@ export interface components {
          * @enum {string}
          */
         DeviceKind: "climate" | "switch" | "number_load" | "water_heater" | "heat_pump" | "wallbox" | "program" | "generic";
+        /**
+         * DeviceModeRequest
+         * @description ``PUT /api/v1/operation/devices/{id}``: one device's operating mode.
+         *
+         *     Raising the mode above shadow needs ``identity``, the token the device carried in
+         *     ``GET /api/v1/control/state`` when the user decided: a device that was re-mapped meanwhile
+         *     answers 409 and keeps its mode.
+         */
+        DeviceModeRequest: {
+            /** Identity */
+            identity?: string | null;
+            mode: components["schemas"]["OperatingMode"];
+        };
+        /**
+         * DeviceState
+         * @description What a device looks like right now, as read from the entity cache by a driver.
+         *
+         *     Only the fields that exist for the device are set; ``on`` is ``None`` when the
+         *     control entity is unavailable. For a climate device ``on`` is ``hvac_mode != off``
+         *     and ``mode`` is the HVAC mode. ``quality`` is the worst quality of the entities read.
+         */
+        DeviceState: {
+            /** Mode */
+            mode?: string | null;
+            /** On */
+            on?: boolean | null;
+            /** @default ok */
+            quality: components["schemas"]["Quality"];
+            /** Setpoint C */
+            setpoint_c?: number | null;
+            /** Step */
+            step?: number | null;
+            /** Temperature C */
+            temperature_c?: number | null;
+            /** Ts */
+            ts?: string | null;
+            /** Value */
+            value?: number | null;
+        };
         /** DeviceTemplate */
         DeviceTemplate: {
             /** Capabilities */
@@ -770,6 +1071,14 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+        };
+        /**
+         * EmergencyStopOut
+         * @description State of the global emergency stop after the call.
+         */
+        EmergencyStopOut: {
+            /** Active */
+            active: boolean;
         };
         /**
          * EnergyPrefsOut
@@ -1153,7 +1462,7 @@ export interface components {
              */
             ts: string;
         };
-        LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"];
+        LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"] | components["schemas"]["ControlMessage"];
         /**
          * Mode
          * @description One mode of a mode-controlled device and the power it draws.
@@ -1191,6 +1500,13 @@ export interface components {
             modes: components["schemas"]["Mode"][];
             /** Role */
             role: string;
+        };
+        /**
+         * ModeRequest
+         * @description ``PUT /api/v1/operation/mode``: the global operating mode.
+         */
+        ModeRequest: {
+            mode: components["schemas"]["OperatingMode"];
         };
         /**
          * NegativePriceRule
@@ -1243,6 +1559,26 @@ export interface components {
          */
         Origin: "planner" | "controller" | "user" | "safety";
         /**
+         * OverrideCommand
+         * @description A user override of one device (``POST /api/v1/devices/{id}/override``).
+         *
+         *     * ``boost`` + ``minutes``: SunCore keeps its hands off the device for that long (the user runs
+         *       it by hand; automatic control resumes afterwards);
+         *     * ``pause`` (+ optional ``until``): the same hold until a given time, or until ``resume``;
+         *     * ``resume``: SunCore may control the device again now.
+         */
+        OverrideCommand: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "boost" | "pause" | "resume";
+            /** Minutes */
+            minutes?: number | null;
+            /** Until */
+            until?: string | null;
+        };
+        /**
          * OverridePolicy
          * @description How long a manual change is respected before SunCore takes over again (plan §6.5).
          *
@@ -1264,6 +1600,27 @@ export interface components {
              * @default 04:00:00
              */
             resume_time: string;
+        };
+        /**
+         * PowerEstimate
+         * @description A device's power with its uncertainty (BRIEF §4.5: both power paths are equivalent).
+         *
+         *     ``value_w ± uncertainty_w`` is the band the controller and the grid invariant work
+         *     with; ``quality`` is the worst quality of the inputs; ``age_s`` is the age of the
+         *     newest input that produced the estimate.
+         */
+        PowerEstimate: {
+            /**
+             * Age S
+             * @default 0
+             */
+            age_s: number;
+            /** @default ok */
+            quality: components["schemas"]["Quality"];
+            /** Uncertainty W */
+            uncertainty_w: number;
+            /** Value W */
+            value_w: number;
         };
         /**
          * PowerModel
@@ -1288,6 +1645,8 @@ export interface components {
             nominal_w?: number | null;
             /** Power Role */
             power_role?: string | null;
+            /** Power Update S */
+            power_update_s?: number | null;
         };
         /**
          * PowerModelDefault
@@ -1375,6 +1734,12 @@ export interface components {
             tilt_deg?: number | null;
         };
         /**
+         * Quality
+         * @description Data quality, ordered best to worst: ok < stale < unavailable < invalid.
+         * @enum {string}
+         */
+        Quality: "ok" | "stale" | "unavailable" | "invalid";
+        /**
          * Reason
          * @description A structured, translatable explanation.
          *
@@ -1448,6 +1813,38 @@ export interface components {
             timezone?: string | null;
             /** Unverified */
             unverified?: string[];
+        };
+        /**
+         * RelayStep
+         * @description One level of a relay-switched load: the relays that are on and the power it draws.
+         */
+        RelayStep: {
+            /** Power W */
+            power_w: number;
+            /**
+             * Relays
+             * @default []
+             */
+            relays: string[];
+        };
+        /**
+         * RelaysControl
+         * @description Discrete power levels made of 1-3 switch entities (e.g. a heater with three elements).
+         *
+         *     ``roles`` are the relay switches; step ``i`` means exactly the relays listed in
+         *     ``steps[i].relays`` are on and the others are off. Step 0 is the lowest level
+         *     (normally all off). Added to schema v1 as an additive union member (ADR-0012).
+         */
+        RelaysControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "relays";
+            /** Roles */
+            roles: string[];
+            /** Steps */
+            steps: components["schemas"]["RelayStep"][];
         };
         /**
          * ReleaseAction
@@ -1547,8 +1944,34 @@ export interface components {
              */
             schema_version: number;
         };
+        /**
+         * SiteControlState
+         * @description The smoothed site view of the latest tick (W; grid + = import).
+         */
+        SiteControlState: {
+            /** Allocated Draw W */
+            allocated_draw_w: number;
+            /** Available W */
+            available_w: number | null;
+            /** Battery W */
+            battery_w: number | null;
+            /** Deficit W */
+            deficit_w: number;
+            /** Free W */
+            free_w: number | null;
+            /** Grid W */
+            grid_w: number | null;
+            quality: components["schemas"]["Quality"];
+            /** Soc Pct */
+            soc_pct: number | null;
+            /** Total W */
+            total_w: number | null;
+            /** Uncertainty W */
+            uncertainty_w: number;
+        };
         /** SnapshotMessage */
         SnapshotMessage: {
+            control: components["schemas"]["ControlState"];
             /** Decisions */
             decisions: components["schemas"]["Decision"][];
             flows: components["schemas"]["FlowsOut"] | null;
@@ -2153,6 +2576,15 @@ export interface operations {
                     "application/json": components["schemas"]["OperationConfig"];
                 };
             };
+            /** @description The document would raise a mode */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
             /** @description Body too large */
             413: {
                 headers: {
@@ -2511,10 +2943,72 @@ export interface operations {
             };
         };
     };
+    emergency_stop_api_v1_control_emergency_stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmergencyStopOut"];
+                };
+            };
+        };
+    };
+    clear_emergency_stop_api_v1_control_emergency_stop_clear_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmergencyStopOut"];
+                };
+            };
+        };
+    };
+    control_state_api_v1_control_state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlState"];
+                };
+            };
+        };
+    };
     decisions_api_v1_decisions_get: {
         parameters: {
             query?: {
                 limit?: number;
+                device_id?: string | null;
+                kind?: components["schemas"]["DecisionKind"][] | null;
             };
             header?: never;
             path?: never;
@@ -2529,6 +3023,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Decision"][];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    override_api_v1_devices__device_id__override_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverrideCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceControlState"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Validation error */
@@ -2624,6 +3162,92 @@ export interface operations {
             };
         };
     };
+    set_device_mode_api_v1_operation_devices__device_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The device changed since its identity was read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    set_global_mode_api_v1_operation_mode_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
     preview_api_v1_preview_post: {
         parameters: {
             query?: never;
@@ -2664,6 +3288,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    proposals_api_v1_proposals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Decision"][];
+                };
+            };
+        };
+    };
+    confirm_proposal_api_v1_proposals__intent_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                intent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Decision"];
+                };
+            };
+            /** @description Unknown or expired proposal */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    dismiss_proposal_api_v1_proposals__intent_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                intent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown or expired proposal */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

@@ -11,6 +11,7 @@ from suncore.app.main import build_runtime
 from suncore.app.runtime import PRUNE_INTERVAL_S, Runtime
 from suncore.core.config import DevicesConfig, OperationConfig
 from suncore.core.decisions import OperatingMode
+from suncore.core.identity import identity_token
 from suncore.storage import SqliteRuntimeStore
 from tests.storage.test_decision_log import make_decision
 
@@ -75,14 +76,12 @@ async def test_put_devices_with_changed_entities_resets_the_device_mode(
     assert devices is not None
     first = devices.devices[0]
     await demo_runtime.put_section("devices", devices)  # same identities
-    await demo_runtime.put_section(
-        "operation",
-        OperationConfig(device_modes={first.id: OperatingMode.AUTOMATIC}),
-    )
+    await demo_runtime.set_device_mode(first.id, OperatingMode.AUTOMATIC, identity_token(first))
     await demo_runtime.put_section("devices", devices)
     op = await demo_runtime.get_section("operation")
     assert isinstance(op, OperationConfig)
     assert op.device_modes == {first.id: OperatingMode.AUTOMATIC}
+    assert demo_runtime.modes.device_mode(first.id) is OperatingMode.AUTOMATIC
     moved = first.model_copy(
         update={
             "entities": {
@@ -95,3 +94,4 @@ async def test_put_devices_with_changed_entities_resets_the_device_mode(
     op = await demo_runtime.get_section("operation")
     assert isinstance(op, OperationConfig)
     assert op.device_modes == {}
+    assert demo_runtime.modes.device_mode(first.id) is OperatingMode.SHADOW  # the gate sees it

@@ -458,6 +458,90 @@
         "title": "ContinuousControl",
         "type": "object"
       },
+      "ControlMessage": {
+        "additionalProperties": false,
+        "description": "The control state changed (tick, decision, mode, emergency stop, override, proposal).",
+        "properties": {
+          "control": {
+            "$ref": "#/components/schemas/ControlState"
+          },
+          "type": {
+            "const": "control",
+            "default": "control",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "control"
+        ],
+        "title": "ControlMessage",
+        "type": "object"
+      },
+      "ControlState": {
+        "additionalProperties": false,
+        "description": "Everything the control layer exposes after a tick.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceControlState"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "emergency_stop": {
+            "title": "Emergency Stop",
+            "type": "boolean"
+          },
+          "global_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/Decision"
+            },
+            "title": "Proposals",
+            "type": "array"
+          },
+          "site": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SiteControlState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts"
+          }
+        },
+        "required": [
+          "ts",
+          "active",
+          "emergency_stop",
+          "global_mode",
+          "site",
+          "devices",
+          "proposals"
+        ],
+        "title": "ControlState",
+        "type": "object"
+      },
       "Decision": {
         "additionalProperties": false,
         "description": "The safety gate's verdict on an intent, as stored in the decision log.",
@@ -626,6 +710,7 @@
                 "continuous": "#/components/schemas/ContinuousControl",
                 "mode": "#/components/schemas/ModeControl",
                 "on_off": "#/components/schemas/OnOffControl",
+                "relays": "#/components/schemas/RelaysControl",
                 "setpoint": "#/components/schemas/SetpointControl",
                 "steps": "#/components/schemas/StepsControl"
               },
@@ -646,6 +731,9 @@
               },
               {
                 "$ref": "#/components/schemas/ModeControl"
+              },
+              {
+                "$ref": "#/components/schemas/RelaysControl"
               }
             ],
             "title": "Control"
@@ -800,6 +888,225 @@
         "title": "DeviceConfig",
         "type": "object"
       },
+      "DeviceControlState": {
+        "additionalProperties": false,
+        "description": "One controlled device as the \"Now\" view shows it.",
+        "properties": {
+          "base_setpoint_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Setpoint C"
+          },
+          "committed_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Committed W"
+          },
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "device_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "effective_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PowerEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_power_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Power W"
+          },
+          "global_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "held": {
+            "title": "Held",
+            "type": "boolean"
+          },
+          "held_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held Until"
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DeviceKind"
+          },
+          "last_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Decision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "paused": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "release_due": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Due"
+          },
+          "release_pending": {
+            "title": "Release Pending",
+            "type": "boolean"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "top": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top"
+          },
+          "under_control": {
+            "title": "Under Control",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "device_id",
+          "name",
+          "kind",
+          "identity",
+          "global_mode",
+          "device_mode",
+          "effective_mode",
+          "state",
+          "estimate",
+          "phase",
+          "level",
+          "top",
+          "expected_power_w",
+          "committed_w",
+          "base_setpoint_c",
+          "under_control",
+          "held",
+          "held_until",
+          "release_pending",
+          "release_due",
+          "paused",
+          "reasons",
+          "since",
+          "last_decision"
+        ],
+        "title": "DeviceControlState",
+        "type": "object"
+      },
       "DeviceDefaults": {
         "additionalProperties": false,
         "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.",
@@ -820,6 +1127,7 @@
                 "continuous": "#/components/schemas/ContinuousControl",
                 "mode": "#/components/schemas/ModeControl",
                 "on_off": "#/components/schemas/OnOffControl",
+                "relays": "#/components/schemas/RelaysControl",
                 "setpoint": "#/components/schemas/SetpointControl",
                 "steps": "#/components/schemas/StepsControl"
               },
@@ -840,6 +1148,9 @@
               },
               {
                 "$ref": "#/components/schemas/ModeControl"
+              },
+              {
+                "$ref": "#/components/schemas/RelaysControl"
               }
             ],
             "title": "Control"
@@ -935,6 +1246,127 @@
         ],
         "title": "DeviceKind",
         "type": "string"
+      },
+      "DeviceModeRequest": {
+        "additionalProperties": false,
+        "description": "``PUT /api/v1/operation/devices/{id}``: one device's operating mode.\n\nRaising the mode above shadow needs ``identity``, the token the device carried in\n``GET /api/v1/control/state`` when the user decided: a device that was re-mapped meanwhile\nanswers 409 and keeps its mode.",
+        "properties": {
+          "identity": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identity"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "DeviceModeRequest",
+        "type": "object"
+      },
+      "DeviceState": {
+        "additionalProperties": false,
+        "description": "What a device looks like right now, as read from the entity cache by a driver.\n\nOnly the fields that exist for the device are set; ``on`` is ``None`` when the\ncontrol entity is unavailable. For a climate device ``on`` is ``hvac_mode != off``\nand ``mode`` is the HVAC mode. ``quality`` is the worst quality of the entities read.",
+        "properties": {
+          "mode": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "on": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/Quality",
+            "default": "ok"
+          },
+          "setpoint_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setpoint C"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "maximum": 15.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature C"
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "DeviceState",
+        "type": "object"
       },
       "DeviceTemplate": {
         "additionalProperties": false,
@@ -1054,6 +1486,21 @@
           }
         },
         "title": "DevicesConfig",
+        "type": "object"
+      },
+      "EmergencyStopOut": {
+        "additionalProperties": false,
+        "description": "State of the global emergency stop after the call.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "active"
+        ],
+        "title": "EmergencyStopOut",
         "type": "object"
       },
       "EnergyPrefsOut": {
@@ -2188,6 +2635,7 @@
       "LiveMessage": {
         "discriminator": {
           "mapping": {
+            "control": "#/components/schemas/ControlMessage",
             "decisions": "#/components/schemas/DecisionsMessage",
             "flows": "#/components/schemas/FlowsMessage",
             "health": "#/components/schemas/HealthMessage",
@@ -2207,6 +2655,9 @@
           },
           {
             "$ref": "#/components/schemas/DecisionsMessage"
+          },
+          {
+            "$ref": "#/components/schemas/ControlMessage"
           }
         ]
       },
@@ -2287,6 +2738,20 @@
           "modes"
         ],
         "title": "ModeControl",
+        "type": "object"
+      },
+      "ModeRequest": {
+        "additionalProperties": false,
+        "description": "``PUT /api/v1/operation/mode``: the global operating mode.",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "ModeRequest",
         "type": "object"
       },
       "NegativePriceRule": {
@@ -2371,6 +2836,51 @@
         "title": "Origin",
         "type": "string"
       },
+      "OverrideCommand": {
+        "additionalProperties": false,
+        "description": "A user override of one device (``POST /api/v1/devices/{id}/override``).\n\n* ``boost`` + ``minutes``: SunCore keeps its hands off the device for that long (the user runs\n  it by hand; automatic control resumes afterwards);\n* ``pause`` (+ optional ``until``): the same hold until a given time, or until ``resume``;\n* ``resume``: SunCore may control the device again now.",
+        "properties": {
+          "action": {
+            "enum": [
+              "boost",
+              "pause",
+              "resume"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "maximum": 1440.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "OverrideCommand",
+        "type": "object"
+      },
       "OverridePolicy": {
         "additionalProperties": false,
         "description": "How long a manual change is respected before SunCore takes over again (plan §6.5).\n\n* ``next_day``: at ``resume_time`` (local) of the next day (default 04:00);\n* ``hours``: ``hours`` after the override was detected (1-48).",
@@ -2405,6 +2915,38 @@
           }
         },
         "title": "OverridePolicy",
+        "type": "object"
+      },
+      "PowerEstimate": {
+        "additionalProperties": false,
+        "description": "A device's power with its uncertainty (BRIEF §4.5: both power paths are equivalent).\n\n``value_w ± uncertainty_w`` is the band the controller and the grid invariant work\nwith; ``quality`` is the worst quality of the inputs; ``age_s`` is the age of the\nnewest input that produced the estimate.",
+        "properties": {
+          "age_s": {
+            "default": 0.0,
+            "minimum": 0.0,
+            "title": "Age S",
+            "type": "number"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/Quality",
+            "default": "ok"
+          },
+          "uncertainty_w": {
+            "minimum": 0.0,
+            "title": "Uncertainty W",
+            "type": "number"
+          },
+          "value_w": {
+            "minimum": 0.0,
+            "title": "Value W",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value_w",
+          "uncertainty_w"
+        ],
+        "title": "PowerEstimate",
         "type": "object"
       },
       "PowerModel": {
@@ -2463,6 +3005,19 @@
               }
             ],
             "title": "Power Role"
+          },
+          "power_update_s": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Update S"
           }
         },
         "required": [
@@ -2775,6 +3330,17 @@
         "title": "PvArray",
         "type": "object"
       },
+      "Quality": {
+        "description": "Data quality, ordered best to worst: ok < stale < unavailable < invalid.",
+        "enum": [
+          "ok",
+          "stale",
+          "unavailable",
+          "invalid"
+        ],
+        "title": "Quality",
+        "type": "string"
+      },
       "Reason": {
         "additionalProperties": false,
         "description": "A structured, translatable explanation.\n\n``key`` addresses a message in the ICU catalogue; ``args`` are the\nplaceholders of that message. Free text is not allowed anywhere.",
@@ -2975,6 +3541,70 @@
           "country"
         ],
         "title": "RegionTemplate",
+        "type": "object"
+      },
+      "RelayStep": {
+        "additionalProperties": false,
+        "description": "One level of a relay-switched load: the relays that are on and the power it draws.",
+        "properties": {
+          "power_w": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Power W",
+            "type": "number"
+          },
+          "relays": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Relays",
+            "type": "array"
+          }
+        },
+        "required": [
+          "power_w"
+        ],
+        "title": "RelayStep",
+        "type": "object"
+      },
+      "RelaysControl": {
+        "additionalProperties": false,
+        "description": "Discrete power levels made of 1-3 switch entities (e.g. a heater with three elements).\n\n``roles`` are the relay switches; step ``i`` means exactly the relays listed in\n``steps[i].relays`` are on and the others are off. Step 0 is the lowest level\n(normally all off). Added to schema v1 as an additive union member (ADR-0012).",
+        "properties": {
+          "kind": {
+            "const": "relays",
+            "title": "Kind",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Roles",
+            "type": "array"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/RelayStep"
+            },
+            "maxItems": 8,
+            "minItems": 2,
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "roles",
+          "steps"
+        ],
+        "title": "RelaysControl",
         "type": "object"
       },
       "ReleaseAction": {
@@ -3198,9 +3828,113 @@
         "title": "SiteConfig",
         "type": "object"
       },
+      "SiteControlState": {
+        "additionalProperties": false,
+        "description": "The smoothed site view of the latest tick (W; grid + = import).",
+        "properties": {
+          "allocated_draw_w": {
+            "title": "Allocated Draw W",
+            "type": "number"
+          },
+          "available_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available W"
+          },
+          "battery_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery W"
+          },
+          "deficit_w": {
+            "title": "Deficit W",
+            "type": "number"
+          },
+          "free_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free W"
+          },
+          "grid_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid W"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/Quality"
+          },
+          "soc_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soc Pct"
+          },
+          "total_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total W"
+          },
+          "uncertainty_w": {
+            "title": "Uncertainty W",
+            "type": "number"
+          }
+        },
+        "required": [
+          "available_w",
+          "total_w",
+          "free_w",
+          "allocated_draw_w",
+          "deficit_w",
+          "uncertainty_w",
+          "quality",
+          "grid_w",
+          "battery_w",
+          "soc_pct"
+        ],
+        "title": "SiteControlState",
+        "type": "object"
+      },
       "SnapshotMessage": {
         "additionalProperties": false,
         "properties": {
+          "control": {
+            "$ref": "#/components/schemas/ControlState"
+          },
           "decisions": {
             "items": {
               "$ref": "#/components/schemas/Decision"
@@ -3231,7 +3965,8 @@
         "required": [
           "flows",
           "health",
-          "decisions"
+          "decisions",
+          "control"
         ],
         "title": "SnapshotMessage",
         "type": "object"
@@ -4296,6 +5031,16 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The document would raise a mode"
+          },
           "413": {
             "content": {
               "application/json": {
@@ -4731,8 +5476,66 @@
         "summary": "Restore"
       }
     },
+    "/api/v1/control/emergency-stop": {
+      "post": {
+        "description": "Release every device (baseline restored) and refuse all writes until cleared.",
+        "operationId": "emergency_stop_api_v1_control_emergency_stop_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmergencyStopOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Emergency Stop"
+      }
+    },
+    "/api/v1/control/emergency-stop/clear": {
+      "post": {
+        "description": "Allow control again; the operating modes are unchanged.",
+        "operationId": "clear_emergency_stop_api_v1_control_emergency_stop_clear_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmergencyStopOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Emergency Stop"
+      }
+    },
+    "/api/v1/control/state": {
+      "get": {
+        "description": "Per device: observed state, power estimate with uncertainty, effective mode, hold and\nrelease state, the controller's reasons and the newest gate decision; for the site the\nsmoothed total and free surplus and the deficit; the open proposals.",
+        "operationId": "control_state_api_v1_control_state_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Control State"
+      }
+    },
     "/api/v1/decisions": {
       "get": {
+        "description": "The decision log, newest first. ``device_id`` keeps one device's decisions, ``kind``\n(repeatable) the given kinds (``shadow``, ``accepted``, ``proposed``, ...).",
         "operationId": "decisions_api_v1_decisions_get",
         "parameters": [
           {
@@ -4745,6 +5548,42 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/DecisionKind"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
             }
           }
         ],
@@ -4775,6 +5614,66 @@
           }
         },
         "summary": "Decisions"
+      }
+    },
+    "/api/v1/devices/{device_id}/override": {
+      "post": {
+        "description": "Boost (N minutes), pause (until a time or until resumed) or resume one device.",
+        "operationId": "override_api_v1_devices__device_id__override_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverrideCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceControlState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown device"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Override"
       }
     },
     "/api/v1/entities": {
@@ -4938,6 +5837,115 @@
         "summary": "Info"
       }
     },
+    "/api/v1/operation/devices/{device_id}": {
+      "put": {
+        "description": "Set one device's mode. Anything above shadow needs the device's ``identity`` token\nfrom the control state; shadow never does.",
+        "operationId": "set_device_mode_api_v1_operation_devices__device_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown device"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The device changed since its identity was read"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Set Device Mode"
+      }
+    },
+    "/api/v1/operation/mode": {
+      "put": {
+        "description": "Set the global operating mode. A device runs in ``min(global, device)``; lowering to\nshadow releases the controlled devices (after their minimum run or pause time).",
+        "operationId": "set_global_mode_api_v1_operation_mode_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Set Global Mode"
+      }
+    },
     "/api/v1/preview": {
       "post": {
         "description": "Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment.",
@@ -4987,6 +5995,121 @@
           }
         },
         "summary": "Preview"
+      }
+    },
+    "/api/v1/proposals": {
+      "get": {
+        "description": "Open assisted-mode proposals, oldest first (valid until ``expires_at``).",
+        "operationId": "proposals_api_v1_proposals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Decision"
+                  },
+                  "title": "Response Proposals Api V1 Proposals Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Proposals"
+      }
+    },
+    "/api/v1/proposals/{intent_id}/confirm": {
+      "post": {
+        "description": "Confirm: the proposal is submitted as the user's intent; the answer is the gate's\ndecision (``accepted``, ``rejected`` by an invariant, ``failed`` ...).",
+        "operationId": "confirm_proposal_api_v1_proposals__intent_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intent_id",
+            "required": true,
+            "schema": {
+              "title": "Intent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Decision"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown or expired proposal"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Confirm Proposal"
+      }
+    },
+    "/api/v1/proposals/{intent_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_proposal_api_v1_proposals__intent_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intent_id",
+            "required": true,
+            "schema": {
+              "title": "Intent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown or expired proposal"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Dismiss Proposal"
       }
     },
     "/api/v1/templates": {

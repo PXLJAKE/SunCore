@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# A water heater with discrete power levels, switched through ONE `select` entity (one option per
+# level, for example a heater controller or an ESPHome/Shelly script exposed as a select).
+# Variants (copy this file to /data/templates/device/ and edit `defaults`):
+#   number entity -> role `level` with `matcher.domain: number` and step values 0, 1, 2 ...
+#                    (written with `number.set_value`);
+#   1-3 relay switches (one per heating element) -> use `generic.water_heater_relays`.
+# The comfort band bounds the tank temperature: at or above `max_c` SunCore adds no heat (the
+# controller caps the heater at level 0, the safety gate rejects any increase). It needs the
+# optional `temperature` probe; an unknown or stale probe counts as a full tank.
+id: generic.water_heater_steps
+kind: device
+schema_version: 1
+name: template.generic.water_heater_steps.name
+source:
+  - title: "home-assistant/core select/__init__.py + services (select_option, `options` attribute; dev c433453, fetched 2026-10-14)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/select/__init__.py"
+    date: 2026-10-14
+  - title: "home-assistant/core number/__init__.py + const.py (set_value, min/max/step attributes; dev c433453)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/number/__init__.py"
+    date: 2026-10-14
+  - title: "home-assistant/core switch/__init__.py (turn_on, turn_off; dev c433453)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/switch/__init__.py"
+    date: 2026-10-14
+  - title: "home-assistant/core water_heater/__init__.py (the dedicated water_heater entity: operation modes, target temperature; not used for control here)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/water_heater/__init__.py"
+    date: 2026-10-14
+  - title: "home-assistant/core sensor/const.py (SensorDeviceClass.TEMPERATURE, UnitOfTemperature °C)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/sensor/const.py"
+    date: 2026-10-14
+  - title: "developers.home-assistant docs/core/entity/select.md (GitHub mirror)"
+    url: "https://github.com/home-assistant/developers.home-assistant/blob/master/docs/core/entity/select.md"
+    date: 2026-10-14
+tested_with: []
+capabilities: [power_setpoint, power_measured]
+unverified:
+  - "Maintainer has no water heater - simulator only (select.sim_water_heater_level). Never run against hardware or a real integration."
+  - "Step values (`off`, `low`, `high`) and their power_w are placeholders: set them to the select's own `options` (case-sensitive) and to what each level really draws."
+  - "Which integration offers a stepped heater as a select entity is not known to the author; the template therefore matches any select."
+  - "Comfort band 35-60 C is a design default (not a legionella or manufacturer rule)."
+  - "With the optional tank probe (in °C) SunCore adds no heat at or above `max_c`; an unknown, stale or non-°C probe counts as full."
+  - "Without the tank probe `max_c` is not enforced: the heater's own thermostat must limit the tank temperature."
+  - "min_run_s and min_pause_s are conservative design defaults for contactor-switched heating elements."
+device_kind: water_heater
+roles:
+  level:
+    matcher:
+      domain: select
+    description: template.generic.water_heater_steps.role.level
+  temperature:
+    required: false
+    # A tank probe is usually its own device (or an integration's separate sensor).
+    matcher:
+      domain: sensor
+      device_class: temperature
+      units: ["°C"]
+    description: template.generic.water_heater_steps.role.temperature
+  power:
+    required: false
+    same_device_as: level
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.water_heater_steps.role.power
+defaults:
+  # `measured` when the optional power sensor is mapped, otherwise `nominal` (the step table
+  # already carries each level's power; the wizard asks for the nominal power of the top level).
+  power_model:
+    kind: nominal
+  control:
+    kind: steps
+    role: level
+    steps:
+      - { value: "off", power_w: 0 }
+      - { value: "low", power_w: 1000 }
+      - { value: "high", power_w: 3000 }
+  settle_s: 5
+  min_run_s: 300
+  min_pause_s: 300
+  hysteresis_w: 100
+  hysteresis_delay_s: 60
+  comfort:
+    min_c: 35
+    max_c: 60

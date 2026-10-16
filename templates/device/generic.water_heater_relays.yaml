@@ -1,0 +1,84 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# A water heater whose power levels are made of up to three heating elements, each switched by
+# its own relay (`switch` entity, for example a 3-channel Shelly or ESPHome relay board).
+# Step i means exactly the relays listed in `steps[i].relays` are on. The defaults assume three
+# elements of 2 kW each (2 / 4 / 6 kW); for fewer relays copy this file to
+# /data/templates/device/ and shorten `roles`, `steps` and the role list below.
+# For a single select/number entity that carries the level use `generic.water_heater_steps`.
+id: generic.water_heater_relays
+kind: device
+schema_version: 1
+name: template.generic.water_heater_relays.name
+source:
+  - title: "home-assistant/core switch/__init__.py (turn_on, turn_off; dev c433453, fetched 2026-10-14)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/switch/__init__.py"
+    date: 2026-10-14
+  - title: "home-assistant/core water_heater/__init__.py (the dedicated water_heater entity: operation modes, target temperature; not used for control here)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/water_heater/__init__.py"
+    date: 2026-10-14
+  - title: "home-assistant/core sensor/const.py (SensorDeviceClass.TEMPERATURE, UnitOfTemperature °C)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/sensor/const.py"
+    date: 2026-10-14
+  - title: "developers.home-assistant docs/core/entity/switch.md (GitHub mirror)"
+    url: "https://github.com/home-assistant/developers.home-assistant/blob/master/docs/core/entity/switch.md"
+    date: 2026-10-14
+tested_with: []
+capabilities: [power_setpoint, power_measured]
+unverified:
+  - "Maintainer has no water heater - simulator only (switch.sim_water_heater_relay_1..3). Never run against hardware."
+  - "The step table assumes three equal 2 kW elements; real heaters differ (star/delta wiring, phase balance). Adjust `power_w` and the relay sets per installation."
+  - "Assumes the three relays share one registry device (relays 2 and 3 are matched on the device of relay 1); otherwise use a user template without `same_device_as`."
+  - "Comfort band 35-60 C is a design default (not a legionella or manufacturer rule)."
+  - "With the optional tank probe (in °C) SunCore adds no heat at or above `max_c`; an unknown, stale or non-°C probe counts as full."
+  - "Without the tank probe `max_c` is not enforced: the heater's own thermostat must limit the tank temperature."
+  - "min_run_s and min_pause_s are conservative design defaults for contactors. Relays change state one after the other (off first), never atomically."
+device_kind: water_heater
+roles:
+  relay_1:
+    matcher:
+      domain: switch
+    description: template.generic.water_heater_relays.role.relay_1
+  relay_2:
+    same_device_as: relay_1
+    matcher:
+      domain: switch
+    description: template.generic.water_heater_relays.role.relay_2
+  relay_3:
+    same_device_as: relay_1
+    matcher:
+      domain: switch
+    description: template.generic.water_heater_relays.role.relay_3
+  temperature:
+    required: false
+    matcher:
+      domain: sensor
+      device_class: temperature
+      units: ["°C"]
+    description: template.generic.water_heater_relays.role.temperature
+  power:
+    required: false
+    same_device_as: relay_1
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.water_heater_relays.role.power
+defaults:
+  power_model:
+    kind: nominal
+  control:
+    kind: relays
+    roles: [relay_1, relay_2, relay_3]
+    steps:
+      - { relays: [], power_w: 0 }
+      - { relays: [relay_1], power_w: 2000 }
+      - { relays: [relay_1, relay_2], power_w: 4000 }
+      - { relays: [relay_1, relay_2, relay_3], power_w: 6000 }
+  settle_s: 5
+  min_run_s: 300
+  min_pause_s: 300
+  hysteresis_w: 100
+  hysteresis_delay_s: 60
+  comfort:
+    min_c: 35
+    max_c: 60

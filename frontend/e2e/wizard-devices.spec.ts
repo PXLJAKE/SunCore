@@ -28,7 +28,7 @@ test.describe('devices and priorities', () => {
     await openStep(page, 'devices');
     await page.getByTestId('add-device').click();
     const gallery = page.getByTestId('gallery');
-    await expect(gallery.getByRole('listitem')).toHaveCount(4);
+    await expect(gallery.getByRole('listitem')).toHaveCount(6);
     await page.getByLabel('Kind of device').selectOption({ label: 'Air conditioner / climate' });
     await expect(gallery.getByRole('listitem')).toHaveCount(2);
     await page.getByLabel('Search').fill('lg');

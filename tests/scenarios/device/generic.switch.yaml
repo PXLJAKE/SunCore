@@ -4,8 +4,10 @@ user_input:
   nominal_w: 750
 roles:
   switch:
-    entity: switch.sim_pool_pump
-    criteria: [domain]
+    # The demo also has the water heater relays (generic.water_heater_relays): the user picks.
+    tied: [switch.sim_pool_pump, switch.sim_water_heater_relay_1, switch.sim_water_heater_relay_2,
+           switch.sim_water_heater_relay_3]
+    pick: switch.sim_pool_pump
   power:
     entity: sensor.sim_pool_pump_power
     unit: W

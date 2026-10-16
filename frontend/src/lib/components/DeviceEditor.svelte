@@ -9,6 +9,7 @@
   } from '../api/types';
   import { t, tDynamic, type MessageKey } from '../i18n/index.svelte';
   import {
+    controlRoleOf,
     powerModelOptions,
     preferredPowerKind,
     seemsConfiguredAlready,
@@ -99,7 +100,7 @@
 
   // Ranking hint for roles of another device (a power sensor of a second integration): the
   // device name of the control entity. Roles bound by `same_device_as` already follow its device.
-  const controlRole = $derived(form.control.role);
+  const controlRole = $derived(controlRoleOf(form.control));
   const hintName = (role: string, spec: DeviceTemplate['roles'][string]): string | undefined =>
     spec.same_device_as === null && role !== controlRole
       ? (form.deviceNames[controlRole] ?? undefined)

@@ -8,6 +8,7 @@ import type {
   TariffConfig,
 } from '../api/types';
 import {
+  controlRoleOf,
   deviceFormFromConfig,
   deviceFromForm,
   newDeviceForm,
@@ -660,5 +661,24 @@ describe('goals and operation', () => {
       device_modes: { a: 'automatic', c: 'assisted' },
     });
     expect(operationFormFromConfig(null).mode).toBe('shadow');
+  });
+});
+
+describe('controlRoleOf', () => {
+  it('returns the role of a single-entity control', () => {
+    expect(controlRoleOf({ kind: 'on_off', role: 'switch' })).toBe('switch');
+  });
+
+  it('returns the first relay of a relays control', () => {
+    expect(
+      controlRoleOf({
+        kind: 'relays',
+        roles: ['relay_1', 'relay_2'],
+        steps: [
+          { relays: [], power_w: 0 },
+          { relays: ['relay_1'], power_w: 2000 },
+        ],
+      }),
+    ).toBe('relay_1');
   });
 });

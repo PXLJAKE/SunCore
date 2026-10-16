@@ -117,9 +117,14 @@ async def fake() -> AsyncIterator[FakeHAConnection]:
 
 
 def _resolve(
-    template: Template, metas: list[EntityMeta]
+    template: Template, metas: list[EntityMeta], picks: Mapping[str, str] | None = None
 ) -> dict[str, list[tuple[EntityMeta, int]]]:
-    """Rank candidates per role; roles with ``same_device_as`` follow their base role."""
+    """Rank candidates per role; roles with ``same_device_as`` follow their base role.
+
+    A base role the scenario resolves by a user ``pick`` (tied candidates) hands the registry
+    device of the picked entity to the roles that follow it; otherwise the first ranked one.
+    """
+    by_id = {m.entity_id: m for m in metas}
     roles = getattr(template, "roles", {})
     ranked: dict[str, list[tuple[EntityMeta, int]]] = {}
     for name, spec in roles.items():
@@ -129,7 +134,9 @@ def _resolve(
         if spec.same_device_as is not None:
             base = ranked[spec.same_device_as]
             assert len(base) >= 1, f"base role {spec.same_device_as} of {name} has no candidate"
-            ranked[name] = rank_entities(spec.matcher, metas, same_device_id=base[0][0].device_id)
+            picked = (picks or {}).get(spec.same_device_as)
+            anchor = by_id[picked] if picked is not None else base[0][0]
+            ranked[name] = rank_entities(spec.matcher, metas, same_device_id=anchor.device_id)
     return ranked
 
 
@@ -164,7 +171,9 @@ async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> No
     metas = fake.entity_metas()
     by_id = {m.entity_id: m for m in metas}
     states = {s.entity_id: s for s in await fake.get_states()}
-    ranked = _resolve(template, metas)
+    ranked = _resolve(
+        template, metas, {r: e.pick for r, e in scenario.roles.items() if e.pick is not None}
+    )
 
     assert set(scenario.roles) == set(getattr(template, "roles", {})), "scenario must cover roles"
     resolved: dict[str, EntityMeta] = {}

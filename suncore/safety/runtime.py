@@ -56,6 +56,11 @@ class DeviceRuntime(BaseModel):
     """A deferred release (min run/pause) is executed by ``SafetyGate.poll`` at this time."""
     release_due_reason: str | None = None
     """Reason key of the deferred release (rendered when it is executed)."""
+    identity: str | None = None
+    """``core.identity.identity_token`` of the device SunCore took over (``None`` = unknown, a
+    row from before the field). A runtime whose identity differs from the configured device's
+    belongs to another device (removed or re-mapped): it is never used for writes, its release
+    needs the old device's actuator (``SafetyGate`` ``release_only``)."""
 
     @property
     def release_pending(self) -> bool:

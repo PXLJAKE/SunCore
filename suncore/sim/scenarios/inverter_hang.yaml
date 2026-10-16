@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+name: inverter_hang
+description: The hybrid inverter hangs at 11:00 - PV power, battery power and battery SoC freeze at their last value (still reported, never changing) while two clouds pass (one before and one after the watchdog can notice) and the grid meter keeps moving. The frozen-value watchdog must notice within frozen_pv_s, release the devices and keep them off until the inverter recovers.
+start: "2026-07-15T09:00:00+02:00"
+duration_s: 21600
+step_s: 10
+house:
+  seed: 41
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.04}
+  battery: {capacity_wh: 10000, initial_soc_pct: 60}
+outdoor: {mean_c: 28.0, amplitude_c: 5.0}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 7500, factor: 0.15}
+  - {at_s: 7800, factor: 1.0}
+  - {at_s: 8400, factor: 0.2}
+  - {at_s: 9600, factor: 1.0}
+faults:
+  - {kind: frozen, target: pv_power, from_s: 7200, to_s: 10800}
+  - {kind: frozen, target: battery_power, from_s: 7200, to_s: 10800}
+  - {kind: frozen, target: battery_soc, from_s: 7200, to_s: 10800}
+devices:
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 10
+      min_run_s: 300
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 750}
+  - id: ac
+    template: lg.thinq_climate
+    physics:
+      kind: climate
+      initial_mode: cool
+      initial_setpoint_c: 24
+      initial_temp_c: 24.5
+      default_on_mode: cool
+      nominal_w: 900
+      ua_w_per_k: 250
+      internal_gain_w: 400
+      power_sensor: true
+      power_poll_s: 10
+    control:
+      priority: 20
+      comfort: {min_c: 21, max_c: 27}
+      power_model: {kind: measured, power_role: power, nominal_w: 900}

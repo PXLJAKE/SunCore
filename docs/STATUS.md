@@ -3,8 +3,8 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-14 · **Phase:** 3 in progress (plan approved, WP1–WP3 on
-`phase-3/a-safety`) · **Branch:** `phase-3/a-safety`
+**Last update:** 2026-10-15 · **Phase:** 3 in progress (plan approved, WP1–WP3 on
+`phase-3/a-safety`, WP5–WP9 on `phase-3/b-controller`) · **Branch:** `phase-3/b-controller`
 
 ## Done
 
@@ -38,12 +38,14 @@ ADRs relevant to your task. Keep it short; history lives in git.
     `apply()`/`release()`, drivers importable by `safety`/`app` only. 43 `safety.*` reason
     keys in en/de. Coverage safety ≥ 96 %.
   - App: `Runtime.start()` calls `gate.recover()`, `Runtime.stop()` calls `gate.shutdown()`
-    before closing the HA connection; the gate still has no actuators and the all-shadow
-    provider until WP9. OpenAPI and frontend API types regenerated; the decision list knows
+    before closing the HA connection; ~~the gate still has no actuators and the all-shadow
+    provider until WP9~~ (done in WP9: real drivers, `ConfigModes`, recover after the first
+    connect). OpenAPI and frontend API types regenerated; the decision list knows
     the new kinds; the device editor carries the Phase 3 fields through (UI in WP10).
   - Decisions: the watchdog judges a slow sensor's staleness as
     `age > cadence × stale_cadence_factor` (2) because `subscribe_entities` has no
-    `last_reported`; the app sets cadences per entity (WP9). `release()` bypasses min
+    `last_reported`; ~~the app sets cadences per entity (WP9)~~ (done, `suncore/app/cadence.py`).
+    `release()` bypasses min
     run/pause (restoring the user's state is the safe direction; noted as a risk).
 
 - **Phase 3 – WP4 storage** (branch `phase-3/a-safety`): migration `0003_runtime.sql` (DB
@@ -59,8 +61,10 @@ ADRs relevant to your task. Keep it short; history lives in git.
   differs from the one recorded when the mode was set (`safety_state.mode_identities`; no record
   = shadow); an import always resets the global mode to shadow. The gate uses
   `SqliteRuntimeStore`; the demo uses it on its throw-away database, never `/data`.
-  Known gap: a plain `operation` put is trusted (a stale UI document could re-add a mode for a
-  device that was just re-mapped).
+  ~~Known gap: a plain `operation` put is trusted (a stale UI document could re-add a mode for a
+  device that was just re-mapped).~~ Closed in WP9: the full document may keep or lower modes
+  only (`409 api.error.mode_raise_rejected`); raising goes through `PUT /api/v1/operation/mode`
+  and `PUT /api/v1/operation/devices/{id}`, the latter with the device's identity token.
 
 - **Phase 2 completion from the live LG check (PR #18, 2026-10-14)**: the maintainer runs the
   same AC through `lg_thinq` and HACS `smartthinq_sensors`. (1) Climate templates
@@ -240,15 +244,127 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Open – Phase 3
 
+- **WP5/WP6 (branch `phase-3/b-controller`)** done: `suncore/devices/power/` (measured,
+  counter-derived, learned RLS, nominal, grid-balance validator, `create_power_model`) and
+  `suncore/devices/drivers/` (`OnOffDriver`, `ClimateDriver`, `StepsDriver` incl. the new
+  `relays` control kind, `NumberDriver`, `ModeDriver`, `create_driver`; not wired before WP9).
+  `ServiceCaller.write()` and `ServiceResult.context_id` carry the HA context id; the connection
+  flood floor is 0.25 s. Templates `generic.water_heater_steps` and `generic.water_heater_relays`
+  (simulator only, `UNVERIFIED`: the maintainer has no water heater). For WP7/WP9: the controller
+  should round set-points with `suncore.devices.setpoint.snap_setpoint` (device step from the
+  `target_temp_step` attribute) so the written value equals the intent; the composition root
+  passes `ServiceCaller.write` and an entity-cache lookup to `create_driver` (boundary rule 3 forbids
+  `service_caller()` outside `ha`/`safety`, so the wiring needs a small accessor in `safety`/`ha`).
+  ~~Wiring~~ done in WP9: `suncore/safety/wiring.py` (`build_actuators`) takes the writer out of
+  the connection; rule 3 is unchanged.
+
+- **WP7 controller (branch `phase-3/b-controller`)** done: `suncore/controller/` (pure core,
+  time injected, depends on `core` only - now enforced by rule 4 of `tests/safety/test_boundary.py`):
+  `surplus` (available `a = export + battery share + real draw of the controllable devices`,
+  median over `smoothing_s`, uncertainty = max(robust sigma, median - P10) so two-level cloud
+  flicker widens the band; the window is re-based when a device joins/leaves the controlled
+  set), `levels` (one level table per control kind; climate shifts snapped with
+  `core.setpoint.snap_setpoint`, `CallableQuantiser` for the driver wiring), `hysteresis`
+  (per-device machine idle/steady/pending/in_flight/retry, intents only on change),
+  `allocation` (priority allocation, committed draws, the gate's rules mirrored incl. the
+  per-tick free-surplus budget, deficit back-off per plan §6 incl. budget, reserve and import
+  limit) and `loop` (`Controller.step` + `ControllerLoop`; the per-tick call order for WP8/WP9
+  is in the `loop` module docstring). `suncore/devices/conversion.py` moved to
+  `suncore/core/conversion.py` (re-export shim kept). 26 `controller.*` reason keys (en/de),
+  `scripts/check_reasons.py` checks `suncore/controller/reasons.py`. Battery share without any
+  goal: *not* available (battery first) - `UNVERIFIED` against the maintainer's intent.
+  Tests: `tests/controller/` (hypothesis allocation invariants, cloud flicker switch counts,
+  measured vs counter-only climate, deficit back-off, real gate and real drivers).
+  The gate now claims every accepted load increase for its `GateInputs` snapshot (`ts`) and
+  subtracts the claims from the free surplus for later intents of that snapshot, incl.
+  confirmed assisted proposals; failed/rejected writes return their claim
+  (`tests/safety/test_claims.py`, review 3-B G1).
+- **WP8 simulator (branch `phase-3/b-controller`)** done: `suncore/sim/devices.py` (climate with
+  RC room model, inverter compressor, LG hourly integer-Wh counter and 5 min polled power sensor,
+  `int()` truncation, 2 s sleep and delayed cloud push; stepped water heater in the `select`,
+  `relays` and `water_heater` variants with a tank model and thermostat cut-off; switch and
+  number loads), `FakeHAConnection` executes the verified write services with HA's error shapes,
+  contexts (call context within 5 s, else an id-only one), faults (unavailable, stale, disconnect,
+  frozen) and manual user events; the device draw is part of the house balance. Ten scenario files
+  (`cloud_flicker`, `climate_min_run`, `climate_counter_only`, `climate_measured_slow`,
+  `sensor_dropout`, `inverter_hang`, `ha_disconnect`, `manual_override`, `water_heater_steps`,
+  `grid_limit`), `suncore/sim/stack.py` (`ControlStack`: cache, real drivers, real power models,
+  controller, real gate, watchdog - the reference composition; `demo_stack` for the demo) and
+  `suncore/sim/runner.py` (`ScenarioRunner` in virtual time: every sleep waits on simulated
+  time). Tests `-m simulator`: per-scenario bounds on switches, hold times and SunCore-caused
+  import (at most 3 % of the energy moved to the devices), fail-safe paths (shutdown, crash and
+  restart, emergency stop, mode change, disconnect, watchdog) end in the baseline, measured vs
+  counter-only equivalence, a 7-day run (`slow`, runs in CI). Demo devices are physical now (the
+  default demo has a demo user that runs the unit and the pump by the clock); the controller on
+  them in shadow mode is `ScenarioRunner(..., configs=demo_devices(catalog).devices)` /
+  `demo_stack(...)`. Findings fixed in separate commits (gate: switch history judged before the
+  write, baseline after an override; controller: base set-point with a late state, switched-on
+  flag, level 1 of a running unit). `EntityState.context` (`StateContext`) is new; ~~the WebSocket
+  client does not parse the `c` key yet (only the simulator fills it)~~ (parsed in WP9).
+  ~~Still open for WP9: set the power-model cadence of idle sensors~~ (done: 60 s default,
+  `power_model.power_update_s`, counters `counter_update_s` or 300 s), ~~a failed release
+  while HA is unreachable is retried every tick by `check_device`~~ (done: the stack skips its
+  ticks while the connection is lost). Still open: the controller does not know about the
+  gate's releases (the first intent after one can meet `safety.min_pause`).
+- **WP9 runtime and API (branch `phase-3/b-controller`)** done. `control-safety` review of
+  3-B: four `fix(...)` commits (handover on config changes, switches recorded when sent, release
+  gives back unjudged manual changes, level 1 with a base outside the comfort band, stale
+  CONNECTED handler, lazy runtime load race, pause releases, holds never shortened). Final
+  review: orphaned runtimes of removed/re-mapped devices are released with the old actuator
+  (`predecessor` gate) or reported (`safety.orphan_dropped`); a water heater's `max_c` is
+  enforced through its tank probe (`core.control.heat_capped`, controller cap + gate invariant
+  `check_heat_limit`); time zone learnt before the first recover; `app.control` is mypy-strict.
+  *Composition*: `suncore/app/control.py` `ControlStack` is the one control composition (the
+  simulator's WP8 stack was generalised, not duplicated; `sim/stack.py` re-exports it): drivers
+  via `suncore/safety/wiring.py` `build_actuators(connection, devices, make)` (the connection's
+  writer never appears outside `ha`/`safety`/`sim`; boundary tests: only `app.control` builds the
+  `SafetyGate`, only `ha`/`safety.wiring`/`sim` name `service_caller`), power models restored from
+  and saved (5 min, shutdown) to `PowerModelStateStore`, `ConfigModes` (the `operation` section,
+  `gate.sync_modes()` after every change), gate tz = region time zone (else HA's `time_zone`,
+  else UTC with a warning), `ControllerLoop` ticking every `controller_interval_s` in the
+  documented order. `Runtime` owns one stack and rebuilds it when `devices`, `site` or `region`
+  change (the old stack hands its devices over: `gate.handover(keep)` releases devices with an
+  unchanged identity and control without breaking min run/pause - the new stack executes the
+  deferred release - and changed devices at once; the emergency stop and the device runtime
+  survive in the store). Life cycle: `recover()` after
+  the first successful connect (never before; observations are ignored until then - every
+  release judges the observed state itself, so a change made meanwhile is given back),
+  `connection_lost`/`connection_restored` from the state listener, ticks are skipped while the
+  connection is lost, stop = tick loop, `loop.close()`, `gate.shutdown()`, save models, then
+  close the connection.
+  *Demo*: the same stack on `FakeHAConnection` with `DemoClock` (accelerated scenario time shared
+  by cache, gate and controller; tick = 0.1 s of real time), shadow by default, never `/data`.
+  Automatic in the demo works but the fake delivers the device push with the next house step, so
+  the first read-back of a write is a `failed` `readback_mismatch` followed by `late_confirmed`.
+  *HA client*: `c` (string/dict, diff-merged) and `get_states` `context` are parsed into
+  `EntityState.context`; no second periodic `get_states` (the 60 s resync is the refresh,
+  research note). Cadences: `suncore/app/cadence.py`; new optional `power_model.power_update_s`
+  (the demo AC needs none: the simulator's heartbeats). The watchdog only watches the entities
+  the power model reads (an informational `energy_yesterday` cannot trip a device).
+  *API* (all errors are `api.error.*` / `api.validation.*` catalogue keys, en/de added):
+  `GET /api/v1/control/state` (`ControlState`: `ts`, `active`, `emergency_stop`, `global_mode`,
+  `site` {available/total/free surplus, allocated draw, deficit, grid, battery, SoC}, `devices`
+  [{state, estimate value/uncertainty, three modes, controller phase/level, `identity`,
+  `held`/`held_until`, `release_pending`, `paused`, `reasons`, `last_decision`}], `proposals`),
+  `POST /control/emergency-stop` and `/clear` (`{active}`), `POST /devices/{id}/override`
+  (`{action: boost|pause|resume, minutes?, until?}`; boost is a timed hold, SunCore keeps its
+  hands off and drives nothing; pause also releases a device SunCore controls, respecting min
+  run/pause; a pause `until` the past is 422 `api.validation.override_until_past`),
+  `GET /proposals`, `POST /proposals/{intent_id}/confirm`
+  (the gate's decision) and `/dismiss` (204), `GET /decisions?limit&device_id&kind=..`,
+  `PUT /operation/mode` `{mode}`, `PUT /operation/devices/{id}` `{mode, identity?}` (identity
+  required above shadow, 409 `device_identity_changed`), `PUT /config/operation` may not raise
+  a mode (409 `mode_raise_rejected`). Live feed: `snapshot.control` and `{type: "control"}`
+  messages. Frontend: types regenerated, `LiveStore.control` (UI is WP10). The backend has no
+  "active from a later version" hint (it is the frontend string `mode.later`, WP10).
+  Open: boost does not drive the device (maintainer question); `tz` falls back to UTC without
+  region and HA config (the stack recovers only after HA's zone was asked for).
 - From the PR 3-A review (fixed in `fix(safety)`: per-device lock and re-checks before
   `apply()`, late confirmation of slow echoes, free-surplus semantics with input age, deferred
-  release). Still for WP9: (2) the gate's `tz` must be injected from the site/region time
-  zone (override resume time is local time); (8) `operation` put trust gap – a per-device
-  mode endpoint or a precondition (device identity) so a stale UI cannot flip a device to
-  automatic; (10) wiring of `gate.recover()` after the first successful connect and of
-  `gate.connection_lost()`/`connection_restored()` from the connection state listener, plus
-  `gate.poll()` every controller tick (deferred releases) and `gate.observe()` from the
-  entity cache. Maintainer question (PR 3-A): non-urgent releases (mode change to shadow,
+  release). ~~Still for WP9: (2) the gate's `tz` from the site/region time zone; (8) the
+  `operation` put trust gap; (10) wiring of `gate.recover()`, `connection_lost()`/
+  `connection_restored()`, `gate.poll()` every tick and `gate.observe()`~~ all done in WP9
+  (below). Maintainer question (PR 3-A): non-urgent releases (mode change to shadow,
   device watchdog trip, reconnect) wait for the device's minimum run/pause time; emergency
   stop and shutdown release at once.
 
@@ -276,7 +392,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
   limits and max switches/hour in `safety/`, read-back from the cache after a settle
   delay, try-acquire rate limiter, persisted emergency stop~~ done in WP2/WP3. Still open:
   retention for the `decision` table and the `RuntimeStore` implementation (WP4); the
-  1 s connection flood floor is lowered when WP6 wires the first driver; tables
+  connection flood floor is 0.25 s now (WP6); tables
   `plan_snapshot`/`template_override` and `timeseries.db` (Phase 4); an `AuthError` on
   reconnect needs a restart (document in the UI).
 - Phase 3 follow-up (review F6, A2): `core/identity.py` provides the rule; WP4 applies it
@@ -293,9 +409,11 @@ ADRs relevant to your task. Keep it short; history lives in git.
 1. Maintainer: watch the beta in surplus, check the summary system check at
    noon, export a config backup; wizard walk-through with other people.
 2. Release the next release-please PR for the stable app after acceptance.
-3. Phase 3 starts in a new session: write and approve `docs/plans/phase-3.md`
-   (real-time controller and safety, roadmap Phase 3) from this file, the
-   roadmap and the Phase 3 follow-ups above. Nothing of Phase 3 exists yet.
+3. Phase 3 (plan `docs/plans/phase-3.md`, approved): open PR 3-B (`phase-3/b-controller`,
+   WP5-WP9, signed off by `control-safety` and the final reviewer) after the maintainer's
+   answer on its size; then WP10 (UI: control cards, modes, proposals, decision log, emergency
+   stop; `power_update_s` in the wizard/device editor) and WP11 (docs) as PR 3-C; exit = shadow
+   run on the maintainer's system and one device switched to automatic.
 
 ## Known problems and `UNVERIFIED` items
 
@@ -314,6 +432,9 @@ ADRs relevant to your task. Keep it short; history lives in git.
 | LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes, Tibber tomorrow-price publication time, Solcast default day-sensor count | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
 | Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA) | `docs/user/*/quick-start.md` | maintainer follows the quick start on HA OS |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
+| Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |
+| Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (the device editor and the wizard do not offer `power_update_s` yet, WP10) |
+| Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 

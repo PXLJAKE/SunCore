@@ -11,6 +11,8 @@ export type Health = S['HealthOut'];
 export type Info = S['InfoOut'];
 export type OperatingMode = S['OperatingMode'];
 export type Decision = S['Decision'];
+export type ControlState = S['ControlState'];
+export type DeviceControlState = S['DeviceControlState'];
 export type Reason = S['Reason'];
 export type SiteConfig = S['SiteConfig'];
 export type PvArray = S['PvArray'];
@@ -62,4 +64,6 @@ export type SnapshotMessage = S['SnapshotMessage'];
 export type FlowsMessage = S['FlowsMessage'];
 export type HealthMessage = S['HealthMessage'];
 export type DecisionsMessage = S['DecisionsMessage'];
-export type LiveMessage = SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage;
+export type ControlMessage = S['ControlMessage'];
+export type LiveMessage =
+  SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage;

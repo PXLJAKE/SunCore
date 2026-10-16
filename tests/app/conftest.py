@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Collection
 from pathlib import Path
 
@@ -53,3 +54,15 @@ async def demo_runtime(tmp_path: Path) -> AsyncIterator[Runtime]:
         yield runtime
     finally:
         await runtime.stop()
+
+
+class GatedConnection(RecordingConnection):
+    """A fake whose ``connect()`` waits until the test opens the gate (HA not reachable yet)."""
+
+    def __init__(self, speed: float = 6000.0) -> None:
+        super().__init__(speed)
+        self.open = asyncio.Event()
+
+    async def connect(self) -> None:
+        await self.open.wait()
+        await super().connect()

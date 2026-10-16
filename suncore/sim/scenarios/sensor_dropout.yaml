@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 name: sensor_dropout
-description: Sunny spring day; the grid sensor goes unavailable, the battery SoC goes stale, then the connection drops.
+description: Sunny spring day; the grid sensor goes unavailable, the battery SoC goes stale, a controlled plug goes unavailable, then the connection drops. A pool pump and a heat-mode air conditioner follow the surplus in between (closed loop with a 30 s tick).
 start: "2026-04-15T06:00:00+02:00"
 duration_s: 43200
 step_s: 30
@@ -8,7 +8,35 @@ house:
   seed: 3
   load: {noise_fraction: 0.05}
   battery: {initial_soc_pct: 40}
+outdoor: {mean_c: 11.0, amplitude_c: 5.0}
 faults:
   - {kind: unavailable, target: grid_power, from_s: 7200, to_s: 9000}
   - {kind: stale, target: battery_soc, from_s: 14400, to_s: 18000}
   - {kind: disconnect, from_s: 28800, to_s: 29100}
+  - {kind: unavailable, target: "device:pool", from_s: 36000, to_s: 36900}
+devices:
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 10
+      min_run_s: 300
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 750}
+  - id: ac
+    template: lg.thinq_climate
+    physics:
+      kind: climate
+      initial_mode: heat
+      initial_setpoint_c: 21
+      initial_temp_c: 20.5
+      default_on_mode: heat
+      nominal_w: 900
+      ua_w_per_k: 160
+      internal_gain_w: 200
+      power_sensor: true
+      power_poll_s: 30
+    control:
+      priority: 20
+      comfort: {min_c: 18, max_c: 24}
+      power_model: {kind: measured, power_role: power, nominal_w: 900}

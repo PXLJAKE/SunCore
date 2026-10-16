@@ -12,7 +12,7 @@ import contextlib
 import json
 import logging
 import re
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
 from fastapi import (
     FastAPI,
@@ -32,7 +32,10 @@ from suncore.api.models import (
     CheckOut,
     CheckRequest,
     ConfigHistoryEntryOut,
+    ControlMessage,
     DecisionsMessage,
+    DeviceModeRequest,
+    EmergencyStopOut,
     EnergyPrefsOut,
     EntityCandidateOut,
     ErrorOut,
@@ -44,6 +47,7 @@ from suncore.api.models import (
     ImportResultOut,
     InfoOut,
     LiveMessage,
+    ModeRequest,
     PreviewItemOut,
     PreviewOut,
     SnapshotMessage,
@@ -62,8 +66,19 @@ from suncore.api.services import (
     UnknownTemplateError,
 )
 from suncore.api.validation import validation_exception_handler
-from suncore.core.config import SECTION_MODELS
-from suncore.core.decisions import Decision
+from suncore.core.config import SECTION_MODELS, OperationConfig
+from suncore.core.controlstate import (
+    ControlState,
+    DeviceControlState,
+    DeviceIdentityChangedError,
+    ModeRaiseRejectedError,
+    OverrideCommand,
+    OverrideUntilPastError,
+    UnknownDeviceError,
+    UnknownProposalError,
+    override_until_past,
+)
+from suncore.core.decisions import Decision, DecisionKind
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import PreviewTooLargeError
 from suncore.storage.errors import (
@@ -94,6 +109,10 @@ ERR_HISTORY_NOT_FOUND: Final = "api.error.history_not_found"
 ERR_HISTORY_INVALID: Final = "api.error.history_invalid"
 ERR_PREVIEW_TOO_LARGE: Final = "api.error.preview_too_large"
 ERR_BODY_TOO_LARGE: Final = "api.error.body_too_large"
+ERR_UNKNOWN_DEVICE: Final = "api.error.unknown_device"
+ERR_UNKNOWN_PROPOSAL: Final = "api.error.unknown_proposal"
+ERR_DEVICE_IDENTITY_CHANGED: Final = "api.error.device_identity_changed"
+ERR_MODE_RAISE_REJECTED: Final = "api.error.mode_raise_rejected"
 BODY_MAX_BYTES: Final = 64 * 1024
 """Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
 SECTION_MAX_BYTES: Final = 256 * 1024
@@ -144,6 +163,7 @@ def _register_http(app: FastAPI, services: Services) -> None:
 
     _register_sections(app, services)
     _register_history(app, services)
+    _register_control(app, services)
 
     @app.get(
         f"{API_PREFIX}/entities",
@@ -232,8 +252,112 @@ def _register_http(app: FastAPI, services: Services) -> None:
     @app.get(f"{API_PREFIX}/decisions", response_model=list[Decision])
     async def decisions(
         limit: int = Query(default=100, ge=1, le=DECISIONS_MAX),
+        device_id: str | None = Query(default=None, max_length=128),
+        kind: Annotated[list[DecisionKind] | None, Query()] = None,
     ) -> list[Decision]:
-        return await services.decisions(limit)
+        """The decision log, newest first. ``device_id`` keeps one device's decisions, ``kind``
+        (repeatable) the given kinds (``shadow``, ``accepted``, ``proposed``, ...)."""
+        if device_id is None and not kind:
+            return await services.decisions(limit)
+        return await services.decisions(limit, device_id=device_id, kinds=kind)
+
+
+def _register_control(app: FastAPI, services: Services) -> None:
+    """Control state, emergency stop, overrides, proposals and operating modes (WP9)."""
+
+    @app.get(f"{API_PREFIX}/control/state", response_model=ControlState)
+    async def control_state() -> ControlState:
+        """Per device: observed state, power estimate with uncertainty, effective mode, hold and
+        release state, the controller's reasons and the newest gate decision; for the site the
+        smoothed total and free surplus and the deficit; the open proposals."""
+        return services.control_state()
+
+    @app.post(f"{API_PREFIX}/control/emergency-stop", response_model=EmergencyStopOut)
+    async def emergency_stop() -> EmergencyStopOut:
+        """Release every device (baseline restored) and refuse all writes until cleared."""
+        await services.emergency_stop()
+        return EmergencyStopOut(active=True)
+
+    @app.post(f"{API_PREFIX}/control/emergency-stop/clear", response_model=EmergencyStopOut)
+    async def clear_emergency_stop() -> EmergencyStopOut:
+        """Allow control again; the operating modes are unchanged."""
+        await services.clear_emergency_stop()
+        return EmergencyStopOut(active=False)
+
+    @app.post(
+        f"{API_PREFIX}/devices/{{device_id}}/override",
+        response_model=DeviceControlState,
+        responses={404: {"model": ErrorOut, "description": "Unknown device"}},
+    )
+    async def override(device_id: str, body: OverrideCommand) -> DeviceControlState:
+        """Boost (N minutes), pause (until a time or until resumed) or resume one device."""
+        try:
+            return await services.override_device(device_id, body)
+        except UnknownDeviceError as exc:
+            raise HTTPException(status_code=404, detail=ERR_UNKNOWN_DEVICE) from exc
+        except OverrideUntilPastError as exc:
+            # Same 422 body as a request validation error: only the service knows the clock.
+            error = override_until_past()
+            raise RequestValidationError(
+                [{"type": error.type, "loc": ("body", "until"), "msg": error.message()}]
+            ) from exc
+
+    @app.get(f"{API_PREFIX}/proposals", response_model=list[Decision])
+    async def proposals() -> list[Decision]:
+        """Open assisted-mode proposals, oldest first (valid until ``expires_at``)."""
+        return services.proposals()
+
+    @app.post(
+        f"{API_PREFIX}/proposals/{{intent_id}}/confirm",
+        response_model=Decision,
+        responses={404: {"model": ErrorOut, "description": "Unknown or expired proposal"}},
+    )
+    async def confirm_proposal(intent_id: str) -> Decision:
+        """Confirm: the proposal is submitted as the user's intent; the answer is the gate's
+        decision (``accepted``, ``rejected`` by an invariant, ``failed`` ...)."""
+        try:
+            return await services.confirm_proposal(intent_id)
+        except UnknownProposalError as exc:
+            raise HTTPException(status_code=404, detail=ERR_UNKNOWN_PROPOSAL) from exc
+
+    @app.post(
+        f"{API_PREFIX}/proposals/{{intent_id}}/dismiss",
+        status_code=204,
+        responses={404: {"model": ErrorOut, "description": "Unknown or expired proposal"}},
+    )
+    async def dismiss_proposal(intent_id: str) -> Response:
+        try:
+            await services.dismiss_proposal(intent_id)
+        except UnknownProposalError as exc:
+            raise HTTPException(status_code=404, detail=ERR_UNKNOWN_PROPOSAL) from exc
+        return Response(status_code=204)
+
+    @app.put(f"{API_PREFIX}/operation/mode", response_model=OperationConfig)
+    async def set_global_mode(body: ModeRequest) -> OperationConfig:
+        """Set the global operating mode. A device runs in ``min(global, device)``; lowering to
+        shadow releases the controlled devices (after their minimum run or pause time)."""
+        return await services.set_global_mode(body.mode)
+
+    @app.put(
+        f"{API_PREFIX}/operation/devices/{{device_id}}",
+        response_model=OperationConfig,
+        responses={
+            404: {"model": ErrorOut, "description": "Unknown device"},
+            409: {
+                "model": ErrorOut,
+                "description": "The device changed since its identity was read",
+            },
+        },
+    )
+    async def set_device_mode(device_id: str, body: DeviceModeRequest) -> OperationConfig:
+        """Set one device's mode. Anything above shadow needs the device's ``identity`` token
+        from the control state; shadow never does."""
+        try:
+            return await services.set_device_mode(device_id, body.mode, body.identity)
+        except UnknownDeviceError as exc:
+            raise HTTPException(status_code=404, detail=ERR_UNKNOWN_DEVICE) from exc
+        except DeviceIdentityChangedError as exc:
+            raise HTTPException(status_code=409, detail=ERR_DEVICE_IDENTITY_CHANGED) from exc
 
 
 def _register_sections(app: FastAPI, services: Services) -> None:
@@ -259,7 +383,10 @@ def _register_section(app: FastAPI, services: Services, name: str, model: type[B
             assert isinstance(body, SiteConfig)
             await services.put_site(body)
             return body
-        return await services.put_section(name, body)
+        try:
+            return await services.put_section(name, body)
+        except ModeRaiseRejectedError as exc:
+            raise HTTPException(status_code=409, detail=ERR_MODE_RAISE_REJECTED) from exc
 
     # FastAPI reads the body type from the annotations; they are per section, hence dynamic.
     put_section.__annotations__ = {"body": model, "return": model}
@@ -276,7 +403,14 @@ def _register_section(app: FastAPI, services: Services, name: str, model: type[B
         put_section,
         methods=["PUT"],
         response_model=model,
-        responses={413: {"model": ErrorOut, "description": "Body too large"}},
+        responses={
+            413: {"model": ErrorOut, "description": "Body too large"},
+            **(
+                {409: {"model": ErrorOut, "description": "The document would raise a mode"}}
+                if name == "operation"
+                else {}
+            ),
+        },
         operation_id=f"put_config_{name}",
         summary=f"Replace the {name} section",
     )
@@ -397,6 +531,7 @@ def _register_live(
         removers = (
             services.add_change_listener(wake.flows),
             services.add_health_listener(wake.health),
+            services.add_control_listener(wake.control),
         )
         pump = asyncio.create_task(
             _pump(ws, services, wake, live_min_interval_s, live_health_interval_s)
@@ -423,6 +558,7 @@ class _Wake:
         self.event = asyncio.Event()
         self.flows_changed = False
         self.health_changed = False
+        self.control_changed = False
 
     def flows(self) -> None:
         self.flows_changed = True
@@ -432,9 +568,13 @@ class _Wake:
         self.health_changed = True
         self.event.set()
 
-    def take(self) -> tuple[bool, bool]:
-        taken = (self.flows_changed, self.health_changed)
-        self.flows_changed = self.health_changed = False
+    def control(self) -> None:
+        self.control_changed = True
+        self.event.set()
+
+    def take(self) -> tuple[bool, bool, bool]:
+        taken = (self.flows_changed, self.health_changed, self.control_changed)
+        self.flows_changed = self.health_changed = self.control_changed = False
         self.event.clear()
         return taken
 
@@ -488,6 +628,7 @@ async def _pump(
             flows=_flows_out(services),
             health=HealthOut.from_report(health),
             decisions=latest,
+            control=services.control_state(),
         )
         await ws.send_json(snapshot.model_dump(mode="json"))
         last_decisions = _decision_keys(latest)
@@ -498,24 +639,30 @@ async def _pump(
                 await asyncio.wait_for(
                     wake.event.wait(), timeout=max(0.0, next_health - loop.time())
                 )
-            flows_changed, state_changed = wake.take()
+            flows_changed, state_changed, control_changed = wake.take()
             if flows_changed:
                 msg = FlowsMessage(flows=_flows_out(services))
                 await ws.send_json(msg.model_dump(mode="json"))
+            if control_changed:
+                cmsg = ControlMessage(control=services.control_state())
+                await ws.send_json(cmsg.model_dump(mode="json"))
             # Health (with its DB check) runs on its own cadence or on a connection state
-            # change, never per flow event.
+            # change, never per flow or control event.
+            check_decisions = control_changed
             if state_changed or loop.time() >= next_health:
                 health = await services.health()
                 next_health = loop.time() + health_interval_s
                 hmsg = HealthMessage(health=HealthOut.from_report(health))
                 await ws.send_json(hmsg.model_dump(mode="json"))
+                check_decisions = True
+            if check_decisions:
                 latest = await services.decisions(SNAPSHOT_DECISIONS)
                 keys = _decision_keys(latest)
                 if keys != last_decisions:
                     last_decisions = keys
                     dmsg = DecisionsMessage(decisions=latest)
                     await ws.send_json(dmsg.model_dump(mode="json"))
-            if flows_changed:
+            if flows_changed or control_changed:
                 await asyncio.sleep(min_interval_s)  # throttle: coalesce changes meanwhile
     except WebSocketDisconnect:
         return

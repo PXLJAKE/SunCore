@@ -23,6 +23,7 @@ from suncore.core.config import (
     TariffConfig,
     WizardState,
 )
+from suncore.core.controlstate import ModeRaiseRejectedError
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import (
     DeviceConfig,
@@ -351,7 +352,8 @@ async def test_put_devices_resubscribes_and_shadows_new_ones(demo_runtime: Runti
     conn = demo_runtime.connection
     assert isinstance(conn, RecordingConnection)
     auto = OperatingMode.AUTOMATIC
-    await demo_runtime.put_section("operation", OperationConfig(device_modes={"heater": auto}))
+    # a stale document written behind the runtime's back (the store's identity rule applies)
+    await demo_runtime.config.put("operation", OperationConfig(device_modes={"heater": auto}))
     stored = await demo_runtime.put_section("devices", DevicesConfig(devices=[_switch("heater")]))
     assert isinstance(stored, DevicesConfig)
     assert await demo_runtime.get_section("operation") == OperationConfig()
@@ -367,14 +369,19 @@ async def test_other_sections_do_not_resubscribe_nor_touch_the_gate(demo_runtime
     assert isinstance(conn, RecordingConnection)
     before = len(conn.subscriptions)
     assert await demo_runtime.get_section("operation") == OperationConfig()
-    await demo_runtime.put_section(
-        "operation",
-        OperationConfig(mode=OperatingMode.AUTOMATIC, device_modes={"x": OperatingMode.AUTOMATIC}),
-    )
+    # the full document may keep or lower modes, never raise them (see `set_device_mode`)
+    with pytest.raises(ModeRaiseRejectedError):
+        await demo_runtime.put_section("operation", OperationConfig(mode=OperatingMode.AUTOMATIC))
+    with pytest.raises(ModeRaiseRejectedError):
+        await demo_runtime.put_section(
+            "operation", OperationConfig(device_modes={"x": OperatingMode.ASSISTED})
+        )
+    await demo_runtime.put_section("operation", OperationConfig())
     await demo_runtime.put_section("wizard", WizardState(completed=True))
     assert len(conn.subscriptions) == before
     assert demo_runtime.mode == "shadow"
     assert demo_runtime.gate.mode is OperatingMode.SHADOW
+    assert await demo_runtime.get_section("operation") == OperationConfig()
 
 
 async def test_import_reloads_devices(demo_runtime: Runtime) -> None:

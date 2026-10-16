@@ -1,0 +1,26 @@
+# The demo boiler relays are three switches of one registry device (demo_devices.py). The pool
+# plug switch is a candidate for `relay_1` too, so that role is a user choice; relays 2 and 3 are
+# resolved on the registry device of the first ranked relay.
+template: generic.water_heater_relays
+sim_scenario: summer_day
+user_input:
+  nominal_w: 6000
+  comfort: {min_c: 35, max_c: 60}
+roles:
+  relay_1:
+    tied: [switch.sim_water_heater_relay_1, switch.sim_water_heater_relay_2, switch.sim_water_heater_relay_3,
+           switch.sim_pool_pump]
+    pick: switch.sim_water_heater_relay_1
+  relay_2:
+    # Same registry device as relay 1 (the first ranked candidate): all three relays tie and
+    # the user assigns each element.
+    tied: [switch.sim_water_heater_relay_1, switch.sim_water_heater_relay_2, switch.sim_water_heater_relay_3]
+    pick: switch.sim_water_heater_relay_2
+  relay_3:
+    tied: [switch.sim_water_heater_relay_1, switch.sim_water_heater_relay_2, switch.sim_water_heater_relay_3]
+    pick: switch.sim_water_heater_relay_3
+  temperature:
+    entity: sensor.sim_water_heater_temperature
+    unit: "°C"
+  power:
+    none: true

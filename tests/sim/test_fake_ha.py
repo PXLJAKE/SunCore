@@ -75,7 +75,15 @@ def ticker() -> Ticker:
 
 @pytest.fixture
 def dropout() -> Scenario:
-    return load_scenario("sensor_dropout")  # step 30 s
+    """The sensor-dropout faults on the default demo devices (the bundled scenario also has
+    simulated devices of its own, which replace the demo's)."""
+    sc = load_scenario("sensor_dropout")  # step 30 s
+    return sc.model_copy(
+        update={
+            "devices": (),
+            "faults": tuple(f for f in sc.faults if not (f.target or "").startswith("device:")),
+        }
+    )
 
 
 @pytest.fixture
@@ -405,3 +413,19 @@ async def test_fake_read_only_actions(conn: FakeHAConnection) -> None:
         await conn.call_action_response("weather", "get_forecasts")
     with pytest.raises(ActionNotAllowedError):
         await conn.call_action_response("switch", "turn_on")
+
+
+async def test_a_subscription_made_before_connecting_gets_its_snapshot_before_connected(
+    dropout: Scenario, ticker: Ticker
+) -> None:
+    """Like the WebSocket client: the control stack recovers on CONNECTED and needs the states."""
+    c = FakeHAConnection(dropout, clock=ticker.clock, sleep=ticker.sleep)
+    order: list[str] = []
+    c.add_entity_listener(lambda u: order.append(f"snapshot:{len(u.changed)}:{u.full}"))
+    c.add_state_listener(lambda s: order.append(s.value))
+    await c.subscribe_entities(SIM_ENTITY_IDS)
+    await c.connect()
+    try:
+        assert order == ["connecting", f"snapshot:{len(SIM_ENTITY_IDS)}:True", "connected"]
+    finally:
+        await c.close()

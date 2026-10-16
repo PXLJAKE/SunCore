@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
-import type { Health } from '../api/types';
+import type { ControlState, Health } from '../api/types';
 import { LiveStore, linkStatus } from './live.svelte';
 
 const health = (over: Partial<Health> = {}): Health => ({
@@ -9,6 +9,17 @@ const health = (over: Partial<Health> = {}): Health => ({
   ha_last_update_age_s: 1,
   db_ok: true,
   version: '0',
+  ...over,
+});
+
+const control = (over: Partial<ControlState> = {}): ControlState => ({
+  ts: null,
+  active: false,
+  emergency_stop: false,
+  global_mode: 'shadow',
+  site: null,
+  devices: [],
+  proposals: [],
   ...over,
 });
 
@@ -31,7 +42,7 @@ describe('LiveStore', () => {
   it('applies snapshot, flows, health and decisions messages', () => {
     const s = new LiveStore();
     s.setConnection('open');
-    s.apply({ type: 'snapshot', flows: null, health: health(), decisions: [] });
+    s.apply({ type: 'snapshot', flows: null, health: health(), decisions: [], control: control() });
     expect(s.haveSnapshot).toBe(true);
     expect(s.status).toBe('live');
     const flows = {
@@ -47,11 +58,13 @@ describe('LiveStore', () => {
     expect(s.flowUpdates).toBe(2);
     s.apply({ type: 'health', health: health({ ha_state: 'disconnected' }) });
     expect(s.status).toBe('ha_down');
+    s.apply({ type: 'control', control: control({ emergency_stop: true }) });
+    expect(s.control?.emergency_stop).toBe(true);
   });
   it('drops the live claim when the socket closes', () => {
     const s = new LiveStore();
     s.setConnection('open');
-    s.apply({ type: 'snapshot', flows: null, health: health(), decisions: [] });
+    s.apply({ type: 'snapshot', flows: null, health: health(), decisions: [], control: control() });
     s.setConnection('closed');
     expect(s.status).toBe('offline');
     s.setConnection('open');

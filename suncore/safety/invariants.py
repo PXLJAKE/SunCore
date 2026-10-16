@@ -20,7 +20,8 @@ from datetime import datetime, timedelta
 from typing import Final
 
 from suncore.core.balance import FlowSnapshot
-from suncore.core.control import ControlSettings, DeviceState, PowerEstimate
+from suncore.core.control import ControlSettings, DeviceState, PowerEstimate, heat_capped
+from suncore.core.conversion import value_to_power_w
 from suncore.core.decisions import (
     Action,
     ModeAction,
@@ -36,7 +37,7 @@ from suncore.core.devices import (
     DeviceConfig,
     DeviceKind,
     ModeControl,
-    StepsControl,
+    step_power_w,
 )
 from suncore.core.signals import Quality
 from suncore.safety.runtime import DeviceRuntime
@@ -68,6 +69,10 @@ class InvariantContext:
     """Current power of this device."""
     import_limit_w: float | None = None
     reserve_soc_pct: float | None = None
+    claimed_w: float = 0.0
+    """Load increases the gate already let through against the same ``GateInputs``
+    snapshot (other intents of the same tick, a confirmed proposal): not yet visible in
+    ``surplus`` or ``flows``, so the grid check subtracts them (review 3-B, G1)."""
 
 
 # --- helpers ------------------------------------------------------------------
@@ -96,9 +101,8 @@ def action_turns_on(action: Action, device: DeviceConfig) -> bool | None:  # noq
         case ModeAction(mode=mode):
             return mode != HVAC_OFF
         case StepAction(step=step):
-            if isinstance(device.control, StepsControl) and step < len(device.control.steps):
-                return device.control.steps[step].power_w > 0
-            return step > 0
+            stepped = step_power_w(device.control, step)
+            return stepped > 0 if stepped is not None else step > 0
         case PowerSetpointAction(power_w=power):
             return power > 0
         case SetpointAction():
@@ -117,7 +121,7 @@ def is_switch_transition(action: Action, device: DeviceConfig, state: DeviceStat
     return current is None or current != target
 
 
-def expected_power_w(  # noqa: PLR0911, PLR0912 - one branch per action kind
+def expected_power_w(  # noqa: PLR0911 - one branch per action kind
     action: Action, device: DeviceConfig, estimate: PowerEstimate | None
 ) -> float | None:
     """Power the device is expected to draw after the action (``None`` = unknown)."""
@@ -128,10 +132,7 @@ def expected_power_w(  # noqa: PLR0911, PLR0912 - one branch per action kind
                 return 0.0
             return nominal if nominal is not None else _upper(estimate)
         case StepAction(step=step):
-            control = device.control
-            if isinstance(control, StepsControl) and step < len(control.steps):
-                return control.steps[step].power_w
-            return None
+            return step_power_w(device.control, step)
         case ModeAction(mode=mode):
             if mode == HVAC_OFF:
                 return 0.0
@@ -158,11 +159,7 @@ def _upper(estimate: PowerEstimate | None) -> float | None:
 
 
 def _continuous_power_w(value: float, control: ContinuousControl, nominal: float | None) -> float:
-    if control.unit == "W":
-        return max(0.0, value)
-    if control.unit == "A":
-        return max(0.0, value) * control.voltage_v * control.phases
-    return max(0.0, value) / 100.0 * (nominal or 0.0)
+    return value_to_power_w(value, control, nominal)
 
 
 def power_delta_w(ctx: InvariantContext) -> float | None:
@@ -209,8 +206,9 @@ def _toward_base(action: SetpointAction, runtime: DeviceRuntime, state: DeviceSt
 def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one per rule
     """No grid import caused by SunCore and never above the import limit (plan WP7).
 
-    Adding ``delta`` W needs a known surplus with ``surplus - uncertainty >= delta``,
-    no current import and ``grid + delta <= import_limit_w`` where configured.
+    Adding ``delta`` W needs a known surplus with ``surplus - uncertainty - claimed >=
+    delta``, no current import and ``grid + claimed + delta <= import_limit_w`` where
+    configured (``claimed`` = increases already accepted against the same snapshot).
     """
     delta = power_delta_w(ctx)
     if delta is None or delta <= 0:
@@ -220,15 +218,17 @@ def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one p
     grid = None if ctx.flows is None else ctx.flows.grid_w
     if grid is not None and grid.value is not None and grid.value > 0:
         return Reason(key="safety.grid_importing", args={"grid_w": round(grid.value)})
-    if ctx.surplus.lower_w < delta:
+    claimed = max(0.0, ctx.claimed_w)
+    available = ctx.surplus.lower_w - claimed
+    if available < delta:
         return Reason(
             key="safety.grid_import_caused",
-            args={"need_w": round(delta), "surplus_w": round(ctx.surplus.lower_w)},
+            args={"need_w": round(delta), "surplus_w": round(max(0.0, available))},
         )
     if ctx.import_limit_w is not None:
         if grid is None or grid.value is None:
             return Reason(key="safety.grid_unknown")
-        if grid.value + delta > ctx.import_limit_w:
+        if grid.value + claimed + delta > ctx.import_limit_w:
             return Reason(
                 key="safety.grid_import_limit",
                 args={"limit_w": round(ctx.import_limit_w), "grid_w": round(grid.value)},
@@ -306,7 +306,7 @@ def check_change(ctx: InvariantContext) -> Reason | None:
     """Write only on change: the observed state must differ from the target."""
     if isinstance(ctx.action, ReleaseAction):
         return None
-    if ctx.state is not None and action_matches_state(ctx.action, ctx.state):
+    if ctx.state is not None and action_matches_state(ctx.action, ctx.state, ctx.device):
         return Reason(key="safety.write_no_change")
     return None
 
@@ -354,9 +354,35 @@ def check_climate_switch_on(ctx: InvariantContext) -> Reason | None:
     return None
 
 
+def check_heat_limit(ctx: InvariantContext) -> Reason | None:
+    """No load increase for a thermal device at its ``comfort.max_c`` (water heater tank).
+
+    Applies to a device with a ``temperature`` probe and a comfort band (not climate set-point
+    control); a probe that is unknown, stale or not in °C counts as a full tank. Lowering and
+    switching off stay allowed; an increase is any action with a positive (or unknown)
+    added demand that is not a switch-off.
+    """
+    if isinstance(ctx.action, ReleaseAction) or not heat_capped(ctx.device, ctx.state):
+        return None
+    if action_turns_on(ctx.action, ctx.device) is False:
+        return None
+    delta = power_delta_w(ctx)
+    if delta is not None and delta <= 0:
+        return None
+    assert ctx.device.comfort is not None
+    temperature = None if ctx.state is None else ctx.state.temperature_c
+    if temperature is None:
+        return Reason(key="safety.heat_temperature_unknown")
+    return Reason(
+        key="safety.heat_limit",
+        args={"temperature_c": round(temperature, 1), "max_c": ctx.device.comfort.max_c},
+    )
+
+
 ALL_CHECKS: Final = (
     check_climate_switch_on,
     check_comfort,
+    check_heat_limit,
     check_change,
     check_min_run_pause,
     check_switch_rate,
@@ -374,8 +400,14 @@ def evaluate(ctx: InvariantContext) -> tuple[Reason, ...]:
 # --- comparison -----------------------------------------------------------------
 
 
-def action_matches_state(action: Action, state: DeviceState) -> bool:  # noqa: PLR0911
-    """Whether the observed state already equals the action's target."""
+def action_matches_state(  # noqa: PLR0911
+    action: Action, state: DeviceState, device: DeviceConfig | None = None
+) -> bool:
+    """Whether the observed state already equals the action's target.
+
+    ``DeviceState.value`` is in the control's unit (W, A or %); with ``device`` it is
+    converted to W before the comparison with a ``PowerSetpointAction``.
+    """
     if not state.known:
         return False
     match action:
@@ -392,7 +424,12 @@ def action_matches_state(action: Action, state: DeviceState) -> bool:  # noqa: P
         case ModeAction(mode=mode):
             return state.mode == mode
         case PowerSetpointAction(power_w=power):
-            return state.value is not None and abs(state.value - power) <= POWER_TOLERANCE_W
+            if state.value is None:
+                return False
+            current = state.value
+            if device is not None and isinstance(device.control, ContinuousControl):
+                current = _continuous_power_w(current, device.control, device.power_model.nominal_w)
+            return abs(current - power) <= POWER_TOLERANCE_W
         case ReleaseAction():
             return False
     return False  # pragma: no cover - exhaustive

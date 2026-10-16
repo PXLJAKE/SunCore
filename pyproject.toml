@@ -93,7 +93,14 @@ plugins = ["pydantic.mypy"]
 
 # BRIEF §7: strict for the control-critical packages.
 [[tool.mypy.overrides]]
-module = ["suncore.core.*", "suncore.planner.*", "suncore.controller.*", "suncore.safety.*"]
+module = [
+  "suncore.core.*",
+  "suncore.planner.*",
+  "suncore.controller.*",
+  "suncore.safety.*",
+  "suncore.devices.*",
+  "suncore.app.control",
+]
 strict = true
 
 [tool.pytest.ini_options]

@@ -8,7 +8,9 @@ Collected from ``suncore/``:
 * string constants starting with ``api.error.`` (the error ``detail`` keys of the API) or
   ``api.validation.`` in ``suncore/api`` (validation issue keys),
 * string constants that are exactly one key with the prefix ``wizard.`` (check and import
-  reasons built from a variable) or ``detect.criterion.`` anywhere in ``suncore/``.
+  reasons built from a variable) or ``detect.criterion.`` anywhere
+  in ``suncore/``, and ``controller.`` in ``suncore/controller/reasons.py`` (the
+  controller's key constants).
 
 Each key must be present in ``frontend/src/lib/i18n/locales/en.json`` and ``de.json``.
 Run via ``uv run python scripts/check_reasons.py``; exit code 1 lists the gaps.
@@ -27,6 +29,9 @@ SOURCE = ROOT / "suncore"
 LOCALES = ROOT / "frontend" / "src" / "lib" / "i18n" / "locales"
 ERROR_PREFIXES = ("api.error.", "api.validation.")
 KEY_PREFIXES = ("wizard.", "detect.criterion.")
+CONTROLLER_KEYS = Path("controller") / "reasons.py"
+"""The controller defines its keys as constants in one module (log event names elsewhere
+may share the ``controller.`` prefix)."""
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 
 
@@ -54,10 +59,10 @@ def _error_keys(node: ast.Constant) -> list[str]:
     return [p for p in parts if p.startswith(ERROR_PREFIXES) and " " not in p]
 
 
-def _plain_key(node: ast.Constant) -> list[str]:
-    """A constant that is exactly one ``wizard.*`` / ``detect.criterion.*`` key."""
+def _plain_key(node: ast.Constant, prefixes: tuple[str, ...] = KEY_PREFIXES) -> list[str]:
+    """A constant that is exactly one key with one of ``prefixes``."""
     value = node.value
-    if isinstance(value, str) and value.startswith(KEY_PREFIXES) and KEY_RE.match(value):
+    if isinstance(value, str) and value.startswith(prefixes) and KEY_RE.match(value):
         return [value]
     return []
 
@@ -69,6 +74,9 @@ def collect_keys(source: Path = SOURCE) -> dict[str, list[str]]:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         rel = path.relative_to(source.parent)
         in_api = path.is_relative_to(source / "api")
+        prefixes = KEY_PREFIXES
+        if path == source / CONTROLLER_KEYS:
+            prefixes = (*KEY_PREFIXES, "controller.")
         for node in ast.walk(tree):
             keys: list[str] = []
             if isinstance(node, ast.Call) and _is_reason_call(node):
@@ -76,7 +84,7 @@ def collect_keys(source: Path = SOURCE) -> dict[str, list[str]]:
                 keys = [key] if key else []
             elif isinstance(node, ast.Constant):
                 keys = _error_keys(node) if in_api else []
-                keys += _plain_key(node)
+                keys += _plain_key(node, prefixes)
             for key in keys:
                 found.setdefault(key, []).append(f"{rel}:{node.lineno}")
     return found
