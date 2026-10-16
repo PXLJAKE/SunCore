@@ -264,3 +264,11 @@ def test_scope_is_never_normal_while_a_fault_is_present(sequence: list[bool]) ->
         else:
             assert state is not ScopeState.SAFE
     assert FaultKind.STALE.value == "stale"
+
+
+def test_an_old_value_the_cache_still_trusts_is_not_stale() -> None:
+    """An unchanged SoC or idle sensor (cache quality OK) is never a fault, cadence or not."""
+    wd = Watchdog(SETTINGS, cadence_s={"sensor.soc": 60})
+    s = samples(T0)
+    s["sensor.soc"] = Sample(84.0, Unit.PERCENT, T0 - timedelta(hours=3), Quality.OK)
+    assert wd.check_site(T0, site(), s) == ()

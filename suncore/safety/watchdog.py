@@ -13,12 +13,19 @@ Checks per sample: unavailable, invalid (unit, non-numeric), stale, jumps
 BRIEF §9) and the balance (measured house vs ``pv + grid - battery``).
 
 Staleness and slow sensors: ``subscribe_entities`` carries no ``last_reported``
-(research/ha-websocket-api.md), so a polled sensor whose value does not change is
-silent. For an entity with a known **cadence** (template or power model, e.g. the
-5-minute ``smartthinq_sensors`` power sensor or the hourly LG counter) the watchdog
-judges staleness as ``age > cadence * stale_cadence_factor`` and ignores the cache's
-own ``STALE`` flag, which is tuned for fast sensors; for entities without a cadence
-the cache's flag applies. The composition root sets the cadences (``set_cadence``).
+(research/ha-websocket-api.md), and many integrations do not even advance it for an
+unchanged value, so a sensor whose value does not change is silent. The watchdog
+therefore follows the cache's ``STALE`` flag, which the composition root restricts to
+the grid meter (``EntityCache.set_heartbeats``): an unchanged state of charge or idle
+power sensor is not a fault. A frozen integration is caught by ``unavailable``, by the
+frozen-PV check (at least ``frozen_pv_min_w`` for ``frozen_pv_s``, so only in daylight),
+by a silent grid meter and, with a measured house sensor, by the balance check. Not
+caught directly: a battery, SoC or device reading that freezes while it stays available.
+Its effect is bounded because the gate and the controller's deficit back-off judge the
+real grid flow (import always counts as a deficit). For an entity with a known
+**cadence** the flag must also be older than ``cadence * stale_cadence_factor``.
+``UNVERIFIED``: whether a hung Plenticore turns its SunSpec entities ``unavailable`` or
+keeps frozen registers.
 Time is injected; the watchdog never reads the wall clock.
 """
 
@@ -327,9 +334,14 @@ class Watchdog:
         return faults
 
     def _is_stale(self, entity_id: str, sample: Sample, now: datetime) -> bool:
+        # The cache decides which entities must keep reporting (its heartbeats, the grid
+        # meter); a value it still marks OK is valid however old. A known cadence only
+        # lengthens the allowance of a heartbeat that reports slowly.
+        if sample.quality is not Quality.STALE:
+            return False
         cadence = self._cadence.get(entity_id)
         if cadence is None:
-            return sample.quality is Quality.STALE
+            return True
         age = (now - sample.ts).total_seconds()
         return age > cadence * self._settings.stale_cadence_factor
 

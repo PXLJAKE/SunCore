@@ -107,3 +107,58 @@ def test_uncertainty_is_monotone_in_age(
         assert second.age_s >= first.age_s
         assert second.quality.severity >= first.quality.severity
     assert all(r.value_w == pytest.approx(value) for _, r in results)
+
+
+def test_an_unchanged_value_of_an_unchanged_device_stays_current() -> None:
+    """An idle unit reports 5 W once and then stays silent: that is still 5 W."""
+    model = MeasuredPowerModel(ROLE, cadence_s=300)
+    off = climate_state(on=False, mode="off", setpoint=None)
+    samples = {ROLE: power_sample(5, T0)}
+    model.observe(at(10), off, samples)
+    est = model.estimate(at(24 * 3600), off, samples)
+    assert est.quality is Quality.OK
+    assert est.value_w == 5
+    assert est.uncertainty_w < 20
+    assert est.age_s == 0
+
+
+def test_after_a_change_the_age_runs_from_the_change() -> None:
+    """Switched on after the last report: the slow sensor is behind, doubt grows as before."""
+    model = MeasuredPowerModel(ROLE, cadence_s=300)
+    off = climate_state(on=False, mode="off", setpoint=None)
+    on = climate_state(on=True, mode="heat", setpoint=22.0)
+    samples = {ROLE: power_sample(5, T0)}
+    model.observe(at(10), off, samples)
+    model.observe(at(3600), on, samples)
+    fresh = model.estimate(at(3700), on, samples)
+    assert fresh.quality is Quality.OK
+    # the sample predates the change: its true age is reported (the controller keeps the
+    # level's expected power until the sensor catches up)
+    assert fresh.age_s == 3700
+    late = model.estimate(at(3600 + 601), on, samples)
+    assert late.quality is Quality.STALE
+    assert late.uncertainty_w > fresh.uncertainty_w
+    # the sensor catches up after the change: current again
+    caught_up = {ROLE: power_sample(880, at(3900))}
+    model.observe(at(3900), on, caught_up)
+    est = model.estimate(at(7200), on, caught_up)
+    assert (est.quality, est.value_w, est.age_s) == (Quality.OK, 880, 0)
+
+
+def test_without_a_device_state_the_sample_age_counts() -> None:
+    model = MeasuredPowerModel(ROLE, cadence_s=10)
+    samples = {ROLE: power_sample(5, T0)}
+    model.observe(at(1), None, samples)
+    assert model.estimate(at(100), None, samples).quality is Quality.STALE
+
+
+def test_a_change_across_an_unknown_gap_is_still_a_change() -> None:
+    model = MeasuredPowerModel(ROLE, cadence_s=300)
+    off = climate_state(on=False, mode="off", setpoint=None)
+    on = climate_state(on=True, mode="heat", setpoint=22.0)
+    gap = climate_state(quality=Quality.UNAVAILABLE)
+    samples = {ROLE: power_sample(5, T0)}
+    model.observe(at(10), off, samples)
+    model.observe(at(20), gap, samples)
+    model.observe(at(3600), on, samples)
+    assert model.estimate(at(3600 + 601), on, samples).quality is Quality.STALE

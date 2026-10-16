@@ -144,10 +144,13 @@ außerhalb des Komfortbereichs liegt, lässt SunCore das Gerät in Ruhe und sagt
   reagiert **langsamer und vorsichtiger** als mit einem gemessenen Wert. Eine Steckdose mit
   Messung oder die HACS-Integration `smartthinq_sensors` (Sensor „Energy current“) liefert eine
   gemessene Leistung und ist die bessere Wahl, wenn du eine hast.
-- **Ein langsamer Leistungssensor** ist kein veralteter: Dieser Sensor von `smartthinq_sensors`
-  aktualisiert alle 300 Sekunden. Trage im Geräte-Editor **Aktualisierungsintervall des
-  Leistungssensors** = 300 ein, sonst hält SunCore den Wert für veraltet und pausiert das Gerät.
-  Gemessene Werte sind trotzdem langsamer als bei einer Steckdose, die alle paar Sekunden meldet.
+- **Ein Wert, der sich nicht ändert, ist nicht veraltet.** Viele Integrationen melden nur neue
+  Werte (eine ausgeschaltete Anlage bleibt einen Tag lang bei 5 W, der Akku eine Stunde bei
+  84 %). SunCore behält solche Werte, solange die Entität verfügbar ist. Erst wenn sich das Gerät
+  geändert hat (eingeschaltet, neuer Modus oder Sollwert), wartet es darauf, dass der Sensor
+  nachzieht: Trage für diesen Sensor von `smartthinq_sensors` **Aktualisierungsintervall des
+  Leistungssensors** = 300 ein, dann passt die Wartezeit zu seinen 5 Minuten. Gemessene Werte
+  sind trotzdem langsamer als bei einer Steckdose, die alle paar Sekunden meldet.
 
 ### Warmwasserbereiter
 
@@ -297,8 +300,14 @@ anhand von Belegen, nicht aus Hoffnung.
 - **Regler-Abstimmung** (Defizit-Verzögerung und -Budget, Streuung der Glättung, der zusätzliche
   Überschuss, den ein Klimagerät nur mit Zähler vor dem Verschieben braucht, „Batterie zuerst“ ohne
   Ziel) ist eine erste Schätzung und soll nach deinem Schattenlauf abgestimmt werden.
-- **Standard-Sensortakte** (Leistungssensor 60 s, Energiezähler 300 s, sofern nicht gesetzt) sind
-  Annahmen: Setze **Aktualisierungsintervall des Leistungssensors** für langsamere Sensoren.
+- **Nur der Netzzähler muss sich laufend melden.** Schweigt er 2 Minuten, pausiert SunCore.
+  Andere Sensoren gelten als aktuell, solange sie verfügbar sind. Ein hängender Wechselrichter
+  fällt auf, wenn seine Entitäten nicht verfügbar werden, über PV-Werte, die bei Tageslicht
+  einfrieren (mindestens 200 W für 15 Minuten), oder mit Haussensor über eine Leistungsbilanz,
+  die nicht aufgeht. Ein Akku-Wert, der einfriert und verfügbar bleibt, wird nicht direkt
+  erkannt; echter Netzbezug lässt SunCore trotzdem zurücknehmen. Ob ein hängender Plenticore
+  „nicht verfügbar“ oder eingefrorene Werte zeigt, ist `UNVERIFIED`. Die Standard-Sensortakte
+  (Leistungssensor 60 s, Energiezähler 300 s, sofern nicht gesetzt) sind Annahmen.
 - **Kein Plan**: Prognosen, Tarife und Planer steuern noch nichts. SunCore verschiebt keine Last in
   günstigere Stunden, heizt nicht nach dem Wetter vor und schreibt weder auf Batterie noch auf
   Wechselrichter. Die Ziele *Batterie-Ziel* und *Klimagerät vor Einspeisung* entscheiden nur, ob

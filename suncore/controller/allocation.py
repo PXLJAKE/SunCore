@@ -782,10 +782,7 @@ class Allocator:
         """
         active = [m for m in synced if m.level > 0]
         active_draw = sum(committed.get(m.device.id, 0.0) for m in active)
-        attributable = 0.0
-        if site.latest_available_w is not None and active_draw > 0:
-            deficit = max(0.0, sum(committed.values()) - site.latest_available_w)
-            attributable = min(deficit, active_draw)
+        attributable = _attributable_deficit(site, committed, active_draw)
         out.attributable_deficit_w = attributable
         delay = self._settings.deficit_delay_s
         if any(self._poor_estimate(m, inputs) for m in active):
@@ -860,6 +857,20 @@ def _heat_cap_reason(device: DeviceConfig, state: DeviceState | None) -> Reason 
     if temperature is None:
         return rs.plain(rs.HEAT_TEMPERATURE_UNKNOWN)
     return rs.heat_limit(temperature, device.comfort.max_c)
+
+
+def _attributable_deficit(
+    site: SiteSurplus, committed: Mapping[str, float], active_draw: float
+) -> float:
+    """What the active devices are counted to draw beyond what is available now."""
+    if site.latest_available_w is None or active_draw <= 0:
+        return 0.0
+    deficit = max(0.0, sum(committed.values()) - site.latest_available_w)
+    # The grid meter is the heartbeat: real import is always a deficit, even when a
+    # (possibly frozen) battery reading counts as available charging power.
+    if site.grid_w is not None and site.grid_w > 0:
+        deficit = max(deficit, site.grid_w)
+    return min(deficit, active_draw)
 
 
 def _at_reserve(site: SiteSurplus, reserve_soc_pct: float | None) -> bool:
