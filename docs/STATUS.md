@@ -432,11 +432,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
    by earlier versions), keep everything in **shadow mode**, read `docs/user/en/surplus-control.md`
    (or `de`) and check the **Decision log** after a day with sun: are the "would have" entries
    plausible? Check the summary system check at noon.
-2. Answer the open questions: (a) battery share without any goal is "battery first" (devices only
-   get what would be exported) - intended? (b) a **Hold** (API `boost`) leaves the device alone
-   and drives nothing - intended? (c) non-urgent hand-backs (mode to shadow, device trip,
-   reconnect) wait for the device's min run/pause, emergency stop and shutdown do not - OK?
-   (d) PR 3-B was larger than R8 allowed (see the plan's deviations) - accept?
+2. ~~Answer the open questions~~ Answered 2026-10-16: keep everything as built (safe and simple),
+   see the plan's "Answers after implementation".
 3. Phase 3 exit: switch **one** device to automatic following the guide's walk-through and report
    the first live writes (the climate unit's counter-only estimate and the cloud echo delay are
    the interesting parts). Then merge 3-A, 3-B, 3-C and release.

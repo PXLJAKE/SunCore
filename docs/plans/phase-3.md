@@ -340,6 +340,23 @@ Answered by the maintainer on 2026-10-14; bold defaults applied where he did not
 8. Import resets the global mode to shadow: **yes** (default).
 9. Controller tick **5 s**, smoothing window **60 s** (default).
 
+### Answers after implementation (2026-10-16)
+
+The maintainer asked for the safe, simple choice everywhere ("sicher, nichts kaputt, nicht
+verkompliziert"), so every open question keeps the behaviour as built:
+
+- PR 3-B stays one PR.
+- Without any goal the battery comes first; "climate before export" frees the battery's charging
+  power for all controlled devices (as implemented).
+- Hold (API `boost`) stays a pure hold; pause gives a controlled device back.
+- Non-urgent hand-backs wait for min run/pause; emergency stop, shutdown and crash recovery give
+  back at once.
+- A configuration change resets a running set-point shift to the base (no short-cycling).
+- A change found at restart is respected under the override policy (next day 04:00 by default).
+- Failed switch attempts count towards max switches per hour.
+- The version is left to release-please (no `min_app_version` on the relays template).
+- No deterministic demo proposal; the proposal E2E keeps its marked mock.
+
 ## Deviations during implementation
 
 Recorded after PR 3-C; none changes ADR-0011.
