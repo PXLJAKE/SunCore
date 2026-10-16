@@ -1,7 +1,7 @@
 # Home Assistant app configuration (beta channel).
 # Same image as the stable app, built from main as pre-releases (ADR-0009).
 name: SunCore (beta)
-version: "0.3.0-beta.67"
+version: "0.3.0-beta.71"
 slug: suncore_beta
 description: Beta channel of SunCore – energy management with forecasts, planner and real-time surplus control.
 url: https://github.com/pxljake/suncore
