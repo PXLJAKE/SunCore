@@ -1,9 +1,8 @@
 # Phase 4 – Forecasts, tariffs, planner, battery
 
-Status: **approved** by the maintainer on 2026-10-16 (answers in §6: commit and push after every
-WP, Opus takes the Fable roles, battery "as full as possible", grid charging by a price level and
-a schedule instead of a fixed night window, calibration charge optional and off; defaults
-otherwise)
+Status: **revision 2 approved** by the maintainer on 2026-10-16 (answers in §6). Revision 1 was
+approved earlier the same day. Revision 2 merges the concept "Prognose, Puffer und Akkuplanung"
+from a separate chat (§0) and splits the work into small stacked PRs (§3).
 Source of truth: [`docs/BRIEF.md`](../BRIEF.md) §3 (two control layers), §4.1 (battery, weather),
 §4.2, §4.3, §4.4, §4.5 (battery rules of the surplus distribution), §4.8, §4.9 (plan view, only
 the part Phase 4 needs), §4.10 steps 4–6 and 10, §5, §8, §9, §10;
@@ -13,266 +12,287 @@ the part Phase 4 needs), §4.10 steps 4–6 and 10, §5, §8, §9, §10;
 [`solver-on-aarch64.md`](../research/solver-on-aarch64.md),
 [`device-integrations.md`](../research/device-integrations.md); the "Phase 4 follow-ups" and the
 `UNVERIFIED` table in [`docs/STATUS.md`](../STATUS.md).
-Branch: `claude/zealous-mayer-j5oda9` (session branch, see §3 and question 1).
+Branches: `claude/zealous-mayer-j5oda9` (PR 4-A), then stacked `phase-4/<letter>-<topic>` (§3).
 
 Phase 4 gives SunCore foresight. Adapters read PV forecasts and prices from the integrations the
-user already runs, a load forecast is learnt from Home Assistant's statistics, and a planner
-(HiGHS LP/MILP with a heuristic fallback) computes a 24–48 h schedule in 15-minute steps. The plan
-fills the `Plan` contract the Phase 3 controller already consumes (`DeviceBand`, `BatteryBand`,
-`grid_import_limit_w`), so the controller keeps the last word in real time and the safety gate
-stays the only writer. The battery becomes a controllable asset through battery adapters, and
-every plan interval carries structured reasons that the UI renders as "Why?". **Shadow mode stays
-the default; the battery starts in shadow like every device.**
+user already runs, a load forecast is learnt from Home Assistant's statistics, a risk model learns
+how wrong those forecasts are, and a planner (HiGHS LP/MILP with a heuristic fallback) computes a
+48 h schedule in 15-minute steps. The plan fills the `Plan` contract the Phase 3 controller
+already consumes (`DeviceBand`, `BatteryBand`, `grid_import_limit_w`), so the controller keeps the
+last word in real time and the safety gate stays the only writer. The battery becomes a
+controllable asset through battery adapters, and every plan interval carries structured reasons
+that the UI renders as "Why?". **Shadow mode stays the default; the battery starts in shadow like
+every device.**
+
+**Goal (from the merged concept):** as much self-sufficiency as possible and as much
+self-consumption as is sensible. The battery covers the night and, where possible, bridges a poor
+next day. Buffers and limits can be set by every user and are also learnt from history.
 
 Phase 3 is implemented but its acceptance (shadow run and one device to automatic on the
-maintainer's system) is still open. Phase 4 is built on top of `main` in parallel; nothing in
-Phase 4 changes the Phase 3 write paths of devices (question 2).
+maintainer's system) is still open. Phase 4 is built in parallel; nothing in Phase 4 changes the
+Phase 3 write paths of devices (question 2).
+
+## 0. Merged concept – decisions
+
+Where the concept and revision 1 overlapped or disagreed, the better solution was kept:
+
+| Topic | Revision 1 | Concept | Kept, and why |
+|---|---|---|---|
+| Uncertainty | P10 PV in target constraints, flat "safety discount" | learnt error distribution per weather class, risk level cautious/balanced/bold → P10/P25/P50 | **Concept**, refined: the quantile is taken from the learnt distribution of the **net** energy error (PV error − load error) per weather class, not P10 PV and P90 load separately – taking both extremes at once double-counts caution and would keep the battery needlessly full. Solcast's own P10/P90 are used until 30 days of history exist. The flat discount is dropped. |
+| Risk default | – | open question | **cautious** (maintainer, 2026-10-16): targets met in 90 % of cases. |
+| "Battery first" | `prefer_full` strategy for the maintainer, controller rule from Phase 3 | morning buffer "battery first until X %", X rises with uncertainty; consumers before battery while the evening target is still reached; battery wins when the target gets tight | **Both combined:** the plan sends `BatteryBand.priority_until_soc_pct` = X. The controller compares it with the **live** SoC every tick (robust when the day deviates from the plan); above X, surplus goes to consumers while the plan says the evening target is reachable; when it is not, the plan sets the device bands to `allowed=False`/`max_power_w`. `prefer_full` = X is the max SoC (always battery first) – the maintainer's "always full when possible". |
+| Next day | not planned | raise the evening target up to 100 % when the 48 h horizon shows a poor next day | **Concept.** Done as a computed lower SoC bound at the evening time (night load + the next day's deficit at the chosen risk quantile), plus a terminal value for energy left at the horizon end so the LP never empties the battery just because the horizon stops. |
+| Objective | cost (+ degradation, switching) | cost + optional self-sufficiency weight | **Concept**; default weight **0.01 currency/kWh** of import: it only decides between options whose cost differs by less than 1 ct/kWh (so it never costs real money) and removes the LP's many equal-cost solutions on flat tariffs. 0 = pure cost; expert parameter. |
+| Device value | `DeviceBand` preference only | consumers need a utility value, otherwise export is as good as consumption | **Concept.** `DeviceConfig.planner_value_per_kwh`; automatic = just above the export price (so consumption beats export) and never above the import price (SunCore never imports for a device – Phase 3 answer 6). Comfort bands and the water heater's tank are not modelled thermally in Phase 4 (Phase 6). |
+| Grid charging | price-level + schedule (answer 2026-10-16) | – | kept unchanged. |
+| Load forecast | profiles + exponential smoothing, no ML | ML (gradient boosting/KNN) as an optional layer, only if measurably better | **Concept, with the maintainer's answer:** profiles stay the default and work from day 1; an ML model (KNN on analogue days, implemented with NumPy only – no scikit-learn, whose musl/aarch64 wheels are `UNVERIFIED`) runs **in parallel in shadow** and is scored next to the profiles. It is used only in mode `auto` and only while it beats the profiles; selectable after 30 days of history. |
+| Calibration start | not fixed | 14 or 60 days? | **30 days** (maintainer). Before that statistics are only collected; the load forecast can start earlier because HA's long-term statistics already hold history (rebuilt on first start). |
+| Re-planning | every 15 min + events | rolling horizon every 15 min | same; kept. |
+| Calibration charge | off by default (answer 11) | – | kept. |
 
 ## 1. Goals and acceptance criteria
 
-Phase 4 is done when (roadmap Phase 4 milestones):
+Phase 4 is done when (roadmap Phase 4 milestones plus the concept):
 
-1. **Forecast adapters:** Solcast (attributes or the read-only query action, never the Solcast
-   API), Forecast.Solar (core, via `energy/solar_forecast`), Open-Meteo Solar Forecast (HACS),
-   a generic attribute adapter (mapping per template), and the built-in fallback behind an
-   explicit opt-in (question 5). Several sources at once are blended by measured skill; a bias
-   calibration per hour of day and season is learnt; clipping (inverter limit, export limit) is
-   recognised; accuracy (MAE, bias per source and horizon) is stored.
-2. **Load forecast:** base-load profile from HA long-term statistics (`recorder/statistics_during_period`),
-   weekday/holiday (optional `workday` binary sensor), optional temperature from a `weather`
-   entity (`weather.get_forecasts`); exponential smoothing; the draw of controlled devices is
-   subtracted (no double counting).
-3. **Tariffs:** dynamic import from Tibber, Nord Pool, ENTSO-E, EPEX Spot (and Octopus if its
+1. **Forecast adapters:** Solcast (P10/P50/P90 from the attributes or the read-only query action,
+   never the Solcast API), Forecast.Solar (core, via `energy/solar_forecast`), Open-Meteo Solar
+   Forecast (HACS), a generic attribute adapter (mapping per template), and the built-in fallback
+   behind an explicit opt-in (question 5). Several sources are blended by measured skill; a bias
+   calibration per hour of day × season × weather class (cloudiness) is learnt; clipping
+   (inverter limit, export limit) is recognised and excluded from the statistics; accuracy (MAE,
+   bias per source and horizon) is stored and shown.
+2. **Load forecast:** base load = house − controlled devices, profiles from HA long-term
+   statistics by weekday/holiday (optional `workday` sensor) and outside temperature (optional
+   `weather` entity), exponential smoothing; controlled devices modelled separately; optional
+   NumPy KNN model in shadow, used only when better (§0).
+3. **Risk model and buffer:** learnt distribution of the net forecast error per weather class and
+   horizon; risk level cautious/balanced/bold (default cautious) → quantile 10/25/50 %; the morning
+   buffer and the evening target are computed from it so a target is met with the chosen
+   probability; hard limits (reserve, max SoC, target SoC + time, morning buffer floor) always
+   manual and always win.
+4. **Tariffs:** dynamic import from Tibber, Nord Pool, ENTSO-E, EPEX Spot (and Octopus if its
    source can be verified), fixed and HT/NT (time windows, seasonal); price formula
    (spot → end price with grid fee incl. time-variable grid fees §14a module 3, levies, margin,
    VAT); 15- and 60-minute grids; export fixed, tiered by kWp share (blended rate) and none;
    negative-price region rule (`de`: no remuneration → avoid export).
-4. **Planner:** HiGHS model (`highspy`), heuristic fallback (always available, also when the
-   solver times out or the model is infeasible, with a UI hint), warm start from the previous
-   plan, time budget (default 8 s, MIP gap 1 %), runs every 15 min and on events. Benchmark:
-   the maintainer's reference scenario solves in < 10 s on aarch64 (CI arm runner as proxy,
-   see R3).
-5. **Battery strategies:** self-consumption (default), target SoC by time (P10 PV in the target
-   constraint), grid charging on a dynamic tariff only when the spread exceeds efficiency loss +
-   degradation + margin (option "night only", already in `goals`), grid charging on a fixed
-   tariff only with an HT/NT spread or in an emergency (off by default), discharge lock, reserve
-   separate from BMS drift, max-SoC limit, periodic calibration charge, cycle counter,
-   degradation cost in currency/kWh.
-6. **Battery adapters:** generic HA entities (template kind `battery`: number/select/switch/
-   actions), Kostal Plenticore through the core `kostal_plenticore` integration (min SoC as
-   discharge lock/reserve), Kostal Modbus §3.5 limits only with the verified register map and
-   behind question 3. Read-back after every write, write only on change, release = hand the
-   battery back to the inverter's own control.
-7. **Explanations:** every plan interval carries `Reason(key, args)` (price, forecast, target,
-   limit, rule); the UI renders them in a plan view and in the Now view's "next actions".
-8. **`control-safety` review** of every change to `safety/`, the controller's battery path and
-   the battery adapters' write paths, documented in the PR (invariant table).
+5. **Planner:** HiGHS (`highspy`), 48 h, 15 min, rolling every 15 min and on events, warm start,
+   time budget (default 8 s, MIP gap 1 %), heuristic fallback with a UI hint. Objective cost +
+   degradation + switching + self-sufficiency weight + device values. Benchmark < 10 s on
+   aarch64 (R3).
+6. **Battery strategies:** self-consumption (default), `prefer_full` (maintainer), target SoC by
+   time, next-day bridging, grid charging by price level + schedule (+ spread rule on dynamic
+   tariffs), discharge lock, reserve separate from BMS drift, max-SoC limit, calibration charge
+   (off by default), cycle counter, degradation cost.
+7. **Battery adapters:** generic HA entities (template kind `battery`), Kostal Plenticore through
+   the core `kostal_plenticore` integration (min SoC as discharge lock/reserve), Kostal Modbus §3.5
+   limits through HA's `modbus.write_register` (question 3, shadow/assisted until the fallback
+   timer is measured). Read-back, write only on change, release = inverter self-control.
+8. **Explanations:** every plan interval carries `Reason(key, args)`, e.g.
+   `planner.battery.morning_buffer` {soc_pct: 40, cause: forecast_uncertain}; forecast accuracy
+   and bias per source in the UI.
+9. **`control-safety` review** of every change to `safety/`, the controller's battery path and the
+   battery adapters' write paths, documented in the PR (invariant table).
 
 Exit (roadmap): plan with battery strategy and "Why?" on the maintainer's system, battery
 control in shadow mode, then assisted.
 
 ## 2. Work packages
 
-Owner = subagent that implements it. Budget rule (CLAUDE.md, your instruction): **Fable only for
-`optimizer-engineer` (planner, forecast mathematics, battery economics), `control-safety`
-(controller battery path, safety, battery write paths) and the final `reviewer`**; Sonnet for
-adapters, backend, simulator, frontend and docs; Haiku for catalogue sync. At most two subagents
-in parallel.
+Owner = subagent that implements it. Budget rule (answer 2026-10-16): **Opus takes the Fable
+roles** – `optimizer-engineer` (planner, forecast mathematics, risk model, battery economics),
+`control-safety` (controller battery path, safety, battery write paths), `reviewer` and advisor;
+Sonnet for adapters, backend, simulator, frontend and docs; Haiku for catalogue sync. At most two
+subagents in parallel. **Every WP ends with a commit and a push.**
 
 ### WP1 – Verify interfaces · `ha-integration` (skills `verify-ha-api`, `new-adapter`)
 
-Read from the GitHub sources (the doc sites are unreachable, see `research/README.md`) and record
-in `research/integrations.md` / `research/ha-websocket-api.md`, each fact with commit and path:
+From the GitHub sources (doc sites unreachable), recorded with commit and path in
+`research/integrations.md` / `research/ha-websocket-api.md`: `recorder/statistics_during_period`,
+`energy/solar_forecast`, `weather.get_forecasts`, `workday`, `number.set_value`,
+`select.select_option`, `modbus.write_register`, `nordpool.get_prices_for_date`,
+`tibber.get_prices`, `kostal_plenticore` battery entities; Solcast, Open-Meteo Solar Forecast,
+ENTSO-E, EPEX Spot, Octopus attributes; Open-Meteo API and Energy-Charts/aWATTar and their terms.
+What cannot be read stays `UNVERIFIED`.
 
-- HA: `recorder/statistics_during_period` (request/response, `period`, `types`, units),
-  `energy/solar_forecast` (response shape, `wh_hours`), `weather.get_forecasts` (response,
-  `hourly`), `workday` binary sensor, `number.set_value`, `select.select_option`,
-  `modbus.write_register` (fields, multi-register values) for question 3.
-- Integrations: Forecast.Solar `energy.py`; Open-Meteo Solar Forecast (domain, attributes);
-  Nord Pool `get_prices_for_date`; ENTSO-E and EPEX Spot attributes; Octopus `rates`;
-  `kostal_plenticore` `Battery:MinSoc`/charging mode entities (translation keys, ranges).
-- Built-in fallbacks: Open-Meteo `global_tilted_irradiance`/`tilt`/`azimuth` and its terms;
-  Energy-Charts `/price` and aWATTar `marketdata` and their terms. If unreachable they stay
-  `UNVERIFIED` and are not shipped (question 5).
+### WP2 – Contracts · `optimizer-engineer` (Opus), reviewed by `architect`
 
-### WP2 – Contracts · `optimizer-engineer` (Fable), reviewed by `architect`
-
-- `core/series.py`: `TimeSeries` (aware start/step, values, unit), `QuantileSeries`
-  (P10/P50/P90, monotone), `PriceSeries` (import/export per interval, resolution 15/60 min,
-  source, `price_includes`), resampling to the 15-minute planning grid (energy-preserving for
-  power/energy, step-hold for prices).
-- `core/forecast.py`: `ForecastSource` protocol (`fetch(window) -> QuantileSeries`), accuracy
-  record; `core/tariff.py`: `PriceSource` protocol, `PriceFormula`, HT/NT windows;
-  `core/battery.py`: `BatteryModel` (capacity, efficiencies, limits, reserve, BMS-drift margin,
-  degradation cost), `BatteryAction` for the gate (charge/discharge limits, min SoC, grid charge
-  power) – **`BatteryAction` is reviewed by `control-safety`**.
-- `Plan` v2 (additive to `core/control.py`): per interval the expected flows (PV P10/P50/P90,
-  load, import, export, battery power, SoC), prices, the battery band, reasons; `Plan.source`
-  (`solver`/`heuristic`/`default`) and solver statistics. The controller keeps reading
-  `DeviceBand`/`BatteryBand`/`grid_import_limit_w` unchanged.
-- Config documents (additive, migrated): `ForecastConfig` v2 (several sources, weights auto/
-  manual, safety discount), `TariffConfig` v3 (formula components, HT/NT windows, seasonal),
-  section `battery` (adapter template id, entities, model parameters, strategy options),
-  `goals` v2 (night window for grid charging, calibration interval, conservative planning on/off).
-- Template schema v1 additions (additive, schema v1 changelog): kind `battery` (ADR-0012 already
-  names it), forecast `series` mapping for the generic attribute adapter, tariff HT/NT.
+- `core/series.py`: `TimeSeries`, `QuantileSeries`, `PriceSeries`; resampling onto the 15-minute
+  grid (energy-preserving for power/energy, step-hold for prices, mixed 15/60 min, DST-safe).
+- `core/forecast.py`: `ForecastSource`/`PriceSource` protocols, `AccuracyRecord`;
+  `core/tariff.py`: `PriceFormula`, weekly windows (HT/NT and the grid-charge schedule), blended
+  export rate; `core/battery.py`: `BatteryModel`, `BatteryStrategy`, `RiskLevel`,
+  `GridChargePolicy`; `BatteryAction` (**reviewed by `control-safety`**).
+- `Plan` v2 (additive): per interval expected flows, prices, reasons; `Plan.source`, `Plan.stats`;
+  `BatteryBand.priority_until_soc_pct`; `DeviceConfig.planner_value_per_kwh`.
+- Config (additive, migrated): `ForecastConfig` v2 (several sources, weights auto/manual,
+  learning: `min_history_days` 30, `load_ml_mode` off|shadow|auto = shadow), `TariffConfig` v3
+  (formula, HT/NT), section `battery` (adapter, model, strategy, risk = cautious,
+  morning-buffer floor, `bridge_next_day`, self-sufficiency weight, grid-charge policy,
+  calibration), `goals` v2 (`grid_charge_night_only` → schedule 22:00–06:00, charging still off).
+- Template schema v1 additions (schema v1 changelog): kind `battery`, generic forecast `series`
+  mapping, tariff HT/NT.
 
 ### WP3 – Storage and statistics · `backend-engineer`
 
-- `/data/timeseries.db` (ADR-0004; `backup_exclude` in both `config.yaml`, via `ha-integration`):
-  own migrations; tables for measurements (controller resolution 48 h, 1-min 30 days, 15-min
-  unlimited), forecasts versioned by issue time, prices; nightly downsample + vacuum; rebuild of
-  15-min history from `recorder/statistics_during_period` when the file is missing.
-- `suncore.db` migration `0004`: `plan_snapshot` (compressed JSON, last N plans + retention),
-  learnt parameters (forecast bias tables, load profiles, blending weights). Schema 4: 0.4.x
-  refuses newer databases → export before update (release note).
-- Rate limiter per (domain, service) with try-acquire/deadline for `call_action_response`
-  (follow-up A3 from Phase 1) before the first adapter calls an action; boundary rule 7 admits
-  the adapter wiring.
+`/data/timeseries.db` (ADR-0004, `backup_exclude`): measurements (48 h raw, 1-min 30 days,
+15-min unlimited), forecasts versioned by issue time, prices, nightly downsample + vacuum,
+rebuild of 15-min history from `recorder/statistics_during_period`. `suncore.db` migration
+`0004`: `plan_snapshot`, learnt parameters (bias tables, error distributions, load profiles,
+blending weights, ML state). Rate limiter per (domain, service) with try-acquire/deadline for
+`call_action_response` (follow-up A3).
 
 ### WP4 – Tariff adapters · `backend-engineer` (skill `new-adapter`), maths by `optimizer-engineer`
 
-`suncore/tariff/`: adapters Tibber (`tibber.get_prices`), Nord Pool, ENTSO-E, EPEX Spot,
-Octopus (only if WP1 verifies it), generic price-list attribute, fixed and HT/NT; price formula;
-export fixed/tiered (blended rate by kWp share)/none; negative-price rule from the region
-template; refresh on the integration's update, never more than the rate limiter allows. Fixtures
-copied from the verified source shapes. New templates per adapter with `source` and a conformance
-scenario (`new-device-template` skill).
+`suncore/tariff/`: Tibber, Nord Pool, ENTSO-E, EPEX Spot, Octopus (only if verified), generic
+price list, fixed and HT/NT; price formula; export fixed/tiered/none; negative-price rule from the
+region; fixtures from verified shapes; templates with `source` and a conformance scenario.
 
-### WP5 – PV forecast · `device-adapters` (adapters), `optimizer-engineer` (Fable, blending/calibration)
+### WP5 – PV forecast · `device-adapters` (adapters), `optimizer-engineer` (Opus, blending/calibration)
 
-`suncore/forecast/pv/`: Solcast (`detailedForecast` attributes, `query_forecast_data` as
-fallback), Forecast.Solar, Open-Meteo Solar Forecast, generic attribute, built-in fallback (only
-after question 5); blending weighted by recent skill (inverse MAE over 14 days, minimum weight,
-manual override); bias calibration per hour of day × season × clear-sky index bucket (bounded,
-shrinks to 1 with little data); clipping detection (inverter/export limit plateaus excluded from
-the error statistics); accuracy bookkeeping in `timeseries.db`.
+`suncore/forecast/pv/`: Solcast, Forecast.Solar, Open-Meteo Solar Forecast, generic attribute,
+built-in fallback (question 5). Blending by inverse MAE over 14 days with a minimum weight and a
+manual override; bias calibration per hour × season × weather class (clear-sky index buckets
+from the forecast itself), bounded and shrinking to 1 with little data, active after
+`min_history_days`; clipping detection; accuracy in `timeseries.db`.
 
-### WP6 – Load forecast · `optimizer-engineer` (Fable)
+### WP6 – Load forecast · `optimizer-engineer` (Opus)
 
-`suncore/forecast/load.py`: house base load = house − controlled devices (their estimates from
-the Phase 3 power models); profile per weekday type (workday/weekend/holiday) × 15-min slot with
-exponential smoothing; temperature regression term when a weather entity is mapped; P10/P90 from
-residuals; cold start from HA statistics (WP3), else a flat profile from the current mean with a
-wide band and a UI hint. No ML model in Phase 4 (aarch64 footprint).
+`suncore/forecast/load.py`: base load = house − controlled devices; profile per day type
+(workday/weekend/holiday) × 15-min slot with exponential smoothing; temperature term with a
+mapped weather entity; residual quantiles; cold start from HA statistics, else a flat profile
+with a wide band and a UI hint. Controlled devices are forecast separately (their Phase 3 power
+models and the plan), never in the base load.
 
-### WP7 – Planner · `optimizer-engineer` (Fable)
+### WP7 – Risk model and buffer · `optimizer-engineer` (Opus) *(new, from the concept)*
 
-`suncore/planner/`: `model.py` (sparse matrices for `highspy`, Protocol for the backend so tests
-can use a reference solver), `heuristic.py`, `explain.py`, `run.py`.
+`suncore/forecast/risk.py`: empirical distribution of the net energy error (actual − forecast,
+PV minus load) per weather class and horizon window (rest of today, night, next day), from the
+stored forecasts and actuals; until `min_history_days` the source quantiles (Solcast P10/P90) and
+the load residuals are used, labelled as such. Functions the planner calls:
+`net_energy_quantile(window, risk)`, `morning_buffer_pct(...)` (higher when the PV forecast is
+uncertain), `evening_target_pct(...)` (night load + next-day deficit at the risk quantile, capped
+at max SoC, never below the user's target). Hypothesis tests: monotone in risk level and in
+uncertainty, never below the manual limits.
+
+### WP8 – Planner · `optimizer-engineer` (Opus)
+
+`suncore/planner/`: `model.py` (sparse matrices for `highspy`, backend protocol), `heuristic.py`,
+`explain.py`, `run.py`.
 
 - Variables per interval: import, export, battery charge/discharge (separate efficiencies), SoC,
-  PV curtailment (only where an export limit or negative prices make it useful, informational
-  until the export-limit chain in Phase 6), controllable device energy (band per device).
-- Constraints: energy balance, SoC bounds incl. reserve + BMS-drift margin, battery power limits,
-  grid import limit, static export limit (13.5 kW case), target SoC by time on **P10** PV,
-  grid charging only in allowed windows (night window, fixed tariff off by default), discharge
-  lock where it pays; binaries only where needed (no simultaneous charge/discharge only if the
-  LP relaxation exploits it with negative prices; device min run later).
-- Objective: import cost − export revenue (with negative prices and the region rule) + degradation
-  + switching penalty + soft target penalties; P50 in the objective.
-- Warm start, time budget, MIP gap; on timeout use the incumbent if feasible, else the heuristic;
-  infeasible → relax soft targets, then heuristic, reason `planner.fallback.*`.
-- `explain.py`: per interval the binding constraints and price comparisons become `Reason`s, e.g.
-  `planner.battery.grid_charge` {from, to, price, later_price, later_time, pv_p10_kwh}.
-- Outputs `Plan` v2 with `BatteryBand` (min/max power, SoC corridor, `charge_from_surplus`) and
-  `DeviceBand` preferences; the controller's surplus rule "battery first / consumers first if the
-  forecast still reaches the target" now follows the plan.
-- Property tests (hypothesis): balance holds, SoC within bounds, never worse than the heuristic,
-  no grid charging outside allowed windows, no export at negative prices when avoidable.
-- Benchmark script `scripts/bench_planner.py` with the maintainer's reference scenario
-  (17 kWp east-west, 29.6 kWh, Tibber 15-min prices, export limit 13.5 kW, tiered EEG).
+  device energy within its band, PV curtailment where an export limit or negative prices make it
+  useful (informational until the export-limit chain in Phase 6).
+- Constraints: energy balance, SoC bounds with reserve + BMS-drift margin, battery limits, import
+  limit, static export limit, morning buffer and evening target from WP7 (soft with a high
+  penalty, so the plan stays feasible and explains the shortfall), grid charging only inside the
+  price level and schedule (and the spread rule on dynamic tariffs), discharge lock where it
+  pays; binaries only where needed.
+- Objective: import cost − export revenue (negative prices and the region rule) + degradation +
+  switching + self-sufficiency weight − device values − terminal SoC value; PV at the risk
+  quantile in the target constraints, P50 in the objective.
+- Warm start, time budget, MIP gap, fallback chain incumbent → relaxed targets → heuristic.
+- `explain.py`: binding constraints and price comparisons → `Reason`s.
+- Outputs `Plan` v2: `BatteryBand` (power limits, SoC corridor, `priority_until_soc_pct`,
+  `charge_from_surplus`) and `DeviceBand` (allowed, `max_power_w`, preference: throttle or switch
+  off consumers when the target gets tight).
+- Property tests: balance, SoC bounds, never worse than the heuristic, no grid charging outside
+  the policy, no avoidable export at negative prices, targets met when the actual lies inside the
+  planned quantile.
+- `scripts/bench_planner.py`: the maintainer's reference scenario (17 kWp east-west, 29.6 kWh,
+  Tibber 15-min prices, export limit 13.5 kW, tiered EEG).
 
-### WP8 – Runtime and scheduler · `backend-engineer`
+### WP9 – Runtime and scheduler · `backend-engineer`
 
-Planner run every 15 min and on events (new prices, forecast update, deviation above threshold,
-config change, override), in a worker thread with the time budget, at most one run at a time;
-the controller gets the new plan atomically; plan snapshots stored; `/health` unaffected by
-planner failures (status in the API). API: `GET /api/v1/plan` (current plan with reasons and
-statistics), `POST /api/v1/plan/replan`, `GET /api/v1/forecast/accuracy`, `GET /api/v1/prices`;
-live feed `plan` message. OpenAPI and frontend types regenerated. Demo: simulator prices and
-forecasts so the demo shows a real plan.
+Planner every 15 min (rolling horizon with live SoC) and on events (new prices, forecast update,
+deviation above threshold, config change, override), in a worker thread with the budget, one run
+at a time; atomic plan hand-over to the controller; plan snapshots; `/health` unaffected. API:
+`GET /api/v1/plan`, `POST /api/v1/plan/replan`, `GET /api/v1/forecast/accuracy` (incl. ML vs
+profile), `GET /api/v1/prices`; live feed `plan`. Demo with simulator prices and forecasts.
 
-### WP9 – Battery control · `control-safety` (Fable), adapters by `device-adapters`
+### WP10 – Battery control · `control-safety` (Opus), adapters by `device-adapters`
 
-- Controller: translates the plan's `BatteryBand` into `BatteryAction` intents (on change only,
-  hysteresis on power levels); the existing surplus share follows `charge_from_surplus`.
-- Safety: new invariants (property-tested): never discharge below reserve + drift margin by
-  SunCore; grid charging only from a plan interval that allows it, within the import limit and
-  the night window; charge/discharge limits within battery and inverter limits; write rate and
-  write-on-change; battery release = restore the adapter's baseline (inverter self-control);
-  watchdog: stale SoC/battery power while the grid meter moves pauses battery control; the
-  hung-inverter case (BRIEF §9) releases and stops writing. "No SunCore-caused import" keeps
-  holding for devices; the only allowed import is planned grid charging of the battery.
-- Adapters `suncore/devices/battery/`: `generic` (template kind `battery`, roles: min-SoC number,
-  max charge/discharge numbers, mode select, force-charge switch/action), `kostal_plenticore`
-  (core integration: min SoC → discharge lock/reserve, charging mode select; no charge set-point
-  over REST), `kostal_modbus` §3.5 limits with fallback timer (question 3; shadow/assisted only
-  until the timeout is measured on the maintainer's inverter).
-- Simulator: battery with BMS drift, inverter self-consumption logic as the fallback behaviour,
-  Kostal-like fallback timer, scenarios `negative_prices`, `price_spike`, `winter_fog_target`,
-  `grid_charge_night`, `inverter_hang_battery`, `reference_house` (maintainer's system).
+- Controller: `BatteryBand` → `BatteryAction` intents (on change, hysteresis); evaluates
+  `priority_until_soc_pct` against the live SoC; device bands from the plan.
+- Safety invariants (property-tested): SunCore never discharges below reserve + drift margin;
+  grid charging only from a plan interval that allows it, within the import limit, price level
+  and schedule; limits within battery/inverter limits; write rate, write-on-change; release =
+  restore the adapter's baseline; stale SoC/battery power while the grid meter moves pauses
+  battery control; hung inverter → release and stop writing. "No SunCore-caused import" keeps
+  holding for devices.
+- Adapters `suncore/devices/battery/`: `generic`, `kostal_plenticore`, `kostal_modbus` (§3.5 via
+  `modbus.write_register`, question 3).
+- Simulator: battery with BMS drift, inverter self-consumption as fallback, Kostal-like fallback
+  timer. Scenarios: `sunny_day`, `mixed_clouds`, `two_poor_days`, `forecast_too_optimistic`,
+  `negative_prices`, `price_spike`, `grid_charge_price_level`, `inverter_hang_battery`,
+  `reference_house`.
 
-### WP10 – UI · `frontend-engineer`
+### WP11 – UI · `frontend-engineer`
 
-- Plan view `#/plan` (minimal for Phase 4, the full chart is Phase 5): ECharts loaded on demand
-  (own chunk), 24/48 h, price band, PV P10–P90 band + P50, load forecast, planned SoC and battery
-  power, import/export; tap/hover on an interval shows its reasons; solver/heuristic badge.
-- Now view: "next planned actions" with "Why?"; battery card (mode switch, proposals for
-  assisted, release/emergency stop like the devices).
-- Wizard: step 4 several forecast sources (auto-detected), step 5 battery adapter or "observe
-  only" with model parameters, step 6 price formula and HT/NT, step 8 battery strategy options,
-  step 10 first plan as preview. Settings pages follow.
-- Vitest, Playwright E2E against the demo, axe; screenshots `plan-*` (light/dark, phone/tablet,
-  en/de) via `demo-screenshots`. Bundle budget 250 kB gzip for first paint holds (ECharts lazy).
+Plan view `#/plan` (minimal, the full chart is Phase 5): ECharts on demand, 24/48 h, price, PV
+P10–P90 + P50, load, planned SoC (with morning buffer and evening target lines), battery power,
+import/export; reasons per interval; solver/heuristic badge. Forecast accuracy and bias per source
+(incl. ML vs profile). Now view: next planned actions with "Why?", battery card. Wizard: steps 4
+(several sources), 5 (adapter, limits, strategy, risk level), 6 (formula, HT/NT), 8 (grid-charge
+price level and schedule, self-sufficiency weight), 10 (first plan preview). Vitest, Playwright,
+axe, screenshots `plan-*` from the demo.
 
-### WP11 – Docs, translations, STATUS · `docs-writer`, `i18n-sync` (Haiku)
+### WP12 – Optional ML load model · `optimizer-engineer` (Opus)
 
-User guide `docs/user/<lang>/planning-and-battery.md` (en/de: forecasts and blending, tariffs and
-price formula, how the planner decides, battery strategies, battery adapters and how to enable
-external battery control, shadow → assisted walk-through, known limitations), quick start and
-app `DOCS.md` updated, architecture §planner, compatibility list regenerated, all new keys en/de
-(`sync-translations`), STATUS, roadmap, `UNVERIFIED` table.
+NumPy KNN on analogue days (features: day type, slot, temperature, recent load); mode `shadow`
+by default: scored next to the profiles, shown in the accuracy view, used only in `auto` while
+better over the last 14 days. Benchmark on aarch64 (training + prediction < 1 s).
+
+### WP13 – Docs, translations, STATUS · `docs-writer`, `i18n-sync` (Haiku)
+
+User guide `docs/user/<lang>/planning-and-battery.md` (forecasts, risk level and buffers,
+tariffs, how the planner decides, strategies, adapters and enabling external battery control,
+shadow → assisted walk-through, limitations), quick start, app `DOCS.md`, architecture §planner,
+compatibility list, all keys en/de, STATUS, roadmap, `UNVERIFIED` table.
 
 ## 3. Pull requests and order
 
-Default (question 1): all work on the session branch `claude/zealous-mayer-j5oda9`, one commit
-series per WP and **one PR**; if the maintainer allows extra branches, the same commits are split
-into stacked PRs:
+Small stacked PRs (maintainer, 2026-10-16). 4-A uses the session branch; the others are pushed as
+`phase-4/<letter>-<topic>`, each based on the previous one. Every PR gets the `reviewer` agent
+(Opus) before it is opened, its findings fixed in `fix(...)` commits; PRs with safety-relevant
+code additionally the `control-safety` sign-off.
 
 | PR | Content | Depends on |
 |---|---|---|
-| 4-A `feat(core,storage,forecast,tariff)` | WP1–WP6 | – |
-| 4-B `feat(planner,app)` | WP7, WP8 | 4-A |
-| 4-C `feat(safety,controller,devices)` battery | WP9 | 4-B |
-| 4-D `feat(frontend),docs` | WP10, WP11 | 4-C |
+| 4-A `feat(core)` contracts | plan, WP1, WP2 | – |
+| 4-B `feat(storage)` time series | WP3 | 4-A |
+| 4-C `feat(tariff)` | WP4 | 4-B |
+| 4-D `feat(forecast)` PV | WP5 | 4-B |
+| 4-E `feat(forecast)` load + risk | WP6, WP7 | 4-D |
+| 4-F `feat(planner,app)` | WP8, WP9 | 4-C, 4-E |
+| 4-G `feat(safety,controller,devices)` battery | WP10 | 4-F |
+| 4-H `feat(frontend),docs` | WP11, WP13 | 4-G |
+| 4-I `feat(forecast)` ML load (optional) | WP12 | 4-E |
 
 ```text
-WP1 ─► WP2 ─┬► WP3 ─► WP4 ─┐
-            ├► WP5 ────────┼─► WP7 ─► WP8 ─► WP9 ─► WP10 ─► WP11
-            └► WP6 ────────┘
+WP1 ─► WP2 ─► WP3 ─┬► WP4 ───────────────┐
+                   └► WP5 ─► WP6 ─► WP7 ─┴► WP8 ─► WP9 ─► WP10 ─► WP11 ─► WP13
+                                    └► WP12
 ```
 
-I integrate, run `./scripts/check.sh` and the frontend checks after every WP and commit per WP
-(Conventional Commits; CHANGELOG via release-please, no hand edits). Before the PR the `reviewer`
-agent (Fable) reviews the whole change; its findings are fixed in separate `fix(...)` commits.
-`control-safety` signs off WP9 with the invariant table in the PR description.
+I integrate, run `./scripts/check.sh` and the frontend checks after every WP, commit and push per
+WP (Conventional Commits; CHANGELOG via release-please, no hand edits). Open questions go into
+each PR under "Offene Fragen an den Maintainer".
 
 ## 4. Tests and verification
 
 | Layer | Tool | What |
 |---|---|---|
-| Series/contracts | pytest, hypothesis | resampling preserves energy, quantiles monotone, price grid 15/60 mixed |
-| Adapters | pytest with fixtures from verified source shapes | Solcast, Forecast.Solar, Open-Meteo SF, generic, Tibber, Nord Pool, ENTSO-E, EPEX, fixed/HT-NT; missing/partial data; DST days (23/25 h) |
+| Series/contracts | pytest, hypothesis | resampling preserves energy, quantiles monotone, mixed 15/60 grids, DST days |
+| Adapters | pytest with fixtures from verified shapes | every forecast and price adapter; missing/partial data |
 | Blending/calibration/load | pytest, hypothesis | weights sum to 1, bias bounded, clipping excluded, controlled loads subtracted |
-| Planner | hypothesis + reference solver | balance, SoC bounds, objective ≤ heuristic, grid charging windows, negative prices, infeasible → fallback, time budget respected |
-| Benchmark | `scripts/bench_planner.py`, CI job on `ubuntu-24.04-arm` | reference scenario 48 h; budget see R3 |
-| Safety | hypothesis | battery invariants, gate never writes the battery in shadow/assisted without confirm, release paths |
-| Simulator | `-m simulator` | scenarios of WP9, 7-day run with planner + controller, fail-safe of the battery |
-| Storage | pytest | migrations 0004 + timeseries.db, rebuild from statistics, retention |
-| Boundary | AST test | planner imports `core` only; battery adapters' `apply()` only via the gate; actions only through the rate limiter |
-| API | httpx ASGI | plan, replan, accuracy, prices |
-| Frontend | Vitest, Playwright, axe | plan view, reasons, battery card, wizard steps |
+| Risk model | hypothesis | buffer/target monotone in risk and uncertainty, never below manual limits |
+| Planner | hypothesis + reference solver | balance, SoC bounds, objective ≤ heuristic, grid-charge policy, negative prices, fallback, budget; targets met when actuals lie inside the planned quantile |
+| Benchmark | `scripts/bench_planner.py`, CI job on `ubuntu-24.04-arm` | reference scenario 48 h (R3); ML training/prediction |
+| Safety | hypothesis | the battery never falls below the reserve through SunCore; no write in shadow/assisted without confirm; release paths |
+| Simulator | `-m simulator` | scenarios of WP10 incl. sunny day, mixed clouds, two poor days, too optimistic forecast; 7-day run planner + controller |
+| Storage | pytest | migration 0004 + timeseries.db, rebuild, retention |
+| Boundary | AST test | planner imports `core` only; battery `apply()` only via the gate; actions only through the rate limiter |
+| API, Frontend | httpx ASGI; Vitest, Playwright, axe | plan, replan, accuracy, prices; plan view, battery card, wizard |
 | Coverage | pytest-cov | ≥ 80 % core/safety/planner/controller (aim ≥ 90 % planner and safety) |
 
 No hardware and no Docker daemon in the session: image and smoke test run in CI; the maintainer's
@@ -282,78 +302,65 @@ shadow and assisted run is the acceptance test.
 
 | # | Risk | Impact | Mitigation |
 |---|---|---|---|
-| R1 | A battery write empties the battery or charges from the grid at the wrong time | money, backup reserve | battery starts in shadow, assisted needs confirmation, invariants property-tested, reserve + BMS drift margin, `control-safety` sign-off, inverter fallback timer (§3.5) as hardware watchdog |
-| R2 | Kostal Modbus timeout and enabling unverified | adapter does nothing or does not fall back | §3.5 limits with documented fallback first; §3.4 set-points out of scope; measurement by the maintainer before automatic |
-| R3 | Solve time on a Pi 4 > 10 s | stale plans | LP first, few binaries, warm start, time budget 8 s + heuristic; CI arm runner is faster than a Pi 4 → CI budget 3 s as a proxy; the maintainer runs amd64 (KVM), a Pi 4 measurement needs a volunteer |
-| R4 | `highspy` (+ NumPy) enlarges the image and memory | RSS budget 300 MB | musllinux wheels verified (research); smoke-test memory gate stays; solver in a thread, model freed after the run |
-| R5 | Forecast adapters rely on attributes that change between integration versions | missing plan | tolerant parsers, source version in `tested_with`, fallback to other sources or flat profile with UI hint |
-| R6 | Built-in fallbacks need internet and unverified terms | licence/terms breach, cloud dependency | opt-in, off by default, attribution shown, only after WP1 verified the terms (question 5) |
-| R7 | Load forecast poor at start (little history) | bad battery decisions | rebuild from HA statistics, wide P10/P90, conservative target on P10, UI hint |
-| R8 | Phase too large for one review | slow review, missed bugs | WP commits, stacked PRs if allowed (question 1), reviewer per PR |
-| R9 | DB schema 4 blocks a downgrade | user cannot roll back | release note, export before update |
-| R10 | Phase 3 acceptance finds controller issues while Phase 4 builds on it | rework | Phase 4 changes the controller only in the battery path and the plan input; fixes from the live test are merged first |
-| R11 | ECharts breaks the bundle budget | slow first paint | lazy chunk for the plan view only |
+| R1 | A battery write empties the battery or charges from the grid at the wrong time | money, backup reserve | battery starts in shadow, assisted needs confirmation, invariants property-tested, reserve + drift margin, `control-safety` sign-off, §3.5 fallback timer as hardware watchdog |
+| R2 | Kostal Modbus timeout and enabling unverified | adapter does nothing or does not fall back | §3.5 limits first; §3.4 out of scope; measurement before automatic |
+| R3 | Solve time on a Pi 4 > 10 s | stale plans | LP first, few binaries, warm start, budget 8 s + heuristic; CI arm runner as proxy (budget 3 s); the maintainer runs amd64, a Pi 4 needs a volunteer |
+| R4 | `highspy` + NumPy enlarge image and memory | RSS budget 300 MB | musllinux wheels verified; smoke-test memory gate; solver in a thread |
+| R5 | Integration attributes change between versions | missing plan | tolerant parsers, `tested_with`, fallback to other sources or a flat profile |
+| R6 | Built-in fallbacks need internet and unverified terms | terms breach, cloud dependency | opt-in, off, attribution, only after WP1 verified the terms (question 5) |
+| R7 | Little history at the start | poor buffers | HA statistics rebuild for load; source quantiles for PV until 30 days; cautious default |
+| R8 | Learnt buffer too high | battery always full, less self-consumption | bounded by max SoC, shown with its reason, risk level and manual floor adjustable |
+| R9 | DB schema 4 blocks a downgrade | no rollback | release note, export before update |
+| R10 | Phase 3 live test finds controller issues | rework | Phase 4 touches the controller only in the battery path and the plan input; fixes first |
+| R11 | ECharts breaks the bundle budget | slow first paint | lazy chunk |
+| R12 | Nine stacked PRs drift when an early one changes | rebase work | merge in order, small PRs, merge commits (no history rewrite) |
 
-## 6. Questions to the maintainer
+## 6. Questions and answers
 
-Bold = default if there is no answer.
-
-1. **PR structure:** the session may only push `claude/zealous-mayer-j5oda9`. **One PR with one
-   commit series per WP** – or may I push stacked branches `phase-4/a…d` (four PRs as in
-   Phases 1–3)?
-2. **Phase 3 not yet accepted:** **build Phase 4 in parallel; merge only after your Phase 3
-   acceptance**, fixes from your live test go first.
-3. **Kostal battery control path** (you have SunSpec Modbus read-only and the core
-   `kostal_plenticore` integration):
-   (a) **Phase 4 ships the generic adapter and `kostal_plenticore` (min SoC = discharge
-   lock/reserve, no grid charging over REST); the Modbus §3.5 limits are written through Home
-   Assistant's `modbus.write_register` action (you add a `modbus` hub in HA), shadow/assisted
-   only until the fallback timer is measured on your inverter**;
-   (b) SunCore talks Modbus TCP itself (`pymodbus`, opt-in) – the brief's non-goal "no own
-   Modbus implementation" speaks against it;
-   (c) no Modbus in Phase 4. Is "external battery management via Modbus" enabled in your
-   inverter (installer menu)?
-4. **Model budget:** in Phase 3 the Fable credits ran out and Opus did the Fable work. **Same
-   rule again if Fable is unavailable**?
-5. **Built-in fallbacks** (Open-Meteo PV, Energy-Charts/aWATTar prices) need internet from the
-   app and their APIs/terms could not be verified from the session: **only ship them if WP1 can
-   verify them, then opt-in and off by default; otherwise move them to Phase 6**.
-6. **Battery economics defaults** (all expert parameters, shown with their source/explanation):
-   **charge and discharge efficiency 95 % each, degradation 0.04 €/kWh throughput, grid-charge
-   safety margin 0.03 €/kWh, BMS-drift margin 5 % above the reserve** (your BMS sags from 10 %
-   to 6–7 %). Do you know BYD HVM figures you want instead?
-7. **Night window for "grid charging only at night":** **22:00–06:00 local**, configurable.
-8. **Your EEG tiers** (10 kWp + rest): the region `de` template has no official rates (not
-   invented). **You enter the two rates in the tariff step**; or do you give me the BNetzA table
-   to cite?
-9. **Tibber `price`:** **treated as the all-in end price** (no formula on top). Correct for your
-   contract?
-10. **Plan view scope:** **minimal plan chart in Phase 4 (price, PV band, load, SoC, battery,
-    reasons), the full chart with Gantt/zoom in Phase 5**.
-11. **Calibration charge:** **off by default; if on, once every 30 days to 100 %, scheduled into
-    a sunny day by the planner**.
+1. PR structure: ~~one PR~~ **small stacked PRs** (maintainer, 2026-10-16, §3). May I push the
+   extra branches `phase-4/b…i`? (Needed for the stacked PRs.)
+2. Phase 3 not yet accepted: **build in parallel; merge after the Phase 3 acceptance**.
+3. Kostal battery control path: **(a) generic + `kostal_plenticore`; Modbus §3.5 via HA's
+   `modbus.write_register`, shadow/assisted until the fallback timer is measured** – still open:
+   is "external battery management via Modbus" enabled in your inverter?
+4. Model budget: **Opus takes the Fable roles** (answered).
+5. Built-in fallbacks: **only if verifiable, then opt-in and off; else Phase 6**.
+6. Battery economics defaults: **95 %/95 %, 0.04 €/kWh degradation, 0.03 €/kWh margin, drift
+   margin 5 %**; BYD HVM figures welcome.
+7. Grid charging: **price level + schedule** (answered); off until set.
+8. EEG tiers: **you enter the two rates**.
+9. Tibber `price`: **all-in end price**.
+10. Plan view: **minimal in Phase 4**.
+11. Calibration charge: **built, off by default** (answered).
+12. Concept: history needed for calibration and ML: **30 days** (answered); ML **runs in
+    parallel in shadow for comparison** (answered).
+13. Concept: risk level default: **cautious** (answered).
+14. Concept: self-sufficiency weight: **on with 0.01 currency/kWh** (my choice, §0; maintainer
+    left it open).
 
 ### Answers (2026-10-16)
 
 - Every WP ends with a commit **and a push**, so nothing is lost when the session's usage quota
   runs out.
 - **Opus takes the Fable roles** (`optimizer-engineer`, `control-safety`, `reviewer`, advisor).
-- Question 1 (PR structure), 2, 3, 5, 6, 8, 9, 10: defaults.
-- Question 11: the calibration charge is built for other users, **off by default**.
-- Battery strategy of the maintainer: **"keep the battery as full as possible"** – a strategy
-  option `prefer_full` (target 100 % as early as the P10 forecast allows, PV surplus to the battery
-  before consumers until full, discharge only for the house); self-consumption stays the default
-  for new installations.
-- Question 7: instead of a fixed night window, grid charging is allowed by **a price level**
-  (charge only when the import price is at or below a user-set level, currency/kWh) **and a
-  schedule** (weekly time windows, default: always allowed inside the price level). The spread rule
-  (efficiency + degradation + margin) still applies on dynamic tariffs; the existing
-  `goals.grid_charge_night_only` is migrated to a schedule 22:00–06:00. Grid charging stays off
-  until the user sets a level or a schedule.
+- Calibration charge: built for other users, **off by default**.
+- Battery of the maintainer: **"as full as possible"** → strategy `prefer_full` (§0).
+- Grid charging by **a price level and a schedule** instead of a fixed night window; the spread
+  rule still applies on dynamic tariffs; `goals.grid_charge_night_only` is migrated to a schedule
+  22:00–06:00; grid charging stays off until the user sets a level or a schedule.
+- Concept: 30 days of history, ML in parallel for comparison, risk level cautious.
+- Stacked branches `phase-4/b…i` may be pushed.
+- External battery management via Modbus is **not enabled** on the maintainer's inverter yet; he
+  enables it when he wants grid charging. Consequence: the Modbus adapter is built and tested in
+  the simulator but stays `UNVERIFIED` on hardware; without it SunCore controls the battery only
+  through `kostal_plenticore` (min SoC: reserve and discharge lock). Charging from PV needs no
+  write at all (the inverter's own self-consumption logic does it).
+- Self-sufficiency weight: explained to the maintainer, default 0.01 currency/kWh kept.
 
 ## 7. Out of scope for Phase 4
 
 Full plan chart with device Gantt, zoom/pan, history, savings vs baselines, what-if and
-backtesting (Phase 5); export limiting through the inverter, peak shaving with load shedding,
-§14a control signal, backup-power awareness, wallbox/EV, heat pump, shiftable programs, MQTT
-entities and notifications (Phase 6); Kostal §3.4 set-points and MDC; V2H/V2G; ML load models.
+backtesting (Phase 5); thermal models for climate and water heater in the planner, export limiting
+through the inverter, peak shaving with load shedding, §14a control signal, backup-power
+awareness, wallbox/EV, heat pump, shiftable programs, MQTT entities and notifications (Phase 6);
+Kostal §3.4 set-points and MDC; V2H/V2G; ML models beyond the NumPy KNN.
