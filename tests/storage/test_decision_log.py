@@ -74,3 +74,65 @@ async def test_gate_writes_into_the_log(db: Database) -> None:
     d2 = await gate.submit(make_intent(2, asset="device.b"))
     assert await log.latest(10) == [d2, d1]
     assert all(d.kind is DecisionKind.SHADOW for d in await log.latest(10))
+
+
+V1_ROW = (
+    '{"intent": {"id": "i-9", "ts": "2026-10-12T12:00:09Z", "asset_id": "device.a", '
+    '"action": {"kind": "switch", "on": true}, "reasons": [], "origin": "controller"}, '
+    '"kind": "shadow", "ts": "2026-10-12T12:00:09Z", '
+    '"reasons": [{"key": "safety.shadow_mode", "args": {}}], "mode": "shadow"}'
+)
+"""Payload exactly as the Phase 1 ``DecisionLog.append`` stored it (no ``schema_version``)."""
+
+
+async def test_latest_loads_phase_1_rows_and_skips_corrupt_ones(db: Database) -> None:
+    log = DecisionLog(db)
+    await log.append(make_decision(1))
+    await db.execute(
+        "INSERT INTO decision (ts, asset_id, layer, kind, payload, reasons) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("2026-10-12T12:00:09+00:00", "device.a", "safety", "shadow", V1_ROW, "[]"),
+    )
+    await db.execute(
+        "INSERT INTO decision (ts, asset_id, layer, kind, payload, reasons) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("2026-10-12T12:00:10+00:00", "device.a", "safety", "shadow", '{"kind": "shadow"}', "[]"),
+    )
+    await db.execute(
+        "INSERT INTO decision (ts, asset_id, layer, kind, payload, reasons) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "2026-10-12T12:00:11+00:00",
+            "device.a",
+            "safety",
+            "shadow",
+            V1_ROW.replace('"kind": "shadow"', '"kind": "shadow", "schema_version": 42'),
+            "[]",
+        ),
+    )
+    latest = await log.latest(10)
+    assert [d.intent.id for d in latest] == ["i-9", "i-1"]
+    assert latest[0].schema_version == 2
+    assert latest[0].kind is DecisionKind.SHADOW
+    assert await log.count() == 4
+
+
+async def test_append_normalises_the_ts_to_utc_and_prune_uses_it(db: Database) -> None:
+    from datetime import timezone  # noqa: PLC0415
+
+    log = DecisionLog(db)
+    plus_two = timezone(timedelta(hours=2))
+    old = make_decision(0).model_copy(update={"ts": (T0 - timedelta(days=40)).astimezone(plus_two)})
+    new = make_decision(1).model_copy(update={"ts": T0.astimezone(plus_two)})
+    await log.append(old)
+    await log.append(new)
+    rows = await db.fetchall("SELECT ts FROM decision ORDER BY id")
+    assert [str(r[0]) for r in rows] == [
+        (T0 - timedelta(days=40)).isoformat(),
+        T0.isoformat(),
+    ]
+    assert all("+00:00" in str(r[0]) for r in rows)
+    deleted = await log.prune(T0, max_age_days=30)
+    assert deleted == 1
+    assert [d.intent.id for d in await log.latest()] == ["i-1"]
+    assert (await log.latest())[0].ts == new.ts  # the payload keeps the original offset

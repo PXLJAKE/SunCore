@@ -462,6 +462,30 @@
         "additionalProperties": false,
         "description": "The safety gate's verdict on an intent, as stored in the decision log.",
         "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "held_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held Until"
+          },
           "intent": {
             "$ref": "#/components/schemas/Intent"
           },
@@ -471,6 +495,47 @@
           "mode": {
             "$ref": "#/components/schemas/OperatingMode"
           },
+          "observed": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "mode": "#/components/schemas/ModeAction",
+                    "power_setpoint": "#/components/schemas/PowerSetpointAction",
+                    "release": "#/components/schemas/ReleaseAction",
+                    "setpoint": "#/components/schemas/SetpointAction",
+                    "step": "#/components/schemas/StepAction",
+                    "switch": "#/components/schemas/SwitchAction"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SwitchAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PowerSetpointAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SetpointAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/StepAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ModeAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReleaseAction"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed"
+          },
           "reasons": {
             "default": [],
             "items": {
@@ -478,6 +543,12 @@
             },
             "title": "Reasons",
             "type": "array"
+          },
+          "schema_version": {
+            "default": 2,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
           },
           "ts": {
             "format": "date-time",
@@ -499,7 +570,10 @@
         "enum": [
           "accepted",
           "rejected",
-          "shadow"
+          "shadow",
+          "proposed",
+          "held",
+          "failed"
         ],
         "title": "DecisionKind",
         "type": "string"
@@ -529,8 +603,13 @@
       },
       "DeviceConfig": {
         "additionalProperties": false,
-        "description": "One configured device (instance of a template).\n\n``max_switches_per_hour`` / hysteresis / ``settle_s`` ``None`` mean \"safety/controller\ndefault\", never \"unlimited\" or \"none\" (ADR-0012 item 6).",
+        "description": "One configured device (instance of a template).\n\n``max_switches_per_hour`` / hysteresis / ``settle_s`` ``None`` mean \"safety/controller\ndefault\", never \"unlimited\" or \"none\" (ADR-0012 item 6).\n\nPhase 3 additions (all with defaults, old documents stay valid): ``allow_switch_on``\nand ``switch_on_hvac_mode`` (climate only: SunCore may switch the unit on through the\nHVAC mode; a set-point write while the unit is off also switches it on, see\nresearch/device-integrations.md), ``override_policy``.",
         "properties": {
+          "allow_switch_on": {
+            "default": false,
+            "title": "Allow Switch On",
+            "type": "boolean"
+          },
           "comfort": {
             "anyOf": [
               {
@@ -648,6 +727,13 @@
             "title": "Name",
             "type": "string"
           },
+          "override_policy": {
+            "$ref": "#/components/schemas/OverridePolicy",
+            "default": {
+              "kind": "next_day",
+              "resume_time": "04:00:00"
+            }
+          },
           "power_model": {
             "$ref": "#/components/schemas/PowerModel"
           },
@@ -670,6 +756,23 @@
               }
             ],
             "title": "Settle S"
+          },
+          "switch_on_hvac_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "heat",
+                  "cool",
+                  "heat_cool",
+                  "auto"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Switch On Hvac Mode"
           },
           "template_id": {
             "maxLength": 64,
@@ -2014,7 +2117,11 @@
           "action": {
             "discriminator": {
               "mapping": {
+                "mode": "#/components/schemas/ModeAction",
                 "power_setpoint": "#/components/schemas/PowerSetpointAction",
+                "release": "#/components/schemas/ReleaseAction",
+                "setpoint": "#/components/schemas/SetpointAction",
+                "step": "#/components/schemas/StepAction",
                 "switch": "#/components/schemas/SwitchAction"
               },
               "propertyName": "kind"
@@ -2025,6 +2132,18 @@
               },
               {
                 "$ref": "#/components/schemas/PowerSetpointAction"
+              },
+              {
+                "$ref": "#/components/schemas/SetpointAction"
+              },
+              {
+                "$ref": "#/components/schemas/StepAction"
+              },
+              {
+                "$ref": "#/components/schemas/ModeAction"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseAction"
               }
             ],
             "title": "Action"
@@ -2113,6 +2232,29 @@
           "power_w"
         ],
         "title": "Mode",
+        "type": "object"
+      },
+      "ModeAction": {
+        "additionalProperties": false,
+        "description": "Select a mode value (select option, climate HVAC mode or preset).",
+        "properties": {
+          "kind": {
+            "const": "mode",
+            "default": "mode",
+            "title": "Kind",
+            "type": "string"
+          },
+          "mode": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "ModeAction",
         "type": "object"
       },
       "ModeControl": {
@@ -2223,10 +2365,47 @@
         "enum": [
           "planner",
           "controller",
-          "user"
+          "user",
+          "safety"
         ],
         "title": "Origin",
         "type": "string"
+      },
+      "OverridePolicy": {
+        "additionalProperties": false,
+        "description": "How long a manual change is respected before SunCore takes over again (plan §6.5).\n\n* ``next_day``: at ``resume_time`` (local) of the next day (default 04:00);\n* ``hours``: ``hours`` after the override was detected (1-48).",
+        "properties": {
+          "hours": {
+            "anyOf": [
+              {
+                "maximum": 48.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "kind": {
+            "default": "next_day",
+            "enum": [
+              "next_day",
+              "hours"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "resume_time": {
+            "default": "04:00:00",
+            "format": "time",
+            "title": "Resume Time",
+            "type": "string"
+          }
+        },
+        "title": "OverridePolicy",
+        "type": "object"
       },
       "PowerModel": {
         "additionalProperties": false,
@@ -2798,6 +2977,20 @@
         "title": "RegionTemplate",
         "type": "object"
       },
+      "ReleaseAction": {
+        "additionalProperties": false,
+        "description": "Give the device back: restore the takeover baseline and stop controlling it.",
+        "properties": {
+          "kind": {
+            "const": "release",
+            "default": "release",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseAction",
+        "type": "object"
+      },
       "RoleSpec": {
         "additionalProperties": false,
         "description": "One entity role of a template.",
@@ -2891,6 +3084,36 @@
           "value_unit"
         ],
         "title": "SeriesFields",
+        "type": "object"
+      },
+      "SetpointAction": {
+        "additionalProperties": false,
+        "description": "Write an absolute temperature set-point in °C.\n\n``base_c`` is the user's own set-point the controller shifts from; it is recorded so\nthe decision log and the release path know what \"back to normal\" means. A shift of\nzero (``setpoint_c == base_c``) restores the user's value.",
+        "properties": {
+          "base_c": {
+            "maximum": 150.0,
+            "minimum": -50.0,
+            "title": "Base C",
+            "type": "number"
+          },
+          "kind": {
+            "const": "setpoint",
+            "default": "setpoint",
+            "title": "Kind",
+            "type": "string"
+          },
+          "setpoint_c": {
+            "maximum": 150.0,
+            "minimum": -50.0,
+            "title": "Setpoint C",
+            "type": "number"
+          }
+        },
+        "required": [
+          "setpoint_c",
+          "base_c"
+        ],
+        "title": "SetpointAction",
         "type": "object"
       },
       "SetpointControl": {
@@ -3075,6 +3298,29 @@
         "title": "Step",
         "type": "object"
       },
+      "StepAction": {
+        "additionalProperties": false,
+        "description": "Select step ``step`` (index into the device's ``control.steps``; 0 = lowest).",
+        "properties": {
+          "kind": {
+            "const": "step",
+            "default": "step",
+            "title": "Kind",
+            "type": "string"
+          },
+          "step": {
+            "maximum": 15.0,
+            "minimum": 0.0,
+            "title": "Step",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step"
+        ],
+        "title": "StepAction",
+        "type": "object"
+      },
       "StepsControl": {
         "additionalProperties": false,
         "description": "Discrete power levels written to ``role`` (select option or number).",
@@ -3131,7 +3377,7 @@
       },
       "SwitchAction": {
         "additionalProperties": false,
-        "description": "Turn a device on or off.",
+        "description": "Turn a device on or off.\n\nFor a climate device \"on\" means the configured ``switch_on_hvac_mode`` and \"off\"\nmeans HVAC mode ``off``; a switch-on needs the device's ``allow_switch_on`` opt-in\n(checked by the safety invariants).",
         "properties": {
           "kind": {
             "const": "switch",

@@ -13,6 +13,9 @@
     accepted: 'decision.kind.accepted',
     rejected: 'decision.kind.rejected',
     shadow: 'decision.kind.shadow',
+    proposed: 'decision.kind.proposed',
+    held: 'decision.kind.held',
+    failed: 'decision.kind.failed',
   };
 
   const shown = $derived(decisions.slice(0, limit));

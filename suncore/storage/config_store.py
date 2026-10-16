@@ -21,6 +21,9 @@ from suncore.core.config import (
     TariffConfig,
     WizardState,
 )
+from suncore.core.decisions import OperatingMode
+from suncore.core.devices import DeviceConfig
+from suncore.core.identity import device_identity, new_device_ids
 from suncore.core.site import SiteConfig, migrate_site_v1_to_v2
 from suncore.storage.db import Database, Row, Transaction
 from suncore.storage.errors import (
@@ -30,6 +33,7 @@ from suncore.storage.errors import (
     UnknownSectionError,
 )
 from suncore.storage.migrations import latest_version
+from suncore.storage.runtime import KEY_MODE_IDENTITIES
 
 EXPORT_FORMAT: Final = 1
 """Value of the ``suncore_export`` header field."""
@@ -179,9 +183,15 @@ class ConfigStore:
     async def put(self, section: str, model: BaseModel) -> BaseModel:
         """Store a section and keep the previous body in the history.
 
-        The model must be the section's type at the current version. Putting ``devices`` also
-        removes the ``operation`` mode entries of devices that are new (shadow).
+        The model must be the section's type at the current version. Device identity rule
+        (STATUS F6/A2, ``core.identity``): putting ``devices`` removes the ``operation`` mode
+        entries of devices that are new (id, template or mapped entities changed), so they
+        start in shadow. Putting ``operation`` records the identity of every device that
+        holds a non-shadow mode; see :meth:`restore` for the history path.
         """
+        return await self._put(section, model, restoring=False)
+
+    async def _put(self, section: str, model: BaseModel, *, restoring: bool) -> BaseModel:
         spec = self._spec(section)
         if not isinstance(model, spec.model):
             msg = f"section {section!r} expects {spec.model.__name__}, got {type(model).__name__}"
@@ -195,20 +205,92 @@ class ConfigStore:
             raise ValueError(msg)
         async with self._db.transaction() as tx:
             now = self._clock().isoformat()
-            previous_ids = (
-                await self._stored_device_ids(tx) if isinstance(model, DevicesConfig) else None
-            )
-            await self._write(tx, section, model, now)
-            if isinstance(model, DevicesConfig) and previous_ids is not None:
-                await self._shadow_new_devices(tx, model, previous_ids, now)
+            if isinstance(model, DevicesConfig):
+                previous = await self._stored_devices(tx)
+                await self._write(tx, section, model, now)
+                await self._shadow_new_devices(tx, previous, model, now)
+            elif isinstance(model, OperationConfig):
+                devices = await self._stored_devices(tx)
+                if restoring:
+                    model = await self._drop_changed_identities(tx, model, devices)
+                await self._write(tx, section, model, now)
+                await self._record_identities(tx, model, devices, now)
+            else:
+                await self._write(tx, section, model, now)
         return model
 
-    async def _stored_device_ids(self, tx: Transaction) -> frozenset[str]:
+    async def _stored_devices(self, tx: Transaction) -> list[DeviceConfig]:
+        """Stored devices; a missing or corrupt section counts as "no devices" (all new)."""
         row = await tx.fetchone(
             "SELECT schema_version, body FROM config_doc WHERE section = 'devices'"
         )
         stored = self._try_parse("devices", row)
-        return stored.ids() if isinstance(stored, DevicesConfig) else frozenset()
+        return list(stored.devices) if isinstance(stored, DevicesConfig) else []
+
+    @staticmethod
+    def _fingerprint(device: DeviceConfig) -> str:
+        identity = device_identity(device)
+        return json.dumps([identity.template_id, sorted(identity.entities)])
+
+    @staticmethod
+    async def _load_identities(tx: Transaction) -> dict[str, str]:
+        row = await tx.fetchone(
+            "SELECT value FROM safety_state WHERE key = ?", (KEY_MODE_IDENTITIES,)
+        )
+        if row is None:
+            return {}
+        try:
+            data = json.loads(str(row[0]))
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v) for k, v in data.items()}
+
+    @staticmethod
+    async def _save_identities(tx: Transaction, record: dict[str, str], now: str) -> None:
+        await tx.execute(
+            "INSERT INTO safety_state (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+            "updated_at = excluded.updated_at",
+            (KEY_MODE_IDENTITIES, json.dumps(record, sort_keys=True), now),
+        )
+
+    async def _record_identities(
+        self,
+        tx: Transaction,
+        operation: OperationConfig,
+        devices: list[DeviceConfig],
+        now: str,
+    ) -> None:
+        """Remember under which identity each non-shadow mode was granted.
+
+        Records of devices that still exist stay (also after a put back to shadow), so a later
+        restore of an older automatic state works for devices that did not change; records of
+        changed or removed devices are pruned by the ``devices`` put.
+        """
+        by_id = {d.id: d for d in devices}
+        record = {k: v for k, v in (await self._load_identities(tx)).items() if k in by_id}
+        for dev_id, mode in operation.device_modes.items():
+            if mode is not OperatingMode.SHADOW and dev_id in by_id:
+                record[dev_id] = self._fingerprint(by_id[dev_id])
+        await self._save_identities(tx, record, now)
+
+    async def _drop_changed_identities(
+        self, tx: Transaction, operation: OperationConfig, devices: list[DeviceConfig]
+    ) -> OperationConfig:
+        """Restore path: a non-shadow mode of a device that is not the device it was granted
+        to (identity changed, or never recorded) falls back to shadow."""
+        record = await self._load_identities(tx)
+        by_id = {d.id: d for d in devices}
+        stale = frozenset(
+            dev_id
+            for dev_id, mode in operation.device_modes.items()
+            if mode is not OperatingMode.SHADOW
+            and dev_id in by_id
+            and record.get(dev_id) != self._fingerprint(by_id[dev_id])
+        )
+        return operation.without_modes_of(stale)
 
     async def _write(self, tx: Transaction, section: str, model: BaseModel, now: str) -> None:
         spec = self._spec(section)
@@ -227,16 +309,25 @@ class ConfigStore:
         )
 
     async def _shadow_new_devices(
-        self, tx: Transaction, devices: DevicesConfig, previous_ids: frozenset[str], now: str
+        self,
+        tx: Transaction,
+        previous: list[DeviceConfig],
+        devices: DevicesConfig,
+        now: str,
     ) -> None:
-        """Devices whose id did not exist before start in shadow: drop their stored mode."""
+        """Devices that are new by identity start in shadow: drop their stored mode."""
+        new_ids = new_device_ids(previous, devices.devices)
         row = await tx.fetchone(
             "SELECT schema_version, body FROM config_doc WHERE section = 'operation'"
         )
         operation = self._try_parse("operation", row)
+        record = await self._load_identities(tx)
+        kept = {k: v for k, v in record.items() if k in devices.ids() and k not in new_ids}
+        if kept != record:
+            await self._save_identities(tx, kept, now)
         if not isinstance(operation, OperationConfig):
             return
-        cleaned = operation.without_modes_of(devices.ids() - previous_ids)
+        cleaned = operation.without_modes_of(new_ids)
         if cleaned is not operation:
             await self._write(tx, "operation", cleaned, now)
 
@@ -268,7 +359,12 @@ class ConfigStore:
         ]
 
     async def restore(self, section: str, entry_id: int) -> BaseModel:
-        """Make a history entry the current body again (the current body goes to history)."""
+        """Make a history entry the current body again (the current body goes to history).
+
+        Same identity rule as :meth:`put`; additionally a restored ``operation`` loses the
+        non-shadow modes of devices whose identity differs from the one the mode was granted
+        to (a mode never outlives a changed device).
+        """
         self._spec(section)
         row = await self._db.fetchone(
             "SELECT schema_version, body FROM config_history WHERE section = ? AND id = ?",
@@ -277,7 +373,7 @@ class ConfigStore:
         if row is None:
             msg = f"section {section!r} has no history entry {entry_id}"
             raise HistoryEntryNotFoundError(msg)
-        return await self.put(section, self._parse_row(section, row))
+        return await self._put(section, self._parse_row(section, row), restoring=True)
 
     async def stored_sections(self) -> frozenset[str]:
         """Names of the sections that have a stored body."""
@@ -403,19 +499,31 @@ class ConfigStore:
             old_rows = await tx.fetchall("SELECT section, schema_version, body FROM config_doc")
             old = {str(r[0]): (r[1], r[2]) for r in old_rows}
             prev_devices = self._try_parse("devices", old.get("devices"))
-            previous_ids = (
-                prev_devices.ids() if isinstance(prev_devices, DevicesConfig) else frozenset()
-            )
+            previous = prev_devices.devices if isinstance(prev_devices, DevicesConfig) else []
             new_devices = validated.get("devices")
             operation = validated.get("operation")
-            if isinstance(new_devices, DevicesConfig) and isinstance(operation, OperationConfig):
-                validated["operation"] = operation.without_modes_of(
-                    new_devices.ids() - previous_ids
+            old_record = await self._load_identities(tx)
+            record: dict[str, str] = {}
+            if isinstance(new_devices, DevicesConfig):
+                kept_ids = frozenset(d.id for d in new_devices.devices) - new_device_ids(
+                    previous, new_devices.devices
                 )
-            elif isinstance(operation, OperationConfig):  # no devices imported: all are new
-                validated["operation"] = operation.without_modes_of(
-                    frozenset(operation.device_modes)
-                )
+                record = {k: v for k, v in old_record.items() if k in kept_ids}
+            if isinstance(operation, OperationConfig):
+                # An import never carries trust over: the global mode is shadow afterwards.
+                operation = operation.model_copy(update={"mode": OperatingMode.SHADOW})
+                if isinstance(new_devices, DevicesConfig):
+                    operation = operation.without_modes_of(
+                        new_device_ids(previous, new_devices.devices)
+                    )
+                    by_id = {d.id: d for d in new_devices.devices}
+                    for dev_id, mode in operation.device_modes.items():
+                        if mode is not OperatingMode.SHADOW and dev_id in by_id:
+                            record[dev_id] = self._fingerprint(by_id[dev_id])
+                else:  # no devices imported: all are new
+                    operation = operation.without_modes_of(frozenset(operation.device_modes))
+                validated["operation"] = operation
+            await self._save_identities(tx, record, now)
             stored = {name: self._dump(model) for name, model in validated.items()}
             for name, row in old.items():
                 if (int(str(row[0])), str(row[1])) != (

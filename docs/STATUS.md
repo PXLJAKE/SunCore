@@ -3,10 +3,64 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-14 · **Phase:** 2 complete (#13–#16, #18), maintainer test
-running · Phase 3 not started (starts in a new session from its own plan) · **Branch:** `main`
+**Last update:** 2026-10-14 · **Phase:** 3 in progress (plan approved, WP1–WP3 on
+`phase-3/a-safety`) · **Branch:** `phase-3/a-safety`
 
 ## Done
+
+- **Phase 3 – WP2 contracts v2 and WP3 safety layer** (branch `phase-3/a-safety`, signed off
+  by `control-safety`):
+  - `core`: actions `SetpointAction` (absolute °C + base), `StepAction`, `ModeAction`,
+    `ReleaseAction`; `Decision.schema_version = 2`, kinds `proposed`/`held`/`failed`,
+    fields `expires_at`/`held_until`/`observed`; `Origin.SAFETY` for release intents;
+    `decision_from_payload` loads Phase 1 v1 rows (`DecisionLog.latest` skips newer or
+    corrupt rows). `core/control.py`: `PowerEstimate`, `DeviceState`, `ControlSettings`
+    (tick 5 s, smoothing 60 s, deficit 30 s / 50 Wh, proposal TTL 120 s, release deadline
+    10 s), minimal `Plan` with `Plan.default()` and per-interval `DeviceBand`/`BatteryBand`.
+    `DeviceConfig` additive: `allow_switch_on`, `switch_on_hvac_mode`, `override_policy`
+    (`next_day` 04:00 | `hours` 1–48). `core/identity.py`: device identity (id +
+    `template_id` + entities) for WP4's shadow fallback. `effective_mode = min(global, device)`.
+  - `safety`: `invariants.py` (pure, hypothesis-tested: no SunCore-caused import, import
+    limit, comfort band, min run/pause, max switches per sliding hour, write rate, write
+    only on change, battery reserve guard, climate set-point while off needs
+    `allow_switch_on`); `gate.py` with an injected `ModeProvider` (default all shadow),
+    `DeviceLookup`, `StateReader`, `InputsProvider`, `RuntimeStore`; shadow → `shadow` (with
+    the invariants that would have fired), assisted → `proposed` + `confirm` as
+    `Origin.USER`, automatic → invariants → try-acquire → takeover baseline → `apply()` →
+    settle → read-back → `accepted`/`failed` (3 failures trip the device);
+    `overrides.py` (value-based, context id only as positive evidence, hold until next day /
+    N hours, boost/pause/resume); `watchdog.py` (stale with cadence allowance, unavailable,
+    invalid unit, jumps, frozen PV in daylight, balance, connection loss; site faults pause
+    all, device faults one; SafeState → cool-down → normal); release on emergency stop
+    (persisted through `RuntimeStore`), shutdown (deadline), mode → shadow, site trip,
+    reconnect and crash recovery (`recover()`); `Actuator` gained `release(baseline)` and
+    `apply()` returns the HA context id. Boundary tests: only `safety/gate.py` calls
+    `apply()`/`release()`, drivers importable by `safety`/`app` only. 43 `safety.*` reason
+    keys in en/de. Coverage safety ≥ 96 %.
+  - App: `Runtime.start()` calls `gate.recover()`, `Runtime.stop()` calls `gate.shutdown()`
+    before closing the HA connection; the gate still has no actuators and the all-shadow
+    provider until WP9. OpenAPI and frontend API types regenerated; the decision list knows
+    the new kinds; the device editor carries the Phase 3 fields through (UI in WP10).
+  - Decisions: the watchdog judges a slow sensor's staleness as
+    `age > cadence × stale_cadence_factor` (2) because `subscribe_entities` has no
+    `last_reported`; the app sets cadences per entity (WP9). `release()` bypasses min
+    run/pause (restoring the user's state is the safe direction; noted as a risk).
+
+- **Phase 3 – WP4 storage** (branch `phase-3/a-safety`): migration `0003_runtime.sql` (DB
+  schema 3: `device_runtime`, `safety_state`, `power_model_state`; `decision(ts)` was already
+  indexed in 0001). **0.3.x cannot open a schema-3 database (it refuses newer ones): export the
+  configuration before updating.** `storage/runtime.py`: `SqliteRuntimeStore` (the gate's
+  `RuntimeStore`; an unparseable payload is logged and counts as missing, an unreadable
+  emergency-stop flag counts as stopped) and `PowerModelStateStore` (JSON per device, for WP5).
+  `DecisionLog.prune(now, max_age_days=30, max_rows=200_000)`, run hourly by
+  `Runtime` (time and sleep injected). Device identity rule replaces the id-only rule in
+  `ConfigStore`: put/import/restore of `devices` drop the `operation` mode of devices whose id,
+  template or entities changed; restore of `operation` drops modes of devices whose identity
+  differs from the one recorded when the mode was set (`safety_state.mode_identities`; no record
+  = shadow); an import always resets the global mode to shadow. The gate uses
+  `SqliteRuntimeStore`; the demo uses it on its throw-away database, never `/data`.
+  Known gap: a plain `operation` put is trusted (a stale UI document could re-add a mode for a
+  device that was just re-mapped).
 
 - **Phase 2 completion from the live LG check (PR #18, 2026-10-14)**: the maintainer runs the
   same AC through `lg_thinq` and HACS `smartthinq_sensors`. (1) Climate templates
@@ -184,6 +238,20 @@ running · Phase 3 not started (starts in a new session from its own plan) · **
   - Beta version derivation in `build.yml` and the E2E/screenshot work were done
     in PR 2-D, see Open – Phase 1.
 
+## Open – Phase 3
+
+- From the PR 3-A review (fixed in `fix(safety)`: per-device lock and re-checks before
+  `apply()`, late confirmation of slow echoes, free-surplus semantics with input age, deferred
+  release). Still for WP9: (2) the gate's `tz` must be injected from the site/region time
+  zone (override resume time is local time); (8) `operation` put trust gap – a per-device
+  mode endpoint or a precondition (device identity) so a stale UI cannot flip a device to
+  automatic; (10) wiring of `gate.recover()` after the first successful connect and of
+  `gate.connection_lost()`/`connection_restored()` from the connection state listener, plus
+  `gate.poll()` every controller tick (deferred releases) and `gate.observe()` from the
+  entity cache. Maintainer question (PR 3-A): non-urgent releases (mode change to shadow,
+  device watchdog trip, reconnect) wait for the device's minimum run/pause time; emergency
+  stop and shutdown release at once.
+
 ## Open – Phase 1
 
 - Still to report by the maintainer: menu names in the HA UI. Memory on
@@ -203,23 +271,17 @@ running · Phase 3 not started (starts in a new session from its own plan) · **
   (accent colour confirmed 2026-10-14).
 - Python ICU library decision (ADR-0007 follow-up) deferred to Phase 6:
   in Phase 1 the backend only emits `Reason(key, args)`.
-- Phase 3 follow-ups: extend boundary rule 2 to `suncore.devices` drivers
-  (only `safety` and `suncore.app` may import them) and remove
-  `test_phase_1_has_no_apply_call_anywhere`; version the decision payload
-  (or deserialise tolerantly) before changing `Decision`; retention for the
-  `decision` table; tables `plan_snapshot`/`template_override` and
-  `timeseries.db`. Emergency stop is not persisted yet (no hardware effect
-  in Phase 1). Migrations are SQL files; Python migrations when needed.
-  From the PR 1-B safety review: per-device rate limits and max
-  switches/hour belong in `safety/` (the 1 s connection floor is only a
-  flood guard, lower it to 0.2–0.5 s); read back from the entity cache with
-  a settle delay instead of a full `get_states`; give the rate limiter a
-  deadline/try-acquire API so stale intents are dropped; an `AuthError` on
+- Phase 3 follow-ups: ~~boundary rule 2 for drivers, removal of
+  `test_phase_1_has_no_apply_call_anywhere`, versioned decision payload, per-device rate
+  limits and max switches/hour in `safety/`, read-back from the cache after a settle
+  delay, try-acquire rate limiter, persisted emergency stop~~ done in WP2/WP3. Still open:
+  retention for the `decision` table and the `RuntimeStore` implementation (WP4); the
+  1 s connection flood floor is lowered when WP6 wires the first driver; tables
+  `plan_snapshot`/`template_override` and `timeseries.db` (Phase 4); an `AuthError` on
   reconnect needs a restart (document in the UI).
-- Phase 3 follow-up (review F6, A2): before the gate reads `operation`, base the "new
-  device = shadow" rule on device identity (id + `template_id` + entities) in
-  put/import/restore of `devices` **and** put/restore of `operation`, not on the id alone.
-  Decide whether an import resets the global mode to shadow (recommendation: yes).
+- Phase 3 follow-up (review F6, A2): `core/identity.py` provides the rule; WP4 applies it
+  in put/import/restore of `devices` **and** put/restore of `operation`, and an import
+  resets the global mode to shadow (plan §6.8).
 - Phase 4 follow-up (A3): per-(domain, service) rate limiter with try-acquire/deadline for
   `call_action_response` before the first adapter calls it (boundary rule 7 then admits `app`
   together with the adapter wiring).

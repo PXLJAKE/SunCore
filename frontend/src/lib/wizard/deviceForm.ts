@@ -232,6 +232,14 @@ export function deviceFromForm(
   const base = form.base;
   return {
     windows: base?.windows ?? [],
+    // Phase 3 fields (plan WP2): kept from the stored device; the editor UI follows in WP10.
+    allow_switch_on: base?.allow_switch_on ?? false,
+    switch_on_hvac_mode: base?.switch_on_hvac_mode ?? null,
+    override_policy: base?.override_policy ?? {
+      kind: 'next_day',
+      resume_time: '04:00:00',
+      hours: null,
+    },
     ...(base ?? {}),
     ...form.protection,
     id,

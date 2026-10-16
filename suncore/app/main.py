@@ -33,7 +33,7 @@ from suncore.ha import (
 )
 from suncore.ha.redact import register_secret
 from suncore.safety.gate import Clock, SafetyGate
-from suncore.storage import ConfigStore, Database, DecisionLog
+from suncore.storage import ConfigStore, Database, DecisionLog, SqliteRuntimeStore
 from suncore.templates import load_templates
 
 log = structlog.get_logger(__name__)
@@ -73,7 +73,10 @@ async def build_runtime(
         if connection is None:
             connection = _make_connection(settings, env, clock)
         decision_log = DecisionLog(db)
-        gate = SafetyGate(clock=clock, sink=decision_log.append)
+        # Demo: `db` lives in a throw-away temp dir, so the demo never touches /data.
+        gate = SafetyGate(
+            clock=clock, sink=decision_log.append, store=SqliteRuntimeStore(db, clock=clock)
+        )
         cache = EntityCache(clock=clock)
         catalogue = EntityCatalogue(connection, wall_clock=clock)
         user_templates = None if demo else data_dir / "templates"
