@@ -90,7 +90,8 @@ class EntityCache:
         self._max_age_s = max_age_s
         self._overrides = dict(max_age_overrides or {})
         self._entries: dict[str, CachedEntity] = {}
-        self._heartbeats: frozenset[str] | None = None
+        self._heartbeats: dict[str, frozenset[str]] | None = None
+        """Heartbeat entity -> its group; ``None`` = judge every entity by its own age."""
 
     # --- feeding ----------------------------------------------------------
 
@@ -141,13 +142,37 @@ class EntityCache:
             raise ValueError(msg)
         self._overrides = dict(overrides)
 
-    def set_heartbeats(self, entity_ids: Iterable[str] | None) -> None:
-        """Judge staleness only for these entities (``None``: for every entity)."""
-        self._heartbeats = None if entity_ids is None else frozenset(entity_ids)
+    def set_heartbeats(self, groups: Iterable[Iterable[str]] | None) -> None:
+        """Judge staleness only for heartbeat entities (``None``: for every entity).
+
+        Each group is one meter: a member is fresh while *any* member of its group was
+        refreshed within the maximum age (an import/export pair where one side sits at 0 W
+        for hours is alive as long as the other side reports).
+        """
+        if groups is None:
+            self._heartbeats = None
+            return
+        mapping: dict[str, frozenset[str]] = {}
+        for group in groups:
+            members = frozenset(group)
+            for member in members:
+                mapping[member] = members
+        self._heartbeats = mapping
 
     def judges_age(self, entity_id: str) -> bool:
         """Whether a silent ``entity_id`` turns ``STALE`` (see :meth:`set_heartbeats`)."""
         return self._heartbeats is None or entity_id in self._heartbeats
+
+    def _silent_s(self, entity_id: str, now: datetime) -> float | None:
+        """Seconds since the entity (or, for a heartbeat, its group) was last refreshed."""
+        entry = self._entries.get(entity_id)
+        if entry is None:
+            return None
+        group = self._heartbeats.get(entity_id) if self._heartbeats is not None else None
+        times = [entry.refreshed_at]
+        if group is not None:
+            times.extend(e.refreshed_at for m in group if (e := self._entries.get(m)) is not None)
+        return (now - max(times)).total_seconds()
 
     def max_age_s(self, entity_id: str) -> float:
         return self._overrides.get(entity_id, self._max_age_s)
@@ -158,10 +183,10 @@ class EntityCache:
 
     def is_stale(self, entity_id: str) -> bool:
         """``True`` if unknown to the cache, or silent beyond its maximum age (heartbeats only)."""
-        age = self.age_s(entity_id)
-        if age is None:
+        silent = self._silent_s(entity_id, self._now())
+        if silent is None:
             return True
-        return self.judges_age(entity_id) and age > self.max_age_s(entity_id)
+        return self.judges_age(entity_id) and silent > self.max_age_s(entity_id)
 
     def sample(self, entity_id: str) -> Sample | None:
         entry = self._entries.get(entity_id)
@@ -200,9 +225,12 @@ class EntityCache:
         value = parse_numeric(state.state)
         if value is None:
             return Sample(None, unit, ts, Quality.INVALID)
-        stale = self.judges_age(state.entity_id) and (
-            now - entry.refreshed_at
-        ).total_seconds() > self.max_age_s(state.entity_id)
+        silent = self._silent_s(state.entity_id, now)
+        stale = (
+            self.judges_age(state.entity_id)
+            and silent is not None
+            and silent > self.max_age_s(state.entity_id)
+        )
         return Sample(value, unit, ts, Quality.STALE if stale else Quality.OK)
 
 

@@ -279,8 +279,10 @@ def test_sensor_dropout_pauses_and_releases_the_devices() -> None:
     # an unchanged battery SoC 12:00-13:00 is normal (the integration only reports changes):
     # nothing trips on it
     for device_id in ("pool", "ac"):
-        silent_soc = releases(result, device_id, 21600, 25200)
-        assert all("safety.watchdog_stale" not in [r.key for r in d.reasons] for d in silent_soc)
+        assert releases(result, device_id, 21600, 25200) == []
+    mid = index(result, 23400)  # and SunCore keeps controlling: pool on, AC shifted above 21
+    assert result.devices["pool"].on[mid] is True
+    assert result.devices["ac"].setpoint_c[mid] > 21.0
     # the plug that is unavailable 16:00-16:15 cannot be written, and nothing reached it
     window = (result.scenario.start.timestamp() + 36000, result.scenario.start.timestamp() + 36900)
     reached = [

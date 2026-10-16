@@ -283,9 +283,13 @@ day with sun. The window of a few days is the point: you decide on evidence, not
   a counter-only climate needs before it shifts, "battery first" without a goal) is a first
   guess and meant to be tuned from your shadow-mode run.
 - **Only the grid meter has to keep reporting.** If it is silent for 2 minutes SunCore pauses.
-  Other sensors are trusted while available; a hung inverter is caught by frozen PV values in
-  daylight. The default sensor cadences (power sensor 60 s, energy counter 300 s unless set)
-  are assumptions.
+  Other sensors are trusted while available. A hung inverter is caught when its entities
+  become unavailable, by PV values frozen in daylight (at least 200 W for 15 minutes) or, with
+  a house sensor, by a power balance that does not add up. A battery reading that freezes
+  while still available is not detected directly; real grid import still makes SunCore back
+  off. Whether a hung Plenticore shows unavailable or frozen values is `UNVERIFIED`. The
+  default sensor cadences (power sensor 60 s, energy counter 300 s unless set) are
+  assumptions.
 - **No plan**: there are no forecasts, tariffs or planner in control yet. SunCore does not
   shift load to cheaper hours, does not pre-heat for the weather and does not write to the
   battery or the inverter. The goals *battery target* and *climate before export* only decide

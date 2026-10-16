@@ -244,7 +244,7 @@ async def test_stale_entity_ages_in_cache(conn: FakeHAConnection, ticker: Ticker
     assert pv is not None
     assert pv.quality is Quality.OK
     # with the grid meter as the only heartbeat, an unchanged SoC is still valid
-    cache.set_heartbeats([GRID_ID])
+    cache.set_heartbeats([[GRID_ID]])
     soc = cache.sample(SOC_ID)
     assert soc is not None
     assert soc.quality is Quality.OK

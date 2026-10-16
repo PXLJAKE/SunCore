@@ -122,12 +122,16 @@ def probe_temperature_c(cache: EntityCache, device: DeviceConfig) -> float | Non
     return sample.value
 
 
-def grid_heartbeats(site: SiteConfig | None) -> tuple[str, ...]:
-    """The grid meter's power entities: the signals that must keep reporting."""
+def grid_heartbeats(site: SiteConfig | None) -> tuple[tuple[str, ...], ...]:
+    """The grid meter as one heartbeat group: the signals that must keep reporting.
+
+    One signed sensor, or an import/export pair (alive while either side reports).
+    """
     if site is None:
         return ()
     grid = site.grid
-    return tuple(r.entity_id for r in (grid.power, grid.import_power, grid.export_power) if r)
+    ids = tuple(r.entity_id for r in (grid.power, grid.import_power, grid.export_power) if r)
+    return (ids,) if ids else ()
 
 
 class ControlStack:

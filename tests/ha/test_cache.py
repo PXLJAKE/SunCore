@@ -200,7 +200,7 @@ def test_only_heartbeats_turn_stale_when_silent() -> None:
             }
         )
     )
-    cache.set_heartbeats(["sensor.grid"])
+    cache.set_heartbeats([["sensor.grid"]])
     clock.advance(25 * 60)  # 25 minutes at 84 %, as on the maintainer's battery
     soc = cache.sample("sensor.soc")
     grid = cache.sample("sensor.grid")
@@ -215,3 +215,26 @@ def test_only_heartbeats_turn_stale_when_silent() -> None:
     soc = cache.sample("sensor.soc")
     assert soc is not None
     assert soc.quality is Quality.STALE
+
+
+def test_an_import_export_pair_is_alive_while_either_side_reports() -> None:
+    clock = Clock()
+    cache = _cache(clock, max_age_s=120)
+    cache.ingest(
+        EntityUpdate(
+            changed={"sensor.imp": _st("sensor.imp", "0"), "sensor.exp": _st("sensor.exp", "900")}
+        )
+    )
+    cache.set_heartbeats([["sensor.imp", "sensor.exp"]])
+    for _ in range(10):  # export keeps changing, import sits at 0 W for 10 minutes
+        clock.advance(60)
+        cache.ingest(EntityUpdate(changed={"sensor.exp": _st("sensor.exp", str(900 + _))}))
+    imp = cache.sample("sensor.imp")
+    assert imp is not None
+    assert imp.quality is Quality.OK
+    assert not cache.is_stale("sensor.imp")
+    clock.advance(121)  # now the whole meter is silent
+    imp = cache.sample("sensor.imp")
+    assert imp is not None
+    assert imp.quality is Quality.STALE
+    assert cache.is_stale("sensor.exp")

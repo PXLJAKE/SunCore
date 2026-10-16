@@ -132,7 +132,9 @@ def test_after_a_change_the_age_runs_from_the_change() -> None:
     model.observe(at(3600), on, samples)
     fresh = model.estimate(at(3700), on, samples)
     assert fresh.quality is Quality.OK
-    assert fresh.age_s == 100
+    # the sample predates the change: its true age is reported (the controller keeps the
+    # level's expected power until the sensor catches up)
+    assert fresh.age_s == 3700
     late = model.estimate(at(3600 + 601), on, samples)
     assert late.quality is Quality.STALE
     assert late.uncertainty_w > fresh.uncertainty_w
@@ -148,3 +150,15 @@ def test_without_a_device_state_the_sample_age_counts() -> None:
     samples = {ROLE: power_sample(5, T0)}
     model.observe(at(1), None, samples)
     assert model.estimate(at(100), None, samples).quality is Quality.STALE
+
+
+def test_a_change_across_an_unknown_gap_is_still_a_change() -> None:
+    model = MeasuredPowerModel(ROLE, cadence_s=300)
+    off = climate_state(on=False, mode="off", setpoint=None)
+    on = climate_state(on=True, mode="heat", setpoint=22.0)
+    gap = climate_state(quality=Quality.UNAVAILABLE)
+    samples = {ROLE: power_sample(5, T0)}
+    model.observe(at(10), off, samples)
+    model.observe(at(20), gap, samples)
+    model.observe(at(3600), on, samples)
+    assert model.estimate(at(3600 + 601), on, samples).quality is Quality.STALE

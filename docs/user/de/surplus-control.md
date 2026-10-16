@@ -301,9 +301,13 @@ anhand von Belegen, nicht aus Hoffnung.
   Überschuss, den ein Klimagerät nur mit Zähler vor dem Verschieben braucht, „Batterie zuerst“ ohne
   Ziel) ist eine erste Schätzung und soll nach deinem Schattenlauf abgestimmt werden.
 - **Nur der Netzzähler muss sich laufend melden.** Schweigt er 2 Minuten, pausiert SunCore.
-  Andere Sensoren gelten als aktuell, solange sie verfügbar sind; ein hängender Wechselrichter
-  fällt über eingefrorene PV-Werte bei Tageslicht auf. Die Standard-Sensortakte (Leistungssensor
-  60 s, Energiezähler 300 s, sofern nicht gesetzt) sind Annahmen.
+  Andere Sensoren gelten als aktuell, solange sie verfügbar sind. Ein hängender Wechselrichter
+  fällt auf, wenn seine Entitäten nicht verfügbar werden, über PV-Werte, die bei Tageslicht
+  einfrieren (mindestens 200 W für 15 Minuten), oder mit Haussensor über eine Leistungsbilanz,
+  die nicht aufgeht. Ein Akku-Wert, der einfriert und verfügbar bleibt, wird nicht direkt
+  erkannt; echter Netzbezug lässt SunCore trotzdem zurücknehmen. Ob ein hängender Plenticore
+  „nicht verfügbar“ oder eingefrorene Werte zeigt, ist `UNVERIFIED`. Die Standard-Sensortakte
+  (Leistungssensor 60 s, Energiezähler 300 s, sofern nicht gesetzt) sind Annahmen.
 - **Kein Plan**: Prognosen, Tarife und Planer steuern noch nichts. SunCore verschiebt keine Last in
   günstigere Stunden, heizt nicht nach dem Wetter vor und schreibt weder auf Batterie noch auf
   Wechselrichter. Die Ziele *Batterie-Ziel* und *Klimagerät vor Einspeisung* entscheiden nur, ob

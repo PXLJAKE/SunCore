@@ -16,8 +16,10 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from suncore.controller import reasons as rs
+from suncore.core.balance import Flow
 from suncore.core.control import ControlSettings, DeviceState
 from suncore.core.decisions import Decision, SetpointAction, StepAction, SwitchAction
+from suncore.core.signals import Quality
 from tests.controller.sim import Battery, Sim, build_sim
 from tests.safety.helpers import T0, climate_device, steps_device, switch_device
 
@@ -156,3 +158,24 @@ def test_above_the_import_limit_the_back_off_is_immediate() -> None:
     off = [d for d in after(sim, DROP_S) if d.intent.action == SwitchAction(on=False)]
     assert [d.intent.reasons[0] for d in off] == [rs.import_limit(1300.0, 1000.0)]
     assert off[0].ts == T0 + timedelta(seconds=DROP_S)
+
+
+def test_a_frozen_battery_reading_cannot_hide_grid_import() -> None:
+    """Inverter hang: the battery reading sticks at +3000 W charging while the grid imports."""
+    sim = build_sim(devices()[:1], pv=drop(DROP_S, 2500.0, 0.0))
+    sim.run_sync(DROP_S)
+    assert sim.devices["pool"].state.on
+
+    async def go(ticks: int) -> None:
+        for _ in range(ticks):
+            real = sim.inputs()
+            assert real.flows is not None
+            frozen = dataclasses.replace(real.flows, battery_w=Flow(3000.0, Quality.OK))
+            await sim.loop.tick(sim.now, dataclasses.replace(real, flows=frozen))
+            await sim.loop.drain()
+            sim.now += timedelta(seconds=sim.settings.tick_s)
+
+    asyncio.run(go(int(sim.settings.deficit_delay_s / sim.settings.tick_s) + 3))
+    off = [d for d in after(sim, DROP_S) if d.intent.action == SwitchAction(on=False)]
+    assert off, "the real grid import backs the pool off despite the frozen battery"
+    assert off[0].intent.reasons[0].key in BACKOFF_KEYS

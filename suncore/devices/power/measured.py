@@ -103,14 +103,19 @@ class MeasuredPowerModel:
         age = self._information_age(now, ts, state)
         if age > self._cadence_s * STALE_CADENCE_FACTOR:
             quality = worst_quality(quality, Quality.STALE)
-        return make_estimate(value, self._uncertainty(value, age) + negative_w, quality, age)
+        # A sample from before the latest change reports its true age, so the controller
+        # sees that the estimate does not reflect the change yet (``unsettled``).
+        behind = self._changed_at is not None and ts < self._changed_at
+        reported = age_s(now, ts) if behind else age
+        return make_estimate(value, self._uncertainty(value, age) + negative_w, quality, reported)
 
     def _track_state(self, now: datetime, state: DeviceState | None) -> None:
         if state is None or not state.known:
             self._state_known = False
             return
         key = (state.on, state.step, state.setpoint_c, state.mode)
-        if self._state_known and key != self._state_key:
+        # Compared with the last *known* state, so a change across an unknown gap counts.
+        if self._state_key is not None and key != self._state_key:
             self._changed_at = now
         self._state_key = key
         self._state_known = True

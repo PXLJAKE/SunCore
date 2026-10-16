@@ -17,9 +17,15 @@ Staleness and slow sensors: ``subscribe_entities`` carries no ``last_reported``
 unchanged value, so a sensor whose value does not change is silent. The watchdog
 therefore follows the cache's ``STALE`` flag, which the composition root restricts to
 the grid meter (``EntityCache.set_heartbeats``): an unchanged state of charge or idle
-power sensor is not a fault. A frozen integration is still caught by ``unavailable``,
-by the frozen-PV check in daylight and by a silent grid meter. For an entity with a
-known **cadence** the flag must also be older than ``cadence * stale_cadence_factor``.
+power sensor is not a fault. A frozen integration is caught by ``unavailable``, by the
+frozen-PV check (at least ``frozen_pv_min_w`` for ``frozen_pv_s``, so only in daylight),
+by a silent grid meter and, with a measured house sensor, by the balance check. Not
+caught directly: a battery, SoC or device reading that freezes while it stays available.
+Its effect is bounded because the gate and the controller's deficit back-off judge the
+real grid flow (import always counts as a deficit). For an entity with a known
+**cadence** the flag must also be older than ``cadence * stale_cadence_factor``.
+``UNVERIFIED``: whether a hung Plenticore turns its SunSpec entities ``unavailable`` or
+keeps frozen registers.
 Time is injected; the watchdog never reads the wall clock.
 """
 

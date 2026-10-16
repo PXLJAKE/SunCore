@@ -18,6 +18,12 @@ ADRs relevant to your task. Keep it short; history lives in git.
   in daylight and a silent grid meter. The measured power model counts the age of the information:
   an unchanged value of an unchanged device is current, after a state change the age runs from the
   change. Scenario `sensor_dropout` now silences the grid meter (trips) and the SoC (does not).
+  Safety review fixes: a sample from before a state change reports its true age (the controller
+  keeps the level's power until a slow sensor catches up); grid import always counts as a deficit
+  in the back-off (a frozen battery reading cannot hide it); an import/export pair is one
+  heartbeat group. Not detected directly: a battery/SoC/device reading frozen while available
+  (bounded by the grid-measured back-off). `UNVERIFIED`: whether a hung Plenticore shows
+  `unavailable` or frozen SunSpec registers.
 
 - **Phase 3 – PR 3-C (WP10 UI, WP11 docs, branch `phase-3/c-ui`)**, stacked on 3-B:
   - UI: *Now* view with a **Surplus** card (free surplus, deficit, allocated) and a card per
