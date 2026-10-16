@@ -265,7 +265,8 @@ def test_sensor_dropout_pauses_and_releases_the_devices() -> None:
     # grid_power unavailable 08:00-08:30: nothing was under control yet, nothing is written
     assert writes(result, "pool", 7200, 9000 + cooldown) == []
     assert writes(result, "ac", 7200, 9000 + cooldown) == []
-    # battery SoC stale 10:00-11:00: after the cache's 120 s the site trips and releases both
+    # grid meter silent (stale) 10:00-11:00: it is the site's heartbeat, so after the cache's
+    # 120 s the site trips and releases both
     for device_id in ("pool", "ac"):
         rel = releases(result, device_id, 14400, 14400 + 300)
         assert len(rel) == 1, device_id
@@ -275,6 +276,11 @@ def test_sensor_dropout_pauses_and_releases_the_devices() -> None:
     i = index(result, 16200)
     assert result.devices["pool"].on[i] is False
     assert result.devices["ac"].setpoint_c[i] == 21.0
+    # an unchanged battery SoC 12:00-13:00 is normal (the integration only reports changes):
+    # nothing trips on it
+    for device_id in ("pool", "ac"):
+        silent_soc = releases(result, device_id, 21600, 25200)
+        assert all("safety.watchdog_stale" not in [r.key for r in d.reasons] for d in silent_soc)
     # the plug that is unavailable 16:00-16:15 cannot be written, and nothing reached it
     window = (result.scenario.start.timestamp() + 36000, result.scenario.start.timestamp() + 36900)
     reached = [

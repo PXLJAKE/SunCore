@@ -214,7 +214,7 @@ async def test_unavailable_reaches_flows(conn: FakeHAConnection, ticker: Ticker)
 
 async def test_stale_fault_freezes_value(conn: FakeHAConnection, ticker: Ticker) -> None:
     rec = await _start(conn)
-    start, end = _step_for(14400), _step_for(18000)  # battery_soc stale [480, 600)
+    start, end = _step_for(21600), _step_for(25200)  # battery_soc stale [720, 840)
     await ticker.tick(start - 1)
     frozen = rec.updates[-1].changed[SOC_ID]
     await ticker.tick()
@@ -233,7 +233,7 @@ async def test_stale_entity_ages_in_cache(conn: FakeHAConnection, ticker: Ticker
     cache = EntityCache(clock=ticker.clock, max_age_s=120.0)
     cache.attach(conn)
     await _start(conn)
-    await ticker.tick(_step_for(14400) - 1)
+    await ticker.tick(_step_for(21600) - 1)
     assert cache.sample(SOC_ID) is not None
     await ticker.tick(10)  # 300 s without SoC updates
     soc = cache.sample(SOC_ID)
@@ -243,6 +243,11 @@ async def test_stale_entity_ages_in_cache(conn: FakeHAConnection, ticker: Ticker
     assert soc.value is not None
     assert pv is not None
     assert pv.quality is Quality.OK
+    # with the grid meter as the only heartbeat, an unchanged SoC is still valid
+    cache.set_heartbeats([GRID_ID])
+    soc = cache.sample(SOC_ID)
+    assert soc is not None
+    assert soc.quality is Quality.OK
 
 
 async def test_disconnect_fault_and_resnapshot(conn: FakeHAConnection, ticker: Ticker) -> None:

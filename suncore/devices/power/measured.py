@@ -9,6 +9,13 @@ linearly from 0 at ``cadence`` to ``span`` at ``3 * cadence`` and stays there; i
 monotone in the age. A sample older than ``cadence * STALE_CADENCE_FACTOR`` is ``stale``.
 When the sample is unusable the last good value is reported as ``stale`` /
 ``unavailable`` with the uncertainty of an old sample.
+
+The age that counts is the age of the *information*, not of the last report: many
+sensors only report a changed value (an idle unit sits at 5 W for a day). While the
+device's observed state (on/off, step, set-point, mode) has not changed since the
+sample, the sample is current (age 0). After a change the age runs from the change, so
+a slow sensor that has not caught up yet widens the uncertainty as before. Without a
+known device state the raw sample age applies.
 """
 
 from __future__ import annotations
@@ -58,6 +65,9 @@ class MeasuredPowerModel:
         self._cadence_s = cadence_s
         self._nominal_w = nominal_w
         self._last_good: tuple[float, datetime] | None = None
+        self._state_key: tuple[object, ...] | None = None
+        self._changed_at: datetime | None = None
+        self._state_known = False
 
     @property
     def inputs(self) -> tuple[str, ...]:
@@ -67,7 +77,8 @@ class MeasuredPowerModel:
     def cadence_s(self) -> float:
         return self._cadence_s
 
-    def observe(self, now: datetime, state: DeviceState | None, samples: Samples) -> None:  # noqa: ARG002
+    def observe(self, now: datetime, state: DeviceState | None, samples: Samples) -> None:
+        self._track_state(now, state)
         value, quality = sample_base_value(samples.get(self._role), Dimension.POWER)
         sample = samples.get(self._role)
         if value is None or sample is None or quality in (Quality.UNAVAILABLE, Quality.INVALID):
@@ -76,7 +87,6 @@ class MeasuredPowerModel:
             self._last_good = (max(0.0, value), sample.ts)
 
     def estimate(self, now: datetime, state: DeviceState | None, samples: Samples) -> PowerEstimate:
-        del state
         sample = samples.get(self._role)
         value, quality = sample_base_value(sample, Dimension.POWER)
         ts = sample.ts if sample is not None else None
@@ -90,10 +100,27 @@ class MeasuredPowerModel:
         elif value < 0:
             negative_w = -value  # noise below zero: clamp, widen by the amount
             value = 0.0
-        age = age_s(now, ts)
+        age = self._information_age(now, ts, state)
         if age > self._cadence_s * STALE_CADENCE_FACTOR:
             quality = worst_quality(quality, Quality.STALE)
         return make_estimate(value, self._uncertainty(value, age) + negative_w, quality, age)
+
+    def _track_state(self, now: datetime, state: DeviceState | None) -> None:
+        if state is None or not state.known:
+            self._state_known = False
+            return
+        key = (state.on, state.step, state.setpoint_c, state.mode)
+        if self._state_known and key != self._state_key:
+            self._changed_at = now
+        self._state_key = key
+        self._state_known = True
+
+    def _information_age(self, now: datetime, ts: datetime, state: DeviceState | None) -> float:
+        if state is None or not state.known or not self._state_known:
+            return age_s(now, ts)
+        if self._changed_at is not None and ts < self._changed_at:
+            return age_s(now, self._changed_at)
+        return 0.0
 
     def _uncertainty(self, value: float, age: float) -> float:
         base = NOISE_W + REL_ERROR * value

@@ -186,3 +186,32 @@ def test_samples_feed_compute_flows() -> None:
     flows = compute_flows(site, cache.samples())
     assert flows.pv_w.quality is Quality.UNAVAILABLE
     assert flows.house_w.value is None
+
+
+def test_only_heartbeats_turn_stale_when_silent() -> None:
+    """Integrations that report only changes stay valid; the grid meter must keep reporting."""
+    clock = Clock()
+    cache = _cache(clock, max_age_s=120)
+    cache.ingest(
+        EntityUpdate(
+            changed={
+                "sensor.grid": _st("sensor.grid", "-500"),
+                "sensor.soc": _st("sensor.soc", "84", unit="%"),
+            }
+        )
+    )
+    cache.set_heartbeats(["sensor.grid"])
+    clock.advance(25 * 60)  # 25 minutes at 84 %, as on the maintainer's battery
+    soc = cache.sample("sensor.soc")
+    grid = cache.sample("sensor.grid")
+    assert soc is not None
+    assert grid is not None
+    assert (soc.value, soc.quality) == (84.0, Quality.OK)
+    assert grid.quality is Quality.STALE
+    assert not cache.is_stale("sensor.soc")
+    assert cache.is_stale("sensor.grid")
+    assert cache.age_s("sensor.soc") == 25 * 60  # the age is still known
+    cache.set_heartbeats(None)  # back to judging every entity
+    soc = cache.sample("sensor.soc")
+    assert soc is not None
+    assert soc.quality is Quality.STALE

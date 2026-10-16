@@ -9,6 +9,16 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 ## Done
 
+- **Fix after the first live test (2026-10-16, branch `fix/device-freshness`)**: on the maintainer's
+  HA the SunSpec battery SoC (84 % for 25 min) and the `smartthinq_sensors` power sensors (5 W for a
+  day) never advance `last_reported` for an unchanged value, so SunCore marked them "stale" and the
+  site watchdog paused all devices. Now only the grid meter is a heartbeat
+  (`EntityCache.set_heartbeats`, set by `ControlStack`); other entities stay valid while available.
+  The watchdog follows the cache flag; a frozen inverter is still caught by `unavailable`, frozen PV
+  in daylight and a silent grid meter. The measured power model counts the age of the information:
+  an unchanged value of an unchanged device is current, after a state change the age runs from the
+  change. Scenario `sensor_dropout` now silences the grid meter (trips) and the SoC (does not).
+
 - **Phase 3 – PR 3-C (WP10 UI, WP11 docs, branch `phase-3/c-ui`)**, stacked on 3-B:
   - UI: *Now* view with a **Surplus** card (free surplus, deficit, allocated) and a card per
     device (state, estimate with uncertainty, mode switch with a confirmation and the device's

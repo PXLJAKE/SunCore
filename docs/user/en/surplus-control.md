@@ -135,10 +135,12 @@ own set-point is outside the comfort band, SunCore leaves the unit alone and say
   more surplus before it shifts and reacts **more slowly and more conservatively** than with
   a measured value. A smart plug or the HACS integration `smartthinq_sensors` (sensor
   "Energy current") gives a measured power and is the better choice if you have one.
-- **A slow power sensor** is not an outdated one: that `smartthinq_sensors` sensor updates every
-  300 seconds. Enter **Update interval of the power sensor** = 300 in the device editor,
-  otherwise SunCore treats the value as stale and pauses the device. Measured values are
-  still slower than a plug that reports every few seconds.
+- **A value that does not change is not outdated.** Many integrations only report a new
+  value (an idle unit stays at 5 W for a day, the battery at 84 % for an hour). SunCore keeps
+  such values as long as the entity is available. Only after the unit changed (switched on,
+  new mode or set-point) does it wait for the sensor to catch up: enter **Update interval of
+  the power sensor** = 300 for that `smartthinq_sensors` sensor, so the wait fits its 5-minute
+  polling. Measured values are still slower than a plug that reports every few seconds.
 
 ### Water heater
 
@@ -280,8 +282,10 @@ day with sun. The window of a few days is the point: you decide on evidence, not
 - **Controller tuning** (deficit delay and budget, the spread of the smoothing, the extra surplus
   a counter-only climate needs before it shifts, "battery first" without a goal) is a first
   guess and meant to be tuned from your shadow-mode run.
-- **Default sensor cadences** (power sensor 60 s, energy counter 300 s unless set) are
-  assumptions: set **Update interval of the power sensor** for slower sensors.
+- **Only the grid meter has to keep reporting.** If it is silent for 2 minutes SunCore pauses.
+  Other sensors are trusted while available; a hung inverter is caught by frozen PV values in
+  daylight. The default sensor cadences (power sensor 60 s, energy counter 300 s unless set)
+  are assumptions.
 - **No plan**: there are no forecasts, tariffs or planner in control yet. SunCore does not
   shift load to cheaper hours, does not pre-heat for the weather and does not write to the
   battery or the inverter. The goals *battery target* and *climate before export* only decide

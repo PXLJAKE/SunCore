@@ -21,6 +21,14 @@ change; a sensor that keeps reporting the same value (0 W at night) is silent on
   integration reports, even with an unchanged value, and is compared only for
   inequality, so the server clock never matters.
 
+Many integrations only write a state when the value changes (seen live on 2026-10-16:
+the SunSpec battery state of charge and the ``smartthinq_sensors`` power sensors keep
+``last_reported`` unchanged for hours). Silence is then normal, not a fault. With
+:meth:`EntityCache.set_heartbeats` the cache judges the age only for the given
+*heartbeat* entities (the grid meter, which changes with every load step); every other
+available entity keeps quality ``OK`` however long its value stays the same. Without
+heartbeats (the default) every entity is judged by its age.
+
 Verified 2026-10-12 against ``home-assistant/core`` ``core.py``: ``State.last_reported``,
 ``EVENT_STATE_REPORTED`` is a separate event that ``state_changed`` subscriptions do not
 carry; ``State._as_dict`` includes ``last_reported``.
@@ -82,6 +90,7 @@ class EntityCache:
         self._max_age_s = max_age_s
         self._overrides = dict(max_age_overrides or {})
         self._entries: dict[str, CachedEntity] = {}
+        self._heartbeats: frozenset[str] | None = None
 
     # --- feeding ----------------------------------------------------------
 
@@ -132,6 +141,14 @@ class EntityCache:
             raise ValueError(msg)
         self._overrides = dict(overrides)
 
+    def set_heartbeats(self, entity_ids: Iterable[str] | None) -> None:
+        """Judge staleness only for these entities (``None``: for every entity)."""
+        self._heartbeats = None if entity_ids is None else frozenset(entity_ids)
+
+    def judges_age(self, entity_id: str) -> bool:
+        """Whether a silent ``entity_id`` turns ``STALE`` (see :meth:`set_heartbeats`)."""
+        return self._heartbeats is None or entity_id in self._heartbeats
+
     def max_age_s(self, entity_id: str) -> float:
         return self._overrides.get(entity_id, self._max_age_s)
 
@@ -140,9 +157,11 @@ class EntityCache:
         return None if entry is None else (self._now() - entry.refreshed_at).total_seconds()
 
     def is_stale(self, entity_id: str) -> bool:
-        """``True`` if unknown to the cache or not refreshed within its maximum age."""
+        """``True`` if unknown to the cache, or silent beyond its maximum age (heartbeats only)."""
         age = self.age_s(entity_id)
-        return age is None or age > self.max_age_s(entity_id)
+        if age is None:
+            return True
+        return self.judges_age(entity_id) and age > self.max_age_s(entity_id)
 
     def sample(self, entity_id: str) -> Sample | None:
         entry = self._entries.get(entity_id)
@@ -181,7 +200,9 @@ class EntityCache:
         value = parse_numeric(state.state)
         if value is None:
             return Sample(None, unit, ts, Quality.INVALID)
-        stale = (now - entry.refreshed_at).total_seconds() > self.max_age_s(state.entity_id)
+        stale = self.judges_age(state.entity_id) and (
+            now - entry.refreshed_at
+        ).total_seconds() > self.max_age_s(state.entity_id)
         return Sample(value, unit, ts, Quality.STALE if stale else Quality.OK)
 
 
