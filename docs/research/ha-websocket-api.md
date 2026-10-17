@@ -357,7 +357,11 @@ Read from `home-assistant/core` `dev` `5cfe9aad7cb428c2c2ebb449719ae81976780de1`
 | `units` | object, optional | keys = unit class (e.g. `"power"`, `"energy"`, `"temperature"`), value = target unit from the class's `VALID_UNITS` (`PowerConverter`: `mW, W, kW, MW, GW, TW, BTU/h`; `EnergyConverter` includes `Wh, kWh, MWh`) |
 
 Response `result` (`_ws_get_statistics_during_period`):
-`{ "<statistic_id>": [ {"start": <ms>, "end": <ms>, "mean": f, "min": f, "max": f, "state": f, "sum": f, "change": f, "last_reset": <ms>|null}, ... ] }`.
+
+```text
+{ "<statistic_id>": [ {"start": <ms>, "end": <ms>, "mean": f, "min": f, "max": f,
+                       "state": f, "sum": f, "change": f, "last_reset": <ms>|null}, ... ] }
+```
 
 - `start` and `end` are **integer milliseconds since the Unix epoch** (UTC) of
   the period (`end = start + 5 min / 1 h`; for day and longer the reduced
@@ -383,14 +387,16 @@ Response `result` (`_ws_get_statistics_during_period`):
 - **Retention.** The `5minute` table is purged with the recorder's
   `purge_keep_days` (default **10**, `recorder/__init__.py:109`); the long-term (`hour` and
   coarser) rows are not touched by the purge code, which removes only
-  `statistics_runs` and short-term rows (`recorder/purge.py:93-110`). A 14-day history for the load profile must therefore use
+  `statistics_runs` and short-term rows (`recorder/purge.py:93-110`). A 14-day history for
+  the load profile must therefore use
   `period: "hour"`, or `5minute` only for the last 10 days. `hour` is the finest
   period beyond 10 days; sub-hourly profile slots (15 min) can come from
   `5minute` for the recent days only.
 
 **`recorder/list_statistic_ids`** (`websocket_api.py:344-353`): optional
 `statistic_type` ∈ `sum|mean`. Result: list of
-`{"statistic_id", "display_unit_of_measurement", "has_mean", "mean_type", "has_sum", "name", "source", "statistics_unit_of_measurement", "unit_class"}`
+`statistic_id`, `display_unit_of_measurement`, `has_mean`, `mean_type`, `has_sum`, `name`,
+`source`, `statistics_unit_of_measurement`, `unit_class`
 (`statistics.py:1136-1154`; `has_mean` is marked for removal with 2026.4 in the
 source comment, use `mean_type`). Includes statistics that integrations will add
 in the next period. **`recorder/get_statistics_metadata`** (`:456`) with optional
@@ -446,7 +452,8 @@ PyPI wheels `forecast-solar 5.0.1`, `open-meteo-solar-forecast 0.1.32`.
     Wh, ISO strings with the offset of the **API time zone** (the plant's
     location), one entry per hour in the free tier; the library sums values
     with `begin <= timestamp < end` for "current hour"
-    (`forecast-solar 5.0.1` wheel, `forecast_solar/models.py` `_interval_value_sum`), i.e. it treats the key as the *start* of
+    (`forecast-solar 5.0.1` wheel, `forecast_solar/models.py` `_interval_value_sum`), i.e. it
+    treats the key as the *start* of
     the period. Entries with value 0 are dropped except non-midnight ones
     (`val != 0 or time != 00:00:00`). `UNVERIFIED`: whether the vendor API itself
     labels `watt_hours_period` keys as period start or end (api.forecast.solar

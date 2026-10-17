@@ -264,7 +264,8 @@ exists but is undocumented on the page.
 - **Unit**: **currency per MWh** – the integration's own sensors divide every
   such value by 1000 and label the result `"<currency>/kWh"` (`sensor.py:38,205-243,347,413`).
   The action returns the undivided MWh value; the adapter divides by 1000.
-  The values are the day-ahead market price per area; VAT, grid fees and levies are not part of them (no such field in the source).
+  The values are the day-ahead market price per area; VAT, grid fees and levies are not part
+  of them (no such field in the source).
 - **Resolution**: slot length = `end - start` per entry (the sensors compute
   `resolution = entry.end - entry.start`, `sensor.py:58`), 15 or 60 minutes; a
   coordinator tick every 15 minutes (`coordinator.py:57-73`). The adapter must not
@@ -543,7 +544,7 @@ entity ids of all integrations (derived from code only).
 | `weather.get_forecasts` | yes | `core@5cfe9aad` `components/weather/{services.py,const.py,entity.py}` | `type` required, response `{entity: {forecast: [...]}}`, only `datetime` guaranteed, fall back hourly -> daily, check `supported_features` |
 | `workday` binary sensor + `workday.check_date` | yes | `core@5cfe9aad` `components/workday/{binary_sensor,entity,services}.py` | `on` = workday; `check_date` returns `{entity: {"workday": bool}}`; offset attribute must be 0 |
 | `number.set_value`, `select.select_option`, `switch.turn_on/off` | yes | `core@5cfe9aad` `components/{number,select,switch}/services.py` | Unchanged semantics (range check, option check); no step enforcement |
-| `modbus.write_register` | yes | `core@5cfe9aad` `components/modbus/{services.py,services.yaml,modbus.py}` | Fields `hub`, `slave`|`unit` (default 1), `address`, `value` int or list of unsigned 16-bit words; no float32 (encode two words), no read action, **errors only logged -> read back every write** |
+| `modbus.write_register` | yes | `core@5cfe9aad` `components/modbus/{services.py,services.yaml,modbus.py}` | Fields `hub`, `slave` or `unit` (default 1), `address`, `value` int or list of unsigned 16-bit words; no float32 (encode two words), no read action, **errors only logged -> read back every write** |
 | `nordpool.get_prices_for_date` | yes | `core@5cfe9aad` `components/nordpool/services.py`; `pynordpool 0.4.0` | Response `{AREA: [{start,end,price}]}`, UTC `+00:00`, price in currency/MWh (divide by 1000), excl. VAT/fees, 15 or 60 min per entry |
 | `tibber.get_prices` | yes (re-read) | `core@5cfe9aad` `components/tibber/services.py` | `{"prices": {home: [{start_time, price}]}}`, price incl. taxes, call with `return_response` |
 | `kostal_plenticore` numbers/select | yes | `core@5cfe9aad` `components/kostal_plenticore/{number,select,coordinator}.py` | Numbers disabled by default, no translation key, ids by `unique_id` suffix `devices:local_Battery:MinSoc`; limits from live `min`/`max`; failed REST write is silent; select read-back lags 30 s; no charge set-point |
