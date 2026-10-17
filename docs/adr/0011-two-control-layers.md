@@ -68,3 +68,36 @@ Option A.
 
 Accept. Note the sign convention (battery positive = charging) – it is the
 opposite of the Kostal HA integration, conversion happens in the adapter.
+
+## Addendum 2026-10-16: new action kinds are rejected until their invariants exist
+
+Context: the `Action` union in `core/decisions.py` is part of the stable
+contract spine and grows additively. A new variant can appear in the
+contract (so that planner, controller and storage can be built against it)
+before the safety layer knows how to judge it. Without a rule, a new kind
+could fall through the gate's dispatch and reach `apply()` without any
+invariant having been checked.
+
+Decision:
+
+- Every new action kind is **rejected by the safety gate** with its own
+  reason key `safety.<kind>_not_supported` (catalogued en/de like every
+  `safety.*` key) until its invariants and their tests exist. The rejection
+  happens before mode handling, so it also applies in shadow and assisted
+  mode; nothing is written and no proposal is created.
+- The invariant functions in `safety/invariants.py` handle the new kind
+  explicitly (no catch-all that silently passes it).
+- Removing the rejection requires: the kind's invariants in
+  `safety/invariants.py` with property tests, simulator scenarios for its
+  fail-safe paths, and a documented **`control-safety` sign-off** in the PR
+  (invariant table). Any ADR that defines the kind's semantics must be
+  accepted first.
+- First case: `BatteryAction` (Phase 4, PR 4-A), rejected with
+  `safety.battery_not_supported`. Its semantics are the subject of
+  ADR-0013 ("Battery as a controlled asset"), which must be accepted before
+  Phase 4 WP10 lifts the rejection.
+
+Consequence: contracts can be published ahead of their write path without
+weakening the single-writer guarantee; a boundary/unit test asserts that
+every `ActionKind` is either handled by the invariants or rejected with its
+`not_supported` reason.

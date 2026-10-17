@@ -211,6 +211,24 @@ profile), `GET /api/v1/prices`; live feed `plan`. Demo with simulator prices and
 
 ### WP10 – Battery control · `control-safety` (Opus), adapters by `device-adapters`
 
+**Prerequisite:** [ADR-0013 "Battery as a controlled asset"](../adr/0013-battery-as-controlled-asset.md)
+is **accepted before WP10 starts** (proposed in PR 4-A). Its scope:
+
+- action shape (limits vs set-points), sign convention and the adapters' conversion;
+- one source of truth for the reserve, `max(site battery min_soc, BatteryModel reserve +
+  BMS-drift margin)`, used by planner and gate;
+- the explicit exception to "no SunCore-caused import" for planned grid charging and its bounds
+  (import limit, price level/schedule, a plan interval allowing it);
+- heartbeat/fallback-timer and release semantics;
+- battery identity and mode rules (the battery is not covered by the device identity fingerprint
+  today);
+- invariants to add: `min_soc` never below the reserve; `grid_charge_w` bounded by battery,
+  inverter and import limits; `max_discharge_w = 0` must not cause grid import against the
+  device rule unless planned.
+
+Until then the gate rejects every `BatteryAction` with `safety.battery_not_supported` (ADR-0011
+addendum 2026-10-16); removing it needs the `control-safety` sign-off.
+
 - Controller: `BatteryBand` → `BatteryAction` intents (on change, hysteresis); evaluates
   `priority_until_soc_pct` against the live SoC; device bands from the plan.
 - Safety invariants (property-tested): SunCore never discharges below reserve + drift margin;
@@ -356,6 +374,35 @@ shadow and assisted run is the acceptance test.
   through `kostal_plenticore` (min SoC: reserve and discharge lock). Charging from PV needs no
   write at all (the inverter's own self-consumption logic does it).
 - Self-sufficiency weight: explained to the maintainer, default 0.01 currency/kWh kept.
+
+### Offene Fragen aus PR 4-A (an den Maintainer)
+
+1. **Doppelter Netzladeplan:** `goals.grid_charge_night_only` wird zu einem Zeitplan migriert,
+   und `battery.grid_charge` hat einen eigenen Zeitplan. Aufgelöst durch
+   `effective_grid_charge_policy`: die Akku-Richtlinie (`battery.grid_charge`) gewinnt, der
+   Zeitplan aus `goals` gilt nur, solange die Akku-Richtlinie keinen eigenen setzt. Einverstanden?
+2. **Mehrwertsteuer auf negative Spotpreise:** Die Preisformel wendet die MwSt. auf die ganze
+   Summe an, auch wenn der Spotpreis negativ ist (Endpreis kann dadurch negativ werden). Das ist
+   eine Annahme (`UNVERIFIED`); bitte mit einer Tibber- oder Lieferantenrechnung bestätigen.
+3. **Einspeise-Stufen:** Stufen, die die Anlagengröße nicht vollständig abdecken (z. B. nur
+   „bis 10 kWp“ bei 17 kWp), werden abgelehnt – SunCore rät keinen Satz. Bitte beide EEG-Sätze
+   inklusive der Stufe über 10 kWp eintragen (Frage 8).
+4. **Netzladen auf deinem Kostal (ADR-0013):** §3.5 begrenzt nur, die REST-API hat keinen
+   Lade-Sollwert. Netzladen wäre in Phase 4 nur geplant und im Schatten-/Assistenzmodus sichtbar,
+   nicht ausführbar. Reicht das, oder soll eine generische „Zwangsladen“-Entität bzw. später ein
+   eigener §3.4-ADR kommen?
+
+## Deviations during implementation
+
+- Phase 4 is split into the stacked PRs 4-A…4-I (§3) instead of one PR.
+- The built-in price fallbacks (Energy-Charts, aWATTar) are **not shipped in Phase 4**: their APIs
+  and terms could not be read from the session (question 5 default: only if verifiable, else
+  Phase 6).
+- Open-Meteo API terms are known only from the repository README (free for open-source and
+  non-commercial use, fair use, 10 000 requests/day, CC BY 4.0 attribution); the separate terms
+  page was unreachable. The built-in PV fallback stays opt-in and off.
+- `BatteryAction` is part of the 4-A contracts but rejected by the gate until WP10
+  (ADR-0011 addendum); its semantics are proposed in ADR-0013.
 
 ## 7. Out of scope for Phase 4
 
