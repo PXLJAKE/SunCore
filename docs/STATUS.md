@@ -303,8 +303,8 @@ maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
 ## Open – Phase 4
 
 - PR order (stacked, each on the previous, `phase-4/<letter>-<topic>`): 4-B storage/time series
-  (WP3) → 4-C tariffs (WP4) and 4-D PV forecast (WP5) → 4-E load + risk (WP6, WP7) → 4-F planner
-  + runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
+  (WP3) → 4-C tariffs (WP4) and 4-D PV forecast (WP5) → 4-E load + risk (WP6, WP7) → 4-F planner and
+  runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
 - **ADR-0013 must be accepted before WP10** (4-G). Its contract changes (`BatteryAction` `None` =
   baseline, `BatteryBand.grid_charge_max_w`/`discharge_lock`, `effective_reserve_pct`,

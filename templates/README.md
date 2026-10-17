@@ -3,7 +3,8 @@
 Declarative device, tariff, forecast and region templates (ADR-0006, ADR-0012, schema v1).
 Layout: `templates/<kind>/<id>.yaml` with `kind` in `device`, `tariff`, `forecast`,
 `region`, `battery`; user templates in `/data/templates/<kind>/` override built-in ones by
-`id`. A `*.yaml` file in any other sub directory is reported as an error. The JSON Schemas in `schema/` are generated from the Pydantic
+`id`. A `*.yaml` file in any other sub directory is reported as an error.
+The JSON Schemas in `schema/` are generated from the Pydantic
 models in `suncore/templates/models.py` and `suncore/core/devices.py` – never edit them by
 hand (`uv run python scripts/gen_schemas.py`; CI fails on drift).
 
