@@ -227,6 +227,10 @@ class SeriesFields(_Frozen):
     value_field: Text | None = None
     p10_field: Text | None = None
     p90_field: Text | None = None
+    end_field: Text | None = None
+    """Phase 4 WP4 (price lists): field with the slot *end*; the slot length is ``end - start``
+    per point (Nord Pool, EPEX Spot, Octopus). Absent = derive the length from the spacing of
+    the timestamps or from the template's ``resolution_min``."""
     value_unit: Text
 
     def require_point_fields(self, where: str) -> None:
@@ -267,11 +271,26 @@ class AttributeSeries(_Frozen):
         if self.shape == "list":
             f.require_point_fields("series.fields")
         elif any(
-            x is not None for x in (f.timestamp_field, f.value_field, f.p10_field, f.p90_field)
+            x is not None
+            for x in (f.timestamp_field, f.value_field, f.p10_field, f.p90_field, f.end_field)
         ):
             msg = "series.fields: shape `mapping` takes only `value_unit` (keys are the timestamps)"
             raise ValueError(msg)
         return self
+
+
+class ActionParam(_Frozen):
+    """A field of the action's request that the user's tariff configuration supplies.
+
+    The value comes from ``tariff.import.action_params[name]`` (Phase 4 WP4), e.g. the
+    Nord Pool ``config_entry`` id or ``areas``. SunCore never invents such a value.
+    """
+
+    name: Text
+    """The action's field name."""
+    required: bool = True
+    description: MessageKey
+    """i18n key explaining the field to the user."""
 
 
 class ActionSeries(_Frozen):
@@ -282,8 +301,15 @@ class ActionSeries(_Frozen):
     service: Slug
     start_field: Text | None = None
     end_field: Text | None = None
+    date_field: Text | None = None
+    """Phase 4 WP4: the action takes one delivery *date* (``YYYY-MM-DD``, local date of the
+    site) per call (Nord Pool ``date``); the adapter calls once for every date of the window.
+    Excludes ``start_field``/``end_field``."""
+    params: Annotated[tuple[ActionParam, ...], Field(max_length=8)] = ()
+    """Request fields the user supplies (see :class:`ActionParam`)."""
     response_path: Annotated[
-        str, StringConstraints(pattern=r"^[A-Za-z0-9_]+(\.([A-Za-z0-9_]+|\*))*$", max_length=200)
+        str,
+        StringConstraints(pattern=r"^(\*|[A-Za-z0-9_]+)(\.([A-Za-z0-9_]+|\*))*$", max_length=200),
     ]
     """Dotted path into the response; a ``*`` segment means every value of that mapping."""
     fields: SeriesFields
@@ -292,6 +318,19 @@ class ActionSeries(_Frozen):
     @model_validator(mode="after")
     def _allowed(self) -> Self:
         self.fields.require_point_fields("series.fields")
+        if self.date_field is not None and (
+            self.start_field is not None or self.end_field is not None
+        ):
+            msg = "series: `date_field` excludes `start_field` and `end_field`"
+            raise ValueError(msg)
+        names = [p.name for p in self.params]
+        if len(set(names)) != len(names):
+            msg = "series.params: names must be unique"
+            raise ValueError(msg)
+        reserved = {self.date_field, self.start_field, self.end_field} - {None}
+        if reserved & set(names):
+            msg = "series.params: a parameter cannot reuse a date, start or end field"
+            raise ValueError(msg)
         if not is_read_only_action(self.domain, self.service):
             msg = (
                 f"{ERR_ACTION_NOT_ALLOWED}: `{self.domain}.{self.service}` is not on the "
@@ -494,7 +533,12 @@ class TariffTemplate(TemplateHeader):
         return self
 
     def message_keys(self) -> list[str]:
-        return [self.name, *(r.description for r in self.roles.values())]
+        params = (
+            [p.description for p in self.price_series.params]
+            if isinstance(self.price_series, ActionSeries)
+            else []
+        )
+        return [self.name, *(r.description for r in self.roles.values()), *params]
 
 
 # --- forecast ----------------------------------------------------------------

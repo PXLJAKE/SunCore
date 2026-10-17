@@ -1,9 +1,52 @@
 {
   "$defs": {
+    "ActionParam": {
+      "additionalProperties": false,
+      "description": "A field of the action's request that the user's tariff configuration supplies.\n\nThe value comes from ``tariff.import.action_params[name]`` (Phase 4 WP4), e.g. the\nNord Pool ``config_entry`` id or ``areas``. SunCore never invents such a value.",
+      "properties": {
+        "description": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "title": "ActionParam",
+      "type": "object"
+    },
     "ActionSeries": {
       "additionalProperties": false,
       "description": "Series returned by a read-only action (``return_response`` is implied).",
       "properties": {
+        "date_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Date Field"
+        },
         "domain": {
           "maxLength": 48,
           "pattern": "^[a-z][a-z0-9_]*$",
@@ -33,9 +76,18 @@
           "title": "Max Horizon H",
           "type": "integer"
         },
+        "params": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ActionParam"
+          },
+          "maxItems": 8,
+          "title": "Params",
+          "type": "array"
+        },
         "response_path": {
           "maxLength": 200,
-          "pattern": "^[A-Za-z0-9_]+(\\.([A-Za-z0-9_]+|\\*))*$",
+          "pattern": "^(\\*|[A-Za-z0-9_]+)(\\.([A-Za-z0-9_]+|\\*))*$",
           "title": "Response Path",
           "type": "string"
         },
@@ -327,6 +379,20 @@
       "additionalProperties": false,
       "description": "Names of the fields of one series point and the unit of its values.\n\n``timestamp_field`` and ``value_field`` are required for a list of point objects\n(``action`` series, ``attribute`` series of shape ``list``) and absent for an\n``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose\nvalues are the values.",
       "properties": {
+        "end_field": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Field"
+        },
         "p10_field": {
           "anyOf": [
             {

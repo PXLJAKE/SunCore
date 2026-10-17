@@ -37,6 +37,15 @@ TIME_PATTERN: Final = HHMM_PATTERN
 
 Price = Annotated[float, Field(ge=0, le=100)]
 """Currency per kWh."""
+ActionParamName = Annotated[str, StringConstraints(min_length=1, max_length=64)]
+ActionParamValue = (
+    Annotated[str, StringConstraints(min_length=1, max_length=200)]
+    | Annotated[
+        list[Annotated[str, StringConstraints(min_length=1, max_length=64)]],
+        Field(min_length=1, max_length=16),
+    ]
+)
+"""A request field value of a tariff template's action: text, or a list of texts."""
 
 
 class _Frozen(BaseModel):
@@ -89,6 +98,35 @@ class ImportTariff(_Frozen):
     fixed_price: Price | None = None
     formula: PriceFormula | None = None
     tou: TouTariff | None = None
+    role_entities: dict[RoleName, EntityRef] = Field(default_factory=dict)
+    """Entities of the template's roles besides the main one (``price_entity`` is the role
+    ``price``), e.g. Octopus ``current_day_rates`` and ``next_day_rates`` (Phase 4 WP4)."""
+    action_params: dict[ActionParamName, ActionParamValue] = Field(default_factory=dict)
+    """Values for the request fields the template's action asks the user for (Nord Pool
+    ``config_entry``, ``areas``, ``currency``); the template names which are required."""
+    series_key: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None = None
+    """Which entry of a multi-entry action response to read (Tibber home name, Nord Pool
+    area) when the response holds more than one; ``None`` = the only one."""
+    price_includes: PriceIncludes | None = None
+    """The user's statement about a source whose content depends on their setup (ENTSO-E
+    with a modifier template): overrides the template's ``price_includes``."""
+
+    @model_validator(mode="after")
+    def _source_settings(self) -> Self:
+        if self.kind != "dynamic" and (
+            self.role_entities
+            or self.action_params
+            or self.series_key is not None
+            or self.price_includes is not None
+        ):
+            raise invalid(
+                "import_source_dynamic_only",
+                "tariff.import: source settings (`role_entities`, `action_params`, "
+                "`series_key`, `price_includes`) need kind `dynamic`",
+            )
+        if "price" in self.role_entities:
+            raise invalid("import_role_price", "tariff.import: the role `price` is `price_entity`")
+        return self
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -194,7 +232,8 @@ class TariffConfig(_Frozen):
     export: ExportTariff
 
     def entity_refs(self) -> list[EntityRef]:
-        return [self.import_.price_entity] if self.import_.price_entity is not None else []
+        refs = [self.import_.price_entity] if self.import_.price_entity is not None else []
+        return [*refs, *self.import_.role_entities.values()]
 
 
 # --- forecast -----------------------------------------------------------------

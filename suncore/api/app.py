@@ -62,6 +62,7 @@ from suncore.api.services import (
     EntityQuery,
     HAUnavailableError,
     Services,
+    TariffNotConfiguredError,
     UnknownRoleError,
     UnknownTemplateError,
 )
@@ -92,6 +93,7 @@ from suncore.storage.errors import (
     ImportRejectedError,
     UnknownSectionError,
 )
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
 from suncore.templates.models import TariffTemplate, TemplateKind
 
@@ -99,6 +101,7 @@ log = logging.getLogger(__name__)
 
 API_PREFIX: Final = "/api/v1"
 DECISIONS_MAX: Final = 1000
+PRICES_MAX_HOURS: Final = 72
 
 # Stable error keys for ``detail``; the SPA renders them through the message catalogue.
 ERR_HA_UNAVAILABLE: Final = "api.error.ha_unavailable"
@@ -119,6 +122,7 @@ ERR_UNKNOWN_DEVICE: Final = "api.error.unknown_device"
 ERR_UNKNOWN_PROPOSAL: Final = "api.error.unknown_proposal"
 ERR_DEVICE_IDENTITY_CHANGED: Final = "api.error.device_identity_changed"
 ERR_MODE_RAISE_REJECTED: Final = "api.error.mode_raise_rejected"
+ERR_TARIFF_NOT_CONFIGURED: Final = "api.error.tariff_not_configured"
 BODY_MAX_BYTES: Final = 64 * 1024
 """Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
 SECTION_MAX_BYTES: Final = 256 * 1024
@@ -148,6 +152,7 @@ def create_app(
     app.add_middleware(PeerCheckMiddleware, policy=services.peer_policy)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     _register_http(app, services)
+    _register_prices(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
     app.openapi = lambda: _openapi(app)  # type: ignore[method-assign]
@@ -266,6 +271,25 @@ def _register_http(app: FastAPI, services: Services) -> None:
         if device_id is None and not kind:
             return await services.decisions(limit)
         return await services.decisions(limit, device_id=device_id, kinds=kind)
+
+
+def _register_prices(app: FastAPI, services: Services) -> None:
+    @app.get(
+        f"{API_PREFIX}/prices",
+        response_model=PriceReport,
+        responses={404: {"model": ErrorOut, "description": "No usable tariff is configured"}},
+        operation_id="get_prices",
+    )
+    async def prices(
+        hours: int = Query(default=48, ge=1, le=PRICES_MAX_HOURS),
+    ) -> PriceReport:
+        """Import and export prices on the 15-minute grid from now to the end of the known
+        prices (at least 24 h where the tariff allows, at most ``hours``), with the source
+        and its freshness. A price is ``null`` where no source value covers the interval."""
+        try:
+            return await services.prices(hours)
+        except TariffNotConfiguredError as exc:
+            raise HTTPException(status_code=404, detail=ERR_TARIFF_NOT_CONFIGURED) from exc
 
 
 def _register_control(app: FastAPI, services: Services) -> None:
@@ -429,6 +453,7 @@ def _check_tariff_against_catalog(tariff: TariffConfig, catalog: TemplateCatalog
     template_id = tariff.import_.template_id
     template = catalog.get(template_id) if template_id is not None else None
     includes = template.price_includes if isinstance(template, TariffTemplate) else None
+    includes = tariff.import_.price_includes or includes  # the user's statement wins
     error = formula_on_all_in_source(tariff, includes)
     if error is not None:
         raise RequestValidationError(

@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     templates_dir: Path = Field(default_factory=default_templates_dir)
     """Built-in templates; user templates are read from ``<data_dir>/templates`` (not in demo)."""
 
+    tariff_refresh_interval_s: int = Field(default=3600, ge=60, le=86_400)
+    """Spacing of the regular price refresh (Tibber, Nord Pool: once per hour)."""
+    tariff_tomorrow_after: time = time(13, 0)
+    """Local time from which tomorrow's day-ahead prices are expected (UNVERIFIED)."""
+    tariff_tomorrow_poll_s: int = Field(default=900, ge=60, le=86_400)
+    """Spacing of the asks between that time and the arrival of tomorrow's prices."""
+
     _options_path: ClassVar[Path] = DEFAULT_OPTIONS_PATH
 
     @classmethod

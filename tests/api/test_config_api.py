@@ -190,3 +190,30 @@ async def test_tariff_formula_on_an_all_in_template_is_rejected(services: FakeSe
     }
     assert plain.status_code == 200
     assert entity.status_code == 200
+
+
+async def test_the_users_price_statement_decides_whether_a_formula_is_allowed(
+    services: FakeServices,
+) -> None:
+    """ENTSO-E is spot-only by default but may carry the user's modifier template and VAT."""
+    formula = {"grid_fee": 0.08, "vat_pct": 19}
+    export = VALID["tariff"]["export"]
+
+    def body(template: str, includes: str | None) -> dict[str, Any]:
+        imp: dict[str, Any] = {"kind": "dynamic", "template_id": template, "formula": formula}
+        if includes is not None:
+            imp["price_includes"] = includes
+        return {"import": imp, "export": export}
+
+    async with client_for(create_app(services)) as client:
+        spot_default = await client.put("/api/v1/config/tariff", json=body("entsoe.price", None))
+        declared_all_in = await client.put(
+            "/api/v1/config/tariff", json=body("entsoe.price", "all_in")
+        )
+        declared_spot = await client.put(  # a contract that passes the spot price through
+            "/api/v1/config/tariff", json=body("tibber.price", "spot_only")
+        )
+    assert spot_default.status_code == 200
+    assert declared_all_in.status_code == 422
+    assert declared_all_in.json()["issues"][0]["key"] == "api.validation.import_formula_all_in"
+    assert declared_spot.status_code == 200

@@ -3,9 +3,10 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-16 · **Phase:** 4 in progress – PR 4-A contracts; Phase 3 (3-A
-`phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
-maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
+**Last update:** 2026-10-17 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
+tariffs; Phase 3 (3-A `phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`)
+implemented, waiting for the maintainer's shadow test · **Branch:** `phase-4/c-tariff` (stacked
+on `phase-4/b-storage`)
 
 ## Done
 
@@ -324,6 +325,22 @@ maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
   admits only `suncore.app.adapters`. Fixed: a cancelled `Database.transaction` could leave a
   transaction open on the shared connection. `UNVERIFIED`: Supervisor proxy passes `recorder/*`;
   `change`/`sum` of real energy counters.
+- **PR 4-C (WP4, branch `phase-4/c-tariff`)**: `suncore/tariff/` - a template-driven price adapter
+  (`engine.py`: action or attribute source, list or mapping shape, per-MWh conversion, native grid
+  from `end - start` or the timestamp spacing, 15/60-minute mixes as segments, gaps `None`, DST
+  safe; a kWh/MWh unit mismatch between sensor and template is refused), fixed and HT/NT sources,
+  `PriceFormula` on spot-only sources only, export fixed/tiered/none, the region's
+  `no_remuneration` rule (export price 0 in slots with a negative spot price; for all-in sources the
+  import end price is the proxy), `TariffService` (refresh hourly, on entity change for attribute
+  sources, every 15 min from 13:00 local until tomorrow's prices arrive, back-off after failures,
+  throttled calls are not failures, good data is never replaced by an empty or failed fetch,
+  prices stored in `timeseries.db`) and `GET /api/v1/prices?hours=48`. Templates `tibber.price`
+  (updated), `nordpool.price`, `entsoe.price` (+`_mwh`), `epex_spot.total_price`/`market_price`,
+  `octopus_energy.rates`, `generic.price_list`; schema changes are additive (templates README
+  changelog). Wiring in `suncore/app/adapters.py`; demo and simulator: the fake answers
+  `tibber.get_prices` through the same template path, scenario `negative_prices`.
+  `PriceFormula.end_price` is the 4-A `apply` under a name the actuator boundary test does not
+  reserve. `UNVERIFIED`: see the price rows in the table below.
 - Maintainer questions from 4-A: plan §6 "Offene Fragen aus PR 4-A" (grid-charge schedule
   precedence, VAT on negative spot prices, export tiers, grid charging on the Kostal).
 
@@ -517,6 +534,7 @@ maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
 | Creating a modbus hub from the HA UI (else YAML) | `research/ha-websocket-api.md` | maintainer's HA |
 | Supervisor proxy passes `recorder/*` and `energy/*` commands | `research/ha-websocket-api.md` | first Phase 4 run on HA OS |
 | Publication time of next-day prices (Tibber, Nord Pool, ENTSO-E, EPEX) | `research/integrations.md` | observe on the maintainer's HA |
+| Nord Pool `config_entry` id source, sensor translation keys, publication time; Octopus/ENTSO-E/EPEX entity matchers (platform and unit only, no translation keys); `start`/`end` sent to `tibber.get_prices` as ISO with offset; negative-price rule proxy for all-in sources | `templates/tariff/*.yaml`, `suncore/tariff/pricing.py` | live check on a system with the integration |
 | VAT applied to negative spot prices | `suncore/core/tariff.py` | maintainer's bill / supplier terms |
 | KNN load model performance on aarch64 | plan WP12 | CI arm runner benchmark |
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |

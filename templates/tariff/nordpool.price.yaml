@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=../schema/tariff.schema.json
+# Nord Pool (core integration `nordpool`, cloud polling). Day-ahead market prices per area
+# from the read-only action `nordpool.get_prices_for_date` (one call per delivery date):
+# response `{"<AREA>": [{"start", "end", "price"}]}`, UTC with `+00:00`, currency per MWh,
+# VAT, grid fees and levies NOT included (`spot_only`): add a price formula in the tariff
+# configuration. Slot length is `end - start` (15 or 60 minutes, a series may mix both).
+id: nordpool.price
+kind: tariff
+schema_version: 1
+name: template.nordpool.price.name
+source:
+  - title: "home-assistant/core nordpool services.py (get_prices_for_date, response shape)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad/homeassistant/components/nordpool/services.py"
+    date: 2026-10-16
+  - title: "home-assistant/core nordpool services.yaml (config_entry, date, areas, currency)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad/homeassistant/components/nordpool/services.yaml"
+    date: 2026-10-16
+  - title: "home-assistant/core nordpool sensor.py (currency/kWh sensors, slot length end - start)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad/homeassistant/components/nordpool/sensor.py"
+    date: 2026-10-16
+  - title: "pynordpool 0.4.0 (PyPI wheel: model.py, util.py)"
+    url: "https://pypi.org/project/pynordpool/0.4.0/"
+    date: 2026-10-16
+tested_with: []
+capabilities: [price_now, price_curve]
+unverified:
+  - Read from the integration source (core 5cfe9aad, pynordpool 0.4.0) only; not observed on a running Home Assistant.
+  - 'Entity ids and translation keys of the price sensors: all carry `<currency>/kWh`, so the role matches platform and unit only and the user picks the current price sensor.'
+  - Exact publication time of tomorrow's prices (afternoon CET expected); before it the action returns an empty list for that date.
+  - The action accepts dates from two months back to one day ahead (strings.json); SunCore asks for today and tomorrow only.
+  - The price is the raw day-ahead value in currency per MWh of the entry's currency (or the optional `currency` field); the integration's exchange-rate handling was not read.
+  - The `config_entry` id has to be entered by the user; which registry command exposes it to SunCore was not verified.
+direction: import
+tariff_type: dynamic
+roles:
+  price:
+    matcher:
+      domain: sensor
+      platforms: [nordpool]
+      unit_pattern: '^[A-Z]{3}/kWh$'
+    description: template.nordpool.price.role.price
+price_unit: "{currency}/MWh"
+price_includes: spot_only
+price_series:
+  source: action
+  domain: nordpool
+  service: get_prices_for_date
+  date_field: date
+  params:
+    - name: config_entry
+      required: true
+      description: template.nordpool.price.param.config_entry
+    - name: areas
+      required: false
+      description: template.nordpool.price.param.areas
+    - name: currency
+      required: false
+      description: template.nordpool.price.param.currency
+  response_path: "*"
+  fields:
+    timestamp_field: start
+    end_field: end
+    value_field: price
+    value_unit: "{currency}/MWh"
+  max_horizon_h: 24

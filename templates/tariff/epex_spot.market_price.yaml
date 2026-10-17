@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=../schema/tariff.schema.json
+# EPEX Spot (HACS `mampfes/ha_epex_spot`, domain `epex_spot`). The "Total Price" sensor carries
+# the whole curve in the attribute `data`: `[{"start_time", "end_time", "price_per_kwh"}]`
+# (local ISO 8601, `price_per_kwh` for EUR and GBP alike). "Market Price" is the bare
+# market price (the source clients convert MWh to kWh): without surcharges and VAT, so a price
+# formula in the tariff configuration turns it into the end price. For the price including
+# the integration's surcharges use `epex_spot.total_price`.
+# Sensor unit: the currency SYMBOL (`€/kWh`, `£/kWh`), not the ISO code - the matcher lists the
+# literals, SunCore maps them to EUR/GBP (`suncore.tariff.units`).
+id: epex_spot.market_price
+kind: tariff
+schema_version: 1
+name: template.epex_spot.market_price.name
+source:
+  - title: "ha_epex_spot 4.1.0 sensor.py (Total Price and Market Price sensors, data attribute)"
+    url: "https://github.com/mampfes/ha_epex_spot/blob/4.1.0/custom_components/epex_spot/sensor.py"
+    date: 2026-10-16
+  - title: "ha_epex_spot 4.1.0 const.py (attribute names, unit literals)"
+    url: "https://github.com/mampfes/ha_epex_spot/blob/4.1.0/custom_components/epex_spot/const.py"
+    date: 2026-10-16
+  - title: "ha_epex_spot 4.1.0 SourceShell.py (to_total_price: surcharges and VAT)"
+    url: "https://github.com/mampfes/ha_epex_spot/blob/4.1.0/custom_components/epex_spot/SourceShell.py"
+    date: 2026-10-16
+tested_with: []
+capabilities: [price_now, price_curve]
+unverified:
+  - "Read from the integration source (tag 4.1.0, commit 2aad1eb7) only; not observed on a running Home Assistant."
+  - "Entity ids and translation keys: the role matches platform and the unit literal only; \"Total Price\" and \"Market Price\" share the unit, so both are candidates and the user picks \"Total Price\"."
+  - "Which sources deliver a bare market price in this sensor was read from the source clients only (MWh converted to kWh)."
+  - "Slot length is `end_time - start_time` (configurable per entry, 60 minutes by default, 15 or 60 for Energy-Charts)."
+direction: import
+tariff_type: dynamic
+roles:
+  price:
+    matcher:
+      domain: sensor
+      platforms: [epex_spot]
+      units: ["€/kWh", "£/kWh"]
+    description: template.epex_spot.market_price.role.price
+price_unit: "{currency}/kWh"
+price_includes: spot_only
+price_series:
+  source: attribute
+  roles: [price]
+  attribute: data
+  shape: list
+  fields:
+    timestamp_field: start_time
+    end_field: end_time
+    value_field: price_per_kwh
+    value_unit: "{currency}/kWh"
