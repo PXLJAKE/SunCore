@@ -79,6 +79,7 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
+from suncore.storage.timeseries import META_HISTORY_REBUILT
 from suncore.templates import TemplateCatalog
 
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
@@ -88,6 +89,8 @@ log = structlog.get_logger(__name__)
 DB_FILENAME = "suncore.db"
 PRUNE_INTERVAL_S = 3600.0
 """Decision-log and plan-snapshot retention run hourly."""
+REBUILD_BACKOFF_S = (60.0, 300.0, 900.0, 3600.0)
+"""Retry delays of the statistics rebuild after a timeout or Home Assistant error."""
 MAINTENANCE_TIME = time(3, 30)
 """Local time of the nightly time-series job (downsample, retention, vacuum if worth it)."""
 
@@ -390,20 +393,37 @@ class Runtime:
         self._history_task = asyncio.create_task(self._rebuild_history(), name="suncore-history")
 
     async def _rebuild_history(self) -> None:
-        store, site = self.timeseries, self.site
-        if store is None or site is None:
-            return
-        try:
-            if not await store.has_quarter_history():
-                await rebuild_history(self.connection, store, site, self.clock())
-        except asyncio.CancelledError:
-            raise
-        except (HAError, TimeoutError) as exc:
-            # UNVERIFIED: the Supervisor proxy may not forward recorder/*. Not retried before
-            # the next start; the history then grows from the controller's own measurements.
-            log.warning("history.rebuild_failed", reason=type(exc).__name__, error=str(exc))
-        except Exception:
-            log.exception("history.rebuild_crashed")
+        """Rebuild until it succeeded once (marker in ``timeseries.db``), with back-off.
+
+        A timeout or Home Assistant error is retried after 1, 5, 15 and then every 60 minutes;
+        ``unknown_command`` (the recorder commands are not available, e.g. a proxy that does not
+        forward them - UNVERIFIED) is final for this process and retried at the next start.
+        """
+        attempt = 0
+        while True:
+            store, site = self.timeseries, self.site
+            if store is None or site is None:
+                return
+            try:
+                if await store.get_meta(META_HISTORY_REBUILT) is None:
+                    await rebuild_history(self.connection, store, site, self.clock())
+                    await store.set_meta(META_HISTORY_REBUILT, self.clock().isoformat())
+            except asyncio.CancelledError:
+                raise
+            except CommandError as exc:
+                log.warning("history.rebuild_failed", reason=exc.code, error=str(exc))
+                if exc.code == "unknown_command":
+                    break
+            except (HAError, TimeoutError) as exc:
+                log.warning("history.rebuild_failed", reason=type(exc).__name__, error=str(exc))
+            except Exception:
+                log.exception("history.rebuild_crashed")
+                break
+            else:
+                break
+            delay = REBUILD_BACKOFF_S[min(attempt, len(REBUILD_BACKOFF_S) - 1)]
+            attempt += 1
+            await self.sleep(delay)
         self._history_done = True
 
     async def _connect(self) -> None:

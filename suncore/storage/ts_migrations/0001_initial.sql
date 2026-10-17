@@ -62,3 +62,10 @@ CREATE TABLE price (
     export_price REAL,
     PRIMARY KEY (source_id, slot_start)
 ) WITHOUT ROWID;
+
+-- Small facts about the content of this file, e.g. that the history was rebuilt from Home
+-- Assistant's statistics. They live here, not in suncore.db: a lost timeseries.db must lose them.
+CREATE TABLE meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) WITHOUT ROWID;

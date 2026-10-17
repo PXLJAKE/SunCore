@@ -25,8 +25,8 @@ from suncore.core.measurements import (
     device_power_key,
 )
 from suncore.core.series import TimeRange
-from suncore.ha.connection import CommandError
-from suncore.storage.timeseries import TS_FILENAME, TimeseriesStore
+from suncore.ha.connection import CommandError, HAError
+from suncore.storage.timeseries import META_HISTORY_REBUILT, TS_FILENAME, TimeseriesStore
 from tests.app.conftest import RecordingConnection, demo_settings
 
 T0 = datetime(2026, 6, 21, 0, 0, tzinfo=UTC)
@@ -473,19 +473,56 @@ async def test_rebuild_runs_once_after_connect_when_the_15_minute_table_is_empty
     assert len(conn.recorder.calls) == calls
 
 
-async def test_rebuild_is_skipped_when_history_exists(
+async def test_rebuild_is_skipped_once_the_marker_is_set(
     rebuild_env: tuple[Runtime, RecordingConnection],
 ) -> None:
     runtime, conn = rebuild_env
-    from suncore.core.series import SeriesUnit, TimeSeries  # noqa: PLC0415
-
-    await store_of(runtime).store_quarter_hours(
-        SITE_HOUSE_W,
-        TimeSeries(start=T0, step=timedelta(minutes=15), values=(1.0,), unit=SeriesUnit.W),
-    )
+    await store_of(runtime).set_meta(META_HISTORY_REBUILT, "2026-06-01T00:00:00+00:00")
     await runtime.start()
     await until(lambda: runtime._history_done)
     assert conn.recorder.calls == []
+
+
+async def test_existing_quarter_history_does_not_suppress_the_rebuild(
+    rebuild_env: tuple[Runtime, RecordingConnection],
+) -> None:
+    """Only a successful rebuild sets the marker: data (or a maintenance run) is no substitute."""
+    runtime, conn = rebuild_env
+    from suncore.core.series import SeriesUnit, TimeSeries  # noqa: PLC0415
+
+    store = store_of(runtime)
+    await store.store_quarter_hours(
+        SITE_HOUSE_W,
+        TimeSeries(start=T0, step=timedelta(minutes=15), values=(1.0,), unit=SeriesUnit.W),
+    )
+    assert await store.has_quarter_history()
+    await runtime.start()  # the maintenance job runs at start, too
+    await until(lambda: runtime._history_done)
+    assert conn.recorder.calls
+    assert await store.get_meta(META_HISTORY_REBUILT) is not None
+
+
+async def test_rebuild_retries_with_backoff_until_it_succeeded_once(
+    rebuild_env: tuple[Runtime, RecordingConnection],
+) -> None:
+    runtime, conn = rebuild_env
+    sleep = GatedSleep()
+    runtime.sleep = sleep
+    runtime.flush_interval_s = 61.0  # keep the flush loop out of the 60 s back-off
+    conn.statistics_error = TimeoutError("slow")
+    store = store_of(runtime)
+    await runtime.start()
+    await until(lambda: 60.0 in sleep.requested)  # first retry after a minute
+    assert not runtime._history_done
+    assert await store.get_meta(META_HISTORY_REBUILT) is None
+    conn.statistics_error = HAError("down")
+    await sleep.release(60.0)
+    await until(lambda: 300.0 in sleep.requested)
+    conn.statistics_error = None  # Home Assistant is back
+    await sleep.release(300.0)
+    await until(lambda: runtime._history_done)
+    assert await store.get_meta(META_HISTORY_REBUILT) is not None
+    assert await store.has_quarter_history()
 
 
 async def test_rebuild_failure_is_logged_and_does_not_stop_the_app(
@@ -497,8 +534,9 @@ async def test_rebuild_failure_is_logged_and_does_not_stop_the_app(
         await runtime.start()
         await until(lambda: runtime._history_done)
     warning = next(e for e in logs if e["event"] == "history.rebuild_failed")
-    assert warning["reason"] == "CommandError"
+    assert warning["reason"] == "unknown_command"
     assert not await store_of(runtime).has_quarter_history()
+    assert await store_of(runtime).get_meta(META_HISTORY_REBUILT) is None  # retried next start
     stack = await idle(runtime)
     await until(lambda: stack.cache.get("sensor.sim_house_power") is not None)
     assert await stack.tick() is not None  # control is unaffected

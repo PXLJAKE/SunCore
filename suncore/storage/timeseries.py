@@ -60,6 +60,9 @@ log = structlog.get_logger(__name__)
 
 TS_FILENAME: Final = "timeseries.db"
 
+META_HISTORY_REBUILT: Final = "history_rebuilt_at"
+"""Set (ISO time) once the rebuild from HA's statistics succeeded; it dies with the file."""
+
 RAW_KEEP: Final = timedelta(hours=48)
 MINUTE_KEEP: Final = timedelta(days=30)
 FORECAST_KEEP: Final = timedelta(days=45)
@@ -401,6 +404,18 @@ class TimeseriesStore:
             batch,
         )
         return len(batch)
+
+    async def get_meta(self, key: str) -> str | None:
+        """A fact about this file's content (see ``META_HISTORY_REBUILT``)."""
+        row = await self._db.fetchone("SELECT value FROM meta WHERE key = ?", (key,))
+        return None if row is None else str(row[0])
+
+    async def set_meta(self, key: str, value: str) -> None:
+        await self._db.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
     async def has_quarter_history(self) -> bool:
         """Whether ``measurement_15m`` holds any row (the rebuild runs when it does not)."""
@@ -758,6 +773,7 @@ def _price_segment(source_id: str, segment: Sequence[Row]) -> PriceSeries:
 
 __all__ = [
     "FORECAST_KEEP",
+    "META_HISTORY_REBUILT",
     "MINUTE_KEEP",
     "PRICE_KEEP",
     "RAW_KEEP",
