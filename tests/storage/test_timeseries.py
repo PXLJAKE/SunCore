@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -100,20 +101,104 @@ async def test_newer_timeseries_db_is_refused_and_untouched(tmp_path: Path) -> N
     assert not (tmp_path / "t.db.corrupt").exists()
 
 
-async def test_corrupt_timeseries_db_is_moved_aside_and_recreated(tmp_path: Path) -> None:
+async def test_corrupt_timeseries_db_is_moved_aside_with_its_wal(tmp_path: Path) -> None:
     path = tmp_path / "t.db"
     path.write_bytes(b"this is not a database" * 100)
-    db = await open_timeseries_or_recover(path)
+    db = await open_timeseries_or_recover(path, now=lambda: 1_800_000_000.0)
     assert db is not None
     try:
         assert await db.user_version() >= 1
     finally:
         await db.close()
-    assert (tmp_path / "t.db.corrupt").read_bytes().startswith(b"this is not")
+    moved = tmp_path / "t.db.corrupt-20270115T080000Z"
+    assert moved.read_bytes().startswith(b"this is not")
+
+
+def test_move_aside_takes_wal_and_shm_along_and_never_unlinks_them(tmp_path: Path) -> None:
+    from suncore.storage.timeseries import _move_aside  # noqa: PLC0415
+
+    path = tmp_path / "t.db"
+    for suffix, data in (("", b"db"), ("-wal", b"wal"), ("-shm", b"shm")):
+        (tmp_path / f"t.db{suffix}").write_bytes(data)
+    _move_aside(path, 1_800_000_000.0)
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "t.db.corrupt-20270115T080000Z",
+        "t.db.corrupt-20270115T080000Z-shm",
+        "t.db.corrupt-20270115T080000Z-wal",
+    ]
+    assert (tmp_path / "t.db.corrupt-20270115T080000Z-wal").read_bytes() == b"wal"
+
+
+async def test_failing_quick_check_counts_as_corruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import suncore.storage.timeseries as module  # noqa: PLC0415
+
+    path = tmp_path / "t.db"
+    await (await open_timeseries(path)).close()  # a valid file first
+    calls = {"n": 0}
+
+    async def fake_check(_db: Database) -> bool:
+        calls["n"] += 1
+        return calls["n"] > 1  # the first (damaged) file fails, the fresh one passes
+
+    monkeypatch.setattr(module, "_quick_check", fake_check)
+    db = await open_timeseries_or_recover(path, now=lambda: 1_800_000_000.0)
+    assert db is not None
+    await db.close()
+    assert (tmp_path / "t.db.corrupt-20270115T080000Z").exists()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        sqlite3.OperationalError("database is locked"),
+        sqlite3.OperationalError("disk I/O error"),
+        sqlite3.OperationalError("database or disk is full"),
+        sqlite3.OperationalError("unable to open database file"),
+        PermissionError("denied"),
+    ],
+)
+async def test_transient_errors_never_move_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    import suncore.storage.timeseries as module  # noqa: PLC0415
+
+    path = tmp_path / "t.db"
+    async with await open_timeseries(path) as db:
+        await TimeseriesStore(db).append_measurements([("k", T0, 1.0)])
+
+    async def failing(_path: Path | str) -> Database:
+        raise error
+
+    monkeypatch.setattr(module, "open_timeseries", failing)
+    assert await open_timeseries_or_recover(path) is None
+    monkeypatch.undo()
+    assert not await asyncio.to_thread(lambda: list(tmp_path.glob("*.corrupt*")))
+    async with await open_timeseries(path) as db:  # still there, data intact, next start works
+        assert await TimeseriesStore(db).read_raw("k", TimeRange(start=T0, end=T0 + Q)) == [
+            (T0, 1.0)
+        ]
+
+
+async def test_corrupt_files_are_rotated_keeping_two(tmp_path: Path) -> None:
+    path = tmp_path / "t.db"
+    for i in range(4):
+        path.write_bytes(b"garbage" * 100)
+        (tmp_path / "t.db-wal").write_bytes(b"w")
+        db = await open_timeseries_or_recover(path, now=lambda i=i: 1_800_000_000.0 + i * 60)
+        assert db is not None
+        await db.close()
+        path.unlink()
+        for suffix in ("-wal", "-shm"):
+            (tmp_path / f"t.db{suffix}").unlink(missing_ok=True)
+    kept = await asyncio.to_thread(lambda: sorted(p.name for p in tmp_path.glob("t.db.corrupt-*")))
+    assert kept == ["t.db.corrupt-20270115T080200Z", "t.db.corrupt-20270115T080300Z"]
 
 
 async def test_unopenable_path_gives_none(tmp_path: Path) -> None:
     assert await open_timeseries_or_recover(tmp_path / "missing" / "dir" / "t.db") is None
+    assert not await asyncio.to_thread(lambda: list(tmp_path.glob("**/*.corrupt*")))
 
 
 # --- measurements ---------------------------------------------------------------------
@@ -502,3 +587,17 @@ async def test_timestamps_are_stored_in_utc_whatever_the_input_zone(store: Times
     assert rows == [(utc, 5.0)]
     assert utc == datetime(2026, 10, 25, 1, 30, tzinfo=UTC)
     assert floor_to_step(utc) == utc
+
+
+@pytest.mark.parametrize("app", ["suncore", "suncore_beta"])
+def test_backup_excludes_the_database_its_wal_and_the_corrupt_copies(app: str) -> None:
+    config = (Path(__file__).resolve().parents[2] / "addon" / app / "config.yaml").read_text(
+        "utf-8"
+    )
+    for entry in (
+        "timeseries.db",
+        "timeseries.db-wal",
+        "timeseries.db-shm",
+        "timeseries.db.corrupt*",
+    ):
+        assert f"  - {entry}\n" in config

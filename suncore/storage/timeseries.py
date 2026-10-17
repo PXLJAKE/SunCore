@@ -31,8 +31,9 @@ from __future__ import annotations
 
 import math
 import sqlite3
+import time
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from importlib import resources
@@ -93,38 +94,93 @@ async def open_timeseries(path: Path | str) -> Database:
     return await Database.open(path, migrations=timeseries_migrations())
 
 
-async def open_timeseries_or_recover(path: Path | str) -> Database | None:
+KEEP_CORRUPT_FILES: Final = 2
+"""How many moved-aside corrupt databases are kept (older ones are deleted)."""
+
+_CORRUPT_CODES: Final = frozenset({sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB})
+_CORRUPT_TEXT: Final = ("file is not a database", "malformed")
+
+
+def _is_corruption(exc: BaseException) -> bool:
+    """Unambiguous corruption only; locked, busy, full, I/O and permission errors are not."""
+    seen: BaseException | None = exc
+    while seen is not None:
+        code = getattr(seen, "sqlite_errorcode", None)
+        if isinstance(code, int) and code & 0xFF in _CORRUPT_CODES:
+            return True
+        if isinstance(seen, sqlite3.DatabaseError) and any(
+            t in str(seen).lower() for t in _CORRUPT_TEXT
+        ):
+            return True
+        seen = seen.__cause__
+    return False
+
+
+async def _quick_check(db: Database) -> bool:
+    row = await db.fetchone("PRAGMA quick_check(1)")
+    return row is not None and str(row[0]).lower() == "ok"
+
+
+async def open_timeseries_or_recover(
+    path: Path | str, *, now: Callable[[], float] = time.time
+) -> Database | None:
     """Open ``timeseries.db`` for the application; ``None`` = run without time series.
 
-    The file is rebuildable, so a corrupt one (not a database, a migration that fails) is
-    moved aside as ``timeseries.db.corrupt`` and a fresh one is created. A file that is
-    *newer* than this code is never touched: the application runs without time series and
-    says so (the newer version may still need the data). Control never depends on this file.
+    The file is rebuildable, but only *unambiguous corruption* (SQLite's "not a database" or
+    "malformed" errors, a failing ``PRAGMA quick_check``) moves it aside, together with its
+    ``-wal`` and ``-shm``, as ``timeseries.db.corrupt-<UTC time>`` (the newest
+    :data:`KEEP_CORRUPT_FILES` are kept) before a fresh file is created. Anything else - a
+    locked or busy file, a full disk, an I/O or permission error, a migration that fails for
+    another reason - is logged and the application runs without time series; the next start
+    tries again and nothing is moved. A file that is *newer* than this code is never
+    touched either. Control never depends on this file.
     """
     target = Path(path)
     for attempt in (1, 2):
         try:
-            return await open_timeseries(target)
+            db = await open_timeseries(target)
         except SchemaTooNewError as exc:
             log.error("timeseries.schema_too_new", path=str(target), error=str(exc))
             return None
-        except (sqlite3.DatabaseError, MigrationError, OSError) as exc:
-            log.error("timeseries.open_failed", path=str(target), attempt=attempt, error=str(exc))
-            if attempt == 2:
-                return None
+        except (sqlite3.Error, MigrationError, OSError) as exc:
+            corrupt = _is_corruption(exc)
+            log.error("timeseries.open_failed", path=str(target), corrupt=corrupt, error=str(exc))
+        else:
             try:
-                _move_aside(target)
-            except OSError:
-                log.exception("timeseries.move_aside_failed", path=str(target))
-                return None
+                if await _quick_check(db):
+                    return db
+                corrupt = True
+                log.error("timeseries.quick_check_failed", path=str(target))
+            except sqlite3.Error as exc:
+                corrupt = _is_corruption(exc)
+                log.error("timeseries.quick_check_error", path=str(target), error=str(exc))
+            await db.close()
+        if not corrupt or attempt == 2:
+            return None
+        try:
+            _move_aside(target, now())
+        except OSError:
+            log.exception("timeseries.move_aside_failed", path=str(target))
+            return None
     return None
 
 
-def _move_aside(path: Path) -> None:
-    for suffix in ("-wal", "-shm"):
-        path.with_name(path.name + suffix).unlink(missing_ok=True)
-    if path.exists():
-        path.replace(path.with_name(path.name + ".corrupt"))
+def _move_aside(path: Path, now: float) -> None:
+    """Rename the database and its WAL/SHM to ``.corrupt-<UTC>``; keep the newest two."""
+    stamp = datetime.fromtimestamp(now, UTC).strftime("%Y%m%dT%H%M%SZ")
+    moved = path.with_name(f"{path.name}.corrupt-{stamp}")
+    for suffix in ("", "-wal", "-shm"):
+        source = path.with_name(path.name + suffix)
+        if source.exists():
+            source.replace(moved.with_name(moved.name + suffix))
+    sets = sorted(
+        p
+        for p in path.parent.glob(f"{path.name}.corrupt-*")
+        if not p.name.endswith(("-wal", "-shm"))
+    )
+    for old in sets[:-KEEP_CORRUPT_FILES]:
+        for suffix in ("", "-wal", "-shm"):
+            old.with_name(old.name + suffix).unlink(missing_ok=True)
 
 
 # --- helpers ------------------------------------------------------------------------
