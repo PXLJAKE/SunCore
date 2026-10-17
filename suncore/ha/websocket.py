@@ -96,6 +96,7 @@ from suncore.ha.connection import (
     StateContext,
     StateListener,
     Unsubscribe,
+    action_rate_key,
 )
 from suncore.ha.redact import DEFAULT_REGISTRY, SecretRegistry
 from suncore.ha.transport import Transport
@@ -485,6 +486,7 @@ class WebSocketConnection:
         target: Mapping[str, Any] | None = None,
         min_interval_s: float | None = None,
         max_wait_s: float = 0.0,
+        rate_key: str | None = None,
     ) -> dict[str, Any]:
         """Read-only action call with ``return_response``; see :class:`HAConnection`.
 
@@ -495,7 +497,7 @@ class WebSocketConnection:
         if not is_read_only_action(domain, service):
             msg = f"{domain}.{service} is not a read-only action"
             raise ActionNotAllowedError(msg)
-        key = f"{domain}.{service}"
+        key = action_rate_key(domain, service, rate_key)
         if not await self._action_limiter.acquire(key, min_interval_s, max_wait_s=max_wait_s):
             raise ActionRateLimitedError(key, self._action_limiter.retry_after(key))
         payload: dict[str, Any] = {

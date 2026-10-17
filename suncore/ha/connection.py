@@ -73,6 +73,12 @@ class ActionNotAllowedError(HAError):
     """``call_action_response`` was asked for an action that is not on the read-only allowlist."""
 
 
+def action_rate_key(domain: str, service: str, rate_key: str | None = None) -> str:
+    """Limiter key of an action call: ``domain.service`` plus an optional caller sub-key."""
+    base = f"{domain}.{service}"
+    return base if not rate_key else f"{base}#{rate_key}"
+
+
 class ActionRateLimitedError(HAError):
     """A read-only action was asked for again before its minimum interval elapsed.
 
@@ -248,6 +254,7 @@ class HAConnection(Protocol):
         target: Mapping[str, Any] | None = None,
         min_interval_s: float | None = None,
         max_wait_s: float = 0.0,
+        rate_key: str | None = None,
     ) -> dict[str, Any]:
         """Call a read-only action with ``return_response`` and return its response.
 
@@ -258,7 +265,9 @@ class HAConnection(Protocol):
         call per ``min_interval_s`` (default :data:`DEFAULT_ACTION_INTERVAL_S`; a caller passes
         the interval of its configured polling). A call that is too early waits at most
         ``max_wait_s`` (default: not at all) and otherwise raises
-        :class:`ActionRateLimitedError`; it never blocks indefinitely.
+        :class:`ActionRateLimitedError`; it never blocks indefinitely. ``rate_key`` (e.g. the
+        target entity or the requested date) gives calls of one service that ask for different
+        things their own slot: the limiter key is ``domain.service`` or ``domain.service#key``.
         """
         ...
 
@@ -336,7 +345,9 @@ class ActionRateLimiter:
     """Minimum spacing per key (``domain.service``) with try-acquire and a wait deadline.
 
     Slots are handed out in order: a caller that waits reserves the slot after the previous
-    one, so two concurrent callers do not both pass. Clock and sleep are injected. A key that
+    one, so two concurrent callers do not both pass. A waiter that is cancelled keeps its
+    reservation (the slot stays taken until it would have elapsed): that is the safe direction
+    for an integration that must not be hammered. Clock and sleep are injected. A key that
     is too busy is refused instead of queued (:meth:`acquire` returns ``False``), so a slow
     integration can never stack up calls.
     """
