@@ -74,6 +74,7 @@ async def test_prices_are_returned_with_source_and_freshness(services: FakeServi
         "known_slots": 2,
         "has_tomorrow": True,
         "dropped_points": 0,
+        "carried_slots": 0,
     }
 
 

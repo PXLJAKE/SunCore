@@ -2269,6 +2269,11 @@ export interface components {
         };
         /** PriceQuality */
         PriceQuality: {
+            /**
+             * Carried Slots
+             * @default 0
+             */
+            carried_slots: number;
             /** Dropped Points */
             dropped_points: number;
             /** Has Tomorrow */

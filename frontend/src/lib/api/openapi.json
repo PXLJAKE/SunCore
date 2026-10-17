@@ -4302,6 +4302,12 @@
       "PriceQuality": {
         "additionalProperties": false,
         "properties": {
+          "carried_slots": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Carried Slots",
+            "type": "integer"
+          },
           "dropped_points": {
             "minimum": 0.0,
             "title": "Dropped Points",

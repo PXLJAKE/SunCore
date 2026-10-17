@@ -76,6 +76,8 @@ class PriceQuality(_Out):
     """Prices cover the whole next local day."""
     dropped_points: Annotated[int, Field(ge=0)]
     """Points of the last fetch that were unreadable, duplicated or overlapping."""
+    carried_slots: Annotated[int, Field(ge=0)] = 0
+    """Slots the latest fetch left unknown and an earlier fetch supplied (degraded data)."""
 
 
 class PriceReport(_Out):

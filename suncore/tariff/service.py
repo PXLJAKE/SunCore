@@ -28,7 +28,7 @@ prices does not blank them).
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Final, Literal, Protocol
@@ -135,6 +135,10 @@ class _State:
     failures: int = 0
     retry_at: datetime | None = None
     dirty: bool = False
+    last_attempt: datetime | None = None
+    """Start of the latest fetch, successful or not."""
+    carried: int = 0
+    """Slots of the current data that an earlier fetch supplied because the latest had none."""
 
     @property
     def known_end(self) -> datetime | None:
@@ -143,6 +147,67 @@ class _State:
 
 def _midnight(day: date, tz: tzinfo) -> datetime:
     return datetime.combine(day, time.min, tzinfo=tz)
+
+
+def _value_at(segments: Sequence[PriceSeries], at: datetime) -> float | None:
+    for series in segments:
+        ts = series.import_price
+        if ts.start <= at < ts.end:
+            return ts.values[int((at - ts.start) // ts.step)]
+    return None
+
+
+def _fill_gaps(
+    new: Sequence[PriceSeries], old: Sequence[PriceSeries]
+) -> tuple[tuple[PriceSeries, ...], int]:
+    """``new`` with every unknown slot replaced by the earlier fetch's value (if it had one).
+
+    Returns the segments and how many slots were carried over; a source that suddenly reports
+    ``None`` for a price it knew an hour ago does not blank it.
+    """
+    carried = 0
+    out: list[PriceSeries] = []
+    for series in new:
+        ts = series.import_price
+        values = list(ts.values)
+        for i, value in enumerate(values):
+            if value is None and (kept := _value_at(old, ts.slot_start(i))) is not None:
+                values[i] = kept
+                carried += 1
+        out.append(
+            series.model_copy(
+                update={"import_price": ts.model_copy(update={"values": tuple(values)})}
+            )
+        )
+    return tuple(out), carried
+
+
+def _old_tail(
+    new: Sequence[PriceSeries], old: Sequence[PriceSeries], floor: datetime
+) -> list[PriceSeries]:
+    """The old slots that begin at or after the new data's end (and are not past).
+
+    Each old segment is cut at its own slot boundary (rounded up), so the tail never overlaps
+    the new data even if the old slots were hourly and the new data ends inside an hour.
+    """
+    new_end = max(s.import_price.end for s in new)
+    limit = max(new_end, floor)
+    tail: list[PriceSeries] = []
+    for previous in old:
+        ts = previous.import_price
+        if previous.price_includes != new[0].price_includes or ts.end <= limit:
+            continue
+        first = max(0, -(-(limit - ts.start) // ts.step))
+        piece = clip_series(ts, ts.slot_start(first), ts.end)
+        if piece is not None:
+            tail.append(
+                PriceSeries(
+                    source_id=previous.source_id,
+                    price_includes=previous.price_includes,
+                    import_price=piece,
+                )
+            )
+    return tail
 
 
 class TariffService:
@@ -247,8 +312,11 @@ class TariffService:
         in_backoff = state.retry_at is not None and now < state.retry_at
         if state.dirty:
             source = self._plan.source
-            if not source.uses_action:
-                return "changed"  # reads the entity cache: free
+            recent = state.last_attempt is not None and (
+                now - state.last_attempt < timedelta(seconds=POLL_S)
+            )
+            if not source.uses_action and not recent:
+                return "changed"  # reads the entity cache: free (but not in a tight loop)
             if (
                 state.fetched_at is not None
                 and not in_backoff
@@ -294,11 +362,13 @@ class TariffService:
             return None
         async with self._lock:
             now = self._clock()
+            self._state.last_attempt = now
             window = TimeRange(start=floor_to_step(now), end=floor_to_step(now) + FETCH_HORIZON)
             try:
                 data = await self._plan.source.fetch_segments(window, now)
-                if not data.segments:
-                    raise SourceUnavailableError("the source returned no prices")
+                if not any(v is not None for s in data.segments for v in s.import_price.values):
+                    raise SourceUnavailableError("the source returned no price")
+                self._accept(data, now)
             except SourceThrottledError as exc:
                 self._state.retry_at = now + timedelta(seconds=max(exc.retry_after_s, 1.0))
                 return RefreshResult(reason, ok=False, throttled=True, error=exc)
@@ -307,7 +377,6 @@ class TariffService:
             except Exception as exc:
                 log.exception("tariff.fetch_crashed", source=self._plan.source.source_id)
                 return self._failed(reason, now, TariffError(f"{type(exc).__name__}: {exc}"))
-            self._accept(data, now)
         await self._persist(now)
         for listener in list(self._listeners):
             try:
@@ -320,6 +389,7 @@ class TariffService:
         state = self._state
         state.failures += 1
         state.error = error
+        state.dirty = False  # this fetch has seen the change; only a newer one counts
         backoff = min(3600.0, self._settings.retry_interval_s * 2 ** (state.failures - 1))
         state.retry_at = now + timedelta(seconds=backoff)
         log.warning(
@@ -333,52 +403,41 @@ class TariffService:
         return RefreshResult(reason, ok=False, error=error)
 
     def _accept(self, data: SourceData, now: datetime) -> None:
+        """Take over a fetch: fill its holes from the earlier data, keep the earlier tail.
+
+        Everything is computed before the state is touched, so an error leaves the earlier
+        data as it was.
+        """
+        old = self._state.segments
+        filled, carried = _fill_gaps(data.segments, old)
+        merged = (*filled, *_old_tail(filled, old, floor_to_step(now)))
         state = self._state
-        state.segments = self._with_old_tail(data.segments, now)
+        state.segments = merged
         state.fetched_at = now
         state.report = data.report
+        state.carried = carried
         state.error = None
         state.failures = 0
         state.retry_at = None
         state.dirty = False
 
-    def _with_old_tail(
-        self, new: tuple[PriceSeries, ...], now: datetime
-    ) -> tuple[PriceSeries, ...]:
-        """New segments plus the old slots beyond the new data's end that are still ahead."""
-        new_end = max(s.import_price.end for s in new)
-        tail: list[PriceSeries] = []
-        for old in self._state.segments:
-            clipped = clip_series(
-                old.import_price, max(new_end, floor_to_step(now)), old.import_price.end
-            )
-            if clipped is not None and old.price_includes == new[0].price_includes:
-                tail.append(
-                    PriceSeries(
-                        source_id=old.source_id,
-                        price_includes=old.price_includes,
-                        import_price=clipped,
-                    )
-                )
-        return (*new, *tail)
-
     async def _persist(self, now: datetime) -> None:
         if self._store is None:
             return
-        series = self._trimmed(now)
-        if series is None:
-            return
-        key = (
-            series.start,
-            series.import_price.values,
-            series.export_price.values if series.export_price else None,
-        )
-        if key == self._last_written:
-            return
         try:
+            series = self._trimmed(now)
+            if series is None:
+                return
+            key = (
+                series.start,
+                series.import_price.values,
+                series.export_price.values if series.export_price else None,
+            )
+            if key == self._last_written:
+                return
             await self._store.store_prices(series)
         except Exception:
-            log.exception("tariff.store_failed", source=series.source_id)
+            log.exception("tariff.store_failed", source=self._plan.source.source_id)
             return
         self._last_written = key
 
@@ -484,6 +543,7 @@ class TariffService:
                 dropped_points=state.report.unreadable_values
                 + state.report.duplicates
                 + state.report.overlaps,
+                carried_slots=state.carried,
             ),
         )
 

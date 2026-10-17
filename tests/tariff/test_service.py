@@ -187,14 +187,40 @@ async def test_an_entity_change_does_not_hit_an_action_source_while_the_slot_is_
     assert service.due() == "changed"
 
 
-async def test_a_change_before_the_first_fetch_does_not_wait_for_the_back_off() -> None:
+async def test_a_new_change_after_a_failed_first_fetch_does_not_wait_for_the_back_off() -> None:
     source = FakeSource(error=SourceUnavailableError("cache empty"), uses_action=False)
-    service, _ = make(source, local(16, 10, 0))
+    service, clock = make(source, local(16, 10, 0))
     await service.refresh("initial")
-    assert service.due() is None  # backing off
+    assert service.due() is None  # backing off; the change that caused the attempt is consumed
     source.error = None
     source.segments = (day_prices(16, 2),)
-    service.notify_changed()  # the entity arrived
+    clock.advance(seconds=30)
+    service.notify_changed()  # the entity arrived: a new change
+    assert service.due() == "changed"
+
+
+async def test_a_failing_attribute_source_is_not_refetched_every_poll() -> None:
+    """M1: the dirty flag of a failed fetch used to stay set -> a fetch every 30 s."""
+    source = FakeSource(error=MalformedPayloadError("bad"), uses_action=False)
+    service, clock = make(source, local(16, 10, 0))
+    service.notify_changed()
+    await service.tick()  # the first fetch fails
+    for _ in range(8):  # four minutes of 30 s polls inside the five-minute back-off
+        clock.advance(seconds=30)
+        assert await service.tick() is None
+    assert len(source.calls) == 1
+    clock.advance(seconds=60)
+    assert service.due() == "initial"  # back-off over
+
+
+async def test_changes_in_quick_succession_do_not_hammer_the_source() -> None:
+    source = FakeSource(segments=(day_prices(16, 2),), uses_action=False)
+    service, clock = make(source, local(16, 10, 0))
+    await service.refresh("initial")
+    clock.advance(seconds=10)
+    service.notify_changed()
+    assert service.due() is None  # fetched 10 s ago
+    clock.advance(seconds=20)
     assert service.due() == "changed"
 
 
@@ -371,6 +397,93 @@ async def test_prices_before_any_fetch_are_unknown() -> None:
     assert set(out.import_price.values) == {None}
     assert service.report().freshness.status == "missing"
     assert service.report().freshness.next_refresh_at is not None
+
+
+# --- no known value, partial data, overlapping tails (review M2, M3) --------------------
+
+
+def all_unknown(start: datetime, hours: int) -> PriceSeries:
+    return hourly(start, [None] * hours)
+
+
+async def test_a_fetch_without_any_known_price_is_a_failure_and_keeps_good_data() -> None:
+    source = FakeSource(segments=(day_prices(16, 2),))  # 48 good hours
+    service, clock = make(source, local(16, 10, 0))
+    await service.refresh("initial")
+    source.segments = (all_unknown(local(16, 0), 48),)
+    clock.advance(hours=1)
+    result = await service.tick()
+    assert result is not None
+    assert not result.ok
+    after = service.prices(48)
+    known = [v for v in after.import_price.values if v is not None]
+    assert known
+    assert set(known) == {0.30}
+    assert len(known) >= 36 * 4  # the 48 good hours are still served
+    assert service.report(48).freshness.last_error is not None
+
+
+async def test_unknown_slots_of_a_fetch_are_filled_from_the_earlier_data_and_reported() -> None:
+    source = FakeSource(segments=(day_prices(16, 2),))
+    service, clock = make(source, local(16, 10, 0))
+    await service.refresh("initial")
+    values: list[float | None] = [0.40] * 48
+    values[14:18] = [None] * 4  # 14:00-18:00 missing in the new answer
+    source.segments = (hourly(local(16, 0), values),)
+    clock.advance(hours=1)
+    await service.refresh()
+    report = service.report(48)
+    assert report.quality.carried_slots == 4
+    by_hour = {s.start.astimezone(BERLIN).hour: s.import_price for s in report.slots[:40]}
+    assert by_hour[15] == 0.30  # carried over
+    assert by_hour[12] == 0.40  # new data wins
+
+
+async def test_the_old_tail_starts_at_the_next_whole_old_slot_when_the_grids_differ() -> None:
+    """M3: 60-minute old data, 15-minute new data ending inside an hour must not overlap."""
+    source = FakeSource(segments=(hourly(local(16, 0), [0.30] * 48),))
+    service, clock = make(source, local(16, 10, 0))
+    await service.refresh("initial")
+    start = local(16, 10).astimezone(UTC)
+    quarter = prices_q(start, 15)  # 10:00-13:45: ends inside the 13:00 hour
+    source.segments = (quarter,)
+    clock.advance(hours=1)
+    result = await service.refresh()
+    assert result is not None
+    assert result.ok
+    out = service.prices(48)
+    at = {
+        out.import_price.slot_start(i).astimezone(BERLIN).strftime("%H:%M"): v
+        for i, v in enumerate(out.import_price.values)
+        if out.import_price.slot_start(i).astimezone(BERLIN).day == 16
+    }
+    assert at["13:30"] == 0.55  # the new data
+    # 13:45-14:00 is covered by neither (the old hour is not cut), 14:00 on is old data again
+    assert at["13:45"] is None
+    assert at["14:00"] == 0.30
+    assert service.report(48).freshness.last_error is None
+
+
+def prices_q(start: datetime, count: int) -> PriceSeries:
+    series = TimeSeries(start=start, step=Q, values=(0.55,) * count, unit="currency/kWh")  # type: ignore[arg-type]
+    return PriceSeries(source_id="fake", price_includes="all_in", import_price=series)
+
+
+async def test_a_storing_error_in_the_series_assembly_does_not_escape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = Store()
+    service, _ = make(FakeSource(segments=(day_prices(16, 2),)), local(16, 10, 0), store=store)
+
+    def boom(_now: datetime) -> None:
+        msg = "assembly bug"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(service, "_trimmed", boom)
+    result = await service.refresh("initial")
+    assert result is not None
+    assert result.ok  # prices are served; only the storing failed
+    assert store.written == []
 
 
 # --- report -----------------------------------------------------------------------------
