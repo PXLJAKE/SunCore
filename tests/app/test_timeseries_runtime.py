@@ -365,15 +365,58 @@ async def test_recorder_retries_a_failed_batch_within_the_bound(tmp_path: Path) 
 # --- the nightly job ---------------------------------------------------------------------------
 
 
-async def test_nightly_job_runs_at_start_then_waits_for_the_next_0330_local(
+async def test_nightly_job_runs_at_start_then_wakes_at_most_hourly(
     gated: tuple[Runtime, GatedSleep, RecordingConnection],
 ) -> None:
     runtime, sleep, _conn = gated
-    # the clock is 10:00 UTC = 12:00 CEST (Europe/Berlin, the demo region); next 03:30 CEST
-    # is 15.5 h away
-    expected = 15.5 * 3600
-    await until(lambda: expected in sleep.requested)
-    assert runtime.seconds_until_maintenance() == expected
+    # the clock is 10:00 UTC = 12:00 CEST (Europe/Berlin, the demo region): 15.5 h to 03:30
+    await until(lambda: 3600.0 in sleep.requested)
+    assert runtime.seconds_until_maintenance() == 15.5 * 3600
+
+
+async def test_nightly_job_runs_once_per_night_and_follows_the_time_zone(
+    tmp_path: Path,
+) -> None:
+    conn = RecordingConnection(speed=6000.0)
+    runtime = await build_runtime(demo_settings(tmp_path), env={}, connection=conn)
+    sleep = GatedSleep()
+    runtime.sleep = sleep
+    now = [datetime(2026, 6, 21, 10, 0, tzinfo=UTC)]  # 12:00 CEST
+    runtime.clock = lambda: now[0]
+    runs: list[datetime] = []
+
+    async def spy(at: datetime) -> None:
+        runs.append(at)
+
+    store_of(runtime).maintain = spy  # type: ignore[method-assign,assignment]
+    try:
+        await runtime.start()
+        await until(lambda: len(runs) == 1)  # at start
+        await until(lambda: 3600.0 in sleep.requested)
+        # six hourly wakes later it is 18:00 CEST: no run
+        for hour in range(1, 7):
+            now[0] += timedelta(hours=1)
+            await sleep.release(3600.0)
+            await until(lambda n=hour: len(sleep.requested) > n)
+        assert len(runs) == 1
+        # 03:30 CEST the next day: exactly one run, and waking again does not repeat it
+        now[0] = datetime(2026, 6, 22, 1, 31, tzinfo=UTC)
+        await sleep.release(3600.0)
+        await until(lambda: len(runs) == 2)
+        await sleep.release(3600.0)
+        await sleep.release(3600.0)
+        await asyncio.sleep(0.05)
+        assert len(runs) == 2
+        # the zone changes (e.g. Home Assistant's zone becomes known): the target moves with it
+        from suncore.core.config import RegionConfig  # noqa: PLC0415
+
+        before = runtime.next_maintenance_after(now[0])
+        runtime.region = RegionConfig(region_id="de", currency="EUR", timezone="Asia/Tokyo")
+        after = runtime.next_maintenance_after(now[0])
+        assert before != after
+        assert after == datetime(2026, 6, 22, 18, 30, tzinfo=UTC)  # 03:30 JST
+    finally:
+        await runtime.stop()
 
 
 @pytest.mark.parametrize(

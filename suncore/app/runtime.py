@@ -91,6 +91,8 @@ PRUNE_INTERVAL_S = 3600.0
 """Decision-log and plan-snapshot retention run hourly."""
 REBUILD_BACKOFF_S = (60.0, 300.0, 900.0, 3600.0)
 """Retry delays of the statistics rebuild after a timeout or Home Assistant error."""
+MAINTENANCE_WAKE_S = 3600.0
+"""The nightly loop wakes at most this often to re-check the time (zone changes, clock jumps)."""
 MAINTENANCE_TIME = time(3, 30)
 """Local time of the nightly time-series job (downsample, retention, vacuum if worth it)."""
 
@@ -363,21 +365,38 @@ class Runtime:
             return False
         return True
 
-    def seconds_until_maintenance(self) -> float:
-        """Seconds to the next ``maintenance_time`` in the site's time zone (DST safe)."""
+    def next_maintenance_after(self, moment: datetime) -> datetime:
+        """The first ``maintenance_time`` (site time zone, DST safe) strictly after ``moment``."""
         tz = self._timezone()
-        now = self.clock().astimezone(tz)
-        target = datetime.combine(now.date(), self.maintenance_time, tzinfo=tz)
-        if target.astimezone(UTC) <= now.astimezone(UTC):
+        local = moment.astimezone(tz)
+        target = datetime.combine(local.date(), self.maintenance_time, tzinfo=tz)
+        if target.astimezone(UTC) <= moment.astimezone(UTC):
             target = datetime.combine(
-                now.date() + timedelta(days=1), self.maintenance_time, tzinfo=tz
+                local.date() + timedelta(days=1), self.maintenance_time, tzinfo=tz
             )
-        return (target.astimezone(UTC) - now.astimezone(UTC)).total_seconds()
+        return target.astimezone(UTC)
+
+    def seconds_until_maintenance(self) -> float:
+        """Seconds to the next ``maintenance_time`` in the site's time zone."""
+        now = self.clock()
+        return (self.next_maintenance_after(now) - now.astimezone(UTC)).total_seconds()
 
     async def _maintenance_loop(self) -> None:
+        """Run at start, then at every ``maintenance_time``; wakes at most hourly.
+
+        The target is always "the first 03:30 after the last run" in the *current* time zone, so
+        a zone that becomes known later (Home Assistant's, after the first connect) moves the
+        target instead of leaving a stale sleep, and one run can never happen twice.
+        """
+        await self.maintain_timeseries()
+        last_run = self.clock()
         while True:
-            await self.maintain_timeseries()  # at start too: a night the app slept through
-            await self.sleep(self.seconds_until_maintenance())
+            remaining = (self.next_maintenance_after(last_run) - self.clock()).total_seconds()
+            if remaining <= 0:
+                await self.maintain_timeseries()
+                last_run = self.clock()
+                continue
+            await self.sleep(min(remaining, MAINTENANCE_WAKE_S))
 
     def _start_history_rebuild(self) -> None:
         """Rebuild the 15-minute history from HA's statistics, once, in the background."""
