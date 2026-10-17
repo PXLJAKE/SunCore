@@ -279,3 +279,18 @@ async def test_the_fake_connection_is_limited_like_the_real_one() -> None:
         await fake.call_action_response("tibber", "get_prices")
     finally:
         await fake.close()
+
+
+async def test_not_connected_does_not_consume_a_limiter_slot(ha: FakeHA, clock: FakeClock) -> None:
+    from suncore.ha.connection import NotConnectedError  # noqa: PLC0415
+
+    connection = WebSocketConnection(
+        DirectTransport.from_base_url(ha.base_url, TOKEN),
+        clock=clock.monotonic,
+        sleep=clock.sleep,
+    )
+    with pytest.raises(NotConnectedError):
+        await connection.call_action_response("tibber", "get_prices")
+    assert connection._action_limiter.retry_after("tibber.get_prices") == 0.0
+    with pytest.raises(NotConnectedError):  # and not "rate limited" the second time
+        await connection.call_action_response("tibber", "get_prices")

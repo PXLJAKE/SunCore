@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -630,3 +631,57 @@ async def test_a_cancelled_flush_puts_the_batch_back(tmp_path: Path) -> None:
         assert recorder.pending == 2  # back in the buffer, to be written by the final flush
         del store.append_measurements
         assert await recorder.flush() == 2
+
+
+async def test_devices_are_released_before_storage_tasks_are_awaited(
+    gated: tuple[Runtime, GatedSleep, RecordingConnection],
+) -> None:
+    """A storage task that is slow to cancel (its rollback waits behind a long SQL statement)
+    must not delay the hardware release of the control stack."""
+    runtime, _sleep, _conn = gated
+    stack = await idle(runtime)
+    hold = asyncio.Event()
+    release = asyncio.Event()
+    in_maintain = asyncio.Event()
+    shut_down = asyncio.Event()
+
+    async def stubborn(_now: datetime) -> None:
+        in_maintain.set()
+        try:
+            await hold.wait()
+        except asyncio.CancelledError:
+            await release.wait()  # the shielded rollback behind the running statement
+            raise
+
+    store_of(runtime).maintain = stubborn  # type: ignore[method-assign,assignment]
+    runtime._maintenance_task.cancel()  # type: ignore[union-attr]
+    with contextlib.suppress(asyncio.CancelledError):
+        await runtime._maintenance_task  # type: ignore[misc]
+    runtime._maintenance_task = asyncio.create_task(runtime._maintenance_loop())
+    await in_maintain.wait()
+    original = stack.shutdown
+
+    async def shutdown() -> None:
+        await original()
+        shut_down.set()
+
+    stack.shutdown = shutdown  # type: ignore[method-assign]
+    stopping = asyncio.create_task(runtime.stop())
+    async with asyncio.timeout(5):
+        await shut_down.wait()  # the release ran although the storage task is still stuck
+    assert not stopping.done()
+    release.set()
+    await stopping
+
+
+async def test_a_failure_while_building_the_values_does_not_break_the_tick(
+    gated: tuple[Runtime, GatedSleep, RecordingConnection],
+) -> None:
+    runtime, _sleep, _conn = gated
+    stack = await idle(runtime)
+    await until(lambda: stack.cache.get("sensor.sim_house_power") is not None)
+    stack._on_measurements = lambda _t, _v: None
+    stack.estimates = None  # type: ignore[assignment]  # not a mapping: .items() would raise
+    with structlog.testing.capture_logs() as logs:
+        stack._record_measurements(runtime.clock(), None, None)  # type: ignore[arg-type]
+    assert any(e["event"] == "control.measurement_sink_failed" for e in logs)

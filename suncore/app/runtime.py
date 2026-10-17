@@ -501,23 +501,32 @@ class Runtime:
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
-        for task in (
-            self._connect_task,
+        control_tasks = (self._connect_task, self._tz_task)
+        storage_tasks = (
             self._prune_task,
-            self._tz_task,
             self._flush_task,
             self._maintenance_task,
             self._history_task,
-        ):
+        )
+        for task in (*control_tasks, *storage_tasks):
             if task is not None:
                 task.cancel()
+        for task in control_tasks:
+            if task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         self._connect_task = self._prune_task = self._tz_task = None
         self._flush_task = self._maintenance_task = self._history_task = None
+        # Hardware release comes first: a running downsample or retention statement keeps the
+        # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
+        # The storage tasks are awaited only after the devices are released.
         async with self._stack_lock:
             if self.stack is not None:
                 await self.stack.shutdown()
+        for task in storage_tasks:
+            if task is not None:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
         await self.catalogue.stop()
         await self.connection.close()
         await self.recorder.flush()

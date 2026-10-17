@@ -497,6 +497,8 @@ class WebSocketConnection:
         if not is_read_only_action(domain, service):
             msg = f"{domain}.{service} is not a read-only action"
             raise ActionNotAllowedError(msg)
+        if self._ws is None or self._ws.closed:  # before a limiter slot is taken
+            raise NotConnectedError("not connected to Home Assistant")
         key = action_rate_key(domain, service, rate_key)
         if not await self._action_limiter.acquire(key, min_interval_s, max_wait_s=max_wait_s):
             raise ActionRateLimitedError(key, self._action_limiter.retry_after(key))
