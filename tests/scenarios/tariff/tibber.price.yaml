@@ -5,3 +5,10 @@ roles:
     entity: sensor.sim_electricity_price
     unit: EUR/kWh
     criteria: [domain, translation_key, platforms, unit_pattern]
+# The simulator answers `tibber.get_prices` through the same template path as the real
+# integration: 15-minute slots for today and (after 13:00 local) tomorrow.
+expect:
+  segments: null
+  min_points: 96
+  includes: all_in
+  matches_state: true

@@ -217,7 +217,11 @@ def test_action_allowlist_refuses_unknown_service_with_reason_key() -> None:
     doc["price_series"].update(domain="light", service="turn_on")
     with pytest.raises(ValidationError, match=ERR_ACTION_NOT_ALLOWED):
         TEMPLATE_ADAPTER.validate_python(doc)
-    for domain, service in (("tibber", "get_prices"), ("weather", "get_forecasts")):
+    for domain, service in (
+        ("tibber", "get_prices"),
+        ("nordpool", "get_prices_for_date"),
+        ("weather", "get_forecasts"),
+    ):
         doc["price_series"].update(domain=domain, service=service)
         assert TEMPLATE_ADAPTER.validate_python(doc).kind == "tariff"
 
@@ -287,3 +291,78 @@ def test_attribute_series_mapping_shape() -> None:
     nested["series"]["list_path"] = "result.watts"
     assert TEMPLATE_ADAPTER.validate_python(nested).kind == "forecast"
     _bad(nested, lambda d: d["series"].update(list_path="result..watts"))
+
+
+def test_action_series_per_date_requests_and_user_parameters() -> None:
+    """WP4: Nord Pool style action - one call per delivery date, request fields from the user."""
+    doc = tariff_doc()
+    series = doc["price_series"]
+    series.update(domain="nordpool", service="get_prices_for_date", response_path="*")
+    series.pop("start_field")
+    series.pop("end_field")
+    series.update(
+        date_field="date",
+        params=[
+            {
+                "name": "config_entry",
+                "required": True,
+                "description": "template.acme.dynamic.param.entry",
+            },
+            {
+                "name": "areas",
+                "required": False,
+                "description": "template.acme.dynamic.param.areas",
+            },
+        ],
+    )
+    series["fields"].update(end_field="end", value_unit="{currency}/MWh")
+    doc["price_unit"] = "{currency}/MWh"
+    template = TEMPLATE_ADAPTER.validate_python(doc)
+    assert isinstance(template, TariffTemplate)
+    assert template.message_keys() == [
+        "template.acme.dynamic.name",
+        "template.acme.dynamic.role.price",
+        "template.acme.dynamic.param.entry",
+        "template.acme.dynamic.param.areas",
+    ]
+    _bad(doc, lambda d: d["price_series"].update(start_field="start"))  # date XOR start/end
+    _bad(doc, lambda d: d["price_series"].update(end_field="end"))
+    _bad(
+        doc,
+        lambda d: d["price_series"]["params"].append(
+            {"name": "areas", "required": False, "description": "template.acme.dynamic.param.x"}
+        ),
+    )
+    _bad(
+        doc,
+        lambda d: d["price_series"]["params"].append(
+            {"name": "date", "required": False, "description": "template.acme.dynamic.param.x"}
+        ),
+    )
+    _bad(doc, lambda d: d["price_series"].update(params=[{"name": "x", "description": "bad key"}]))
+    _bad(doc, lambda d: d["price_series"].update(response_path="*."))
+
+
+def test_the_slot_end_field_belongs_to_lists_not_to_mapping_attributes() -> None:
+    doc = tariff_doc()
+    doc["price_series"]["fields"]["end_field"] = "end"
+    assert TEMPLATE_ADAPTER.validate_python(doc).kind == "tariff"
+    mapping = forecast_doc()
+    mapping["series"].update(attribute="wh_hours", shape="mapping")
+    mapping["series"]["fields"] = {"value_unit": "Wh", "end_field": "end"}
+    mapping["resolution_min"] = 60
+    _bad(mapping, lambda d: d["series"].update(shape="mapping"))  # end_field on a mapping
+
+
+def test_date_zone_of_a_per_date_action() -> None:
+    doc = tariff_doc()
+    series = doc["price_series"]
+    series.update(domain="nordpool", service="get_prices_for_date", response_path="*")
+    series.pop("start_field")
+    series.pop("end_field")
+    series["date_field"] = "date"
+    series["date_tz"] = "Europe/Berlin"
+    assert TEMPLATE_ADAPTER.validate_python(doc).price_series.date_tz == "Europe/Berlin"  # type: ignore[union-attr]
+    _bad(doc, lambda d: d["price_series"].update(date_tz="Mars/Olympus"))
+    _bad(doc, lambda d: d["price_series"].update(date_tz="CET"))
+    _bad(doc, lambda d: d["price_series"].pop("date_field"))  # a zone needs a date field

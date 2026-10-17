@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from suncore.core.config import DevicesConfig
+from suncore.core.config import DevicesConfig, TariffConfig
 from suncore.core.devices import DeviceConfig
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import (
@@ -383,3 +383,32 @@ def test_no_duplicate_for_different_names_one_registry_device_or_unknown_registr
         registry.get,
     )
     assert not any(i.reason.key == "wizard.check.duplicate_unit" for i in plugs)
+
+
+# --- tariff check (review m1) ---------------------------------------------------------
+
+
+def _tariff(**imp: object) -> TariffConfig:
+    return TariffConfig.model_validate(
+        {"import": {"kind": "dynamic", "template_id": "x.y", **imp}, "export": {"kind": "none"}}
+    )
+
+
+def test_spot_only_prices_without_a_formula_are_a_warning() -> None:
+    from suncore.core.wizard import check_tariff  # noqa: PLC0415
+
+    (item,) = check_tariff(_tariff(), "spot_only")
+    assert item.severity == "warn"
+    assert item.reason.key == "wizard.check.tariff_spot_without_formula"
+    assert item.subject == "tariff"
+    assert check_tariff(_tariff(formula={"grid_fee": 0.1}), "spot_only") == []
+    assert check_tariff(_tariff(), "all_in") == []
+    assert check_tariff(_tariff(), None) == []  # unknown source: the user decides
+    # the user's statement beats the template
+    assert check_tariff(_tariff(price_includes="all_in"), "spot_only") == []
+    assert len(check_tariff(_tariff(price_includes="spot_only"), "all_in")) == 1
+    assert check_tariff(None, "spot_only") == []
+    fixed = TariffConfig.model_validate(
+        {"import": {"kind": "fixed", "fixed_price": 0.3}, "export": {"kind": "none"}}
+    )
+    assert check_tariff(fixed, "spot_only") == []

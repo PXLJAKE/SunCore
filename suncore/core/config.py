@@ -8,7 +8,7 @@ but never read by the safety gate before Phase 3: the gate stays shadow-only.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Annotated, Any, Final, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -37,6 +37,15 @@ TIME_PATTERN: Final = HHMM_PATTERN
 
 Price = Annotated[float, Field(ge=0, le=100)]
 """Currency per kWh."""
+ActionParamName = Annotated[str, StringConstraints(min_length=1, max_length=64)]
+ActionParamValue = (
+    Annotated[str, StringConstraints(min_length=1, max_length=200)]
+    | Annotated[
+        list[Annotated[str, StringConstraints(min_length=1, max_length=64)]],
+        Field(min_length=1, max_length=16),
+    ]
+)
+"""A request field value of a tariff template's action: text, or a list of texts."""
 
 
 class _Frozen(BaseModel):
@@ -89,6 +98,35 @@ class ImportTariff(_Frozen):
     fixed_price: Price | None = None
     formula: PriceFormula | None = None
     tou: TouTariff | None = None
+    role_entities: dict[RoleName, EntityRef] = Field(default_factory=dict)
+    """Entities of the template's roles besides the main one (``price_entity`` is the role
+    ``price``), e.g. Octopus ``current_day_rates`` and ``next_day_rates`` (Phase 4 WP4)."""
+    action_params: dict[ActionParamName, ActionParamValue] = Field(default_factory=dict)
+    """Values for the request fields the template's action asks the user for (Nord Pool
+    ``config_entry``, ``areas``, ``currency``); the template names which are required."""
+    series_key: Annotated[str, StringConstraints(min_length=1, max_length=120)] | None = None
+    """Which entry of a multi-entry action response to read (Tibber home name, Nord Pool
+    area) when the response holds more than one; ``None`` = the only one."""
+    price_includes: PriceIncludes | None = None
+    """The user's statement about a source whose content depends on their setup (ENTSO-E
+    with a modifier template): overrides the template's ``price_includes``."""
+
+    @model_validator(mode="after")
+    def _source_settings(self) -> Self:
+        if self.kind != "dynamic" and (
+            self.role_entities
+            or self.action_params
+            or self.series_key is not None
+            or self.price_includes is not None
+        ):
+            raise invalid(
+                "import_source_dynamic_only",
+                "tariff.import: source settings (`role_entities`, `action_params`, "
+                "`series_key`, `price_includes`) need kind `dynamic`",
+            )
+        if "price" in self.role_entities:
+            raise invalid("import_role_price", "tariff.import: the role `price` is `price_entity`")
+        return self
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -194,7 +232,8 @@ class TariffConfig(_Frozen):
     export: ExportTariff
 
     def entity_refs(self) -> list[EntityRef]:
-        return [self.import_.price_entity] if self.import_.price_entity is not None else []
+        refs = [self.import_.price_entity] if self.import_.price_entity is not None else []
+        return [*refs, *self.import_.role_entities.values()]
 
 
 # --- forecast -----------------------------------------------------------------
@@ -307,6 +346,29 @@ def formula_on_all_in_source(
         "count fees and taxes twice",
         template_id=tariff.import_.template_id or "",
     )
+
+
+def missing_action_params(
+    tariff: TariffConfig, template_id: str, required: Collection[str]
+) -> list[tuple[str, PydanticCustomError]]:
+    """The request fields a template's action needs that ``tariff.import.action_params`` lacks.
+
+    ``required`` are the names the template marks as required (the catalogue knows them, the
+    model does not - the API passes them in, like for :func:`formula_on_all_in_source`).
+    """
+    return [
+        (
+            name,
+            invalid(
+                "import_param_missing",
+                "tariff.import: template {template_id} needs the setting {field}",
+                template_id=template_id,
+                field=name,
+            ),
+        )
+        for name in required
+        if name not in tariff.import_.action_params
+    ]
 
 
 def migrate_tariff_v2_to_v3(body: dict[str, Any]) -> dict[str, Any]:

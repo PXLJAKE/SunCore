@@ -22,6 +22,7 @@ from suncore.api import (
     HAUnavailableError,
     HealthReport,
     PeerPolicy,
+    TariffNotConfiguredError,
     UnknownRoleError,
     UnknownTemplateError,
 )
@@ -57,6 +58,7 @@ from suncore.storage import (
     ImportRejectedError,
     UnknownSectionError,
 )
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog, load_templates
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates"
@@ -208,6 +210,14 @@ class FakeServices:
         self.proposal_list: list[Decision] = []
         self.operation = OperationConfig()
         self.control_listeners: list[Callable[[], None]] = []
+        self.price_report: PriceReport | None = None
+        self.price_hours: list[int] = []
+
+    async def prices(self, hours: int) -> PriceReport:
+        self.price_hours.append(hours)
+        if self.price_report is None:
+            raise TariffNotConfiguredError
+        return self.price_report
 
     async def health(self) -> HealthReport:
         self.health_calls += 1

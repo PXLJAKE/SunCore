@@ -1,0 +1,22 @@
+# Nord Pool is not modelled by the simulator: the response is the documented shape
+# (tests/fixtures/tariff/nordpool_get_prices_for_date.yaml, research "Nord Pool (Core)").
+template: nordpool.price
+sim_scenario: summer_day
+fixture: nordpool_get_prices_for_date
+user_input:
+  now: "2026-10-16T10:07:00+02:00"
+  window_start: "2026-10-16T00:00:00+02:00"
+  window_hours: 24
+  action_params: {config_entry: 01HXEXAMPLEENTRYID, areas: [SE3]}
+extra_entities:
+  - {entity_id: sensor.nord_pool_se3_current_price, platform: nordpool, unit: EUR/kWh, state: "0.0455"}
+  - {entity_id: sensor.nord_pool_se3_next_price, platform: nordpool, unit: EUR/kWh, state: "0.0412"}
+roles:
+  price:
+    tied: [sensor.nord_pool_se3_current_price, sensor.nord_pool_se3_next_price]
+    pick: sensor.nord_pool_se3_current_price
+    unit: EUR/kWh
+expect:
+  segments: [{step_min: 60, points: 3}]
+  first_price: 0.0455
+  includes: spot_only

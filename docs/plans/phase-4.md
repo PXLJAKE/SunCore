@@ -392,6 +392,39 @@ shadow and assisted run is the acceptance test.
    nicht ausführbar. Reicht das, oder soll eine generische „Zwangsladen“-Entität bzw. später ein
    eigener §3.4-ADR kommen?
 
+### Offene Fragen aus PR 4-C (an den Maintainer)
+
+1. **Zusätzliche Tarif-Einstellungen:** Damit Nord Pool (`config_entry`, `areas`), Octopus (zwei
+   Ereignis-Entitäten), mehrere Tibber-Häuser und ENTSO-E mit eigener Preisformel funktionieren,
+   bekommt `tariff.import` vier optionale Felder: `role_entities`, `action_params`, `series_key`,
+   `price_includes` (Aussage des Nutzers, ob die Quelle schon Steuern/Netzentgelte enthält).
+   Alte Dokumente bleiben gültig. Einverstanden?
+2. **Nord Pool `config_entry`:** Die ID des Konfigurationseintrags muss der Nutzer eintragen
+   (Entwicklerwerkzeuge → Aktionen zeigt sie). Ob SunCore sie aus der Entity-Registry lesen kann,
+   ist nicht verifiziert (`UNVERIFIED`). Reicht die manuelle Eingabe für Phase 4?
+3. **Negativpreis-Regel bei All-in-Quellen (Tibber):** Der Spotpreis ist nicht bekannt; als Ersatz
+   gilt der Endpreis (Import) < 0. Das markiert weniger Viertelstunden als die echten
+   Negativ-Spot-Stunden, die Einspeisung wird dann dort noch vergütet gerechnet (`UNVERIFIED`
+   gegen die Praxis). Alternative: zusätzlich die Spot-Quelle (z. B. EPEX Spot Marktpreis) als
+   Referenz konfigurieren (Phase 5). Einverstanden mit dem Ersatzwert?
+4. **`curtailment_required`:** ändert in Phase 4 keinen Preis (Abregelung ist Sache von
+   Planer/Regler, nicht des Preises). Nur `no_remuneration` setzt den Einspeisepreis auf 0.
+5. **Dynamische Einspeisepreise:** keine der verifizierten Quellen liefert welche; der Einspeisepreis
+   kommt aus `tariff.export` (fest, gestaffelt, keiner). Octopus-Export-Entitäten sind nicht
+   angebunden.
+6. **HT/NT-Preis:** pro Viertelstunde zum Beginn der Viertelstunde; Fensterkanten, die nicht auf
+   :00/:15/:30/:45 liegen, wirken ab der nächsten Viertelstunde.
+7. **Veröffentlichung der Preise für morgen:** Standard 13:00 Ortszeit, danach alle 15 min bis die
+   Preise da sind (`UNVERIFIED`; Experten-Umgebungsvariablen `SUNCORE_TARIFF_TOMORROW_AFTER`,
+   `SUNCORE_TARIFF_TOMORROW_POLL_S`, `SUNCORE_TARIFF_REFRESH_INTERVAL_S`, keine App-Optionen,
+   dokumentiert in beiden `DOCS.md`). Bitte an deinem System beobachten.
+8. **§51 EEG und Inbetriebnahmedatum:** Ob bei negativen Preisen vergütet wird, hängt vom
+   Inbetriebnahmedatum der Anlage ab. Die Regel kommt heute nur aus dem Regionsprofil (`de`:
+   `no_remuneration`). Soll es später (Phase 5) pro Anlage eine Abschaltmöglichkeit geben
+   („diese Anlage wird auch bei negativen Preisen vergütet“)?
+9. **Namensabgrenzung:** `PriceFormula.apply` heißt für Aufrufer jetzt `end_price` (der Grenztest
+   reserviert `.apply(` für den Geräteschreibpfad); `apply` bleibt als Alias.
+
 ## Deviations during implementation
 
 - Phase 4 is split into the stacked PRs 4-A…4-I (§3) instead of one PR.
@@ -403,6 +436,9 @@ shadow and assisted run is the acceptance test.
   page was unreachable. The built-in PV fallback stays opt-in and off.
 - `BatteryAction` is part of the 4-A contracts but rejected by the gate until WP10
   (ADR-0011 addendum); its semantics are proposed in ADR-0013.
+- WP4: ENTSO-E and EPEX Spot get two templates each where the unit or the price content differs
+  (`entsoe.price`/`_mwh`, `epex_spot.total_price`/`market_price`): a template holds one value unit
+  and one `price_includes`. Octopus is included (its source was verified in 4-A).
 
 ## 7. Out of scope for Phase 4
 
