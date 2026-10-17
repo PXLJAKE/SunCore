@@ -308,7 +308,22 @@ maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
 - **ADR-0013 must be accepted before WP10** (4-G). Its contract changes (`BatteryAction` `None` =
   baseline, `BatteryBand.grid_charge_max_w`/`discharge_lock`, `effective_reserve_pct`,
-  `battery_identity`) land in a WP2 fix before 4-B.
+  `battery_identity`) land at the start of 4-G, after the maintainer accepted it.
+- **PR 4-B (WP3, branch `phase-4/b-storage`)**: `/data/timeseries.db` (own migrations; tables
+  `measurement` 48 h, `measurement_1m` 30 days, `measurement_15m` unlimited with a `derived` flag,
+  `forecast` versioned by issue time, kept 45 days after the slot, `price` 400 days;
+  `TimeseriesStore`; nightly job 03:30 local: downsample, retention, VACUUM only when worth it; a
+  corrupt file is moved aside, a newer one is left alone and SunCore runs without time series).
+  Rebuild of 28 days of site history from `recorder/statistics_during_period` (period `hour`,
+  explicit units) once after the first connect when the 15-min table is empty
+  (`suncore/ha/statistics.py`, `suncore/app/history.py`). Controller measurements recorded through
+  a batched writer (flush every 60 s, only OK-quality values). `suncore.db` migration 0004
+  (`plan_snapshot` zlib JSON, 200 rows / 14 days; `learned_param`): **DB schema 4, earlier versions
+  refuse it – export before updating.** `ActionRateLimiter` per `domain.service` for
+  `call_action_response` (default 30 s, `ActionRateLimitedError`, follow-up A3); boundary rule 7
+  admits only `suncore.app.adapters`. Fixed: a cancelled `Database.transaction` could leave a
+  transaction open on the shared connection. `UNVERIFIED`: Supervisor proxy passes `recorder/*`;
+  `change`/`sum` of real energy counters.
 - Maintainer questions from 4-A: plan §6 "Offene Fragen aus PR 4-A" (grid-charge schedule
   precedence, VAT on negative spot prices, export tiers, grid charging on the Kostal).
 
