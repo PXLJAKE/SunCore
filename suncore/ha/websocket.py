@@ -77,6 +77,8 @@ from suncore.ha.connection import (
     DEFAULT_WRITE_INTERVAL_S,
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
+    ActionRateLimitedError,
+    ActionRateLimiter,
     AuthError,
     CommandError,
     CommandTimeoutError,
@@ -105,6 +107,18 @@ T = TypeVar("T")
 DEFAULT_RESYNC_INTERVAL_S: Final = 60.0
 """Period of the full ``get_states`` resync. It is also the real freshness of a sensor whose
 value does not change: the stream is silent, the resync sees its ``last_reported`` move."""
+
+STATISTIC_PERIODS: Final = frozenset({"5minute", "hour", "day", "week", "month", "year"})
+"""Periods of ``recorder/statistics_during_period`` (verified, research/ha-websocket-api.md)."""
+
+
+def _iso_with_offset(moment: datetime) -> str:
+    """ISO 8601 with a UTC offset: a value without one is read in HA's time zone."""
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        msg = "statistics time range needs timezone-aware datetimes"
+        raise ValueError(msg)
+    return moment.isoformat()
+
 
 MAX_MESSAGE_BYTES: Final = 32 * 1024 * 1024
 """A full ``get_states`` of a large installation exceeds aiohttp's 4 MiB default."""
@@ -312,6 +326,7 @@ class WebSocketConnection:
         self._resync_interval = resync_interval
         self._stable_after = stable_after
         self._write_limiter = RateLimiter(write_interval, clock=clock, sleep=sleep)
+        self._action_limiter = ActionRateLimiter(clock=clock, sleep=sleep)
 
         secrets.register(transport.token)
 
@@ -468,15 +483,21 @@ class WebSocketConnection:
         data: Mapping[str, Any] | None = None,
         *,
         target: Mapping[str, Any] | None = None,
+        min_interval_s: float | None = None,
+        max_wait_s: float = 0.0,
     ) -> dict[str, Any]:
         """Read-only action call with ``return_response``; see :class:`HAConnection`.
 
-        Deliberately not rate limited like writes (no device is touched) and not routed
-        through :class:`ServiceCaller`: the allowlist is the guard.
+        Not routed through :class:`ServiceCaller` (no device is touched): the allowlist is
+        the guard against writes and the per-action :class:`ActionRateLimiter` the guard
+        against hammering an integration (follow-up A3).
         """
         if not is_read_only_action(domain, service):
             msg = f"{domain}.{service} is not a read-only action"
             raise ActionNotAllowedError(msg)
+        key = f"{domain}.{service}"
+        if not await self._action_limiter.acquire(key, min_interval_s, max_wait_s=max_wait_s):
+            raise ActionRateLimitedError(key, self._action_limiter.retry_after(key))
         payload: dict[str, Any] = {
             "type": "call_service",
             "domain": domain,
@@ -493,6 +514,44 @@ class WebSocketConnection:
             msg = f"{domain}.{service} returned no response object"
             raise ProtocolError(msg)
         return dict(response)
+
+    async def statistics_during_period(
+        self,
+        statistic_ids: Sequence[str],
+        start: datetime,
+        end: datetime | None = None,
+        *,
+        period: str = "hour",
+        types: Sequence[str] | None = None,
+        units: Mapping[str, str] | None = None,
+    ) -> Mapping[str, Sequence[Mapping[str, Any]]]:
+        """``recorder/statistics_during_period``; see :class:`HAConnection` for the shape."""
+        if period not in STATISTIC_PERIODS:
+            msg = f"unknown statistics period {period!r}"
+            raise ValueError(msg)
+        if not statistic_ids:
+            return {}
+        payload: dict[str, Any] = {
+            "type": "recorder/statistics_during_period",
+            "start_time": _iso_with_offset(start),
+            "statistic_ids": list(statistic_ids),
+            "period": period,
+        }
+        if end is not None:
+            payload["end_time"] = _iso_with_offset(end)
+        if types is not None:
+            payload["types"] = list(types)
+        if units is not None:
+            payload["units"] = dict(units)
+        result = await self._command(payload)
+        if not isinstance(result, Mapping):
+            msg = "recorder/statistics_during_period returned a non-object"
+            raise ProtocolError(msg)
+        return {
+            str(key): [row for row in rows if isinstance(row, Mapping)]
+            for key, rows in result.items()
+            if isinstance(rows, list)
+        }
 
     # --- supervisor loop ------------------------------------------------------
 

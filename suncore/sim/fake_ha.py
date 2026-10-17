@@ -48,7 +48,7 @@ import contextlib
 import heapq
 import itertools
 import logging
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
@@ -90,6 +90,7 @@ from suncore.sim.devices import (
     validate_schema,
 )
 from suncore.sim.house import House, HouseState
+from suncore.sim.recorder import SimRecorder
 from suncore.sim.scenario import ManualEvent, Scenario, SimSignal
 
 _log = logging.getLogger(__name__)
@@ -257,6 +258,19 @@ class FakeHAConnection:
         self._unavailable: frozenset[str] = frozenset()
         self.call_log: list[CallRecord] = []
         """Every service call seen, oldest first."""
+        self.recorder = SimRecorder(
+            scenario,
+            {
+                GRID_ID: lambda s: s.grid_w,
+                PV_ID: lambda s: s.pv_w,
+                BATTERY_ID: lambda s: s.battery_w,
+                SOC_ID: lambda s: s.soc_pct,
+                HOUSE_ID: lambda s: s.load_w,
+            },
+        )
+        """Hourly statistics behind :meth:`statistics_during_period`."""
+        self.statistics_error: HAError | None = None
+        """Make ``statistics_during_period`` fail (e.g. a proxy that blocks ``recorder/*``)."""
 
     # --- HAConnection ---------------------------------------------------------
 
@@ -388,6 +402,24 @@ class FakeHAConnection:
             except Exception:
                 _log.exception("registry listener failed")
 
+    async def statistics_during_period(
+        self,
+        statistic_ids: Sequence[str],
+        start: datetime,
+        end: datetime | None = None,
+        *,
+        period: str = "hour",
+        types: Sequence[str] | None = None,
+        units: Mapping[str, str] | None = None,  # noqa: ARG002 - the fake always answers in W
+    ) -> Mapping[str, Sequence[Mapping[str, Any]]]:
+        """``recorder/statistics_during_period`` from :attr:`recorder` (hourly means in W)."""
+        self._require_connected()
+        if self.statistics_error is not None:
+            raise self.statistics_error
+        if not statistic_ids:
+            return {}
+        return self.recorder.query(statistic_ids, start, end, period, types)
+
     async def call_action_response(
         self,
         domain: str,
@@ -395,6 +427,8 @@ class FakeHAConnection:
         data: Mapping[str, Any] | None = None,  # noqa: ARG002
         *,
         target: Mapping[str, Any] | None = None,  # noqa: ARG002
+        min_interval_s: float | None = None,  # noqa: ARG002 - the fake is not rate limited
+        max_wait_s: float = 0.0,  # noqa: ARG002
     ) -> dict[str, Any]:
         """Read-only action responses built from the demo data (allowlist like the real one)."""
         if not is_read_only_action(domain, service):

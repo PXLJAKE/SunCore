@@ -408,6 +408,7 @@
   "grid.power": "Netzleistung (positiv = Bezug)",
   "grid.power_hint": "Ein Sensor, der positiv ist, wenn du Strom beziehst, und negativ bei Einspeisung.",
   "grid.sensors": "Netzsensoren",
+  "ha.error.action_rate_limited": "Eine Home-Assistant-Aktion wurde zu oft angefordert und übersprungen; SunCore fragt nach dem Mindestabstand erneut an.",
   "log.all_devices": "Alle Geräte",
   "log.count": "{count, plural, =0 {Keine Einträge} one {# Eintrag} other {# Einträge}}",
   "log.device": "Gerät",

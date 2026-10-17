@@ -30,8 +30,9 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    operating modes only through the injected ``ModeProvider`` (Phase 3 WP3) and the
    runtime only through the injected ``RuntimeStore``.
 7. ``call_action_response`` (read-only action with ``return_response``) is defined and used
-   only in ``suncore.ha`` (implementation), ``suncore.sim`` (fake) and ``suncore.app``
-   (wiring of the tariff/forecast adapters later); ``READ_ONLY_ACTIONS`` is the fixed allowlist.
+   only in ``suncore.ha`` (implementation, rate limited per action), ``suncore.sim`` (fake) and
+   the one adapter wiring module ``suncore.app.adapters`` (Phase 4); no other part of
+   ``suncore.app`` may use it. ``READ_ONLY_ACTIONS`` is the fixed allowlist.
 
 The scan is robust to packages that are still empty (``suncore/ha`` until
 WP3) because it only looks at the files that exist.
@@ -63,7 +64,7 @@ API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
 WRITE_CAPABILITY_NAMES = frozenset({"ServiceCaller", "ServiceCallerProvider"})
 SAFETY_FORBIDDEN_IMPORTS = ("suncore.core.config", "suncore.storage")
-ACTION_RESPONSE_OWNERS = ("suncore.ha", "suncore.sim")
+ACTION_RESPONSE_OWNERS = ("suncore.ha", "suncore.sim", "suncore.app.adapters")
 
 
 def module_name(path: Path) -> str:
@@ -325,12 +326,25 @@ def test_safety_does_not_read_config_or_storage(path: Path) -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_call_action_response_is_confined(path: Path) -> None:
-    """Rule 7: the response-returning call lives in ha (+ the fake); app joins later."""
+    """Rule 7: the response-returning call lives in ha (+ the fake) and app.adapters only."""
     module = module_name(path)
     if any(in_package(module, owner) for owner in ACTION_RESPONSE_OWNERS):
         return
     offenders = fmt(path, attribute_refs(parse(path), "call_action_response"))
-    assert not offenders, f"call_action_response referenced outside ha/sim: {offenders}"
+    assert not offenders, (
+        f"call_action_response referenced outside ha/sim/app.adapters: {offenders}"
+    )
+
+
+def test_action_response_owner_is_the_adapter_module_not_the_whole_app() -> None:
+    """Rule 7 admits ``suncore.app.adapters`` only: its siblings in ``suncore.app`` stay out."""
+    assert "suncore.app" not in ACTION_RESPONSE_OWNERS
+    assert (PACKAGE / "app" / "adapters.py").is_file()
+    for owner in ACTION_RESPONSE_OWNERS:
+        assert not in_package("suncore.app.control", owner)
+        assert not in_package("suncore.app.runtime", owner)
+        assert not in_package("suncore.app.adapters_extra", owner)
+    assert in_package("suncore.app.adapters", "suncore.app.adapters")
 
 
 def test_read_only_action_allowlist_is_fixed() -> None:
