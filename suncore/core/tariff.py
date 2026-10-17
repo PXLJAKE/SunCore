@@ -185,7 +185,7 @@ class PriceFormula(_Frozen):
         return net * (1 + self.vat_pct / 100)
 
     def apply(self, spot: float, at: datetime | None, tz: tzinfo) -> float:
-        """Same as :meth:`end_price` (the name of the 4-A contract)."""
+        """Deprecated alias of :meth:`end_price` (the 4-A name); new code calls ``end_price``."""
         return self.end_price(spot, at, tz)
 
 

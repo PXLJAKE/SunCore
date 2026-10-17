@@ -25,7 +25,7 @@ tested_with: []
 capabilities: [price_now, price_curve]
 unverified:
   - "Read from the integration source (tag 4.1.0, commit 2aad1eb7) only; not observed on a running Home Assistant."
-  - "Entity ids and translation keys: the role matches platform and the unit literal only; \"Total Price\" and \"Market Price\" share the unit, so both are candidates and the user picks \"Total Price\"."
+  - "Entity ids and translation keys: the role matches platform and the unit literal only; \"Total Price\" and \"Market Price\" share the unit, so both are candidates and the user picks \"Market Price\"."
   - "Which sources deliver a bare market price in this sensor was read from the source clients only (MWh converted to kWh)."
   - "Slot length is `end_time - start_time` (configurable per entry, 60 minutes by default, 15 or 60 for Energy-Charts)."
 direction: import

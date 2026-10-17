@@ -83,6 +83,11 @@ class PriceQuality(_Out):
 class PriceReport(_Out):
     unit: Literal["currency/kWh"] = "currency/kWh"
     step_min: Literal[15] = 15
+    price_includes: PriceIncludes
+    """What ``import_price`` is: ``all_in`` (end price) or ``spot_only`` (bare market price)."""
+    formula_missing: bool
+    """The import price is a bare spot price and no price formula turns it into the end price:
+    do not plan with it."""
     start: AwareDatetime
     slots: list[PriceSlot]
     source: PriceSourceInfo

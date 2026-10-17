@@ -125,7 +125,7 @@ def test_select_series_the_only_one_or_the_named_one() -> None:
 def test_several_series_without_a_key_are_ambiguous() -> None:
     with pytest.raises(AmbiguousSeriesError) as err:
         select_series([("Home", [1]), ("Cabin", [2])], None)
-    assert err.value.message_args["available"] == ["Cabin", "Home"]
+    assert err.value.message_args["available"] == "Cabin, Home"
 
 
 def test_an_unknown_key_is_malformed() -> None:

@@ -108,6 +108,17 @@ run against real hardware yet; the guide lists what is unverified.
 
 Change options on the app's **Configuration** tab and restart the app.
 
+## Expert settings (environment variables)
+
+Three timing settings of the price service are not app options (keep the Configuration tab
+simple). Experts can set them as environment variables of the container:
+
+| Variable | Default | Description |
+|---|---|---|
+| `SUNCORE_TARIFF_REFRESH_INTERVAL_S` | `3600` | Spacing of the regular price refresh in seconds (60–86400). |
+| `SUNCORE_TARIFF_TOMORROW_AFTER` | `13:00` | Local time from which tomorrow's day-ahead prices are expected. |
+| `SUNCORE_TARIFF_TOMORROW_POLL_S` | `900` | Spacing of the asks between that time and the arrival of tomorrow's prices. |
+
 ## Demo mode
 
 With `demo_mode` switched on, SunCore does not read your entities. A

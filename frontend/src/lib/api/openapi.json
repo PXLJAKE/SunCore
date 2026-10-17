@@ -4352,8 +4352,20 @@
       "PriceReport": {
         "additionalProperties": false,
         "properties": {
+          "formula_missing": {
+            "title": "Formula Missing",
+            "type": "boolean"
+          },
           "freshness": {
             "$ref": "#/components/schemas/PriceFreshness"
+          },
+          "price_includes": {
+            "enum": [
+              "spot_only",
+              "all_in"
+            ],
+            "title": "Price Includes",
+            "type": "string"
           },
           "quality": {
             "$ref": "#/components/schemas/PriceQuality"
@@ -4387,6 +4399,8 @@
           }
         },
         "required": [
+          "price_includes",
+          "formula_missing",
           "start",
           "slots",
           "source",

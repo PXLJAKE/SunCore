@@ -341,6 +341,17 @@ on `phase-4/b-storage`)
   `tibber.get_prices` through the same template path, scenario `negative_prices`.
   `PriceFormula.end_price` is the 4-A `apply` under a name the actuator boundary test does not
   reserve. `UNVERIFIED`: see the price rows in the table below.
+  Review fixes: a failing attribute source backs off; a fetch without a known price fails and keeps
+  the old data (unknown slots are carried over, `quality.carried_slots`); the old tail never overlaps
+  new data; Nord Pool `date` is the CET delivery day (`date_tz`, research note in
+  `research/integrations.md`) and "tomorrow covered" ends at the market's day end; a source in
+  another currency than the region is refused; `segments_from_points` (4-A) treats a multiple-step
+  hole at the list end as a gap. A spot-only price without a formula is a system-check warning and
+  `GET /api/v1/prices` says `formula_missing: true` with the top-level `price_includes`.
+  **For 4-F: the planner must refuse `spot_only` import prices without a formula (it must not
+  plan with bare market prices).** Known: the error argument `available` of
+  `tariff.error.ambiguous_series` carries the home names/areas of the response (shown to the user,
+  they are needed to choose one).
 - Maintainer questions from 4-A: plan §6 "Offene Fragen aus PR 4-A" (grid-charge schedule
   precedence, VAT on negative spot prices, export tiers, grid charging on the Kostal).
 

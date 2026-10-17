@@ -8,7 +8,7 @@ but never read by the safety gate before Phase 3: the gate stays shadow-only.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Annotated, Any, Final, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -346,6 +346,29 @@ def formula_on_all_in_source(
         "count fees and taxes twice",
         template_id=tariff.import_.template_id or "",
     )
+
+
+def missing_action_params(
+    tariff: TariffConfig, template_id: str, required: Collection[str]
+) -> list[tuple[str, PydanticCustomError]]:
+    """The request fields a template's action needs that ``tariff.import.action_params`` lacks.
+
+    ``required`` are the names the template marks as required (the catalogue knows them, the
+    model does not - the API passes them in, like for :func:`formula_on_all_in_source`).
+    """
+    return [
+        (
+            name,
+            invalid(
+                "import_param_missing",
+                "tariff.import: template {template_id} needs the setting {field}",
+                template_id=template_id,
+                field=name,
+            ),
+        )
+        for name in required
+        if name not in tariff.import_.action_params
+    ]
 
 
 def migrate_tariff_v2_to_v3(body: dict[str, Any]) -> dict[str, Any]:

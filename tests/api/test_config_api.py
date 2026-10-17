@@ -217,3 +217,29 @@ async def test_the_users_price_statement_decides_whether_a_formula_is_allowed(
     assert declared_all_in.status_code == 422
     assert declared_all_in.json()["issues"][0]["key"] == "api.validation.import_formula_all_in"
     assert declared_spot.status_code == 200
+
+
+async def test_required_request_fields_of_the_template_are_checked(services: FakeServices) -> None:
+    """m1: Nord Pool needs the `config_entry` id; a tariff without it is rejected with a key."""
+    export = VALID["tariff"]["export"]
+    base = {"kind": "dynamic", "template_id": "nordpool.price"}
+    async with client_for(create_app(services)) as client:
+        bad = await client.put("/api/v1/config/tariff", json={"import": base, "export": export})
+        optional_only = await client.put(
+            "/api/v1/config/tariff",
+            json={"import": {**base, "action_params": {"areas": ["SE3"]}}, "export": export},
+        )
+        good = await client.put(
+            "/api/v1/config/tariff",
+            json={"import": {**base, "action_params": {"config_entry": "01H"}}, "export": export},
+        )
+    assert bad.status_code == 422
+    assert bad.json()["issues"] == [
+        {
+            "loc": ["body", "import", "action_params", "config_entry"],
+            "key": "api.validation.import_param_missing",
+            "args": {"template_id": "nordpool.price", "field": "config_entry"},
+        }
+    ]
+    assert optional_only.status_code == 422
+    assert good.status_code == 200

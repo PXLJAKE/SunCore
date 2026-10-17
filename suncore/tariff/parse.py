@@ -151,7 +151,8 @@ def select_series(candidates: Sequence[tuple[str, object]], key: str | None) -> 
         return None
     if len(candidates) > 1:
         raise AmbiguousSeriesError(
-            "the response holds several series", available=sorted(c[0] for c in candidates)
+            "the response holds several series",
+            available=", ".join(sorted(c[0] for c in candidates)),
         )
     return candidates[0][1] if candidates else None
 

@@ -710,3 +710,30 @@ async def test_tomorrow_is_covered_at_the_end_of_the_market_day_west_of_the_mark
         service = TariffService(plan, clock=Clock(now))
         await service.refresh("initial")
         assert service.report(48).quality.has_tomorrow is expected
+
+
+async def test_report_says_when_a_spot_price_has_no_formula() -> None:
+    from suncore.core.tariff import PriceFormula  # noqa: PLC0415
+
+    source = FakeSource(segments=(day_prices(16, 2),), price_includes="spot_only")
+    spot = PriceSeries(
+        source_id="fake", price_includes="spot_only", import_price=day_prices(16, 2).import_price
+    )
+    source.segments = (spot,)
+    for formula, missing, includes in (
+        (None, True, "spot_only"),
+        (PriceFormula(grid_fee=0.1), False, "all_in"),
+    ):
+        plan = TariffPlan(
+            source=source,  # type: ignore[arg-type]
+            export_tariff=FIXED_EXPORT,
+            negative_rule=NegativePriceRule.NONE,
+            tz=BERLIN,
+            currency="EUR",
+            formula=formula,
+        )
+        service = TariffService(plan, clock=Clock(local(16, 10, 0)))
+        await service.refresh("initial")
+        report = service.report(24)
+        assert report.formula_missing is missing
+        assert report.price_includes == includes

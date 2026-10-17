@@ -2287,7 +2287,14 @@ export interface components {
         };
         /** PriceReport */
         PriceReport: {
+            /** Formula Missing */
+            formula_missing: boolean;
             freshness: components["schemas"]["PriceFreshness"];
+            /**
+             * Price Includes
+             * @enum {string}
+             */
+            price_includes: "spot_only" | "all_in";
             quality: components["schemas"]["PriceQuality"];
             /** Slots */
             slots: components["schemas"]["PriceSlot"][];

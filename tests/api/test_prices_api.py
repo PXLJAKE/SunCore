@@ -20,6 +20,8 @@ T0 = datetime(2026, 10, 16, 8, 0, tzinfo=UTC)
 
 def report() -> PriceReport:
     return PriceReport(
+        price_includes="all_in",
+        formula_missing=False,
         start=T0,
         slots=[
             PriceSlot(start=T0, import_price=0.31, export_price=0.08),

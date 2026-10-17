@@ -116,6 +116,7 @@ VALIDATION_KEYS: Final[dict[str, str]] = {
     "suncore.forecast_manual_weight": "api.validation.forecast_manual_weight",
     "suncore.grid_charge_needs_limit": "api.validation.grid_charge_needs_limit",
     "suncore.import_formula_dynamic_only": "api.validation.import_formula_dynamic_only",
+    "suncore.import_param_missing": "api.validation.import_param_missing",
     "suncore.import_role_price": "api.validation.import_role_price",
     "suncore.import_source_dynamic_only": "api.validation.import_source_dynamic_only",
     "suncore.import_tou_extra": "api.validation.import_tou_extra",

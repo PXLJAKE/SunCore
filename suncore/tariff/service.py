@@ -528,6 +528,8 @@ class TariffService:
             else None
         )
         return PriceReport(
+            price_includes=prices.price_includes,
+            formula_missing=prices.price_includes == "spot_only",
             start=grid.start,
             slots=slots,
             source=PriceSourceInfo(

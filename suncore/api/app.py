@@ -25,6 +25,7 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, TypeAdapter
+from pydantic_core import PydanticCustomError
 from starlette.websockets import WebSocketState
 
 from suncore.api.limits import BodyLimitMiddleware
@@ -72,6 +73,7 @@ from suncore.core.config import (
     OperationConfig,
     TariffConfig,
     formula_on_all_in_source,
+    missing_action_params,
 )
 from suncore.core.controlstate import (
     ControlState,
@@ -95,7 +97,7 @@ from suncore.storage.errors import (
 )
 from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
-from suncore.templates.models import TariffTemplate, TemplateKind
+from suncore.templates.models import ActionSeries, TariffTemplate, TemplateKind
 
 log = logging.getLogger(__name__)
 
@@ -454,16 +456,21 @@ def _check_tariff_against_catalog(tariff: TariffConfig, catalog: TemplateCatalog
     template = catalog.get(template_id) if template_id is not None else None
     includes = template.price_includes if isinstance(template, TariffTemplate) else None
     includes = tariff.import_.price_includes or includes  # the user's statement wins
+    problems: list[tuple[tuple[str, ...], PydanticCustomError]] = []
     error = formula_on_all_in_source(tariff, includes)
     if error is not None:
+        problems.append((("body", "import", "formula"), error))
+    if isinstance(template, TariffTemplate) and isinstance(template.price_series, ActionSeries):
+        required = [p.name for p in template.price_series.params if p.required]
+        problems.extend(
+            (("body", "import", "action_params", name), error)
+            for name, error in missing_action_params(tariff, template.id, required)
+        )
+    if problems:
         raise RequestValidationError(
             [
-                {
-                    "type": error.type,
-                    "loc": ("body", "import", "formula"),
-                    "msg": error.message(),
-                    "ctx": error.context or {},
-                }
+                {"type": e.type, "loc": loc, "msg": e.message(), "ctx": e.context or {}}
+                for loc, e in problems
             ]
         )
 

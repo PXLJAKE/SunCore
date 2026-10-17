@@ -59,7 +59,14 @@ from suncore.core.devices import DeviceConfig
 from suncore.core.identity import identity_token
 from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
-from suncore.core.wizard import CheckItem, PreviewItem, collect_refs, preview, run_system_check
+from suncore.core.wizard import (
+    CheckItem,
+    PreviewItem,
+    check_tariff,
+    collect_refs,
+    preview,
+    run_system_check,
+)
 from suncore.ha import (
     SITE_ROLES,
     CommandError,
@@ -89,7 +96,7 @@ from suncore.storage import (
 )
 from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
-from suncore.templates import TemplateCatalog
+from suncore.templates import TariffTemplate, TemplateCatalog
 
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
 
@@ -975,9 +982,16 @@ class Runtime:
         ids = [r.entity_id for r in site.entity_refs()] if site is not None else []
         await self._browse_if_needed(ids)
         present = await self.config.stored_sections()
-        return run_system_check(
+        items = run_system_check(
             site, self._samples(ids), present, self.devices, self._unit_of_entity
         )
+        template = (
+            self.template_catalog.get(self.tariff_config.import_.template_id)
+            if self.tariff_config is not None and self.tariff_config.import_.template_id
+            else None
+        )
+        includes = template.price_includes if isinstance(template, TariffTemplate) else None
+        return [*items, *check_tariff(self.tariff_config, includes)]
 
     async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
         ids = list(dict.fromkeys(entity_id for _, entity_id, _ in collect_refs(fragment)))

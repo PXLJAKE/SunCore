@@ -245,3 +245,20 @@ async def test_stop_cancels_the_price_loop(tmp_path: Path) -> None:
     await runtime.stop()
     assert task.done()
     assert runtime._tariff_task is None
+
+
+async def test_the_system_check_warns_about_spot_prices_without_a_formula(runtime: Runtime) -> None:
+    keys = [i.reason.key for i in await runtime.system_check(None)]
+    assert "wizard.check.tariff_spot_without_formula" not in keys  # Tibber is all-in
+    await runtime.put_section(
+        "tariff",
+        TariffConfig(
+            import_=ImportTariff(
+                kind="dynamic", template_id="tibber.price", price_includes="spot_only"
+            ),
+            export=ExportTariff(kind="none"),
+        ),
+    )
+    items = await runtime.system_check(None)
+    (warning,) = [i for i in items if i.reason.key == "wizard.check.tariff_spot_without_formula"]
+    assert warning.severity == "warn"

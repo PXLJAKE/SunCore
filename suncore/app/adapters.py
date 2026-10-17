@@ -5,8 +5,9 @@ This module builds the price and forecast sources from the configured templates 
 the Home Assistant connection. It is the only module of ``suncore.app`` that may call
 ``HAConnection.call_action_response`` (``tests/safety/test_boundary.py``, rule 7): the call is a
 read-only action with ``return_response`` and is rate limited per ``(domain, service)`` by the
-connection (``ActionRateLimiter``). An adapter passes the polling interval of its template as
-``min_interval_s`` and treats a throttled call as "use the last value"
+connection (``ActionRateLimiter``). The tariff engine passes ``DEFAULT_MIN_INTERVAL_S`` (30 s,
+the limiter's floor) as ``min_interval_s``; how often the service asks is its own refresh
+logic. A throttled call means "use the last value"
 (:class:`~suncore.tariff.errors.SourceThrottledError`).
 
 * :class:`ConnectionActionCaller` - the ``ActionCaller`` of the tariff engine;

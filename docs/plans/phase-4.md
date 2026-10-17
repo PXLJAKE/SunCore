@@ -415,9 +415,14 @@ shadow and assisted run is the acceptance test.
 6. **HT/NT-Preis:** pro Viertelstunde zum Beginn der Viertelstunde; Fensterkanten, die nicht auf
    :00/:15/:30/:45 liegen, wirken ab der nächsten Viertelstunde.
 7. **Veröffentlichung der Preise für morgen:** Standard 13:00 Ortszeit, danach alle 15 min bis die
-   Preise da sind (`UNVERIFIED`, Einstellungen `tariff_tomorrow_after`, `tariff_tomorrow_poll_s`,
-   `tariff_refresh_interval_s`). Bitte an deinem System beobachten.
-8. **Namensabgrenzung:** `PriceFormula.apply` heißt für Aufrufer jetzt `end_price` (der Grenztest
+   Preise da sind (`UNVERIFIED`; Experten-Umgebungsvariablen `SUNCORE_TARIFF_TOMORROW_AFTER`,
+   `SUNCORE_TARIFF_TOMORROW_POLL_S`, `SUNCORE_TARIFF_REFRESH_INTERVAL_S`, keine App-Optionen,
+   dokumentiert in beiden `DOCS.md`). Bitte an deinem System beobachten.
+8. **§51 EEG und Inbetriebnahmedatum:** Ob bei negativen Preisen vergütet wird, hängt vom
+   Inbetriebnahmedatum der Anlage ab. Die Regel kommt heute nur aus dem Regionsprofil (`de`:
+   `no_remuneration`). Soll es später (Phase 5) pro Anlage eine Abschaltmöglichkeit geben
+   („diese Anlage wird auch bei negativen Preisen vergütet“)?
+9. **Namensabgrenzung:** `PriceFormula.apply` heißt für Aufrufer jetzt `end_price` (der Grenztest
    reserviert `.apply(` für den Geräteschreibpfad); `apply` bleibt als Alias.
 
 ## Deviations during implementation
