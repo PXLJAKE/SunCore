@@ -3,11 +3,31 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-15 · **Phase:** 3 implemented (3-A `phase-3/a-safety`, 3-B
-`phase-3/b-controller`, 3-C `phase-3/c-ui`), waiting for the maintainer's shadow-mode test ·
-**Branch:** `phase-3/c-ui`
+**Last update:** 2026-10-16 · **Phase:** 4 in progress – PR 4-A contracts; Phase 3 (3-A
+`phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
+maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
 
 ## Done
+
+- **Phase 4 – PR 4-A (plan, WP1, WP2; branch `claude/zealous-mayer-j5oda9`)**:
+  - Plan `docs/plans/phase-4.md` **revision 2 approved** (2026-10-16), incl. the merged concept
+    "Prognose, Puffer und Akkuplanung" (§0) and the split into stacked PRs 4-A…4-I.
+  - WP1 research: Phase 4 interfaces verified from source with pinned refs (HA core `dev`
+    `5cfe9aad`, Solcast `v4.6.1`, Open-Meteo Solar Forecast `0.1.33`, ENTSO-E `v0.7.5`, EPEX Spot
+    `4.1.0`, Octopus `v19.2.1`, Open-Meteo `01ceed5b`); summary table at the end of
+    `research/integrations.md`, Modbus/Kostal write path in `research/kostal-plenticore-modbus.md`.
+  - WP2 contracts (`core`, additive): `series.py` (`TimeSeries`, `QuantileSeries`, `PriceSeries`,
+    15-min grid resampling, DST-safe), `forecast.py` (`ForecastSource`/`PriceSource`,
+    `AccuracyRecord`), `tariff.py` (`WeeklySchedule`, `PriceFormula` with VAT, HT/NT, blended
+    export tiers), `battery.py` (`BatteryModel`, `BatteryStrategy`, `RiskLevel`,
+    `GridChargePolicy`, `BatterySettings` = section `battery`), `BatteryAction` in `decisions.py`
+    (**rejected by the gate** with `safety.battery_not_supported`, ADR-0011 addendum), `Plan` v2
+    (`IntervalFlows`, `IntervalPrices`, per-interval reasons, `source`, `SolverStats`,
+    `BatteryBand.priority_until_soc_pct`; v1 still loads); config `TariffConfig` v3,
+    `ForecastConfig` v2, `goals` v2; template schema v1 additions (kind `battery`, `series`,
+    HT/NT).
+  - ADR-0013 "Battery as a controlled asset" **proposed** (prerequisite of WP10).
+  - Review fixes: in progress (`fix(...)` commits on the branch).
 
 - **Fix after the first live test (2026-10-16, branch `fix/device-freshness`)**: on the maintainer's
   HA the SunSpec battery SoC (84 % for 25 min) and the `smartthinq_sensors` power sensors (5 W for a
@@ -280,6 +300,18 @@ ADRs relevant to your task. Keep it short; history lives in git.
   - Beta version derivation in `build.yml` and the E2E/screenshot work were done
     in PR 2-D, see Open – Phase 1.
 
+## Open – Phase 4
+
+- PR order (stacked, each on the previous, `phase-4/<letter>-<topic>`): 4-B storage/time series
+  (WP3) → 4-C tariffs (WP4) and 4-D PV forecast (WP5) → 4-E load + risk (WP6, WP7) → 4-F planner and
+  runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
+  (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
+- **ADR-0013 must be accepted before WP10** (4-G). Its contract changes (`BatteryAction` `None` =
+  baseline, `BatteryBand.grid_charge_max_w`/`discharge_lock`, `effective_reserve_pct`,
+  `battery_identity`) land in a WP2 fix before 4-B.
+- Maintainer questions from 4-A: plan §6 "Offene Fragen aus PR 4-A" (grid-charge schedule
+  precedence, VAT on negative spot prices, export tiers, grid charging on the Kostal).
+
 ## Open – Phase 3
 
 - **WP5/WP6 (branch `phase-3/b-controller`)** done: `suncore/devices/power/` (measured,
@@ -454,7 +486,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
    the first live writes (the climate unit's counter-only estimate and the cloud echo delay are
    the interesting parts). Then merge 3-A, 3-B, 3-C and release.
 4. Release the next release-please PR for the stable app after acceptance.
-5. Phase 4 (forecasts, tariffs, planner, battery) starts after the maintainer's acceptance.
+5. Phase 4: finish the 4-A review fixes, open PR 4-A; maintainer decides on ADR-0013 and the 4-A
+   questions; continue with 4-B (storage/time series).
 
 ## Known problems and `UNVERIFIED` items
 
@@ -462,15 +495,22 @@ ADRs relevant to your task. Keep it short; history lives in git.
 |---|---|---|
 | Kostal §3.4 set-point timeout and how external battery management is enabled (register map itself is verified from KOSTAL rev 2.9) | `research/kostal-plenticore-modbus.md` | Phase 4 measurement on the maintainer's inverter |
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
-| Open-Meteo tilted-irradiance parameters; Energy-Charts and aWATTar APIs and terms | `research/integrations.md` | Phase 4, session with network access |
-| Forecast.Solar / Open-Meteo Solar Forecast attribute names; Octopus attributes | `research/integrations.md` | Phase 4, read integration source |
+| Energy-Charts and aWATTar APIs and terms (not shipped in Phase 4) | `research/integrations.md` | session with network access (Phase 6) |
+| Open-Meteo azimuth convention in a live response (code: 0 = south, OpenAPI text contradicts); separate terms page (README only) | `research/integrations.md` | live request; maintainer reads the terms page |
+| Kostal REST battery/grid power sign; `ActivePowerLimitation` semantics; live entity ids | `research/integrations.md` | maintainer's HA (enable the entities, compare with the inverter display) |
+| Kostal Modbus external battery management not enabled on the maintainer's inverter; how it is enabled; §3.5 fallback timer behaviour | `research/kostal-plenticore-modbus.md`, ADR-0013 | maintainer enables it and measures; `kostal_modbus` capped at assisted until then |
+| Creating a modbus hub from the HA UI (else YAML) | `research/ha-websocket-api.md` | maintainer's HA |
+| Supervisor proxy passes `recorder/*` and `energy/*` commands | `research/ha-websocket-api.md` | first Phase 4 run on HA OS |
+| Publication time of next-day prices (Tibber, Nord Pool, ENTSO-E, EPEX) | `research/integrations.md` | observe on the maintainer's HA |
+| VAT applied to negative spot prices | `suncore/core/tariff.py` | maintainer's bill / supplier terms |
+| KNN load model performance on aarch64 | plan WP12 | CI arm runner benchmark |
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
 | Registry and energy-prefs shapes on cores older than dev (single `config_entry_id` on devices, unified grid source); `unknown_command` code without the `energy` integration; Supervisor proxy passes registry commands | `research/ha-websocket-api.md` | first run on HA OS; parsers tolerate both shapes |
 | Section 51 EEG 2023 text could not be fetched; region `de` feed-in tiers are empty until the official BNetzA table is cited | `templates/region/de.yaml` | maintainer provides the table or a session with access to gesetze-im-internet.de |
 | Whether Tibber's `total` includes grid fees (country dependent) | `templates/tariff/tibber.price.yaml` | live check on the maintainer's Tibber account |
-| LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes, Tibber tomorrow-price publication time, Solcast default day-sensor count | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
+| LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes (Solcast default day-sensor count verified from source in 4-A; Tibber publication time: see the price row above) | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
 | Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA); the surplus control guide is written from the code and the demo, its walk-through has not been followed on a real system | `docs/user/*/quick-start.md`, `docs/user/*/surplus-control.md` | maintainer follows the quick start and the first-device walk-through on HA OS |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
 | Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |

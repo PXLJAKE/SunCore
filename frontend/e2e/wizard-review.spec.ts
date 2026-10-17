@@ -48,12 +48,12 @@ test.describe('dynamic tariff with only a price sensor', () => {
       price_entity: { entity_id: 'sensor.sim_electricity_price' },
     });
     expect(tariff.import.fixed_price).toBeNull();
-    expect(tariff.schema_version).toBe(2);
+    expect(tariff.schema_version).toBe(3);
   });
 
   test('the forecast choice is stored without a complete tariff', async ({ page, request }) => {
     await request.put('/api/v1/config/forecast', {
-      data: { schema_version: 1, forecast_template_ids: [], forecast_entities: {} },
+      data: { schema_version: 2, sources: [] },
     });
     await openStep(page, 'pv');
     await page.getByLabel('Solcast PV forecast').check();
@@ -63,8 +63,10 @@ test.describe('dynamic tariff with only a price sensor', () => {
     await next(page).click();
     await expect(page).toHaveURL(/#\/setup\/battery$/);
     const forecast = await (await request.get('/api/v1/config/forecast')).json();
-    expect(forecast.forecast_template_ids).toEqual(['solcast.pv']);
-    expect(forecast.forecast_entities.forecast_today.entity_id).toBe(
+    expect(forecast.sources.map((s: { template_id: string }) => s.template_id)).toEqual([
+      'solcast.pv',
+    ]);
+    expect(forecast.sources[0].entities.forecast_today.entity_id).toBe(
       'sensor.sim_solcast_forecast_today',
     );
   });

@@ -45,7 +45,7 @@ async def test_filter_by_kind(services: FakeServices, kind: str) -> None:
 
 async def test_unknown_kind_is_rejected(services: FakeServices) -> None:
     async with client_for(create_app(services)) as client:
-        r = await client.get("/api/v1/templates", params={"kind": "battery"})
+        r = await client.get("/api/v1/templates", params={"kind": "inverter"})
     assert r.status_code == 422
 
 

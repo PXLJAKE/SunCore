@@ -55,6 +55,7 @@ import structlog
 from suncore.core.control import ControlSettings, DeviceState, GateInputs
 from suncore.core.decisions import (
     Action,
+    BatteryAction,
     Decision,
     DecisionKind,
     Intent,
@@ -137,6 +138,8 @@ REASON_ORPHANED: Final = Reason(key="safety.orphaned")
 """The device SunCore controlled was removed or re-mapped and could not be released."""
 REASON_ORPHAN_DROPPED: Final = Reason(key="safety.orphan_dropped")
 """An orphaned runtime without the old actuator: reported, then dropped (manual check needed)."""
+REASON_BATTERY_NOT_SUPPORTED: Final = Reason(key="safety.battery_not_supported")
+"""A battery action before the battery path exists (Phase 4 WP10): rejected, never written."""
 
 MAX_CONSECUTIVE_FAILURES: Final = 3
 """After this many failed writes in a row the device scope trips (watchdog)."""
@@ -515,7 +518,7 @@ class SafetyGate:
 
     # --- the gate ------------------------------------------------------------------------
 
-    async def submit(self, intent: Intent) -> Decision:  # noqa: PLR0911 - one return per verdict
+    async def submit(self, intent: Intent) -> Decision:  # noqa: PLR0911, PLR0912 - one return per verdict
         """Judge one intent, emit the decision to the sink and return it."""
         now = self._now()
         self._prune_proposals(now)
@@ -528,6 +531,11 @@ class SafetyGate:
         if self._emergency_stop:
             return await self._decide(
                 intent, DecisionKind.REJECTED, now, (REASON_EMERGENCY_STOP,), mode
+            )
+        if isinstance(intent.action, BatteryAction):
+            # Explicitly unsupported until WP10 (control-safety): no invariants exist yet.
+            return await self._decide(
+                intent, DecisionKind.REJECTED, now, (REASON_BATTERY_NOT_SUPPORTED,), mode
             )
         current = await self._runtime(device_id)
         runtime = overrides.expire(current, now)

@@ -9,9 +9,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final
 
+import structlog
 from pydantic import BaseModel, ValidationError
 
 from suncore import __version__
+from suncore.core.battery import BatterySettings
 from suncore.core.config import (
     DevicesConfig,
     ForecastConfig,
@@ -20,6 +22,9 @@ from suncore.core.config import (
     RegionConfig,
     TariffConfig,
     WizardState,
+    migrate_forecast_v1_to_v2,
+    migrate_goals_v1_to_v2,
+    migrate_tariff_v2_to_v3,
 )
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
@@ -34,6 +39,8 @@ from suncore.storage.errors import (
 )
 from suncore.storage.migrations import latest_version
 from suncore.storage.runtime import KEY_MODE_IDENTITIES
+
+log = structlog.get_logger(__name__)
 
 EXPORT_FORMAT: Final = 1
 """Value of the ``suncore_export`` header field."""
@@ -83,7 +90,9 @@ def migrate_tariff_v1_to_v2(body: Body) -> Body:
 
 
 def legacy_forecast(body: Body) -> Body | None:
-    """The ``forecast`` section body hidden in a tariff v1 body; ``None`` if it had no sources."""
+    """The ``forecast`` section body (schema v1) hidden in a tariff v1 body; ``None`` if it had
+    no sources. Upgrade it with the ``forecast`` migrations (``_upgrade("forecast", 1, ...)``).
+    """
     ids = body.get("forecast_template_ids") or []
     entities = body.get("forecast_entities") or {}
     if not ids and not entities:
@@ -91,15 +100,32 @@ def legacy_forecast(body: Body) -> Body | None:
     return {"forecast_template_ids": ids, "forecast_entities": entities}
 
 
+def migrate_forecast_v1_to_v2_logged(body: Body) -> Body:
+    """:func:`migrate_forecast_v1_to_v2` that warns when v1 entities have no template.
+
+    v1 entities without a template id cannot be assigned to a source; the migration drops
+    them (the user picks the source again in the wizard), which is logged, never silent.
+    """
+    ids = body.get("forecast_template_ids") or []
+    entities = body.get("forecast_entities") or {}
+    if not ids and isinstance(entities, dict) and entities:
+        log.warning(
+            "config.forecast_v1_entities_without_template",
+            roles=sorted(str(role) for role in entities),
+        )
+    return migrate_forecast_v1_to_v2(body)
+
+
 DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "site": SectionSpec(SiteConfig, (migrate_site_v1_to_v2,)),
     "region": SectionSpec(RegionConfig),
-    "tariff": SectionSpec(TariffConfig, (migrate_tariff_v1_to_v2,)),
-    "forecast": SectionSpec(ForecastConfig),
+    "tariff": SectionSpec(TariffConfig, (migrate_tariff_v1_to_v2, migrate_tariff_v2_to_v3)),
+    "forecast": SectionSpec(ForecastConfig, (migrate_forecast_v1_to_v2_logged,)),
     "devices": SectionSpec(DevicesConfig),
-    "goals": SectionSpec(GoalsConfig),
+    "goals": SectionSpec(GoalsConfig, (migrate_goals_v1_to_v2,)),
     "operation": SectionSpec(OperationConfig),
     "wizard": SectionSpec(WizardState),
+    "battery": SectionSpec(BatterySettings),
 }
 
 
@@ -406,8 +432,8 @@ class ConfigStore:
             now = self._clock().isoformat()
             if moved is not None and have is None:
                 try:
-                    forecast = ForecastConfig.model_validate(moved)
-                except ValidationError:
+                    forecast: BaseModel | None = self._upgrade("forecast", 1, moved)
+                except ConfigCorruptError:
                     forecast = None
                 if forecast is not None:
                     await self._write(tx, "forecast", forecast, now)
