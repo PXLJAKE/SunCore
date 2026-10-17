@@ -35,7 +35,13 @@ REASON_KEY_PATTERN: Final = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"
 _REASON_KEY_RE: Final = re.compile(REASON_KEY_PATTERN)
 
 DECISION_SCHEMA_VERSION: Final = 2
-"""Version written into every new :class:`Decision`."""
+"""Version written into every new :class:`Decision`.
+
+Adding a new action kind (Phase 4: :class:`BatteryAction`) is an *additive, non-bumping*
+change: every stored v2 row stays valid as it is, and an older build that meets a row with
+an unknown ``kind`` fails to parse it and skips it safely (the decision log reader logs
+``decision_log.row_skipped``). The version is bumped only when an existing field changes
+meaning or a stored row would need an upgrade step."""
 
 
 class _FrozenModel(BaseModel):
@@ -175,15 +181,17 @@ class ReleaseAction(_FrozenModel):
 
 
 class BatteryAction(_FrozenModel):
-    """Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP9).
+    """Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).
 
     Every field is optional, at least one must be set; a missing field leaves that limit
     as it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a
     charging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the
     inverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at
     or above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the
-    grid. Until the battery path exists the gate rejects this action
-    (``safety.battery_not_supported``); nothing is written.
+    grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both are set (forced
+    charging cannot be above the charge cap, and a cap of 0 forbids it). Until the battery
+    path exists the gate rejects this action (``safety.battery_not_supported``); nothing is
+    written.
     """
 
     kind: Literal[ActionKind.BATTERY] = ActionKind.BATTERY
@@ -201,6 +209,18 @@ class BatteryAction(_FrozenModel):
             and self.grid_charge_w is None
         ):
             raise invalid("battery_action_empty", "battery action: at least one limit must be set")
+        if (
+            self.grid_charge_w is not None
+            and self.max_charge_w is not None
+            and self.grid_charge_w > self.max_charge_w
+        ):
+            raise invalid(
+                "grid_charge_above_cap",
+                "battery action: grid_charge_w ({grid_charge_w}) above max_charge_w "
+                "({max_charge_w})",
+                grid_charge_w=self.grid_charge_w,
+                max_charge_w=self.max_charge_w,
+            )
         return self
 
 

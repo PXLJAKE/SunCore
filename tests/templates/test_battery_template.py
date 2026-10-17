@@ -11,7 +11,12 @@ import pytest
 from pydantic import ValidationError
 
 from suncore.templates import BatteryTemplate, load_templates
-from suncore.templates.models import TEMPLATE_ADAPTER, TEMPLATE_KINDS, ForecastTemplate
+from suncore.templates.models import (
+    TEMPLATE_ADAPTER,
+    TEMPLATE_KINDS,
+    ForecastTemplate,
+    ModeSelectControl,
+)
 from tests.templates.conftest import _header, forecast_doc, write_template
 
 
@@ -148,3 +153,14 @@ def test_forecast_series_list_path() -> None:
     doc["series"]["list_path"] = "a..b"
     with pytest.raises(ValidationError):
         TEMPLATE_ADAPTER.validate_python(doc)
+
+
+def test_mode_option_value_is_kept_verbatim() -> None:
+    """The option is written to the select as listed; whitespace must not be stripped."""
+    doc = battery_doc()
+    doc["controls"]["mode_select"]["options"][1]["value"] = " Force charge "
+    template = TEMPLATE_ADAPTER.validate_python(doc)
+    assert isinstance(template, BatteryTemplate)
+    control = template.controls["mode_select"]
+    assert isinstance(control, ModeSelectControl)
+    assert control.options[1].value == " Force charge "

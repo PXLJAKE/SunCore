@@ -78,7 +78,7 @@
     },
     "AttributeSeries": {
       "additionalProperties": false,
-      "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).\n\n``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's\nvalue to the list of points when the attribute is a mapping (``None`` = the attribute\nitself is the list). The period length of a point is the template's\n``resolution_min``.",
+      "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).\n\n``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's\nvalue to the points when the attribute is a mapping (``None`` = the attribute itself\nholds the points). ``shape`` says what the points are:\n\n* ``list`` (default): a list of objects named by ``fields`` (Solcast\n  ``detailedForecast``);\n* ``mapping``: an object ``{iso_timestamp: value}`` (Forecast.Solar ``wh_hours``,\n  Open-Meteo Solar Forecast ``wh_period_15m``); ``fields`` then gives only\n  ``value_unit`` - no point field names and no quantiles.\n\nThe period length of a point is the template's ``resolution_min``.",
       "properties": {
         "attribute": {
           "maxLength": 200,
@@ -112,6 +112,15 @@
           "minItems": 1,
           "title": "Roles",
           "type": "array"
+        },
+        "shape": {
+          "default": "list",
+          "enum": [
+            "list",
+            "mapping"
+          ],
+          "title": "Shape",
+          "type": "string"
         },
         "source": {
           "const": "attribute",
@@ -316,7 +325,7 @@
     },
     "SeriesFields": {
       "additionalProperties": false,
-      "description": "Names of the fields of one series point and the unit of its values.",
+      "description": "Names of the fields of one series point and the unit of its values.\n\n``timestamp_field`` and ``value_field`` are required for a list of point objects\n(``action`` series, ``attribute`` series of shape ``list``) and absent for an\n``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose\nvalues are the values.",
       "properties": {
         "p10_field": {
           "anyOf": [
@@ -347,16 +356,32 @@
           "title": "P90 Field"
         },
         "timestamp_field": {
-          "maxLength": 200,
-          "minLength": 1,
-          "title": "Timestamp Field",
-          "type": "string"
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp Field"
         },
         "value_field": {
-          "maxLength": 200,
-          "minLength": 1,
-          "title": "Value Field",
-          "type": "string"
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value Field"
         },
         "value_unit": {
           "maxLength": 200,
@@ -366,8 +391,6 @@
         }
       },
       "required": [
-        "timestamp_field",
-        "value_field",
         "value_unit"
       ],
       "title": "SeriesFields",
@@ -521,7 +544,7 @@
       "title": "Price Series"
     },
     "price_unit": {
-      "pattern": "^(\\{currency\\}|[A-Z]{3})/kWh$",
+      "pattern": "^(\\{currency\\}|[A-Z]{3})/(kWh|MWh)$",
       "title": "Price Unit",
       "type": "string"
     },

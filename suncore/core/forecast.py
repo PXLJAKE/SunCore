@@ -70,8 +70,11 @@ class HorizonBucket(StrEnum):
 class AccuracyRecord(BaseModel):
     """Measured error of one source in one horizon bucket (WP5 bookkeeping).
 
-    ``mae_w`` is the mean absolute error and ``bias_w`` the mean signed error
-    (forecast - actual, so + = over-forecast) of P50 over ``n`` intervals.
+    ``mae_w`` is the mean absolute error and ``bias_w`` the mean signed error of P50 over
+    ``n`` intervals. **Sign convention (one for all of SunCore's forecast statistics):
+    error = actual - forecast**, so ``bias_w > 0`` means the source under-forecasts and
+    ``forecast + bias_w`` is the bias-corrected value; the risk model's net error
+    (PV error - load error) uses the same convention.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

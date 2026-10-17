@@ -151,3 +151,42 @@ async def test_restore_of_a_body_that_no_longer_validates_is_a_409(
         r = await client.post("/api/v1/config/goals/history/1/restore")
     assert r.status_code == 409
     assert r.json() == {"detail": "api.error.history_invalid"}
+
+
+async def test_tariff_formula_on_an_all_in_template_is_rejected(services: FakeServices) -> None:
+    """m6: Tibber's price is all-in; a formula on top would count fees and VAT twice."""
+    dynamic = {"kind": "dynamic", "template_id": "tibber.price"}
+    formula = {"grid_fee": 0.08, "vat_pct": 19}
+    export = VALID["tariff"]["export"]
+    async with client_for(create_app(services)) as client:
+        bad = await client.put(
+            "/api/v1/config/tariff",
+            json={"import": {**dynamic, "formula": formula}, "export": export},
+        )
+        plain = await client.put(
+            "/api/v1/config/tariff", json={"import": dynamic, "export": export}
+        )
+        entity = await client.put(  # no template: price_includes unknown, the user decides
+            "/api/v1/config/tariff",
+            json={
+                "import": {
+                    "kind": "dynamic",
+                    "price_entity": {"entity_id": "sensor.spot"},
+                    "formula": formula,
+                },
+                "export": export,
+            },
+        )
+    assert bad.status_code == 422
+    assert bad.json() == {
+        "detail": "api.error.validation",
+        "issues": [
+            {
+                "loc": ["body", "import", "formula"],
+                "key": "api.validation.import_formula_all_in",
+                "args": {"template_id": "tibber.price"},
+            }
+        ],
+    }
+    assert plain.status_code == 200
+    assert entity.status_code == 200

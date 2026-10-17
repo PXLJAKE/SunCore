@@ -82,6 +82,8 @@ def test_v2_interval_round_trip() -> None:
         export_w=100,
         battery_w=500,
         soc_pct=42.5,
+        net_risk_quantile=0.1,
+        net_risk_w=-150,
     )
     interval = PlanInterval(
         start=T0,
@@ -89,7 +91,7 @@ def test_v2_interval_round_trip() -> None:
         battery=BatteryBand(min_soc_pct=15, priority_until_soc_pct=60),
         expected=flows,
         prices=IntervalPrices(import_price=0.31, export_price=-0.01),
-        reasons=(Reason(key="planner.battery.charge_from_pv", args={"pv_p10_kwh": 0.2}),),
+        reasons=(Reason(key="planner.battery.charge_from_pv", args={"net_risk_kwh": -0.04}),),
     )
     plan = Plan(
         created_at=T0,
@@ -111,6 +113,10 @@ def test_v2_interval_round_trip() -> None:
         {"import_w": -1},
         {"soc_pct": 101},
         {"load_w": float("nan")},
+        {"net_risk_w": -100},  # without its quantile
+        {"net_risk_quantile": 0.1},  # without its value
+        {"net_risk_quantile": 0, "net_risk_w": 0},
+        {"net_risk_quantile": 1, "net_risk_w": 0},
     ],
 )
 def test_interval_flows_reject(bad: dict[str, float]) -> None:
@@ -120,6 +126,8 @@ def test_interval_flows_reject(bad: dict[str, float]) -> None:
 
 
 def test_plan_source_stats_and_band_validation() -> None:
+    with pytest.raises(ValidationError):  # bounded by the version this build knows
+        Plan.model_validate({"schema_version": PLAN_SCHEMA_VERSION + 1})
     with pytest.raises(ValidationError):
         Plan.model_validate({"source": "magic"})
     with pytest.raises(ValidationError):

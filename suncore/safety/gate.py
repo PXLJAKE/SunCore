@@ -139,7 +139,7 @@ REASON_ORPHANED: Final = Reason(key="safety.orphaned")
 REASON_ORPHAN_DROPPED: Final = Reason(key="safety.orphan_dropped")
 """An orphaned runtime without the old actuator: reported, then dropped (manual check needed)."""
 REASON_BATTERY_NOT_SUPPORTED: Final = Reason(key="safety.battery_not_supported")
-"""A battery action before the battery path exists (Phase 4 WP9): rejected, never written."""
+"""A battery action before the battery path exists (Phase 4 WP10): rejected, never written."""
 
 MAX_CONSECUTIVE_FAILURES: Final = 3
 """After this many failed writes in a row the device scope trips (watchdog)."""
@@ -533,7 +533,7 @@ class SafetyGate:
                 intent, DecisionKind.REJECTED, now, (REASON_EMERGENCY_STOP,), mode
             )
         if isinstance(intent.action, BatteryAction):
-            # Explicitly unsupported until WP9 (control-safety): no invariants exist yet.
+            # Explicitly unsupported until WP10 (control-safety): no invariants exist yet.
             return await self._decide(
                 intent, DecisionKind.REJECTED, now, (REASON_BATTERY_NOT_SUPPORTED,), mode
             )

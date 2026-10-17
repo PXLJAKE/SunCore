@@ -28,7 +28,7 @@ tomorrow); they must not overlap.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum, unique
 from typing import Annotated, Final, Literal, Self
@@ -393,7 +393,15 @@ def energy_to_power(series: TimeSeries) -> TimeSeries:
 def resample_quantiles(
     series: QuantileSeries | Sequence[QuantileSeries], grid: Grid
 ) -> QuantileSeries:
-    """Resample P10/P50/P90 alike; the order of the quantiles is kept (same weights)."""
+    """Resample P10/P50/P90 alike; the order of the quantiles is kept (same weights).
+
+    Coarsening applies the same linear operation to every quantile, which is not how
+    quantiles of a sum behave: the P10 of a 60-minute total is *higher* than the mean (or
+    sum) of four 15-minute P10 values, because errors partly cancel. The resampled P10 is
+    therefore conservative (too low), the P90 too high - the safe direction for a target
+    constraint. The planner's risk model works on the 15-minute grid, where refining
+    (step-hold of a mean power) is exact.
+    """
     items = [series] if isinstance(series, QuantileSeries) else list(series)
     unit = items[0].unit if items else SeriesUnit.W
     resample = resample_energy if unit is SeriesUnit.WH else resample_power
@@ -444,42 +452,74 @@ def segments_from_points(
     points: Sequence[tuple[datetime, float | None]],
     unit: SeriesUnit,
     *,
+    expected_step: timedelta,
+    other_steps: Collection[timedelta] = (),
     last_step: timedelta | None = None,
 ) -> tuple[TimeSeries, ...]:
     """Regular segments from timestamped points (e.g. an integration's price list).
 
-    A new segment starts wherever the distance between two points changes (15 -> 60
-    minutes) - this is how mixed resolutions enter the resamplers. The last point lasts as
-    long as the distance before it, or ``last_step`` for a single point. Points must be
-    strictly increasing in time; duplicates must be removed by the adapter.
+    ``expected_step`` is the resolution the source publishes at; ``other_steps`` are the
+    further resolutions the caller accepts (e.g. ``{60 min}`` for a 15-minute price source
+    whose next day is still hourly). Each distance ``d`` between two neighbouring points,
+    judged against the step ``cur`` of the running segment:
+
+    * ``d == cur``: the segment continues;
+    * ``d`` is an accepted step (expected or other) and either not a multiple of ``cur``
+      or the next distance is ``d`` again (or the point is the last but one): a
+      **resolution change** - a new segment with step ``d`` starts at this point;
+    * ``d`` is a multiple of ``cur``: a **gap** - the point lasts ``cur`` and the missing
+      slots become ``None`` (a gap is never filled with a neighbour's value);
+    * anything else raises ``ValueError`` (irregular timestamps; SunCore never guesses).
+
+    So 15-minute prices at 10:00, 10:15, 10:45 give one segment with ``None`` at 10:30,
+    and a 60-minute distance inside 15-minute data is a gap unless the caller accepts
+    60 minutes *and* the hourly rhythm continues. The last point lasts ``last_step``
+    (default: the step of its segment). Points must be strictly increasing in time;
+    duplicates must be removed by the adapter.
     """
     if not points:
         return ()
+    if expected_step <= timedelta(0) or any(s <= timedelta(0) for s in other_steps):
+        msg = "segments_from_points: steps must be positive"
+        raise ValueError(msg)
     stamps = [_utc(t) for t, _ in points]
     if any(b <= a for a, b in itertools.pairwise(stamps)):
         msg = "segments_from_points: timestamps must be strictly increasing"
         raise ValueError(msg)
-    steps = [b - a for a, b in itertools.pairwise(stamps)]
-    if not steps:
-        if last_step is None:
-            msg = "segments_from_points: a single point needs last_step"
-            raise ValueError(msg)
-        steps = [last_step]
-    else:
-        steps.append(last_step if last_step is not None else steps[-1])
+    accepted = {expected_step, *other_steps}
+    distances = [b - a for a, b in itertools.pairwise(stamps)]
     segments: list[TimeSeries] = []
-    begin = 0
-    for i in range(1, len(points) + 1):
-        if i == len(points) or steps[i] != steps[begin]:
-            segments.append(
-                TimeSeries(
-                    start=stamps[begin],
-                    step=steps[begin],
-                    values=tuple(v for _, v in points[begin:i]),
-                    unit=unit,
-                )
+    cur = expected_step
+    begin = stamps[0]
+    values: list[float | None] = []
+
+    def close() -> None:
+        if values:
+            segments.append(TimeSeries(start=begin, step=cur, values=tuple(values), unit=unit))
+
+    for i, d in enumerate(distances):
+        value = points[i][1]
+        if d == cur:
+            values.append(value)
+            continue
+        steady = i + 1 >= len(distances) or distances[i + 1] == d
+        if d in accepted and (d % cur != timedelta(0) or steady):
+            close()
+            cur, begin, values = d, stamps[i], [value]
+        elif d % cur == timedelta(0):
+            values.append(value)
+            values.extend([None] * (d // cur - 1))
+        else:
+            msg = (
+                f"segments_from_points: distance {d} at {stamps[i].isoformat()} is neither "
+                f"an accepted step nor a gap of whole {cur} slots"
             )
-            begin = i
+            raise ValueError(msg)
+    if last_step is not None and last_step != cur:
+        close()
+        cur, begin, values = last_step, stamps[-1], []
+    values.append(points[-1][1])
+    close()
     return tuple(segments)
 
 

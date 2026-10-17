@@ -2,15 +2,17 @@
 """Tariff mathematics (Phase 4 WP2): weekly time windows, price formula, HT/NT, export tiers.
 
 Pure and frozen. Prices are currency/kWh in the region's currency; spot prices may be
-negative. Time windows are *local* wall-clock windows; callers pass the region's time zone,
-the conversion happens here (``datetime.astimezone``), so DST days need no special case.
+negative. Time windows are *local* wall-clock windows; callers must pass the region's time
+zone (``tz`` is required everywhere - an aware ``at`` in UTC would otherwise silently be
+judged in UTC), the conversion happens here (``datetime.astimezone``), so DST days need no
+special case.
 """
 
 from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
-from datetime import datetime, time, timedelta, tzinfo
+from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Annotated, Final, Protocol, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -40,11 +42,11 @@ def _minutes(hhmm: str) -> int:
     return int(hours) * 60 + int(minutes)
 
 
-def _local(at: datetime, tz: tzinfo | None) -> datetime:
+def _local(at: datetime, tz: tzinfo) -> datetime:
     if at.tzinfo is None:
         msg = "time windows need an aware datetime"
         raise ValueError(msg)
-    return at.astimezone(tz) if tz is not None else at
+    return at.astimezone(tz)
 
 
 # --- weekly windows --------------------------------------------------------------------
@@ -74,18 +76,32 @@ class TouWindow(_Frozen):
     def crosses_midnight(self) -> bool:
         return _minutes(self.end) < _minutes(self.start)
 
-    def contains(self, at: datetime, tz: tzinfo | None = None) -> bool:
-        """Whether ``at`` (aware) lies in the window, judged in ``tz`` (default: ``at``'s)."""
+    def contains(self, at: datetime, tz: tzinfo) -> bool:
+        """Whether ``at`` (aware) lies in the window, judged in the local zone ``tz``."""
+        return self.occurrence_date(at, tz) is not None
+
+    def occurrence_date(self, at: datetime, tz: tzinfo) -> date | None:
+        """Local date the occurrence containing ``at`` *started* on; ``None`` = outside.
+
+        For a window crossing midnight the part after midnight belongs to the previous day
+        (Fri 22:00-06:00 at Sat 03:00 -> Friday's date); seasonal rules (months) use this
+        date, so a window starting on 31 October counts as October until it ends.
+        """
         local = _local(at, tz)
         minute = local.hour * 60 + local.minute
         start, end = _minutes(self.start), _minutes(self.end)
-        today = local.weekday()
-        yesterday = (today - 1) % 7
+        today = local.date()
         if start == end:
-            return today in self.days
+            return today if today.weekday() in self.days else None
         if start < end:
-            return today in self.days and start <= minute < end
-        return (today in self.days and minute >= start) or (yesterday in self.days and minute < end)
+            inside = today.weekday() in self.days and start <= minute < end
+            return today if inside else None
+        if today.weekday() in self.days and minute >= start:
+            return today
+        yesterday = today - timedelta(days=1)
+        if yesterday.weekday() in self.days and minute < end:
+            return yesterday
+        return None
 
 
 class WeeklySchedule(_Frozen):
@@ -93,7 +109,7 @@ class WeeklySchedule(_Frozen):
 
     windows: Annotated[tuple[TouWindow, ...], Field(min_length=1, max_length=28)]
 
-    def contains(self, at: datetime, tz: tzinfo | None = None) -> bool:
+    def contains(self, at: datetime, tz: tzinfo) -> bool:
         return any(w.contains(at, tz) for w in self.windows)
 
     @classmethod
@@ -109,11 +125,26 @@ NIGHT_WINDOW: Final = WeeklySchedule.daily("22:00", "06:00")
 # --- price formula ---------------------------------------------------------------------
 
 
+def _in_season(window: TouWindow, months: frozenset[int] | None, at: datetime, tz: tzinfo) -> bool:
+    """``at`` lies in ``window`` and the occurrence *started* in one of ``months``."""
+    started = window.occurrence_date(at, tz)
+    return started is not None and (months is None or started.month in months)
+
+
 class GridFeeWindow(_Frozen):
-    """A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3)."""
+    """A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3).
+
+    ``months`` restricts it to some months (module 3 fees are set per quarter, e.g. only
+    Q1 and Q4); ``None`` = all year. The month is that of the day the occurrence started
+    (see :meth:`TouWindow.occurrence_date`).
+    """
 
     window: TouWindow
     fee: UnitPrice
+    months: frozenset[Month] | None = None
+
+    def applies(self, at: datetime, tz: tzinfo) -> bool:
+        return _in_season(self.window, self.months, at, tz)
 
 
 class PriceFormula(_Frozen):
@@ -137,14 +168,14 @@ class PriceFormula(_Frozen):
     """Supplier margin per kWh, before VAT."""
     vat_pct: float = Field(default=0.0, ge=0, le=100, allow_inf_nan=False)
 
-    def grid_fee_at(self, at: datetime | None, tz: tzinfo | None = None) -> float:
+    def grid_fee_at(self, at: datetime | None, tz: tzinfo) -> float:
         if at is not None:
             for entry in self.grid_fee_windows:
-                if entry.window.contains(at, tz):
+                if entry.applies(at, tz):
                     return entry.fee
         return self.grid_fee
 
-    def apply(self, spot: float, at: datetime | None = None, tz: tzinfo | None = None) -> float:
+    def apply(self, spot: float, at: datetime | None, tz: tzinfo) -> float:
         """End price for ``spot`` at ``at`` (``None``: the base grid fee is used)."""
         net = spot * self.spot_multiplier + self.grid_fee_at(at, tz) + self.levies + self.margin
         return net * (1 + self.vat_pct / 100)
@@ -159,13 +190,11 @@ class TouPeriod(_Frozen):
     window: TouWindow
     price: UnitPrice
     months: frozenset[Month] | None = None
-    """``None`` = all year (seasonal tariffs list the months)."""
+    """``None`` = all year (seasonal tariffs list the months). The month of a window that
+    crosses midnight is that of the day it started (:meth:`TouWindow.occurrence_date`)."""
 
-    def applies(self, at: datetime, tz: tzinfo | None = None) -> bool:
-        local = _local(at, tz)
-        if self.months is not None and local.month not in self.months:
-            return False
-        return self.window.contains(local)
+    def applies(self, at: datetime, tz: tzinfo) -> bool:
+        return _in_season(self.window, self.months, at, tz)
 
 
 class TouTariff(_Frozen):
@@ -179,7 +208,7 @@ class TouTariff(_Frozen):
     base_price: UnitPrice
     periods: Annotated[tuple[TouPeriod, ...], Field(min_length=1, max_length=24)]
 
-    def price_at(self, at: datetime, tz: tzinfo | None = None) -> float:
+    def price_at(self, at: datetime, tz: tzinfo) -> float:
         for period in self.periods:
             if period.applies(at, tz):
                 return period.price

@@ -215,39 +215,61 @@ def _need(caps: list[Capability], cap: Capability, ok: bool, why: str) -> None:
 
 
 class SeriesFields(_Frozen):
-    """Names of the fields of one series point and the unit of its values."""
+    """Names of the fields of one series point and the unit of its values.
 
-    timestamp_field: Text
-    value_field: Text
+    ``timestamp_field`` and ``value_field`` are required for a list of point objects
+    (``action`` series, ``attribute`` series of shape ``list``) and absent for an
+    ``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose
+    values are the values.
+    """
+
+    timestamp_field: Text | None = None
+    value_field: Text | None = None
     p10_field: Text | None = None
     p90_field: Text | None = None
     value_unit: Text
+
+    def require_point_fields(self, where: str) -> None:
+        if self.timestamp_field is None or self.value_field is None:
+            msg = f"{where}: `timestamp_field` and `value_field` are required"
+            raise ValueError(msg)
 
 
 class AttributeSeries(_Frozen):
     """Series held in an attribute of the entities of ``roles`` (concatenated in order).
 
     ``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's
-    value to the list of points when the attribute is a mapping (``None`` = the attribute
-    itself is the list). The period length of a point is the template's
-    ``resolution_min``.
+    value to the points when the attribute is a mapping (``None`` = the attribute itself
+    holds the points). ``shape`` says what the points are:
+
+    * ``list`` (default): a list of objects named by ``fields`` (Solcast
+      ``detailedForecast``);
+    * ``mapping``: an object ``{iso_timestamp: value}`` (Forecast.Solar ``wh_hours``,
+      Open-Meteo Solar Forecast ``wh_period_15m``); ``fields`` then gives only
+      ``value_unit`` - no point field names and no quantiles.
+
+    The period length of a point is the template's ``resolution_min``.
     """
 
     source: Literal["attribute"]
     roles: Annotated[tuple[RoleName, ...], Field(min_length=1, max_length=16)]
     attribute: Text
     fields: SeriesFields
-    list_path: (
-        Annotated[
-            str, StringConstraints(pattern=r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$", max_length=200)
-        ]
-        | None
-    ) = None
+    list_path: DottedPath | None = None
+    shape: Literal["list", "mapping"] = "list"
 
     @model_validator(mode="after")
     def _unique(self) -> Self:
         if len(set(self.roles)) != len(self.roles):
             msg = "series.roles: entries must be unique"
+            raise ValueError(msg)
+        f = self.fields
+        if self.shape == "list":
+            f.require_point_fields("series.fields")
+        elif any(
+            x is not None for x in (f.timestamp_field, f.value_field, f.p10_field, f.p90_field)
+        ):
+            msg = "series.fields: shape `mapping` takes only `value_unit` (keys are the timestamps)"
             raise ValueError(msg)
         return self
 
@@ -269,6 +291,7 @@ class ActionSeries(_Frozen):
 
     @model_validator(mode="after")
     def _allowed(self) -> Self:
+        self.fields.require_point_fields("series.fields")
         if not is_read_only_action(self.domain, self.service):
             msg = (
                 f"{ERR_ACTION_NOT_ALLOWED}: `{self.domain}.{self.service}` is not on the "
@@ -392,14 +415,44 @@ class DeviceTemplate(TemplateHeader):
 
 # --- tariff ------------------------------------------------------------------
 
+PRICE_UNIT_PATTERN: Final = r"^(\{currency\}|[A-Z]{3})/(kWh|MWh)$"
+"""Unit of a tariff price: a currency (``{currency}`` = the region's) per kWh or MWh."""
+
+_PRICE_UNIT_RE: Final = re.compile(PRICE_UNIT_PATTERN)
+
+PRICE_ENERGY_FACTORS: Final[dict[str, float]] = {"kWh": 1.0, "MWh": 1 / 1000}
+"""Factor that turns a price per <energy> into a price per kWh (adapter contract)."""
+
+
+def price_unit_factor(unit: str) -> float:
+    """Multiply a price in ``unit`` by this to get currency/kWh (``EUR/MWh`` -> 0.001).
+
+    Raises ``ValueError`` for a unit that is not ``<currency>/kWh`` or ``<currency>/MWh``.
+    """
+    match = _PRICE_UNIT_RE.match(unit)
+    if match is None:
+        msg = f"`{unit}` is not a price unit (<currency>/kWh or <currency>/MWh)"
+        raise ValueError(msg)
+    return PRICE_ENERGY_FACTORS[match.group(2)]
+
+
+def _same_currency(unit: str, price_unit: str) -> bool:
+    """``unit`` is a price unit whose currency is ``price_unit``'s or ``{currency}``."""
+    match = _PRICE_UNIT_RE.match(unit)
+    reference = _PRICE_UNIT_RE.match(price_unit)
+    if match is None or reference is None:
+        return False
+    return match.group(1) in (reference.group(1), "{currency}")
+
 
 class TariffTemplate(TemplateHeader):
     kind: Literal["tariff"]
     direction: Literal["import", "export"]
     tariff_type: Literal["fixed", "dynamic"]
     roles: dict[RoleName, RoleSpec] = Field(default_factory=dict)
-    price_unit: Annotated[str, StringConstraints(pattern=r"^(\{currency\}|[A-Z]{3})/kWh$")]
-    """``<currency>/kWh``; ``{currency}`` takes the region's currency."""
+    price_unit: Annotated[str, StringConstraints(pattern=PRICE_UNIT_PATTERN)]
+    """``<currency>/kWh`` or ``<currency>/MWh``; ``{currency}`` takes the region's currency.
+    Adapters convert to currency/kWh with :func:`price_unit_factor` (MWh: / 1000)."""
     resolution_min: Literal[15, 60] | None = None
     """``None`` = derive from the timestamps."""
     price_series: SeriesSource | None = None
@@ -429,10 +482,10 @@ class TariffTemplate(TemplateHeader):
         if self.price_series is not None:
             _check_series_roles(self.price_series, self.roles)
             unit = self.price_series.fields.value_unit
-            if unit not in (self.price_unit, "{currency}/kWh"):
+            if not _same_currency(unit, self.price_unit):
                 msg = (
-                    f"price_series.fields.value_unit: `{unit}` does not match "
-                    f"price_unit `{self.price_unit}`"
+                    f"price_series.fields.value_unit: `{unit}` does not match the currency of "
+                    f"price_unit `{self.price_unit}` (allowed: <currency>/kWh or /MWh)"
                 )
                 raise ValueError(msg)
         caps = self.capabilities
@@ -611,9 +664,13 @@ class BatteryModeMeaning(StrEnum):
     """Any other option; SunCore never selects it."""
 
 
+OptionValue = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+"""A select option exactly as the entity lists it (whitespace is significant)."""
+
+
 class BatteryModeOption(_Frozen):
-    value: Text
-    """The select option written to the entity."""
+    value: OptionValue
+    """The select option written to the entity, verbatim (not stripped)."""
     meaning: BatteryModeMeaning
 
 
@@ -752,6 +809,8 @@ KIND_MODELS: Final[dict[str, type[BaseModel]]] = {
 
 __all__ = [
     "KIND_MODELS",
+    "PRICE_ENERGY_FACTORS",
+    "PRICE_UNIT_PATTERN",
     "REGION_ID_PATTERN",
     "SCHEMA_VERSION",
     "TEMPLATE_ADAPTER",
@@ -785,4 +844,5 @@ __all__ = [
     "TemplateKind",
     "TestedWith",
     "compile_pattern",
+    "price_unit_factor",
 ]

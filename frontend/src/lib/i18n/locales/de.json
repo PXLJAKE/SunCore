@@ -844,6 +844,10 @@
   "api.validation.quantile_unit": "Die Quantile der Prognose brauchen dieselbe Einheit.",
   "api.validation.range_order": "Der Beginn muss vor dem Ende liegen.",
   "api.validation.series_step": "Die Intervalllänge muss zwischen 0 und einem Tag liegen.",
+  "api.validation.net_risk_pair": "Netto-Risikowert und sein Quantil müssen zusammen angegeben werden.",
+  "api.validation.grid_charge_above_cap": "Laden aus dem Netz ({grid_charge_w} W) darf die Ladegrenze ({max_charge_w} W) nicht überschreiten.",
+  "api.validation.import_formula_all_in": "Der Tarif {template_id} liefert bereits Endpreise inklusive Gebühren und Steuern; eine Preisformel würde sie doppelt zählen.",
+  "tariff.import.tou_stored": "Ein Zeittarif (HT/NT) ist gespeichert. Er lässt sich in einer späteren Version hier bearbeiten; Speichern lässt ihn unverändert, solange du keine andere Art wählst.",
   "safety.battery_not_supported": "Batteriesteuerung ist noch nicht verfügbar; es wurde nichts geschrieben.",
   "action.battery": "Batterie-Limits setzen"
 }

@@ -77,7 +77,7 @@
       },
       "AttributeSeries": {
         "additionalProperties": false,
-        "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).\n\n``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's\nvalue to the list of points when the attribute is a mapping (``None`` = the attribute\nitself is the list). The period length of a point is the template's\n``resolution_min``.",
+        "description": "Series held in an attribute of the entities of ``roles`` (concatenated in order).\n\n``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's\nvalue to the points when the attribute is a mapping (``None`` = the attribute itself\nholds the points). ``shape`` says what the points are:\n\n* ``list`` (default): a list of objects named by ``fields`` (Solcast\n  ``detailedForecast``);\n* ``mapping``: an object ``{iso_timestamp: value}`` (Forecast.Solar ``wh_hours``,\n  Open-Meteo Solar Forecast ``wh_period_15m``); ``fields`` then gives only\n  ``value_unit`` - no point field names and no quantiles.\n\nThe period length of a point is the template's ``resolution_min``.",
         "properties": {
           "attribute": {
             "maxLength": 200,
@@ -111,6 +111,15 @@
             "title": "Roles",
             "type": "array"
           },
+          "shape": {
+            "default": "list",
+            "enum": [
+              "list",
+              "mapping"
+            ],
+            "title": "Shape",
+            "type": "string"
+          },
           "source": {
             "const": "attribute",
             "title": "Source",
@@ -128,7 +137,7 @@
       },
       "BatteryAction": {
         "additionalProperties": false,
-        "description": "Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP9).\n\nEvery field is optional, at least one must be set; a missing field leaves that limit\nas it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a\ncharging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the\ninverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at\nor above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the\ngrid. Until the battery path exists the gate rejects this action\n(``safety.battery_not_supported``); nothing is written.",
+        "description": "Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).\n\nEvery field is optional, at least one must be set; a missing field leaves that limit\nas it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a\ncharging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the\ninverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at\nor above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the\ngrid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both are set (forced\ncharging cannot be above the charge cap, and a cap of 0 forbids it). Until the battery\npath exists the gate rejects this action (``safety.battery_not_supported``); nothing is\nwritten.",
         "properties": {
           "grid_charge_w": {
             "anyOf": [
@@ -2775,7 +2784,7 @@
       },
       "GoalsConfig": {
         "additionalProperties": false,
-        "description": "User goals (schema v2).\n\nv2 drops ``grid_charge_night_only`` (answers 2026-10-16, question 7): grid charging is\nallowed by a price level and/or a schedule in the ``battery`` section's\n:class:`~suncore.core.battery.GridChargePolicy`. ``grid_charge_schedule`` carries the\nwindow a v1 document implied (``True`` -> 22:00-06:00 daily) so the choice is not\nlost; the planner uses it as the policy's schedule when the policy has none. **It never\nenables grid charging**: that stays off until the user enables the policy with a level\nor a schedule. ``conservative_planning`` = targets are planned on P10 PV (default on).",
+        "description": "User goals (schema v2).\n\nv2 drops ``grid_charge_night_only`` (answers 2026-10-16, question 7): grid charging is\nallowed by a price level and/or a schedule in the ``battery`` section's\n:class:`~suncore.core.battery.GridChargePolicy`. ``grid_charge_schedule`` carries the\nwindow a v1 document implied (``True`` -> 22:00-06:00 daily) so the choice is not\nlost; :func:`effective_grid_charge_policy` uses it as the policy's schedule when the\npolicy has none. **It never enables grid charging**: that stays off until the user\nenables the policy with a level or a schedule. How cautiously targets are planned is\nthe ``battery`` section's ``risk`` level, not a goal.",
         "properties": {
           "battery_target": {
             "anyOf": [
@@ -2790,11 +2799,6 @@
           "climate_before_export": {
             "default": false,
             "title": "Climate Before Export",
-            "type": "boolean"
-          },
-          "conservative_planning": {
-            "default": true,
-            "title": "Conservative Planning",
             "type": "boolean"
           },
           "grid_charge_schedule": {
@@ -2818,7 +2822,7 @@
       },
       "GridChargePolicy": {
         "additionalProperties": false,
-        "description": "When the battery may be charged from the grid (answers 2026-10-16, question 7).\n\nOff by default. When enabled, a ``max_price`` (charge only at or below this import\nprice) and/or a ``schedule`` (only inside these weekly windows) must be set; both given\nmeans both must hold. On a dynamic tariff the planner's spread rule\n(:meth:`BatteryModel.grid_charge_pays`) applies in addition.",
+        "description": "When the battery may be charged from the grid (answers 2026-10-16, question 7).\n\nOff by default. When enabled, a ``max_price`` (charge only at or below this import\nprice) and/or a ``schedule`` (only inside these weekly windows) must be set; both given\nmeans both must hold. On a dynamic tariff the planner's spread rule\n(:meth:`BatteryModel.grid_charge_pays`) applies in addition.\n\nThe planner applies :func:`suncore.core.config.effective_grid_charge_policy`: this\npolicy wins over ``goals.grid_charge_schedule``, which only fills in a missing schedule\nof an enabled policy and never enables charging. Hence an enabled policy must be\ncomplete on its own (the validator below), and the goals schedule can only narrow it.",
         "properties": {
           "enabled": {
             "default": false,
@@ -2966,13 +2970,30 @@
       },
       "GridFeeWindow": {
         "additionalProperties": false,
-        "description": "A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3).",
+        "description": "A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3).\n\n``months`` restricts it to some months (module 3 fees are set per quarter, e.g. only\nQ1 and Q4); ``None`` = all year. The month is that of the day the occurrence started\n(see :meth:`TouWindow.occurrence_date`).",
         "properties": {
           "fee": {
             "maximum": 100.0,
             "minimum": 0.0,
             "title": "Fee",
             "type": "number"
+          },
+          "months": {
+            "anyOf": [
+              {
+                "items": {
+                  "maximum": 12.0,
+                  "minimum": 1.0,
+                  "type": "integer"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Months"
           },
           "window": {
             "$ref": "#/components/schemas/TouWindow"
@@ -4463,7 +4484,7 @@
       },
       "SeriesFields": {
         "additionalProperties": false,
-        "description": "Names of the fields of one series point and the unit of its values.",
+        "description": "Names of the fields of one series point and the unit of its values.\n\n``timestamp_field`` and ``value_field`` are required for a list of point objects\n(``action`` series, ``attribute`` series of shape ``list``) and absent for an\n``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose\nvalues are the values.",
         "properties": {
           "p10_field": {
             "anyOf": [
@@ -4492,16 +4513,30 @@
             "title": "P90 Field"
           },
           "timestamp_field": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Timestamp Field",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp Field"
           },
           "value_field": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Value Field",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Field"
           },
           "value_unit": {
             "maxLength": 200,
@@ -4511,8 +4546,6 @@
           }
         },
         "required": [
-          "timestamp_field",
-          "value_field",
           "value_unit"
         ],
         "title": "SeriesFields",
@@ -5045,7 +5078,7 @@
             "title": "Price Series"
           },
           "price_unit": {
-            "pattern": "^(\\{currency\\}|[A-Z]{3})/kWh$",
+            "pattern": "^(\\{currency\\}|[A-Z]{3})/(kWh|MWh)$",
             "title": "Price Unit",
             "type": "string"
           },

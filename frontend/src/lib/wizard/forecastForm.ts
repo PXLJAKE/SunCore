@@ -9,17 +9,16 @@ type Source = NonNullable<ForecastConfig['sources']>[number];
 
 export interface ForecastForm {
   templateIds: string[];
-  /** Forecast role -> entity; rows without an entity are not sent. */
-  entities: Record<string, RefField>;
-  /** Roles per template id, when known; a template without an entry gets every entity. */
-  roles: Record<string, string[]>;
+  /** Per source (template id): role -> entity. Keyed per source, so two templates that use the
+   * same role name (e.g. `today`) keep their own entities. Rows without an entity are not sent. */
+  entities: Record<string, Record<string, RefField>>;
   /** Stored weighting per template id (carried through). */
   weights: Record<string, Pick<Source, 'weight_mode' | 'weight'>>;
   learning: ForecastConfig['learning'] | null;
 }
 
 export function emptyForecastForm(): ForecastForm {
-  return { templateIds: [], entities: {}, roles: {}, weights: {}, learning: null };
+  return { templateIds: [], entities: {}, weights: {}, learning: null };
 }
 
 export function forecastFormFromConfig(cfg: ForecastConfig | null): ForecastForm {
@@ -27,26 +26,23 @@ export function forecastFormFromConfig(cfg: ForecastConfig | null): ForecastForm
   const form = emptyForecastForm();
   form.learning = cfg.learning;
   for (const source of cfg.sources ?? []) {
-    form.templateIds.push(source.template_id);
-    form.weights[source.template_id] = { weight_mode: source.weight_mode, weight: source.weight };
-    for (const [role, ref] of Object.entries(source.entities ?? {})) {
-      form.entities[role] ??= fromRef(ref);
-    }
+    const id = source.template_id;
+    form.templateIds.push(id);
+    form.weights[id] = { weight_mode: source.weight_mode, weight: source.weight };
+    form.entities[id] = Object.fromEntries(
+      Object.entries(source.entities ?? {}).map(([role, ref]) => [role, fromRef(ref)]),
+    );
   }
   return form;
 }
 
 export function forecastFromForm(form: ForecastForm): ForecastConfig {
-  const entities: Record<string, NonNullable<ReturnType<typeof toRef>>> = {};
-  for (const [role, field] of Object.entries(form.entities)) {
-    const ref = toRef(field);
-    if (ref) entities[role] = ref;
-  }
   const sources: Source[] = form.templateIds.map((id) => {
-    const roles = form.roles[id];
-    const own = roles
-      ? Object.fromEntries(Object.entries(entities).filter(([role]) => roles.includes(role)))
-      : { ...entities };
+    const own: Record<string, NonNullable<ReturnType<typeof toRef>>> = {};
+    for (const [role, field] of Object.entries(form.entities[id] ?? {})) {
+      const ref = toRef(field);
+      if (ref) own[role] = ref;
+    }
     const weight = form.weights[id];
     return {
       template_id: id,
@@ -62,7 +58,7 @@ export function forecastFromForm(form: ForecastForm): ForecastConfig {
   };
 }
 
-/** Toggle a forecast template; entities of its roles are dropped when it is switched off. */
+/** Toggle a forecast template; its entities are dropped when it is switched off. */
 export function setForecastTemplate(
   form: ForecastForm,
   id: string,
@@ -70,17 +66,18 @@ export function setForecastTemplate(
   roles: readonly string[],
 ): void {
   const has = form.templateIds.includes(id);
-  if (on) form.roles[id] = [...roles];
-  if (on && !has) form.templateIds.push(id);
-  if (!on && has) {
+  if (on) {
+    if (!has) form.templateIds.push(id);
+    ensureRoleFields(form, id, roles);
+  } else if (has) {
     form.templateIds = form.templateIds.filter((x) => x !== id);
-    for (const role of roles) delete form.entities[role];
-    delete form.roles[id];
+    delete form.entities[id];
     delete form.weights[id];
   }
 }
 
 /** Give every role of a chosen template a (possibly empty) field to render. */
-export function ensureRoleFields(form: ForecastForm, roles: readonly string[]): void {
-  for (const role of roles) form.entities[role] ??= emptyRef();
+export function ensureRoleFields(form: ForecastForm, id: string, roles: readonly string[]): void {
+  const own = (form.entities[id] ??= {});
+  for (const role of roles) own[role] ??= emptyRef();
 }

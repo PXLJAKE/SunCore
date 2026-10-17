@@ -4,24 +4,35 @@
 from __future__ import annotations
 
 import copy
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from suncore.core.battery import BatterySettings
+from suncore.core.battery import BatterySettings, GridChargePolicy
 from suncore.core.config import (
     SECTION_MODELS,
     ForecastConfig,
     GoalsConfig,
     ImportTariff,
     TariffConfig,
+    effective_grid_charge_policy,
     migrate_forecast_v1_to_v2,
     migrate_goals_v1_to_v2,
     migrate_tariff_v2_to_v3,
 )
 from suncore.core.devices import DeviceConfig
-from suncore.core.tariff import NIGHT_WINDOW, PriceFormula, TouPeriod, TouTariff, TouWindow
+from suncore.core.tariff import (
+    NIGHT_WINDOW,
+    PriceFormula,
+    TouPeriod,
+    TouTariff,
+    TouWindow,
+    WeeklySchedule,
+)
 
 TOU = TouTariff(
     base_price=0.32,
@@ -102,9 +113,77 @@ def test_goals_v1_to_v2(v1: dict[str, Any], schedule: object) -> None:
     g = GoalsConfig.model_validate({**body, "schema_version": 2})
     assert g.grid_charge_schedule == schedule
     assert g.climate_before_export is True
-    assert g.conservative_planning is True
     with pytest.raises(ValidationError):  # the v1 field is gone in v2
         GoalsConfig.model_validate({"grid_charge_night_only": True})
+    with pytest.raises(ValidationError):  # P10 planning is the battery risk level (plan §0)
+        GoalsConfig.model_validate({"conservative_planning": True})
+
+
+DAY = WeeklySchedule.daily("10:00", "16:00")
+
+
+@pytest.mark.parametrize(
+    ("policy", "goals_schedule", "expected"),
+    [
+        # 3. never enables charging: a disabled policy stays as it is
+        (GridChargePolicy(), NIGHT_WINDOW, GridChargePolicy()),
+        # 2. the goals schedule fills in a missing schedule of an enabled policy
+        (
+            GridChargePolicy(enabled=True, max_price=0.1),
+            NIGHT_WINDOW,
+            GridChargePolicy(enabled=True, max_price=0.1, schedule=NIGHT_WINDOW),
+        ),
+        # 1. the battery policy's own schedule wins
+        (
+            GridChargePolicy(enabled=True, schedule=DAY),
+            NIGHT_WINDOW,
+            GridChargePolicy(enabled=True, schedule=DAY),
+        ),
+        # no goals schedule: the policy unchanged
+        (
+            GridChargePolicy(enabled=True, max_price=0.1),
+            None,
+            GridChargePolicy(enabled=True, max_price=0.1),
+        ),
+    ],
+)
+def test_effective_grid_charge_policy(
+    policy: GridChargePolicy, goals_schedule: WeeklySchedule | None, expected: GridChargePolicy
+) -> None:
+    goals = GoalsConfig(grid_charge_schedule=goals_schedule)
+    battery = BatterySettings(grid_charge=policy)
+    effective = effective_grid_charge_policy(goals, battery)
+    assert effective == expected
+    assert effective.enabled is policy.enabled  # the goals never switch charging on
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    enabled=st.booleans(),
+    max_price=st.none() | st.floats(-1, 1, allow_nan=False),
+    own=st.sampled_from([None, DAY]),
+    goals_schedule=st.sampled_from([None, NIGHT_WINDOW]),
+    hour=st.integers(0, 23),
+    price=st.none() | st.floats(-1, 1, allow_nan=False),
+)
+def test_effective_policy_only_narrows(  # noqa: PLR0917 - hypothesis arguments
+    enabled: bool,
+    max_price: float | None,
+    own: WeeklySchedule | None,
+    goals_schedule: WeeklySchedule | None,
+    hour: int,
+    price: float | None,
+) -> None:
+    """Whatever the goals say, the effective policy never allows more than the battery's."""
+    if enabled and max_price is None and own is None:
+        return  # invalid policy (validator), covered elsewhere
+    policy = GridChargePolicy(enabled=enabled, max_price=max_price, schedule=own)
+    effective = effective_grid_charge_policy(
+        GoalsConfig(grid_charge_schedule=goals_schedule), BatterySettings(grid_charge=policy)
+    )
+    at = datetime(2026, 1, 5, hour, tzinfo=UTC)
+    if effective.allows(at, price, UTC):
+        assert policy.allows(at, price, UTC)
 
 
 def test_battery_is_a_section() -> None:

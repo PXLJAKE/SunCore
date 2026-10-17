@@ -633,9 +633,16 @@ export interface components {
          * @description Series held in an attribute of the entities of ``roles`` (concatenated in order).
          *
          *     ``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's
-         *     value to the list of points when the attribute is a mapping (``None`` = the attribute
-         *     itself is the list). The period length of a point is the template's
-         *     ``resolution_min``.
+         *     value to the points when the attribute is a mapping (``None`` = the attribute itself
+         *     holds the points). ``shape`` says what the points are:
+         *
+         *     * ``list`` (default): a list of objects named by ``fields`` (Solcast
+         *       ``detailedForecast``);
+         *     * ``mapping``: an object ``{iso_timestamp: value}`` (Forecast.Solar ``wh_hours``,
+         *       Open-Meteo Solar Forecast ``wh_period_15m``); ``fields`` then gives only
+         *       ``value_unit`` - no point field names and no quantiles.
+         *
+         *     The period length of a point is the template's ``resolution_min``.
          */
         AttributeSeries: {
             /** Attribute */
@@ -646,6 +653,12 @@ export interface components {
             /** Roles */
             roles: string[];
             /**
+             * Shape
+             * @default list
+             * @enum {string}
+             */
+            shape: "list" | "mapping";
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -653,15 +666,17 @@ export interface components {
         };
         /**
          * BatteryAction
-         * @description Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP9).
+         * @description Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).
          *
          *     Every field is optional, at least one must be set; a missing field leaves that limit
          *     as it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a
          *     charging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the
          *     inverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at
          *     or above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the
-         *     grid. Until the battery path exists the gate rejects this action
-         *     (``safety.battery_not_supported``); nothing is written.
+         *     grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both are set (forced
+         *     charging cannot be above the charge cap, and a cap of 0 forbids it). Until the battery
+         *     path exists the gate rejects this action (``safety.battery_not_supported``); nothing is
+         *     written.
          */
         BatteryAction: {
             /** Grid Charge W */
@@ -1627,9 +1642,10 @@ export interface components {
          *     allowed by a price level and/or a schedule in the ``battery`` section's
          *     :class:`~suncore.core.battery.GridChargePolicy`. ``grid_charge_schedule`` carries the
          *     window a v1 document implied (``True`` -> 22:00-06:00 daily) so the choice is not
-         *     lost; the planner uses it as the policy's schedule when the policy has none. **It never
-         *     enables grid charging**: that stays off until the user enables the policy with a level
-         *     or a schedule. ``conservative_planning`` = targets are planned on P10 PV (default on).
+         *     lost; :func:`effective_grid_charge_policy` uses it as the policy's schedule when the
+         *     policy has none. **It never enables grid charging**: that stays off until the user
+         *     enables the policy with a level or a schedule. How cautiously targets are planned is
+         *     the ``battery`` section's ``risk`` level, not a goal.
          */
         GoalsConfig: {
             battery_target?: components["schemas"]["BatteryTarget"] | null;
@@ -1638,11 +1654,6 @@ export interface components {
              * @default false
              */
             climate_before_export: boolean;
-            /**
-             * Conservative Planning
-             * @default true
-             */
-            conservative_planning: boolean;
             grid_charge_schedule?: components["schemas"]["WeeklySchedule"] | null;
             /**
              * Schema Version
@@ -1658,6 +1669,11 @@ export interface components {
          *     price) and/or a ``schedule`` (only inside these weekly windows) must be set; both given
          *     means both must hold. On a dynamic tariff the planner's spread rule
          *     (:meth:`BatteryModel.grid_charge_pays`) applies in addition.
+         *
+         *     The planner applies :func:`suncore.core.config.effective_grid_charge_policy`: this
+         *     policy wins over ``goals.grid_charge_schedule``, which only fills in a missing schedule
+         *     of an enabled policy and never enables charging. Hence an enabled policy must be
+         *     complete on its own (the validator below), and the goals schedule can only narrow it.
          */
         GridChargePolicy: {
             /**
@@ -1695,10 +1711,16 @@ export interface components {
         /**
          * GridFeeWindow
          * @description A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3).
+         *
+         *     ``months`` restricts it to some months (module 3 fees are set per quarter, e.g. only
+         *     Q1 and Q4); ``None`` = all year. The month is that of the day the occurrence started
+         *     (see :meth:`TouWindow.occurrence_date`).
          */
         GridFeeWindow: {
             /** Fee */
             fee: number;
+            /** Months */
+            months?: number[] | null;
             window: components["schemas"]["TouWindow"];
         };
         /** HealthMessage */
@@ -2327,6 +2349,11 @@ export interface components {
         /**
          * SeriesFields
          * @description Names of the fields of one series point and the unit of its values.
+         *
+         *     ``timestamp_field`` and ``value_field`` are required for a list of point objects
+         *     (``action`` series, ``attribute`` series of shape ``list``) and absent for an
+         *     ``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose
+         *     values are the values.
          */
         SeriesFields: {
             /** P10 Field */
@@ -2334,9 +2361,9 @@ export interface components {
             /** P90 Field */
             p90_field?: string | null;
             /** Timestamp Field */
-            timestamp_field: string;
+            timestamp_field?: string | null;
             /** Value Field */
-            value_field: string;
+            value_field?: string | null;
             /** Value Unit */
             value_unit: string;
         };

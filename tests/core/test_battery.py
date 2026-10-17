@@ -92,19 +92,19 @@ def test_grid_charge_policy() -> None:
     off = GridChargePolicy()
     friday_night = datetime(2026, 10, 16, 23, tzinfo=BERLIN)
     noon = friday_night.replace(hour=12)
-    assert not off.allows(friday_night, 0.0)
+    assert not off.allows(friday_night, 0.0, BERLIN)
     with pytest.raises(ValidationError, match="price level or a schedule"):
         GridChargePolicy(enabled=True)
     level = GridChargePolicy(enabled=True, max_price=0.15)
-    assert level.allows(noon, 0.15)
-    assert not level.allows(noon, 0.16)
-    assert not level.allows(noon, None)  # unknown price never satisfies a level
+    assert level.allows(noon, 0.15, BERLIN)
+    assert not level.allows(noon, 0.16, BERLIN)
+    assert not level.allows(noon, None, BERLIN)  # unknown price never satisfies a level
     sched = GridChargePolicy(enabled=True, schedule=NIGHT_WINDOW)
-    assert sched.allows(friday_night, None)
-    assert not sched.allows(noon, 0.0)
+    assert sched.allows(friday_night, None, BERLIN)
+    assert not sched.allows(noon, 0.0, BERLIN)
     both = GridChargePolicy(enabled=True, max_price=-0.01, schedule=NIGHT_WINDOW)
-    assert both.allows(friday_night, -0.05)
-    assert not both.allows(friday_night, 0.0)
+    assert both.allows(friday_night, -0.05, BERLIN)
+    assert not both.allows(friday_night, 0.0, BERLIN)
     assert GridChargePolicy(max_price=0.1).enabled is False  # a level alone enables nothing
 
 
@@ -168,3 +168,14 @@ def test_battery_action_contract() -> None:
     ):
         with pytest.raises(ValidationError):
             BatteryAction.model_validate(bad)
+
+
+def test_battery_action_grid_charge_never_above_the_charge_cap() -> None:
+    """m7: forced grid charging is bounded by ``max_charge_w``; a cap of 0 forbids it."""
+    assert BatteryAction(max_charge_w=3000, grid_charge_w=3000).grid_charge_w == 3000
+    assert BatteryAction(max_charge_w=0, grid_charge_w=0).grid_charge_w == 0
+    assert BatteryAction(grid_charge_w=5000).max_charge_w is None  # no cap given
+    with pytest.raises(ValidationError, match="above max_charge_w"):
+        BatteryAction(max_charge_w=2000, grid_charge_w=2500)
+    with pytest.raises(ValidationError, match="above max_charge_w"):
+        BatteryAction(max_charge_w=0, grid_charge_w=1)

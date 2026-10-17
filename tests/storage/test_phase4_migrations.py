@@ -8,12 +8,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog.testing
 
 from suncore.core.battery import BatterySettings, BatteryStrategy
 from suncore.core.config import ForecastConfig, GoalsConfig, TariffConfig
 from suncore.core.tariff import NIGHT_WINDOW
 from suncore.storage import ConfigStore, Database
-from suncore.storage.config_store import DEFAULT_SECTIONS
+from suncore.storage.config_store import DEFAULT_SECTIONS, migrate_forecast_v1_to_v2_logged
 
 EXPORT = json.loads((Path(__file__).parent / "fixtures" / "export_phase3.json").read_text("utf-8"))
 
@@ -73,3 +74,43 @@ async def test_battery_section_round_trips(db: Database) -> None:
     await store.put("battery", settings)
     assert await store.get("battery") == settings
     assert not settings.grid_charge.enabled
+
+
+@pytest.mark.parametrize("section", ["forecast", "goals"])
+async def test_restore_of_a_v1_history_entry_migrates(db: Database, section: str) -> None:
+    """A goals v1 / forecast v1 body in ``config_history`` restores as the current version."""
+    doc = EXPORT["sections"][section]
+    assert doc["schema_version"] == 1
+    await db.execute(
+        "INSERT INTO config_history (section, schema_version, body, replaced_at) "
+        "VALUES (?, 1, ?, 't')",
+        (section, json.dumps(doc["body"])),
+    )
+    store = ConfigStore(db)
+    (entry,) = await store.history(section)
+    restored = await store.restore(section, entry.id)
+    assert restored.schema_version == 2  # type: ignore[attr-defined]
+    assert await store.get(section) == restored
+    if isinstance(restored, GoalsConfig):
+        assert restored.grid_charge_schedule == NIGHT_WINDOW
+    else:
+        assert isinstance(restored, ForecastConfig)
+        assert restored.template_ids == ["solcast.pv"]
+
+
+async def test_forecast_v1_entities_without_template_are_logged(db: Database) -> None:
+    body = {"forecast_template_ids": [], "forecast_entities": {"today": {"entity_id": "sensor.t"}}}
+    await _store_raw(db, "forecast", 1, body)
+    with structlog.testing.capture_logs() as logs:
+        loaded = await ConfigStore(db).get("forecast")
+    assert isinstance(loaded, ForecastConfig)
+    assert loaded.sources == []
+    warnings = [e for e in logs if e["event"] == "config.forecast_v1_entities_without_template"]
+    assert len(warnings) == 1
+    assert warnings[0]["log_level"] == "warning"
+    assert warnings[0]["roles"] == ["today"]
+    with structlog.testing.capture_logs() as quiet:  # with a template nothing is logged
+        migrate_forecast_v1_to_v2_logged(
+            {"forecast_template_ids": ["solcast.pv"], "forecast_entities": {"today": {}}}
+        )
+    assert quiet == []

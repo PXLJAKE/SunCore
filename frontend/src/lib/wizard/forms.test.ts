@@ -154,16 +154,48 @@ describe('forecast form', () => {
     const form = emptyForecastForm();
     setForecastTemplate(form, 'a.pv', true, ['today']);
     setForecastTemplate(form, 'b.pv', true, ['b_today']);
-    form.entities.today = ref('sensor.a');
-    form.entities.b_today = ref('sensor.b');
+    form.entities['a.pv']!.today = ref('sensor.a');
+    form.entities['b.pv']!.b_today = ref('sensor.b');
     const sources = forecastFromForm(form).sources!;
     expect(sources.map((s) => Object.keys(s.entities ?? {}))).toEqual([['today'], ['b_today']]);
+  });
+  it('keeps the entities of two sources that share a role name apart', () => {
+    const cfg: ForecastConfig = {
+      schema_version: 2,
+      sources: [
+        {
+          template_id: 'solcast.pv',
+          entities: { today: ref('sensor.solcast_today') },
+          weight_mode: 'auto',
+          weight: null,
+        },
+        {
+          template_id: 'forecast_solar.pv',
+          entities: { today: ref('sensor.fs_today') },
+          weight_mode: 'auto',
+          weight: null,
+        },
+      ],
+      learning,
+    };
+    const form = forecastFormFromConfig(cfg);
+    expect(form.entities['solcast.pv']!.today).not.toBe(form.entities['forecast_solar.pv']!.today);
+    form.entities['forecast_solar.pv']!.today = ref('sensor.fs_today_new');
+    const sources = forecastFromForm(form).sources!;
+    expect(sources.map((s) => s.entities?.today?.entity_id)).toEqual([
+      'sensor.solcast_today',
+      'sensor.fs_today_new',
+    ]);
+    setForecastTemplate(form, 'solcast.pv', false, ['today']);
+    expect(forecastFromForm(form).sources!.map((s) => s.entities?.today?.entity_id)).toEqual([
+      'sensor.fs_today_new',
+    ]);
   });
   it('drops forecast entities of a template that is switched off', () => {
     const form = emptyForecastForm();
     setForecastTemplate(form, 'solcast.pv', true, ['forecast_today']);
-    ensureRoleFields(form, ['forecast_today', 'forecast_tomorrow']);
-    form.entities.forecast_today = ref('sensor.today');
+    ensureRoleFields(form, 'solcast.pv', ['forecast_today', 'forecast_tomorrow']);
+    form.entities['solcast.pv']!.forecast_today = ref('sensor.today');
     expect(Object.keys(forecastFromForm(form).sources![0]!.entities!)).toEqual(['forecast_today']);
     setForecastTemplate(form, 'solcast.pv', false, ['forecast_today', 'forecast_tomorrow']);
     expect(form.templateIds).toEqual([]);
@@ -824,6 +856,21 @@ describe('priority reducer', () => {
 });
 
 describe('goals and operation', () => {
+  it('passes a stored custom grid-charge schedule through until the checkbox toggles', () => {
+    const custom = { windows: [{ days: [5, 6], start: '00:00', end: '00:00' }] };
+    const form = goalsFormFromConfig({
+      schema_version: 2,
+      climate_before_export: false,
+      grid_charge_schedule: custom,
+    });
+    expect(form.gridChargeNightOnly).toBe(true);
+    expect(goalsFromForm(form).grid_charge_schedule).toEqual(custom);
+    form.gridChargeNightOnly = false;
+    expect(goalsFromForm(form).grid_charge_schedule).toBeNull();
+    const fresh = goalsFormFromConfig(goalsFromForm(form));
+    fresh.gridChargeNightOnly = true;
+    expect(goalsFromForm(fresh).grid_charge_schedule).toEqual(NIGHT_SCHEDULE);
+  });
   it('maps goals both ways', () => {
     const form = goalsFormFromConfig(null);
     expect(form).toMatchObject({
@@ -833,7 +880,7 @@ describe('goals and operation', () => {
     });
     expect(goalsFromForm(form).battery_target).toBeNull();
     expect(goalsFromForm(form).grid_charge_schedule).toEqual(NIGHT_SCHEDULE);
-    expect(goalsFromForm(form).conservative_planning).toBe(true);
+    expect(goalsFromForm(form)).not.toHaveProperty('conservative_planning');
     form.gridChargeNightOnly = false;
     expect(goalsFromForm(form).grid_charge_schedule).toBeNull();
     expect(goalsFormFromConfig(goalsFromForm(form)).gridChargeNightOnly).toBe(false);

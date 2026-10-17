@@ -17,6 +17,7 @@ from suncore.templates import (
     RegionTemplate,
     TariffTemplate,
 )
+from suncore.templates.models import price_unit_factor
 from tests.templates.conftest import DOCS, device_doc, forecast_doc, region_doc, tariff_doc
 
 EXPECTED = {
@@ -246,3 +247,43 @@ def test_min_app_version_is_a_header_field() -> None:
     doc = device_doc()
     doc["min_app_version"] = "0.3.0"
     assert TEMPLATE_ADAPTER.validate_python(doc).min_app_version == "0.3.0"
+
+
+def test_tariff_prices_per_mwh_are_accepted_and_converted() -> None:
+    """M4: ENTSO-E/EPEX style prices in <currency>/MWh; the adapter divides by 1000."""
+    doc = tariff_doc()
+    doc["price_series"]["fields"]["value_unit"] = "{currency}/MWh"
+    assert TEMPLATE_ADAPTER.validate_python(doc).kind == "tariff"
+    doc["price_unit"] = "EUR/MWh"
+    doc["price_series"]["fields"]["value_unit"] = "EUR/MWh"
+    assert TEMPLATE_ADAPTER.validate_python(doc).kind == "tariff"
+    _bad(doc, lambda d: d["price_series"]["fields"].update(value_unit="USD/kWh"))
+    _bad(doc, lambda d: d["price_series"]["fields"].update(value_unit="EUR/Wh"))
+    _bad(doc, lambda d: d.update(price_unit="EUR/GWh"))
+    assert price_unit_factor("{currency}/kWh") == 1.0
+    assert price_unit_factor("EUR/MWh") * 85.0 == pytest.approx(0.085)
+    with pytest.raises(ValueError, match="not a price unit"):
+        price_unit_factor("EUR")
+
+
+def test_attribute_series_mapping_shape() -> None:
+    """M4: ``{iso_timestamp: value}`` attributes (Forecast.Solar ``wh_hours``)."""
+    doc = forecast_doc()
+    doc["series"].update(attribute="wh_hours", shape="mapping")
+    doc["series"]["fields"] = {"value_unit": "Wh"}
+    doc["resolution_min"] = 60
+    template = TEMPLATE_ADAPTER.validate_python(doc)
+    assert isinstance(template, ForecastTemplate)
+    assert template.series.shape == "mapping"  # type: ignore[union-attr]
+    _bad(doc, lambda d: d["series"]["fields"].update(timestamp_field="t"))
+    _bad(doc, lambda d: d["series"]["fields"].update(p10_field="p10"))
+    _bad(doc, lambda d: d["series"].update(shape="table"))
+    listed = forecast_doc()
+    assert TEMPLATE_ADAPTER.validate_python(listed).series.shape == "list"  # type: ignore[union-attr]
+    _bad(listed, lambda d: d["series"]["fields"].pop("timestamp_field"))
+    action = tariff_doc()
+    _bad(action, lambda d: d["price_series"]["fields"].pop("timestamp_field"))
+    nested = forecast_doc()
+    nested["series"]["list_path"] = "result.watts"
+    assert TEMPLATE_ADAPTER.validate_python(nested).kind == "forecast"
+    _bad(nested, lambda d: d["series"].update(list_path="result..watts"))

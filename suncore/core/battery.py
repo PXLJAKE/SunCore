@@ -115,11 +115,14 @@ class BatteryStrategy(StrEnum):
     SELF_CONSUMPTION = "self_consumption"
     """Default: store surplus, discharge for the house, no grid charging unless allowed."""
     PREFER_FULL = "prefer_full"
-    """As full as possible: target 100 % (capped by ``max_soc_pct``) as early as the P10
-    forecast allows, PV surplus to the battery before consumers until full, discharge
-    only for the house (never for export)."""
+    """As full as possible: target 100 % (capped by ``max_soc_pct``) as early as the net
+    energy forecast at the risk quantile (``BatterySettings.risk``) allows, PV surplus to
+    the battery before consumers until full, discharge only for the house (never for
+    export)."""
     TARGET_BY_TIME = "target_by_time"
-    """Reach ``goals.battery_target`` by its time, planned on P10 PV."""
+    """Reach ``goals.battery_target`` by its time, planned on the risk quantile
+    (``BatterySettings.risk``) of the net energy forecast (PV minus load), so the target
+    is met with the risk level's probability."""
 
 
 @unique
@@ -162,6 +165,11 @@ class GridChargePolicy(_Frozen):
     price) and/or a ``schedule`` (only inside these weekly windows) must be set; both given
     means both must hold. On a dynamic tariff the planner's spread rule
     (:meth:`BatteryModel.grid_charge_pays`) applies in addition.
+
+    The planner applies :func:`suncore.core.config.effective_grid_charge_policy`: this
+    policy wins over ``goals.grid_charge_schedule``, which only fills in a missing schedule
+    of an enabled policy and never enables charging. Hence an enabled policy must be
+    complete on its own (the validator below), and the goals schedule can only narrow it.
     """
 
     enabled: bool = False
@@ -178,10 +186,11 @@ class GridChargePolicy(_Frozen):
             )
         return self
 
-    def allows(self, at: datetime, import_price: float | None, tz: tzinfo | None = None) -> bool:
+    def allows(self, at: datetime, import_price: float | None, tz: tzinfo) -> bool:
         """Whether this policy admits grid charging at ``at`` with ``import_price``.
 
-        An unknown price never satisfies a price level.
+        ``tz`` is the region's zone the schedule is judged in. An unknown price never
+        satisfies a price level.
         """
         if not self.enabled:
             return False

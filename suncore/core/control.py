@@ -192,7 +192,7 @@ class BatteryBand(_Frozen):
     """Plan v2: battery first until the *live* SoC reaches this value, then surplus may go
     to consumers. Evaluated by the controller against the measured SoC every tick (robust
     against plan deviation); ``None`` = no such rule. Accepted and stored now, the
-    controller wiring follows in Phase 4 WP9 (until then the controller ignores it)."""
+    controller wiring follows in Phase 4 WP10 (until then the controller ignores it)."""
 
     @model_validator(mode="after")
     def _ordered(self) -> Self:
@@ -209,9 +209,15 @@ class IntervalFlows(_Frozen):
     """Plan v2: the flows the planner expects in an interval (mean power, W).
 
     Signs per ``core/units.py``: import/export are magnitudes, battery + = charging.
-    ``pv_p50_w`` is what the objective used; ``pv_p10_w`` the conservative value the
-    target constraints used (``None`` = the source has no quantiles). ``soc_pct`` is the
-    planned state of charge at the *end* of the interval (``None`` = no battery).
+    ``pv_p10_w``/``pv_p50_w``/``pv_p90_w`` are the PV forecast's quantiles as forecast data
+    (shown in the UI; ``None`` = the source has no quantiles); the objective uses P50.
+    Battery targets are *not* planned on P10 PV (plan §0): they use the risk quantile of
+    the learnt **net** energy error distribution (PV minus load) per weather class.
+    ``net_risk_quantile`` is that quantile (``RiskLevel.quantile``, e.g. 0.1 = cautious)
+    and ``net_risk_w`` the net power PV - load at that quantile the target constraints
+    used (may be negative; ``None`` = no target constraint in this interval).
+    ``soc_pct`` is the planned state of charge at the *end* of the interval (``None`` = no
+    battery).
     """
 
     pv_p10_w: float | None = Field(default=None, ge=0, allow_inf_nan=False)
@@ -222,6 +228,8 @@ class IntervalFlows(_Frozen):
     export_w: float = Field(ge=0, allow_inf_nan=False)
     battery_w: float = Field(default=0.0, allow_inf_nan=False)
     soc_pct: Annotated[float, Field(ge=0, le=100)] | None = None
+    net_risk_quantile: Annotated[float, Field(gt=0, lt=1)] | None = None
+    net_risk_w: float | None = Field(default=None, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def _quantiles(self) -> Self:
@@ -229,6 +237,11 @@ class IntervalFlows(_Frozen):
         hi = self.pv_p90_w if self.pv_p90_w is not None else self.pv_p50_w
         if not lo <= self.pv_p50_w <= hi:
             raise invalid("quantile_order", "quantiles: p10 <= p50 <= p90 is violated")
+        if (self.net_risk_w is None) != (self.net_risk_quantile is None):
+            raise invalid(
+                "net_risk_pair",
+                "expected flows: net_risk_w and net_risk_quantile are set together",
+            )
         return self
 
 
@@ -304,7 +317,7 @@ class Plan(_Frozen):
     ``schema_version`` 1, ``source = "default"``); :func:`plan_from_payload` stamps v2.
     """
 
-    schema_version: Annotated[int, Field(ge=1)] = PLAN_SCHEMA_VERSION
+    schema_version: Annotated[int, Field(ge=1, le=PLAN_SCHEMA_VERSION)] = PLAN_SCHEMA_VERSION
     created_at: AwareDatetime | None = None
     intervals: tuple[PlanInterval, ...] = ()
     reasons: tuple[Reason, ...] = ()

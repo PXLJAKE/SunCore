@@ -244,7 +244,6 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
         | st.builds(BatteryTarget, soc_pct=_pct, time=st.sampled_from(["06:30", "23:59", "00:00"])),
         climate_before_export=st.booleans(),
         grid_charge_schedule=st.sampled_from([None, NIGHT_WINDOW]),
-        conservative_planning=st.booleans(),
     ),
     "operation": st.builds(
         OperationConfig,

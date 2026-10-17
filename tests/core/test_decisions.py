@@ -15,6 +15,7 @@ from suncore.core.decisions import (
     DECISION_SCHEMA_VERSION,
     Action,
     ActionKind,
+    BatteryAction,
     Decision,
     DecisionKind,
     Intent,
@@ -219,6 +220,59 @@ def test_v2_payload_round_trips_through_the_loader() -> None:
         observed=ModeAction(mode="cool"),
     )
     assert decision_from_json(decision.model_dump_json()) == decision
+
+
+def test_battery_action_round_trips_as_intent_and_as_observed() -> None:
+    action = BatteryAction(max_charge_w=4000, grid_charge_w=2500, min_soc_pct=20)
+    rejected = Decision(
+        intent=make_intent(action=action, origin=Origin.PLANNER),
+        kind=DecisionKind.REJECTED,
+        ts=TS,
+        reasons=(Reason(key="safety.battery_not_supported"),),
+        mode=OperatingMode.SHADOW,
+    )
+    observed = Decision(
+        intent=make_intent(action=BatteryAction(max_discharge_w=0)),
+        kind=DecisionKind.FAILED,
+        ts=TS,
+        mode=OperatingMode.AUTOMATIC,
+        observed=action,
+    )
+    for decision in (rejected, observed):
+        loaded = decision_from_json(decision.model_dump_json())
+        assert loaded == decision
+        assert loaded.schema_version == DECISION_SCHEMA_VERSION == 2
+    assert isinstance(decision_from_json(observed.model_dump_json()).observed, BatteryAction)
+
+
+V2_PHASE3_PAYLOAD = {
+    "schema_version": 2,
+    "intent": {
+        "id": "i-7",
+        "ts": "2026-10-12T12:00:00Z",
+        "asset_id": "boiler",
+        "action": {"kind": "step", "step": 2},
+        "reasons": [{"key": "controller.surplus", "args": {"surplus_w": 2100}}],
+        "origin": "controller",
+    },
+    "kind": "accepted",
+    "ts": "2026-10-12T12:00:02Z",
+    "reasons": [],
+    "mode": "automatic",
+    "expires_at": None,
+    "held_until": None,
+    "observed": {"kind": "step", "step": 2},
+}
+"""A Phase 3 decision row (v2, before ``BatteryAction`` existed) as the log stored it."""
+
+
+def test_stored_phase3_v2_row_still_loads() -> None:
+    """Adding the battery kind did not bump the version: old v2 rows load unchanged."""
+    decision = decision_from_payload(V2_PHASE3_PAYLOAD)
+    assert decision.schema_version == 2
+    assert decision.intent.action == StepAction(step=2)
+    assert decision.observed == StepAction(step=2)
+    assert decision_from_json(json.dumps(V2_PHASE3_PAYLOAD)) == decision
 
 
 @pytest.mark.parametrize("version", [3, 99])

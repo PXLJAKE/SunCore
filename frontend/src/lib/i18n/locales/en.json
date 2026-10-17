@@ -844,6 +844,10 @@
   "api.validation.quantile_unit": "The forecast quantiles need the same unit.",
   "api.validation.range_order": "The start must be before the end.",
   "api.validation.series_step": "The interval length must be between 0 and one day.",
+  "api.validation.net_risk_pair": "The net risk value and its quantile must be given together.",
+  "api.validation.grid_charge_above_cap": "Grid charging ({grid_charge_w} W) must not exceed the charge limit ({max_charge_w} W).",
+  "api.validation.import_formula_all_in": "The tariff {template_id} already delivers end prices including fees and taxes; a price formula would count them twice.",
+  "tariff.import.tou_stored": "A time-of-use tariff (HT/NT) is stored. It can be edited here in a later version; saving keeps it unchanged unless you choose another kind.",
   "safety.battery_not_supported": "Battery control is not available yet; nothing was written.",
   "action.battery": "Set battery limits"
 }

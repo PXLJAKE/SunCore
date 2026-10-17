@@ -265,7 +265,6 @@ def test_goals() -> None:
     g = GoalsConfig()
     assert g.battery_target is None
     assert g.grid_charge_schedule is None
-    assert g.conservative_planning is True
     assert g.schema_version == 2
     assert BatteryTarget(soc_pct=80, time="06:30").time == "06:30"
     for bad in ("6:30", "24:00", "06:60", "06:30:00", ""):

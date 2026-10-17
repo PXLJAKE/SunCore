@@ -20,10 +20,12 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
-from suncore.core.battery import BatterySettings
+from suncore.core.battery import BatterySettings, GridChargePolicy
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig, DeviceId, RoleName, TemplateId
+from suncore.core.series import PriceIncludes
 from suncore.core.site import EntityRef, SiteConfig
 from suncore.core.tariff import HHMM_PATTERN, NIGHT_WINDOW, PriceFormula, TouTariff, WeeklySchedule
 from suncore.core.validation import invalid
@@ -287,6 +289,26 @@ def migrate_forecast_v1_to_v2(body: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def formula_on_all_in_source(
+    tariff: TariffConfig, price_includes: PriceIncludes | None
+) -> PydanticCustomError | None:
+    """The error for a price formula on top of an all-in price source, else ``None``.
+
+    ``price_includes`` is that of the import tariff's template (``None`` = unknown, e.g. a
+    bare ``price_entity``). An all-in price (Tibber) already contains grid fees, levies and
+    VAT; the formula would add them a second time. :class:`ImportTariff` cannot check this
+    because it does not know the template catalogue - the API does (``PUT /config/tariff``).
+    """
+    if tariff.import_.formula is None or price_includes != "all_in":
+        return None
+    return invalid(
+        "import_formula_all_in",
+        "tariff.import: template {template_id} delivers all-in prices, a formula would "
+        "count fees and taxes twice",
+        template_id=tariff.import_.template_id or "",
+    )
+
+
 def migrate_tariff_v2_to_v3(body: dict[str, Any]) -> dict[str, Any]:
     """Tariff v3 only adds optional fields (``formula``, kind ``tou``): unchanged body."""
     return body
@@ -336,16 +358,36 @@ class GoalsConfig(_Frozen):
     allowed by a price level and/or a schedule in the ``battery`` section's
     :class:`~suncore.core.battery.GridChargePolicy`. ``grid_charge_schedule`` carries the
     window a v1 document implied (``True`` -> 22:00-06:00 daily) so the choice is not
-    lost; the planner uses it as the policy's schedule when the policy has none. **It never
-    enables grid charging**: that stays off until the user enables the policy with a level
-    or a schedule. ``conservative_planning`` = targets are planned on P10 PV (default on).
+    lost; :func:`effective_grid_charge_policy` uses it as the policy's schedule when the
+    policy has none. **It never enables grid charging**: that stays off until the user
+    enables the policy with a level or a schedule. How cautiously targets are planned is
+    the ``battery`` section's ``risk`` level, not a goal.
     """
 
     schema_version: int = 2
     battery_target: BatteryTarget | None = None
     climate_before_export: bool = False
     grid_charge_schedule: WeeklySchedule | None = None
-    conservative_planning: bool = True
+
+
+def effective_grid_charge_policy(goals: GoalsConfig, battery: BatterySettings) -> GridChargePolicy:
+    """The grid-charge policy the planner applies (single source of the precedence rule).
+
+    1. The ``battery`` section's policy wins: its ``enabled``, ``max_price`` and
+       ``schedule`` are used as they are.
+    2. ``goals.grid_charge_schedule`` only fills in the schedule when the policy is
+       enabled and has none of its own (the migrated v1 "night only" choice then narrows a
+       price-level policy to the night window).
+    3. It never enables charging: a disabled policy is returned unchanged.
+
+    :class:`GridChargePolicy` validation matches this: an enabled policy must carry its
+    own limit (price level or schedule), so it is complete without ``goals`` and the goals
+    schedule can only narrow it, never be its only limit.
+    """
+    policy = battery.grid_charge
+    if not policy.enabled or policy.schedule is not None or goals.grid_charge_schedule is None:
+        return policy
+    return policy.model_copy(update={"schedule": goals.grid_charge_schedule})
 
 
 def migrate_goals_v1_to_v2(body: dict[str, Any]) -> dict[str, Any]:

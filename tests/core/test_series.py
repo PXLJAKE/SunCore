@@ -224,20 +224,92 @@ def test_export_prices_are_kept_when_every_segment_has_them() -> None:
 
 
 def test_segments_from_points_split_on_resolution_change() -> None:
+    # Nord Pool style: 15-minute prices today, hourly tomorrow (caller accepts 60 min).
     points = [(T0 + MIN15 * i, float(i)) for i in range(4)] + [
         (T0 + HOUR, 10.0),
         (T0 + 2 * HOUR, 20.0),
     ]
-    segments = segments_from_points(points, SeriesUnit.PRICE)
+    segments = segments_from_points(
+        points, SeriesUnit.PRICE, expected_step=MIN15, other_steps={HOUR}
+    )
     assert [(s.step, len(s)) for s in segments] == [(MIN15, 4), (HOUR, 2)]
+    assert segments[0].values == (0.0, 1.0, 2.0, 3.0)
     assert segments[-1].end == T0 + 3 * HOUR
-    single = segments_from_points([(T0, 1.0)], SeriesUnit.W, last_step=MIN15)
+    single = segments_from_points([(T0, 1.0)], SeriesUnit.W, expected_step=MIN15)
     assert single[0].end == T0 + MIN15
-    assert segments_from_points([], SeriesUnit.W) == ()
-    with pytest.raises(ValueError, match="last_step"):
-        segments_from_points([(T0, 1.0)], SeriesUnit.W)
+    assert segments_from_points([], SeriesUnit.W, expected_step=MIN15) == ()
     with pytest.raises(ValueError, match="strictly increasing"):
-        segments_from_points([(T0, 1.0), (T0, 2.0)], SeriesUnit.W)
+        segments_from_points([(T0, 1.0), (T0, 2.0)], SeriesUnit.W, expected_step=MIN15)
+
+
+def test_segments_from_points_gap_is_none_not_filled() -> None:
+    """Reviewer example 1: 15-minute prices 10:00, 10:15, 10:45 -> 10:30 is missing."""
+    t10 = T0 + 10 * HOUR
+    points = [(t10, 0.30), (t10 + MIN15, 0.31), (t10 + 3 * MIN15, 0.33)]
+    (segment,) = segments_from_points(points, SeriesUnit.PRICE, expected_step=MIN15)
+    assert segment.step == MIN15
+    assert segment.values == (0.30, 0.31, None, 0.33)
+    out = resample_prices(
+        PriceSeries(source_id="nordpool", price_includes="spot_only", import_price=segment),
+        Grid(start=t10, count=4),
+    )
+    assert out.import_price.values == (0.30, 0.31, None, 0.33)
+
+
+def test_segments_from_points_hourly_gap_is_not_a_resolution_change() -> None:
+    """Reviewer example 2: a 60-minute hole in 15-minute data stays a hole even when the
+    caller accepts hourly data, because the hourly rhythm does not continue; without
+    ``other_steps`` a real 15 -> 60 change is a gap pattern and the hourly part keeps its
+    15-minute slots with ``None`` in between (nothing is invented either way)."""
+    points = [(T0, 1.0), (T0 + MIN15, 2.0), (T0 + MIN15 + HOUR, 3.0), (T0 + 2 * HOUR, 4.0)]
+    (segment,) = segments_from_points(
+        points, SeriesUnit.PRICE, expected_step=MIN15, other_steps={HOUR}
+    )
+    assert segment.values == (1.0, 2.0, None, None, None, 3.0, None, None, 4.0)
+    hourly = [(T0 + HOUR * i, float(i)) for i in range(3)]
+    (strict,) = segments_from_points(hourly, SeriesUnit.PRICE, expected_step=MIN15)
+    assert strict.step == MIN15
+    assert strict.values == (0.0, None, None, None, 1.0, None, None, None, 2.0)
+    (accepted,) = segments_from_points(
+        hourly, SeriesUnit.PRICE, expected_step=MIN15, other_steps={HOUR}
+    )
+    assert (accepted.step, accepted.values) == (HOUR, (0.0, 1.0, 2.0))
+
+
+def test_segments_from_points_rejects_irregular_and_honours_last_step() -> None:
+    with pytest.raises(ValueError, match="neither an accepted step"):
+        segments_from_points(
+            [(T0, 1.0), (T0 + timedelta(minutes=20), 2.0)],
+            SeriesUnit.PRICE,
+            expected_step=MIN15,
+        )
+    with pytest.raises(ValueError, match="positive"):
+        segments_from_points([(T0, 1.0)], SeriesUnit.W, expected_step=timedelta(0))
+    out = segments_from_points(
+        [(T0, 1.0), (T0 + MIN15, 2.0)], SeriesUnit.PRICE, expected_step=MIN15, last_step=HOUR
+    )
+    assert [(s.start, s.step, s.values) for s in out] == [
+        (T0, MIN15, (1.0,)),
+        (T0 + MIN15, HOUR, (2.0,)),
+    ]
+    assert out[-1].end == T0 + MIN15 + HOUR
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    values=st.lists(st.floats(-0.5, 1.0, allow_nan=False), min_size=3, max_size=96),
+    data=st.data(),
+)
+def test_segments_from_points_gap_gives_none(values: list[float], data: st.DataObject) -> None:
+    """Dropping interior points of a regular series yields ``None`` exactly there."""
+    n = len(values)
+    dropped = data.draw(st.sets(st.integers(1, n - 2), max_size=n - 2))
+    points = [(T0 + MIN15 * i, v) for i, v in enumerate(values) if i not in dropped]
+    (segment,) = segments_from_points(points, SeriesUnit.PRICE, expected_step=MIN15)
+    assert segment.start == T0
+    assert segment.step == MIN15
+    expected = tuple(None if i in dropped else v for i, v in enumerate(values))
+    assert segment.values == expected
 
 
 # --- properties --------------------------------------------------------------------------
