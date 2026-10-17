@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta, tzinfo
 
 import pytest
 
@@ -62,6 +62,7 @@ class FakeSource:
     price_includes: str = "all_in"
     source_id: str = "fake"
     watched_entities: tuple[str, ...] = ("sensor.price",)
+    delivery_tz: tzinfo | None = None
     calls: list[datetime] = field(default_factory=list)
 
     async def fetch_segments(self, window: TimeRange, now: datetime) -> SourceData:  # noqa: ARG002
@@ -686,3 +687,26 @@ def test_settings_have_a_floor_below_the_action_limiter() -> None:
         refresh_interval_s=1, retry_interval_s=1, tomorrow_poll_s=1, tomorrow_after=time(12)
     )
     assert (low.refresh_interval_s, low.retry_interval_s, low.tomorrow_poll_s) == (60.0, 60.0, 60.0)
+
+
+async def test_tomorrow_is_covered_at_the_end_of_the_market_day_west_of_the_market() -> None:
+    """Review M4: Nord Pool ends at CET midnight, an hour before London's; it must terminate."""
+    from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+    london = ZoneInfo("Europe/London")
+    now = datetime(2026, 10, 16, 14, 0, tzinfo=london)
+    cet_end = datetime(2026, 10, 18, 0, 0, tzinfo=BERLIN)  # end of tomorrow in CET
+    start = datetime(2026, 10, 16, 13, 0, tzinfo=london)
+    count = int((cet_end - start) / H)
+    for market, expected in ((BERLIN, True), (None, False)):
+        source = FakeSource(segments=(hourly(start, [0.3] * count),), delivery_tz=market)
+        plan = TariffPlan(
+            source=source,  # type: ignore[arg-type]
+            export_tariff=FIXED_EXPORT,
+            negative_rule=NegativePriceRule.NONE,
+            tz=london,
+            currency="EUR",
+        )
+        service = TariffService(plan, clock=Clock(now))
+        await service.refresh("initial")
+        assert service.report(48).quality.has_tomorrow is expected

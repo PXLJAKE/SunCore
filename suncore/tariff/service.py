@@ -277,10 +277,17 @@ class TariffService:
         return False
 
     def _tomorrow_covered(self, now: datetime) -> bool:
-        tz = self._plan.tz
-        today = now.astimezone(tz).date()
         end = self._state.known_end
-        return end is not None and end >= _midnight(today + timedelta(days=2), tz)
+        if end is None:
+            return False
+        zones = [self._plan.tz]
+        market = self._plan.source.delivery_tz
+        if market is not None:
+            zones.append(market)
+        # the day-ahead prices stop at the end of tomorrow in the market's zone, which lies
+        # before the site's midnight west of it (never "covered" otherwise): the earlier counts
+        deadline = min(_midnight(now.astimezone(z).date() + timedelta(days=2), z) for z in zones)
+        return end >= deadline
 
     def _schedule(self, now: datetime) -> tuple[datetime, RefreshReason] | None:
         """The earliest time-based refresh (``None`` = nothing scheduled)."""

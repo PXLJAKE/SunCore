@@ -17,6 +17,7 @@ ERR_MISSING_ROLE: Final = "tariff.error.missing_entity"
 ERR_THROTTLED: Final = "tariff.error.throttled"
 ERR_FAILED: Final = "tariff.error.action_failed"
 ERR_UNIT_MISMATCH: Final = "tariff.error.unit_mismatch"
+ERR_CURRENCY_MISMATCH: Final = "tariff.error.currency_mismatch"
 ERR_EXPORT_NEEDS_KWP: Final = "tariff.error.export_needs_kwp"
 ERR_EXPORT_TIERS: Final = "tariff.error.export_tiers"
 
@@ -86,6 +87,12 @@ class UnitMismatchError(TariffError):
     """The entity's price unit (per kWh or per MWh) contradicts the template's value unit."""
 
     key = ERR_UNIT_MISMATCH
+
+
+class CurrencyMismatchError(UnitMismatchError):
+    """The source's currency differs from the region's (prices would be in the wrong money)."""
+
+    key = ERR_CURRENCY_MISMATCH
 
 
 class ExportConfigError(TariffError):

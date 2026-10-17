@@ -710,6 +710,7 @@
   "tariff.error.throttled": "The price source was asked too often and skipped; SunCore asks again in {retry_after_s, number} s.",
   "tariff.error.action_failed": "Home Assistant could not deliver the prices. SunCore keeps the last prices and tries again.",
   "tariff.error.unit_mismatch": "The sensor reports prices in “{sensor_unit}” but the template expects “{template_unit}”. Choose the matching template.",
+  "tariff.error.currency_mismatch": "The prices are in {source_currency} but your region uses {region_currency}. Choose a source in {region_currency}.",
   "tariff.error.export_needs_kwp": "The tiered feed-in remuneration needs the size of every solar array (kWp) and tiers that cover the whole plant.",
   "tariff.error.export_tiers": "The feed-in tiers do not cover the whole plant of {kwp} kWp. Enter a rate for the part above the last tier.",
   "tariff.status.fresh": "Prices are up to date.",

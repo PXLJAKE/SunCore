@@ -710,6 +710,7 @@
   "tariff.error.throttled": "Die Preisquelle wurde zu oft abgefragt und übersprungen; SunCore fragt in {retry_after_s, number} s erneut an.",
   "tariff.error.action_failed": "Home Assistant konnte die Preise nicht liefern. SunCore behält die letzten Preise und versucht es erneut.",
   "tariff.error.unit_mismatch": "Der Sensor meldet Preise in „{sensor_unit}“, die Vorlage erwartet „{template_unit}“. Wähle die passende Vorlage.",
+  "tariff.error.currency_mismatch": "Die Preise sind in {source_currency}, deine Region nutzt {region_currency}. Wähle eine Quelle in {region_currency}.",
   "tariff.error.export_needs_kwp": "Die gestaffelte Einspeisevergütung braucht die Größe jeder Solaranlage (kWp) und Stufen, die die ganze Anlage abdecken.",
   "tariff.error.export_tiers": "Die Einspeisestufen decken die ganze Anlage mit {kwp} kWp nicht ab. Trage einen Satz für den Teil über der letzten Stufe ein.",
   "tariff.status.fresh": "Die Preise sind aktuell.",

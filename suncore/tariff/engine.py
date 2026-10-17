@@ -24,6 +24,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any, Final, Protocol
+from zoneinfo import ZoneInfo
 
 from suncore.core.series import (
     PLANNING_STEP,
@@ -35,6 +36,7 @@ from suncore.core.series import (
     floor_to_step,
 )
 from suncore.tariff.errors import (
+    CurrencyMismatchError,
     MalformedPayloadError,
     MissingEntityError,
     MissingParamError,
@@ -56,6 +58,7 @@ from suncore.tariff.parse import (
 )
 from suncore.tariff.sources import SourceData, SourceKind, finest_series
 from suncore.tariff.units import (
+    currency_of,
     divisor_to_kwh,
     energy_scale,
     normalise_price_unit,
@@ -190,7 +193,25 @@ class TemplatePriceSource:
     def watched_entities(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(self._binding.entities.values()))
 
+    @property
+    def delivery_tz(self) -> tzinfo | None:
+        series = self._series
+        if isinstance(series, ActionSeries) and series.date_tz is not None:
+            return ZoneInfo(series.date_tz)
+        return None
+
+    def _check_currency(self, source_currency: str | None, where: str) -> None:
+        """Refuse prices in another currency than the region's (a silent mix-up of money)."""
+        expected = self._binding.currency
+        if source_currency is not None and source_currency.upper() != expected:
+            raise CurrencyMismatchError(
+                f"{where} is in {source_currency}, the region uses {expected}",
+                source_currency=source_currency.upper(),
+                region_currency=expected,
+            )
+
     async def fetch_segments(self, window: TimeRange, now: datetime) -> SourceData:
+        self._check_currency(currency_of(self._unit), "the template")
         if isinstance(self._series, ActionSeries):
             slots, bad = await self._from_action(self._series, window, now)
         else:
@@ -231,6 +252,8 @@ class TemplatePriceSource:
                     )
                 continue
             data[param.name] = value if isinstance(value, str) else list(value)
+            if param.name == "currency" and isinstance(value, str):
+                self._check_currency(value, "the action's `currency` field")
         return data
 
     async def _from_action(
@@ -241,7 +264,8 @@ class TemplatePriceSource:
         base = self._request_base(series)
         requests: list[dict[str, Any]]
         if series.date_field is not None:
-            dates = request_dates(window, now, tz, series.max_horizon_h)
+            market_tz = ZoneInfo(series.date_tz) if series.date_tz is not None else tz
+            dates = request_dates(window, now, market_tz, series.max_horizon_h)
             requests = [{**base, series.date_field: d.isoformat()} for d in dates]
         else:
             data = dict(base)
@@ -283,7 +307,10 @@ class TemplatePriceSource:
         raw = attrs.get("unit_of_measurement")
         if not isinstance(raw, str):
             return
-        seen = energy_scale(normalise_price_unit(raw))
+        normalised = normalise_price_unit(raw)
+        if energy_scale(normalised) is not None:
+            self._check_currency(currency_of(normalised), f"the sensor unit {raw!r}")
+        seen = energy_scale(normalised)
         expected = energy_scale(self._unit)
         if seen is not None and expected is not None and seen != expected:
             raise UnitMismatchError(
@@ -372,6 +399,10 @@ class CurrentPriceSource:
     @property
     def watched_entities(self) -> tuple[str, ...]:
         return (self._entity_id,)
+
+    @property
+    def delivery_tz(self) -> tzinfo | None:
+        return None
 
     async def fetch_segments(self, window: TimeRange, now: datetime) -> SourceData:  # noqa: ARG002
         reading = self._reader(self._entity_id)

@@ -3,7 +3,7 @@
 # from the read-only action `nordpool.get_prices_for_date` (one call per delivery date):
 # response `{"<AREA>": [{"start", "end", "price"}]}`, UTC with `+00:00`, currency per MWh,
 # VAT, grid fees and levies NOT included (`spot_only`): add a price formula in the tariff
-# configuration. Slot length is `end - start` (15 or 60 minutes, a series may mix both).
+# configuration. `date` is the CET delivery day (`date_tz`). Slot length is `end - start` (15 or 60 minutes, a series may mix both).
 id: nordpool.price
 kind: tariff
 schema_version: 1
@@ -46,6 +46,7 @@ price_series:
   domain: nordpool
   service: get_prices_for_date
   date_field: date
+  date_tz: Europe/Berlin
   params:
     - name: config_entry
       required: true

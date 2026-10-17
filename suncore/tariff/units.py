@@ -43,3 +43,9 @@ def energy_scale(unit: str) -> str | None:
     """``"kWh"`` or ``"MWh"`` of a ``<currency>/<scale>`` unit, else ``None``."""
     _, _, scale = unit.partition("/")
     return scale if scale in ("kWh", "MWh") else None
+
+
+def currency_of(unit: str) -> str | None:
+    """ISO code of a ``<currency>/<scale>`` unit (a symbol is mapped), else ``None``."""
+    code, sep, _ = normalise_price_unit(unit).partition("/")
+    return code if sep and len(code) == 3 and code.isalpha() and code.isupper() else None

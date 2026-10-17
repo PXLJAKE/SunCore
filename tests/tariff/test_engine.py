@@ -11,6 +11,7 @@ import pytest
 
 from suncore.core.series import TimeRange, floor_to_step
 from suncore.tariff import (
+    CurrencyMismatchError,
     CurrentPriceSource,
     EntityReading,
     MissingEntityError,
@@ -297,13 +298,13 @@ async def test_nordpool_optional_fields_are_passed_when_configured() -> None:
     source = action_source(
         "nordpool.price",
         actions,
-        action_params={"config_entry": "x", "areas": "SE3", "currency": "SEK"},
+        action_params={"config_entry": "x", "areas": "SE3", "currency": "EUR"},
     )
     await source.fetch_segments(window(2), NOW)
     assert actions.calls[0][2] == {
         "config_entry": "x",
         "areas": "SE3",
-        "currency": "SEK",
+        "currency": "EUR",
         "date": "2026-10-16",
     }
 
@@ -485,7 +486,11 @@ async def test_octopus_merges_current_and_next_day_rates() -> None:
 
 async def test_octopus_without_the_next_day_entity_still_reads_the_current_day() -> None:
     source = attribute_source(
-        "octopus_energy.rates", {"current_day_rates": CURRENT}, readings("octopus_rates"), tz=LONDON
+        "octopus_energy.rates",
+        {"current_day_rates": CURRENT},
+        readings("octopus_rates"),
+        tz=LONDON,
+        currency="GBP",
     )
     win = TimeRange(
         start=datetime(2026, 10, 15, 23, 0, tzinfo=UTC),
@@ -499,7 +504,11 @@ async def test_octopus_event_entity_before_its_first_event_has_no_rates() -> Non
     r = readings("octopus_rates")
     r[NEXT] = EntityReading("unknown", {"event_types": ["x"]})
     source = attribute_source(
-        "octopus_energy.rates", {"current_day_rates": CURRENT, "next_day_rates": NEXT}, r, tz=LONDON
+        "octopus_energy.rates",
+        {"current_day_rates": CURRENT, "next_day_rates": NEXT},
+        r,
+        tz=LONDON,
+        currency="GBP",
     )
     win = TimeRange(
         start=datetime(2026, 10, 15, 23, 0, tzinfo=UTC),
@@ -524,7 +533,11 @@ async def test_octopus_next_day_published_in_a_different_slot_length_makes_a_new
         },
     )
     source = attribute_source(
-        "octopus_energy.rates", {"current_day_rates": CURRENT, "next_day_rates": NEXT}, r, tz=LONDON
+        "octopus_energy.rates",
+        {"current_day_rates": CURRENT, "next_day_rates": NEXT},
+        r,
+        tz=LONDON,
+        currency="GBP",
     )
     win = TimeRange(
         start=datetime(2026, 10, 15, 23, 0, tzinfo=UTC),
@@ -609,3 +622,70 @@ async def test_current_price_source_converts_mwh_and_rejects_bad_states() -> Non
         )
         with pytest.raises(SourceUnavailableError):
             await source.fetch_segments(window(), NOW)
+
+
+# --- delivery day in the market's zone, currency guard (review M4, m2) ------------------
+
+
+async def test_nordpool_dates_are_cet_delivery_days_not_the_sites_days() -> None:
+    """A site in London at 23:30 local on 16 Oct is already in the CET day 17 Oct."""
+    now = datetime(2026, 10, 16, 22, 30, tzinfo=UTC)
+    actions = nordpool_by_date()
+    source = action_source(
+        "nordpool.price", actions, now=now, tz=LONDON, action_params=NORDPOOL_PARAMS
+    )
+    win = TimeRange(start=floor_to_step(now), end=floor_to_step(now) + timedelta(hours=48))
+    await source.fetch_segments(win, now)
+    assert [c[2]["date"] for c in actions.calls] == ["2026-10-17", "2026-10-18"]
+    assert source.delivery_tz is not None
+    assert str(source.delivery_tz) == "Europe/Berlin"
+
+
+async def test_templates_without_a_date_zone_have_no_delivery_zone() -> None:
+    assert action_source("tibber.price", StubActions(lambda _d: {})).delivery_tz is None
+    entity = "sensor.entsoe_average_electricity_price"
+    assert attribute_source("entsoe.price", {"price": entity}, {}).delivery_tz is None
+
+
+async def test_prices_in_another_currency_than_the_region_are_refused() -> None:
+    # the template's own currency (Octopus is GBP) against a euro region
+    source = attribute_source(
+        "octopus_energy.rates",
+        {"current_day_rates": CURRENT},
+        readings("octopus_rates"),
+        tz=LONDON,
+    )
+    with pytest.raises(CurrencyMismatchError) as err:
+        await source.fetch_segments(window(), NOW)
+    assert err.value.message_args == {"source_currency": "GBP", "region_currency": "EUR"}
+    assert err.value.key == "tariff.error.currency_mismatch"
+    assert isinstance(err.value, UnitMismatchError)
+
+
+async def test_a_sensor_unit_in_another_currency_is_refused() -> None:
+    rows = [{"time": "2026-10-16 00:00:00+02:00", "price": 0.1}]
+    entity = EntityReading("0.1", {"unit_of_measurement": "SEK/kWh", "prices": rows})
+    source = attribute_source("entsoe.price", {"price": ENTSOE_ENTITY}, {ENTSOE_ENTITY: entity})
+    with pytest.raises(CurrencyMismatchError):
+        await source.fetch_segments(window(24, MIDNIGHT), NOW)
+    # a symbol maps to its code: EPEX's euro sign is EUR
+    epex = readings("epex_spot_total_price")
+    ok = attribute_source("epex_spot.total_price", {"price": "sensor.epex_spot_total_price"}, epex)
+    assert (await ok.fetch_segments(window(24, MIDNIGHT), NOW)).segments
+
+
+async def test_a_currency_field_for_the_action_must_match_the_region() -> None:
+    actions = nordpool_by_date()
+    source = action_source(
+        "nordpool.price",
+        actions,
+        action_params={"config_entry": "x", "currency": "SEK"},
+    )
+    with pytest.raises(CurrencyMismatchError):
+        await source.fetch_segments(window(), NOW)
+    assert actions.calls == []
+    same = action_source(
+        "nordpool.price", actions, action_params={"config_entry": "x", "currency": "eur"}
+    )
+    await same.fetch_segments(window(2), NOW)
+    assert actions.calls

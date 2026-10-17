@@ -21,6 +21,7 @@ from suncore.tariff.engine import (
 )
 from suncore.tariff.errors import (
     AmbiguousSeriesError,
+    CurrencyMismatchError,
     ExportConfigError,
     ExportTiersError,
     MalformedPayloadError,
@@ -52,6 +53,7 @@ from suncore.tariff.sources import (
 __all__ = [
     "ActionCaller",
     "AmbiguousSeriesError",
+    "CurrencyMismatchError",
     "CurrentPriceSource",
     "EntityReader",
     "EntityReading",

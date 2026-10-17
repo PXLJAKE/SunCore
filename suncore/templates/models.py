@@ -18,6 +18,7 @@ from datetime import date
 from enum import StrEnum, unique
 from functools import lru_cache
 from typing import Annotated, Final, Literal, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
     BaseModel,
@@ -305,6 +306,11 @@ class ActionSeries(_Frozen):
     """Phase 4 WP4: the action takes one delivery *date* (``YYYY-MM-DD``, local date of the
     site) per call (Nord Pool ``date``); the adapter calls once for every date of the window.
     Excludes ``start_field``/``end_field``."""
+    date_tz: (
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z_]+(/[A-Za-z_+\-0-9]+){1,2}$")] | None
+    ) = None
+    """IANA zone in which ``date_field`` names the delivery day (the market's, e.g. Nord Pool's
+    CET day: ``Europe/Berlin``); ``None`` = the site's zone."""
     params: Annotated[tuple[ActionParam, ...], Field(max_length=8)] = ()
     """Request fields the user supplies (see :class:`ActionParam`)."""
     response_path: Annotated[
@@ -323,6 +329,15 @@ class ActionSeries(_Frozen):
         ):
             msg = "series: `date_field` excludes `start_field` and `end_field`"
             raise ValueError(msg)
+        if self.date_tz is not None:
+            if self.date_field is None:
+                msg = "series: `date_tz` needs `date_field`"
+                raise ValueError(msg)
+            try:
+                ZoneInfo(self.date_tz)
+            except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
+                msg = f"series.date_tz: unknown time zone `{self.date_tz}`"
+                raise ValueError(msg) from exc
         names = [p.name for p in self.params]
         if len(set(names)) != len(names):
             msg = "series.params: names must be unique"

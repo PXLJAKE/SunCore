@@ -69,6 +69,12 @@ class SegmentSource(Protocol):
         """Entities whose state change may mean new prices."""
         ...
 
+    @property
+    def delivery_tz(self) -> tzinfo | None:
+        """Time zone of the market's delivery day when it is not the site's (Nord Pool: CET),
+        else ``None``. The day-ahead prices end at the end of that zone's next day."""
+        ...
+
     async def fetch_segments(self, window: TimeRange, now: datetime) -> SourceData: ...
 
 
@@ -117,6 +123,7 @@ class FixedPriceSource:
     price_includes: PriceIncludes = "all_in"
     uses_action: bool = False
     watched_entities: tuple[str, ...] = ()
+    delivery_tz: tzinfo | None = None
 
     async def fetch_segments(self, window: TimeRange, now: datetime) -> SourceData:  # noqa: ARG002
         start, count = _slots(window)
@@ -143,6 +150,7 @@ class TouPriceSource:
     price_includes: PriceIncludes = "all_in"
     uses_action: bool = False
     watched_entities: tuple[str, ...] = ()
+    delivery_tz: tzinfo | None = None
 
     async def fetch_segments(self, window: TimeRange, now: datetime) -> SourceData:  # noqa: ARG002
         start, count = _slots(window)

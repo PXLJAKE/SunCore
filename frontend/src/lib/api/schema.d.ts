@@ -651,6 +651,8 @@ export interface components {
         ActionSeries: {
             /** Date Field */
             date_field?: string | null;
+            /** Date Tz */
+            date_tz?: string | null;
             /** Domain */
             domain: string;
             /** End Field */

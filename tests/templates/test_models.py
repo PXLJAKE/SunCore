@@ -352,3 +352,17 @@ def test_the_slot_end_field_belongs_to_lists_not_to_mapping_attributes() -> None
     mapping["series"]["fields"] = {"value_unit": "Wh", "end_field": "end"}
     mapping["resolution_min"] = 60
     _bad(mapping, lambda d: d["series"].update(shape="mapping"))  # end_field on a mapping
+
+
+def test_date_zone_of_a_per_date_action() -> None:
+    doc = tariff_doc()
+    series = doc["price_series"]
+    series.update(domain="nordpool", service="get_prices_for_date", response_path="*")
+    series.pop("start_field")
+    series.pop("end_field")
+    series["date_field"] = "date"
+    series["date_tz"] = "Europe/Berlin"
+    assert TEMPLATE_ADAPTER.validate_python(doc).price_series.date_tz == "Europe/Berlin"  # type: ignore[union-attr]
+    _bad(doc, lambda d: d["price_series"].update(date_tz="Mars/Olympus"))
+    _bad(doc, lambda d: d["price_series"].update(date_tz="CET"))
+    _bad(doc, lambda d: d["price_series"].pop("date_field"))  # a zone needs a date field

@@ -47,6 +47,18 @@
             ],
             "title": "Date Field"
           },
+          "date_tz": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z_]+(/[A-Za-z_+\\-0-9]+){1,2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Tz"
+          },
           "domain": {
             "maxLength": 48,
             "pattern": "^[a-z][a-z0-9_]*$",
