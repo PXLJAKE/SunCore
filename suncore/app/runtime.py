@@ -94,6 +94,7 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
+from suncore.storage.timeseries import META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
 from suncore.templates import TariffTemplate, TemplateCatalog
@@ -105,6 +106,10 @@ log = structlog.get_logger(__name__)
 DB_FILENAME = "suncore.db"
 PRUNE_INTERVAL_S = 3600.0
 """Decision-log and plan-snapshot retention run hourly."""
+REBUILD_BACKOFF_S = (60.0, 300.0, 900.0, 3600.0)
+"""Retry delays of the statistics rebuild after a timeout or Home Assistant error."""
+MAINTENANCE_WAKE_S = 3600.0
+"""The nightly loop wakes at most this often to re-check the time (zone changes, clock jumps)."""
 MAINTENANCE_TIME = time(3, 30)
 """Local time of the nightly time-series job (downsample, retention, vacuum if worth it)."""
 
@@ -443,21 +448,38 @@ class Runtime:
             return False
         return True
 
-    def seconds_until_maintenance(self) -> float:
-        """Seconds to the next ``maintenance_time`` in the site's time zone (DST safe)."""
+    def next_maintenance_after(self, moment: datetime) -> datetime:
+        """The first ``maintenance_time`` (site time zone, DST safe) strictly after ``moment``."""
         tz = self._timezone()
-        now = self.clock().astimezone(tz)
-        target = datetime.combine(now.date(), self.maintenance_time, tzinfo=tz)
-        if target.astimezone(UTC) <= now.astimezone(UTC):
+        local = moment.astimezone(tz)
+        target = datetime.combine(local.date(), self.maintenance_time, tzinfo=tz)
+        if target.astimezone(UTC) <= moment.astimezone(UTC):
             target = datetime.combine(
-                now.date() + timedelta(days=1), self.maintenance_time, tzinfo=tz
+                local.date() + timedelta(days=1), self.maintenance_time, tzinfo=tz
             )
-        return (target.astimezone(UTC) - now.astimezone(UTC)).total_seconds()
+        return target.astimezone(UTC)
+
+    def seconds_until_maintenance(self) -> float:
+        """Seconds to the next ``maintenance_time`` in the site's time zone."""
+        now = self.clock()
+        return (self.next_maintenance_after(now) - now.astimezone(UTC)).total_seconds()
 
     async def _maintenance_loop(self) -> None:
+        """Run at start, then at every ``maintenance_time``; wakes at most hourly.
+
+        The target is always "the first 03:30 after the last run" in the *current* time zone, so
+        a zone that becomes known later (Home Assistant's, after the first connect) moves the
+        target instead of leaving a stale sleep, and one run can never happen twice.
+        """
+        await self.maintain_timeseries()
+        last_run = self.clock()
         while True:
-            await self.maintain_timeseries()  # at start too: a night the app slept through
-            await self.sleep(self.seconds_until_maintenance())
+            remaining = (self.next_maintenance_after(last_run) - self.clock()).total_seconds()
+            if remaining <= 0:
+                await self.maintain_timeseries()
+                last_run = self.clock()
+                continue
+            await self.sleep(min(remaining, MAINTENANCE_WAKE_S))
 
     def _start_history_rebuild(self) -> None:
         """Rebuild the 15-minute history from HA's statistics, once, in the background."""
@@ -473,20 +495,37 @@ class Runtime:
         self._history_task = asyncio.create_task(self._rebuild_history(), name="suncore-history")
 
     async def _rebuild_history(self) -> None:
-        store, site = self.timeseries, self.site
-        if store is None or site is None:
-            return
-        try:
-            if not await store.has_quarter_history():
-                await rebuild_history(self.connection, store, site, self.clock())
-        except asyncio.CancelledError:
-            raise
-        except (HAError, TimeoutError) as exc:
-            # UNVERIFIED: the Supervisor proxy may not forward recorder/*. Not retried before
-            # the next start; the history then grows from the controller's own measurements.
-            log.warning("history.rebuild_failed", reason=type(exc).__name__, error=str(exc))
-        except Exception:
-            log.exception("history.rebuild_crashed")
+        """Rebuild until it succeeded once (marker in ``timeseries.db``), with back-off.
+
+        A timeout or Home Assistant error is retried after 1, 5, 15 and then every 60 minutes;
+        ``unknown_command`` (the recorder commands are not available, e.g. a proxy that does not
+        forward them - UNVERIFIED) is final for this process and retried at the next start.
+        """
+        attempt = 0
+        while True:
+            store, site = self.timeseries, self.site
+            if store is None or site is None:
+                return
+            try:
+                if await store.get_meta(META_HISTORY_REBUILT) is None:
+                    await rebuild_history(self.connection, store, site, self.clock())
+                    await store.set_meta(META_HISTORY_REBUILT, self.clock().isoformat())
+            except asyncio.CancelledError:
+                raise
+            except CommandError as exc:
+                log.warning("history.rebuild_failed", reason=exc.code, error=str(exc))
+                if exc.code == "unknown_command":
+                    break
+            except (HAError, TimeoutError) as exc:
+                log.warning("history.rebuild_failed", reason=type(exc).__name__, error=str(exc))
+            except Exception:
+                log.exception("history.rebuild_crashed")
+                break
+            else:
+                break
+            delay = REBUILD_BACKOFF_S[min(attempt, len(REBUILD_BACKOFF_S) - 1)]
+            attempt += 1
+            await self.sleep(delay)
         self._history_done = True
 
     async def _connect(self) -> None:
@@ -545,25 +584,34 @@ class Runtime:
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
-        for task in (
-            self._connect_task,
+        control_tasks = (self._connect_task, self._tz_task)
+        storage_tasks = (
             self._prune_task,
-            self._tz_task,
             self._flush_task,
             self._maintenance_task,
             self._history_task,
             self._tariff_task,
-        ):
+        )
+        for task in (*control_tasks, *storage_tasks):
             if task is not None:
                 task.cancel()
+        for task in control_tasks:
+            if task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         self._connect_task = self._prune_task = self._tz_task = None
         self._flush_task = self._maintenance_task = self._history_task = None
         self._tariff_task = None
+        # Hardware release comes first: a running downsample or retention statement keeps the
+        # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
+        # The storage tasks are awaited only after the devices are released.
         async with self._stack_lock:
             if self.stack is not None:
                 await self.stack.shutdown()
+        for task in storage_tasks:
+            if task is not None:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
         await self.catalogue.stop()
         await self.connection.close()
         await self.recorder.flush()

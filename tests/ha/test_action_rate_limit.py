@@ -222,3 +222,75 @@ def test_the_refusal_has_a_catalogue_key() -> None:
     for name in ("en", "de"):
         catalogue = json.loads((locales / f"{name}.json").read_text(encoding="utf-8"))
         assert catalogue[ERR_ACTION_RATE_LIMITED]
+
+
+def test_action_rate_key_default_and_sub_key() -> None:
+    from suncore.ha.connection import action_rate_key  # noqa: PLC0415
+
+    assert action_rate_key("tibber", "get_prices") == "tibber.get_prices"
+    assert action_rate_key("tibber", "get_prices", None) == "tibber.get_prices"
+    assert action_rate_key("tibber", "get_prices", "") == "tibber.get_prices"
+    assert action_rate_key("weather", "get_forecasts", "weather.home") == (
+        "weather.get_forecasts#weather.home"
+    )
+
+
+async def test_sub_keys_do_not_block_each_other(conn: WebSocketConnection, ha: FakeHA) -> None:
+    ha.service_response = lambda _m: {}
+    await conn.call_action_response("weather", "get_forecasts", rate_key="weather.home")
+    await conn.call_action_response("weather", "get_forecasts", rate_key="weather.cabin")
+    with pytest.raises(ActionRateLimitedError) as info:
+        await conn.call_action_response("weather", "get_forecasts", rate_key="weather.home")
+    assert info.value.action == "weather.get_forecasts#weather.home"
+    await conn.call_action_response("weather", "get_forecasts")  # the plain key: its own slot
+    with pytest.raises(ActionRateLimitedError):
+        await conn.call_action_response("weather", "get_forecasts")
+    assert _calls(ha) == 3
+
+
+async def test_a_cancelled_waiter_keeps_its_reservation() -> None:
+    clock = FakeClock()
+    limiter = _limiter(clock, 10.0)
+    assert await limiter.acquire("a.b")
+    waiter = asyncio.create_task(limiter.acquire("a.b", max_wait_s=100.0))
+    await clock.settle()
+    waiter.cancel()
+    await clock.settle()
+    assert limiter.retry_after("a.b") == 20.0  # its slot (10 s) + the interval stays taken
+
+
+async def test_the_fake_connection_is_limited_like_the_real_one() -> None:
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
+    from suncore.sim.scenario import load_scenario  # noqa: PLC0415
+
+    now = [datetime(2026, 6, 21, tzinfo=UTC)]
+    fake = FakeHAConnection(
+        load_scenario("summer_day"), clock=lambda: now[0], autorun=False, speed=1.0
+    )
+    await fake.connect()
+    try:
+        await fake.call_action_response("tibber", "get_prices")
+        with pytest.raises(ActionRateLimitedError):
+            await fake.call_action_response("tibber", "get_prices")
+        await fake.call_action_response("tibber", "get_prices", rate_key="other")
+        now[0] = datetime(2026, 6, 21, 0, 0, 31, tzinfo=UTC)
+        await fake.call_action_response("tibber", "get_prices")
+    finally:
+        await fake.close()
+
+
+async def test_not_connected_does_not_consume_a_limiter_slot(ha: FakeHA, clock: FakeClock) -> None:
+    from suncore.ha.connection import NotConnectedError  # noqa: PLC0415
+
+    connection = WebSocketConnection(
+        DirectTransport.from_base_url(ha.base_url, TOKEN),
+        clock=clock.monotonic,
+        sleep=clock.sleep,
+    )
+    with pytest.raises(NotConnectedError):
+        await connection.call_action_response("tibber", "get_prices")
+    assert connection._action_limiter.retry_after("tibber.get_prices") == 0.0
+    with pytest.raises(NotConnectedError):  # and not "rate limited" the second time
+        await connection.call_action_response("tibber", "get_prices")

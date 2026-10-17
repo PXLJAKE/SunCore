@@ -2,15 +2,17 @@
 -- timeseries.db (ADR-0004, Phase 4 WP3). All timestamps are integer seconds since the UNIX
 -- epoch (UTC); a gap is the absence of a row, never a stored zero.
 
--- Controller resolution, kept 48 h.
+-- Controller resolution, kept 48 h. The primary key is (ts, key): the writes of one flush are
+-- consecutive in time, so they land on the last pages of the table instead of one page per key
+-- (about 5x fewer WAL bytes per flush on an SD card). Per-key range reads scan the ts range.
 CREATE TABLE measurement (
     key   TEXT    NOT NULL,
     ts    INTEGER NOT NULL,
     value REAL    NOT NULL,
-    PRIMARY KEY (key, ts)
+    PRIMARY KEY (ts, key)
 ) WITHOUT ROWID;
 
--- 1-minute aggregates (ts = start of the minute), kept 30 days.
+-- 1-minute aggregates (ts = start of the minute), kept 30 days; only complete quarter hours.
 CREATE TABLE measurement_1m (
     key  TEXT    NOT NULL,
     ts   INTEGER NOT NULL,
@@ -18,7 +20,7 @@ CREATE TABLE measurement_1m (
     min  REAL    NOT NULL,
     max  REAL    NOT NULL,
     n    INTEGER NOT NULL CHECK (n > 0),
-    PRIMARY KEY (key, ts)
+    PRIMARY KEY (ts, key)
 ) WITHOUT ROWID;
 
 -- 15-minute aggregates (ts = start of the quarter hour), kept for ever. `derived` = 1 marks
@@ -59,4 +61,11 @@ CREATE TABLE price (
     import_price REAL,
     export_price REAL,
     PRIMARY KEY (source_id, slot_start)
+) WITHOUT ROWID;
+
+-- Small facts about the content of this file, e.g. that the history was rebuilt from Home
+-- Assistant's statistics. They live here, not in suncore.db: a lost timeseries.db must lose them.
+CREATE TABLE meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 ) WITHOUT ROWID;

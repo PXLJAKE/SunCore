@@ -718,21 +718,21 @@ class ControlStack:
         """Hand this tick's values to the recorder; only ``OK`` data counts (a gap otherwise)."""
         if self._on_measurements is None:
             return
-        values: dict[str, float | None] = {}
-        if flows is not None:
-            for key, flow in (
-                (SITE_GRID_W, flows.grid_w),
-                (SITE_PV_W, flows.pv_w),
-                (SITE_BATTERY_W, flows.battery_w),
-                (SITE_SOC_PCT, flows.battery_soc_pct),
-                (SITE_HOUSE_W, flows.house_w),
-            ):
-                values[key] = flow.value if flow.quality is Quality.OK else None
-        for device_id, estimate in estimates.items():
-            values[device_power_key(device_id)] = (
-                estimate.value_w if estimate.quality is Quality.OK else None
-            )
         try:
+            values: dict[str, float | None] = {}
+            if flows is not None:
+                for key, flow in (
+                    (SITE_GRID_W, flows.grid_w),
+                    (SITE_PV_W, flows.pv_w),
+                    (SITE_BATTERY_W, flows.battery_w),
+                    (SITE_SOC_PCT, flows.battery_soc_pct),
+                    (SITE_HOUSE_W, flows.house_w),
+                ):
+                    values[key] = flow.value if flow.quality is Quality.OK else None
+            for device_id, estimate in estimates.items():
+                values[device_power_key(device_id)] = (
+                    estimate.value_w if estimate.quality is Quality.OK else None
+                )
             self._on_measurements(now, values)
         except Exception:
             log.exception("control.measurement_sink_failed")

@@ -81,20 +81,26 @@ async def test_tomorrow_exists_only_after_the_publication_hour(
 async def test_start_and_end_filter_the_slots_like_the_integration(
     afternoon: FakeHAConnection,
 ) -> None:
+    # The fake is rate limited like the real connection (4-B): one sub-key per call.
     out = await afternoon.call_action_response(
         "tibber",
         "get_prices",
         {"start": "2026-06-21T10:00:00+02:00", "end": "2026-06-21T11:00:00+02:00"},
+        rate_key="a",
     )
     assert [s.hour for s in starts(out)] == [10, 10, 10, 10]  # start <= t < end
     inverted = await afternoon.call_action_response(
         "tibber",
         "get_prices",
         {"start": "2026-06-21T10:00:00+02:00", "end": "2026-06-21T09:00:00+02:00"},
+        rate_key="b",
     )
     assert len(starts(inverted)) == 96  # start >= end: end = start + 1 day, capped to what exists
     naive = await afternoon.call_action_response(
-        "tibber", "get_prices", {"start": "2026-06-21 12:00:00", "end": "2026-06-21 12:30:00"}
+        "tibber",
+        "get_prices",
+        {"start": "2026-06-21 12:00:00", "end": "2026-06-21 12:30:00"},
+        rate_key="c",
     )
     assert len(starts(naive)) == 2
 

@@ -96,7 +96,7 @@ def _demo_wiring(settings: Settings) -> DemoWiring:
     )
 
 
-async def build_runtime(
+async def build_runtime(  # noqa: PLR0915 - the composition root
     settings: Settings,
     *,
     env: Mapping[str, str] | None = None,
@@ -126,8 +126,9 @@ async def build_runtime(
         data_dir = settings.data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
     db = await Database.open(data_dir / DB_FILENAME)
-    timeseries_db = await open_timeseries_or_recover(data_dir / TS_FILENAME)
+    timeseries_db: Database | None = None
     try:
+        timeseries_db = await open_timeseries_or_recover(data_dir / TS_FILENAME)
         config = ConfigStore(db)
         if connection is None:
             connection = WebSocketConnection(transport_from_env(env))

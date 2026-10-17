@@ -36,6 +36,9 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    the one adapter wiring module ``suncore.app.adapters`` (Phase 4); no other part of
    ``suncore.app`` may use it. ``READ_ONLY_ACTIONS`` is the fixed allowlist.
 
+8. ``statistics_during_period`` (read-only recorder statistics) is used only in ``suncore.ha``,
+   and ``suncore.sim`` (``suncore.app.history`` goes through ``suncore.ha.statistics``).
+
 The scan is robust to packages that are still empty (``suncore/ha`` until
 WP3) because it only looks at the files that exist.
 """
@@ -67,6 +70,7 @@ API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
 WRITE_CAPABILITY_NAMES = frozenset({"ServiceCaller", "ServiceCallerProvider"})
 SAFETY_FORBIDDEN_IMPORTS = ("suncore.core.config", "suncore.storage")
+STATISTICS_OWNERS = ("suncore.ha", "suncore.sim")
 ACTION_RESPONSE_OWNERS = ("suncore.ha", "suncore.sim", "suncore.app.adapters")
 
 
@@ -339,6 +343,16 @@ def test_call_action_response_is_confined(path: Path) -> None:
     assert not offenders, (
         f"call_action_response referenced outside ha/sim/app.adapters: {offenders}"
     )
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_statistics_during_period_is_confined(path: Path) -> None:
+    """Rule 8: the recorder statistics read lives in ha (+ the fake) only."""
+    module = module_name(path)
+    if any(in_package(module, owner) for owner in STATISTICS_OWNERS):
+        return
+    offenders = fmt(path, attribute_refs(parse(path), "statistics_during_period"))
+    assert not offenders, f"statistics_during_period referenced outside ha/sim: {offenders}"
 
 
 def test_action_response_owner_is_the_adapter_module_not_the_whole_app() -> None:

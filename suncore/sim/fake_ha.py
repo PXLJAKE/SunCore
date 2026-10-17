@@ -60,6 +60,8 @@ from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, Sit
 from suncore.ha.connection import (
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
+    ActionRateLimitedError,
+    ActionRateLimiter,
     CommandError,
     ConnectionState,
     EntityListener,
@@ -73,6 +75,7 @@ from suncore.ha.connection import (
     StateContext,
     StateListener,
     Unsubscribe,
+    action_rate_key,
 )
 from suncore.sim import registry
 from suncore.sim.demo_devices import (
@@ -256,6 +259,9 @@ class FakeHAConnection:
         self._event_time: datetime | None = None
         self._offset_s = 0
         self._unavailable: frozenset[str] = frozenset()
+        self._action_limiter = ActionRateLimiter(
+            clock=lambda: self._clock().timestamp(), sleep=sleep
+        )
         self.call_log: list[CallRecord] = []
         """Every service call seen, oldest first."""
         self.recorder = SimRecorder(
@@ -427,14 +433,18 @@ class FakeHAConnection:
         data: Mapping[str, Any] | None = None,
         *,
         target: Mapping[str, Any] | None = None,  # noqa: ARG002
-        min_interval_s: float | None = None,  # noqa: ARG002 - the fake is not rate limited
-        max_wait_s: float = 0.0,  # noqa: ARG002
+        min_interval_s: float | None = None,
+        max_wait_s: float = 0.0,
+        rate_key: str | None = None,
     ) -> dict[str, Any]:
         """Read-only action responses built from the demo data (allowlist like the real one)."""
         if not is_read_only_action(domain, service):
             msg = f"{domain}.{service} is not a read-only action"
             raise ActionNotAllowedError(msg)
         self._require_connected()
+        key = action_rate_key(domain, service, rate_key)
+        if not await self._action_limiter.acquire(key, min_interval_s, max_wait_s=max_wait_s):
+            raise ActionRateLimitedError(key, self._action_limiter.retry_after(key))
         now = self._house_state.time if self._house_state is not None else self._clock()
         if (domain, service) == ("tibber", "get_prices"):
             return {"prices": {"Home": self._tibber_prices(now, data)}}

@@ -31,8 +31,9 @@ from __future__ import annotations
 
 import math
 import sqlite3
+import time
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from importlib import resources
@@ -58,6 +59,9 @@ from suncore.storage.migrations import Migration, load_migrations
 log = structlog.get_logger(__name__)
 
 TS_FILENAME: Final = "timeseries.db"
+
+META_HISTORY_REBUILT: Final = "history_rebuilt_at"
+"""Set (ISO time) once the rebuild from HA's statistics succeeded; it dies with the file."""
 
 RAW_KEEP: Final = timedelta(hours=48)
 MINUTE_KEEP: Final = timedelta(days=30)
@@ -93,38 +97,93 @@ async def open_timeseries(path: Path | str) -> Database:
     return await Database.open(path, migrations=timeseries_migrations())
 
 
-async def open_timeseries_or_recover(path: Path | str) -> Database | None:
+KEEP_CORRUPT_FILES: Final = 2
+"""How many moved-aside corrupt databases are kept (older ones are deleted)."""
+
+_CORRUPT_CODES: Final = frozenset({sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB})
+_CORRUPT_TEXT: Final = ("file is not a database", "malformed")
+
+
+def _is_corruption(exc: BaseException) -> bool:
+    """Unambiguous corruption only; locked, busy, full, I/O and permission errors are not."""
+    seen: BaseException | None = exc
+    while seen is not None:
+        code = getattr(seen, "sqlite_errorcode", None)
+        if isinstance(code, int) and code & 0xFF in _CORRUPT_CODES:
+            return True
+        if isinstance(seen, sqlite3.DatabaseError) and any(
+            t in str(seen).lower() for t in _CORRUPT_TEXT
+        ):
+            return True
+        seen = seen.__cause__
+    return False
+
+
+async def _quick_check(db: Database) -> bool:
+    row = await db.fetchone("PRAGMA quick_check(1)")
+    return row is not None and str(row[0]).lower() == "ok"
+
+
+async def open_timeseries_or_recover(
+    path: Path | str, *, now: Callable[[], float] = time.time
+) -> Database | None:
     """Open ``timeseries.db`` for the application; ``None`` = run without time series.
 
-    The file is rebuildable, so a corrupt one (not a database, a migration that fails) is
-    moved aside as ``timeseries.db.corrupt`` and a fresh one is created. A file that is
-    *newer* than this code is never touched: the application runs without time series and
-    says so (the newer version may still need the data). Control never depends on this file.
+    The file is rebuildable, but only *unambiguous corruption* (SQLite's "not a database" or
+    "malformed" errors, a failing ``PRAGMA quick_check``) moves it aside, together with its
+    ``-wal`` and ``-shm``, as ``timeseries.db.corrupt-<UTC time>`` (the newest
+    :data:`KEEP_CORRUPT_FILES` are kept) before a fresh file is created. Anything else - a
+    locked or busy file, a full disk, an I/O or permission error, a migration that fails for
+    another reason - is logged and the application runs without time series; the next start
+    tries again and nothing is moved. A file that is *newer* than this code is never
+    touched either. Control never depends on this file.
     """
     target = Path(path)
     for attempt in (1, 2):
         try:
-            return await open_timeseries(target)
+            db = await open_timeseries(target)
         except SchemaTooNewError as exc:
             log.error("timeseries.schema_too_new", path=str(target), error=str(exc))
             return None
-        except (sqlite3.DatabaseError, MigrationError, OSError) as exc:
-            log.error("timeseries.open_failed", path=str(target), attempt=attempt, error=str(exc))
-            if attempt == 2:
-                return None
+        except (sqlite3.Error, MigrationError, OSError) as exc:
+            corrupt = _is_corruption(exc)
+            log.error("timeseries.open_failed", path=str(target), corrupt=corrupt, error=str(exc))
+        else:
             try:
-                _move_aside(target)
-            except OSError:
-                log.exception("timeseries.move_aside_failed", path=str(target))
-                return None
+                if await _quick_check(db):
+                    return db
+                corrupt = True
+                log.error("timeseries.quick_check_failed", path=str(target))
+            except sqlite3.Error as exc:
+                corrupt = _is_corruption(exc)
+                log.error("timeseries.quick_check_error", path=str(target), error=str(exc))
+            await db.close()
+        if not corrupt or attempt == 2:
+            return None
+        try:
+            _move_aside(target, now())
+        except OSError:
+            log.exception("timeseries.move_aside_failed", path=str(target))
+            return None
     return None
 
 
-def _move_aside(path: Path) -> None:
-    for suffix in ("-wal", "-shm"):
-        path.with_name(path.name + suffix).unlink(missing_ok=True)
-    if path.exists():
-        path.replace(path.with_name(path.name + ".corrupt"))
+def _move_aside(path: Path, now: float) -> None:
+    """Rename the database and its WAL/SHM to ``.corrupt-<UTC>``; keep the newest two."""
+    stamp = datetime.fromtimestamp(now, UTC).strftime("%Y%m%dT%H%M%SZ")
+    moved = path.with_name(f"{path.name}.corrupt-{stamp}")
+    for suffix in ("", "-wal", "-shm"):
+        source = path.with_name(path.name + suffix)
+        if source.exists():
+            source.replace(moved.with_name(moved.name + suffix))
+    sets = sorted(
+        p
+        for p in path.parent.glob(f"{path.name}.corrupt-*")
+        if not p.name.endswith(("-wal", "-shm"))
+    )
+    for old in sets[:-KEEP_CORRUPT_FILES]:
+        for suffix in ("", "-wal", "-shm"):
+            old.with_name(old.name + suffix).unlink(missing_ok=True)
 
 
 # --- helpers ------------------------------------------------------------------------
@@ -282,11 +341,16 @@ class TimeseriesStore:
         if include_recent and resolution == "15m":
             means.update(await self._recent_quarters(key, first, last))
         table = _TABLE_OF[resolution]
+        derived_col = ", derived" if resolution == "15m" else ", 0"
         rows = await self._db.fetchall(
-            f"SELECT ts, mean FROM {table} WHERE key = ? AND ts >= ? AND ts < ?",
+            f"SELECT ts, mean{derived_col} FROM {table} WHERE key = ? AND ts >= ? AND ts < ?",
             (key, first, last),
         )
-        means.update({_int(r[0]): _num(r[1]) for r in rows})
+        for row in rows:
+            ts_ = _int(row[0])
+            if _int(row[2]) and ts_ in means:
+                continue  # a derived (rebuilt) value never beats what was measured
+            means[ts_] = _num(row[1])
         values = tuple(means.get(first + i * step) for i in range(count))
         return TimeSeries(
             start=_from_epoch(first),
@@ -296,7 +360,7 @@ class TimeseriesStore:
         )
 
     async def _recent_quarters(self, key: str, first: int, last: int) -> dict[int, float]:
-        """Quarter-hour means from the finer tables (1 minute wins over raw per bucket)."""
+        """Quarter-hour means from the finer tables (a bucket is whole in one of them)."""
         out: dict[int, float] = {}
         raw = await self._db.fetchall(
             "SELECT (ts / 900) * 900 AS b, AVG(value) FROM measurement "
@@ -340,6 +404,18 @@ class TimeseriesStore:
             batch,
         )
         return len(batch)
+
+    async def get_meta(self, key: str) -> str | None:
+        """A fact about this file's content (see ``META_HISTORY_REBUILT``)."""
+        row = await self._db.fetchone("SELECT value FROM meta WHERE key = ?", (key,))
+        return None if row is None else str(row[0])
+
+    async def set_meta(self, key: str, value: str) -> None:
+        await self._db.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
     async def has_quarter_history(self) -> bool:
         """Whether ``measurement_15m`` holds any row (the rebuild runs when it does not)."""
@@ -504,16 +580,22 @@ class TimeseriesStore:
     # --- maintenance --------------------------------------------------------------
 
     async def downsample(self, now: datetime) -> DownsampleReport:
-        """Aggregate every complete minute and quarter hour (idempotent, see module doc)."""
+        """Aggregate every complete quarter hour into the 1-minute and 15-minute tables.
+
+        Idempotent (see module doc). The 1-minute tier is written only for buckets that end at
+        or before ``floor(now, 15 min)``, never for a partial quarter: a bucket is then either
+        entirely in ``measurement_1m`` or entirely in the raw rows, which keeps
+        :meth:`read_series` from mixing the two inside one quarter hour.
+        """
         now_s = _epoch(now)
         async with self._db.transaction() as tx:
             minutes = await tx.execute(
                 "INSERT INTO measurement_1m (key, ts, mean, min, max, n) "
                 "SELECT key, (ts / 60) * 60 AS b, AVG(value), MIN(value), MAX(value), COUNT(*) "
                 "FROM measurement WHERE ts < ? GROUP BY key, b "
-                "ON CONFLICT(key, ts) DO UPDATE SET mean = excluded.mean, min = excluded.min, "
+                "ON CONFLICT(ts, key) DO UPDATE SET mean = excluded.mean, min = excluded.min, "
                 "max = excluded.max, n = excluded.n",
-                (_floor(now_s, MINUTE_S),),
+                (_floor(now_s, QUARTER_S),),
             )
             quarters = await tx.execute(
                 "INSERT INTO measurement_15m (key, ts, mean, min, max, n, derived) "
@@ -691,6 +773,7 @@ def _price_segment(source_id: str, segment: Sequence[Row]) -> PriceSeries:
 
 __all__ = [
     "FORECAST_KEEP",
+    "META_HISTORY_REBUILT",
     "MINUTE_KEEP",
     "PRICE_KEEP",
     "RAW_KEEP",
