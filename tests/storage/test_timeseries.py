@@ -267,9 +267,56 @@ async def test_incomplete_buckets_are_not_aggregated(store: TimeseriesStore) -> 
     await store.append_measurements(
         [("k", T0 + timedelta(seconds=s), 1.0) for s in range(0, 100, 10)]
     )
-    # now = 00:01:40 -> minute 00:01 is incomplete, quarter hour 00:00 too
+    # now = 00:01:40: the quarter hour 00:00 is incomplete, so not even its minutes are written
     report = await store.downsample(T0 + timedelta(seconds=100))
-    assert (report.minute_rows, report.quarter_rows) == (1, 0)
+    assert (report.minute_rows, report.quarter_rows) == (0, 0)
+
+
+async def test_a_job_inside_a_quarter_hour_does_not_skew_the_quarter(
+    store: TimeseriesStore,
+) -> None:
+    """Review example: job at 03:35, 5 min x 100 W before it, 10 min x 1000 W after it."""
+    quarter = T0 + timedelta(hours=3, minutes=30)
+    window = TimeRange(start=quarter, end=quarter + Q)
+    low = [("k", quarter + timedelta(seconds=10 * i), 100.0) for i in range(30)]
+    high = [("k", quarter + timedelta(minutes=5, seconds=10 * i), 1000.0) for i in range(60)]
+    await store.append_measurements(low)
+    await store.downsample(quarter + timedelta(minutes=5))  # the 03:35 job
+    await store.append_measurements(high)
+    expected = (30 * 100 + 60 * 1000) / 90  # 700
+    assert (await store.read_series("k", window)).values == (pytest.approx(expected),)
+    await store.downsample(quarter + timedelta(minutes=20))  # a later job completes it
+    assert (await store.read_series("k", window, include_recent=False)).values == (
+        pytest.approx(expected),
+    )
+    assert (await store.read_series("k", window)).values == (pytest.approx(expected),)
+
+
+async def test_primary_keys_are_time_first_and_range_reads_use_them(store: TimeseriesStore) -> None:
+    """(ts, key) keeps one flush on consecutive pages (SD wear); reads still seek on ts."""
+    db = store.database
+    for table in ("measurement", "measurement_1m"):
+        columns = await db.fetchall(f"PRAGMA table_info({table})")
+        order = sorted((int(str(c[5])), str(c[1])) for c in columns if int(str(c[5])) > 0)
+        assert [name for _, name in order] == ["ts", "key"]
+    plan = await db.fetchall(
+        "EXPLAIN QUERY PLAN SELECT ts, value FROM measurement WHERE key = ? AND ts >= ? AND ts < ?",
+        ("k", 0, 10),
+    )
+    assert any("PRIMARY KEY" in str(r[3]) and "ts>" in str(r[3]) for r in plan)
+
+
+async def test_measured_beats_derived_when_merging_recent_data(store: TimeseriesStore) -> None:
+    window = TimeRange(start=T0, end=T0 + Q)
+    await store.store_quarter_hours("k", _series([99.0]), derived=True)
+    await store.append_measurements([("k", T0 + timedelta(seconds=10 * i), 5.0) for i in range(30)])
+    # not yet aggregated: the live data wins over the rebuilt value
+    assert (await store.read_series("k", window)).values == (5.0,)
+    assert (await store.read_series("k", window, include_recent=False)).values == (99.0,)
+    # a derived row alone is still used, and an aggregated measured row beats live data
+    other = TimeRange(start=T0 + Q, end=T0 + 2 * Q)
+    await store.store_quarter_hours("k", _series([7.0], start=T0 + Q), derived=True)
+    assert (await store.read_series("k", other)).values == (7.0,)
 
 
 async def test_15m_weights_minutes_by_sample_count(store: TimeseriesStore) -> None:

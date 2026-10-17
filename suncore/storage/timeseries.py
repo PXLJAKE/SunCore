@@ -338,11 +338,16 @@ class TimeseriesStore:
         if include_recent and resolution == "15m":
             means.update(await self._recent_quarters(key, first, last))
         table = _TABLE_OF[resolution]
+        derived_col = ", derived" if resolution == "15m" else ", 0"
         rows = await self._db.fetchall(
-            f"SELECT ts, mean FROM {table} WHERE key = ? AND ts >= ? AND ts < ?",
+            f"SELECT ts, mean{derived_col} FROM {table} WHERE key = ? AND ts >= ? AND ts < ?",
             (key, first, last),
         )
-        means.update({_int(r[0]): _num(r[1]) for r in rows})
+        for row in rows:
+            ts_ = _int(row[0])
+            if _int(row[2]) and ts_ in means:
+                continue  # a derived (rebuilt) value never beats what was measured
+            means[ts_] = _num(row[1])
         values = tuple(means.get(first + i * step) for i in range(count))
         return TimeSeries(
             start=_from_epoch(first),
@@ -352,7 +357,7 @@ class TimeseriesStore:
         )
 
     async def _recent_quarters(self, key: str, first: int, last: int) -> dict[int, float]:
-        """Quarter-hour means from the finer tables (1 minute wins over raw per bucket)."""
+        """Quarter-hour means from the finer tables (a bucket is whole in one of them)."""
         out: dict[int, float] = {}
         raw = await self._db.fetchall(
             "SELECT (ts / 900) * 900 AS b, AVG(value) FROM measurement "
@@ -560,16 +565,22 @@ class TimeseriesStore:
     # --- maintenance --------------------------------------------------------------
 
     async def downsample(self, now: datetime) -> DownsampleReport:
-        """Aggregate every complete minute and quarter hour (idempotent, see module doc)."""
+        """Aggregate every complete quarter hour into the 1-minute and 15-minute tables.
+
+        Idempotent (see module doc). The 1-minute tier is written only for buckets that end at
+        or before ``floor(now, 15 min)``, never for a partial quarter: a bucket is then either
+        entirely in ``measurement_1m`` or entirely in the raw rows, which keeps
+        :meth:`read_series` from mixing the two inside one quarter hour.
+        """
         now_s = _epoch(now)
         async with self._db.transaction() as tx:
             minutes = await tx.execute(
                 "INSERT INTO measurement_1m (key, ts, mean, min, max, n) "
                 "SELECT key, (ts / 60) * 60 AS b, AVG(value), MIN(value), MAX(value), COUNT(*) "
                 "FROM measurement WHERE ts < ? GROUP BY key, b "
-                "ON CONFLICT(key, ts) DO UPDATE SET mean = excluded.mean, min = excluded.min, "
+                "ON CONFLICT(ts, key) DO UPDATE SET mean = excluded.mean, min = excluded.min, "
                 "max = excluded.max, n = excluded.n",
-                (_floor(now_s, MINUTE_S),),
+                (_floor(now_s, QUARTER_S),),
             )
             quarters = await tx.execute(
                 "INSERT INTO measurement_15m (key, ts, mean, min, max, n, derived) "
