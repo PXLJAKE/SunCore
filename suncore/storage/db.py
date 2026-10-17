@@ -31,7 +31,10 @@ async def _rollback(conn: aiosqlite.Connection) -> None:
         with contextlib.suppress(sqlite3.OperationalError):
             await conn.execute("ROLLBACK")
 
-    await asyncio.shield(asyncio.ensure_future(run()))
+    task = asyncio.ensure_future(run())
+    # Retrieve the outcome even if this await is cancelled: no "exception never retrieved".
+    task.add_done_callback(lambda t: t.cancelled() or t.exception())
+    await asyncio.shield(task)
 
 
 class Transaction:
@@ -51,7 +54,7 @@ class Transaction:
     async def executemany(self, sql: str, rows: Iterable[Sequence[SqlParam]]) -> None:
         """Run a statement for every parameter row (one round trip to the SQLite thread)."""
         cur = await self._conn.executemany(sql, rows)
-        await cur.close()
+        await asyncio.shield(cur.close())  # closed even if this task is cancelled meanwhile
 
     async def fetchall(self, sql: str, params: Sequence[SqlParam] = ()) -> list[Row]:
         async with self._conn.execute(sql, params) as cur:

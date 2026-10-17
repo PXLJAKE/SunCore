@@ -561,3 +561,29 @@ async def test_rebuild_waits_for_the_site(
         assert conn.recorder.calls
     finally:
         await runtime.stop()
+
+
+async def test_a_cancelled_flush_puts_the_batch_back(tmp_path: Path) -> None:
+    from suncore.storage import open_timeseries  # noqa: PLC0415
+
+    async with await open_timeseries(tmp_path / "t.db") as db:
+        store = TimeseriesStore(db)
+        recorder = MeasurementRecorder(store)
+        recorder.record(T0, {"a": 1.0, "b": 2.0})
+        entered = asyncio.Event()
+
+        async def hang(_rows: Any) -> int:
+            entered.set()
+            await asyncio.Event().wait()
+            return 0
+
+        store.append_measurements = hang  # type: ignore[method-assign]
+        task = asyncio.create_task(recorder.flush())
+        await entered.wait()
+        assert recorder.pending == 0  # in flight
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert recorder.pending == 2  # back in the buffer, to be written by the final flush
+        del store.append_measurements
+        assert await recorder.flush() == 2

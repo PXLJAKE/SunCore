@@ -23,7 +23,7 @@ log = structlog.get_logger(__name__)
 
 FLUSH_INTERVAL_S: Final = 60.0
 MAX_BUFFERED_ROWS: Final = 50_000
-"""About 100 minutes of a 5 s tick with 10 keys: the cap for a database that stays broken."""
+"""About 7 hours of a 5 s tick with 10 keys (2 rows/s): the cap for a database that stays broken."""
 
 
 class MeasurementRecorder:
@@ -67,9 +67,12 @@ class MeasurementRecorder:
                 return 0
             try:
                 return await self._store.append_measurements(batch)
-            except Exception:
-                log.exception("timeseries.flush_failed", rows=len(batch))
+            except BaseException as exc:
+                # Also on cancellation (shutdown): the batch goes back, nothing is lost silently.
                 combined = batch + self._buffer
                 self.dropped += max(0, len(combined) - self._max)
                 self._buffer = combined[-self._max :]
+                if not isinstance(exc, Exception):
+                    raise
+                log.exception("timeseries.flush_failed", rows=len(batch))
                 return 0
