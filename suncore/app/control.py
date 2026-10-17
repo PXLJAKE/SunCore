@@ -49,7 +49,7 @@ from suncore.controller import (
     DeviationEvent,
 )
 from suncore.controller.loop import TickResult
-from suncore.core.balance import compute_flows
+from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.config import GoalsConfig
 from suncore.core.control import (
     TEMPERATURE_ROLE,
@@ -62,6 +62,14 @@ from suncore.core.controlstate import ControlState, DeviceControlState, SiteCont
 from suncore.core.decisions import Action, Decision, Reason
 from suncore.core.devices import DeviceConfig, control_roles
 from suncore.core.identity import identity_token
+from suncore.core.measurements import (
+    SITE_BATTERY_W,
+    SITE_GRID_W,
+    SITE_HOUSE_W,
+    SITE_PV_W,
+    SITE_SOC_PCT,
+    device_power_key,
+)
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.devices.drivers import ClimateDriver, NumberDriver, create_driver
@@ -101,6 +109,8 @@ DeviceActuator = StatefulActuator
 """What ``create_driver`` returns, structurally: the gate's actuator plus ``device_state``."""
 
 StateChangeListener = Callable[[], None]
+MeasurementSink = Callable[[datetime, Mapping[str, float | None]], None]
+"""Receives ``(tick time, {measurement key: value or None})`` after every tick."""
 
 
 def probe_temperature_c(cache: EntityCache, device: DeviceConfig) -> float | None:
@@ -169,6 +179,10 @@ class ControlStack:
             (``gate.recover(after_handover=True)``).
         predecessor: the gate of the replaced stack: devices it could not release (removed or
             re-mapped while Home Assistant was down) are released with its actuators.
+        on_measurements: called after every tick with the tick time and the site and device
+            measurements of that tick (``suncore.core.measurements`` keys; ``None`` = no valid
+            value). Synchronous and cheap by contract; an exception is logged and swallowed -
+            recording can never disturb the control loop.
         defer_recover: wait for :meth:`allow_recover` before ``gate.recover()`` (the runtime
             first learns Home Assistant's time zone, whose change would rebuild the stack in
             the middle of the recovery).
@@ -199,8 +213,10 @@ class ControlStack:
         after_handover: bool = False,
         predecessor: SafetyGate | None = None,
         defer_recover: bool = False,
+        on_measurements: MeasurementSink | None = None,
     ) -> None:
         self._connection = connection
+        self._on_measurements = on_measurements
         self._recover_allowed = not defer_recover
         self._after_handover = after_handover
         self._site = site
@@ -687,10 +703,39 @@ class ControlStack:
         )
         self.estimates = estimates
         self.states = states
+        self._record_measurements(now, flows, estimates)
         self.last = await self.loop.tick(now, inputs)
         self._maybe_save_models(now)
         self._notify()
         return self.last
+
+    def _record_measurements(
+        self,
+        now: datetime,
+        flows: FlowSnapshot | None,
+        estimates: Mapping[str, PowerEstimate],
+    ) -> None:
+        """Hand this tick's values to the recorder; only ``OK`` data counts (a gap otherwise)."""
+        if self._on_measurements is None:
+            return
+        try:
+            values: dict[str, float | None] = {}
+            if flows is not None:
+                for key, flow in (
+                    (SITE_GRID_W, flows.grid_w),
+                    (SITE_PV_W, flows.pv_w),
+                    (SITE_BATTERY_W, flows.battery_w),
+                    (SITE_SOC_PCT, flows.battery_soc_pct),
+                    (SITE_HOUSE_W, flows.house_w),
+                ):
+                    values[key] = flow.value if flow.quality is Quality.OK else None
+            for device_id, estimate in estimates.items():
+                values[device_power_key(device_id)] = (
+                    estimate.value_w if estimate.quality is Quality.OK else None
+                )
+            self._on_measurements(now, values)
+        except Exception:
+            log.exception("control.measurement_sink_failed")
 
     async def drain(self) -> None:
         """Wait for the submissions and observations in flight (they wait on simulated time)."""

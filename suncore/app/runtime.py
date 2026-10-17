@@ -8,7 +8,7 @@ import contextlib
 import tempfile
 from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta, tzinfo
+from datetime import UTC, datetime, time, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -28,7 +28,9 @@ from suncore.api.services import (
 )
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import ControlStack
+from suncore.app.history import rebuild_history
 from suncore.app.modes import ConfigModes
+from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.config import DevicesConfig, GoalsConfig, OperationConfig, RegionConfig
@@ -71,9 +73,13 @@ from suncore.storage import (
     Database,
     DecisionLog,
     HistoryEntry,
+    LearnedParamStore,
+    PlanSnapshotStore,
     PowerModelStateStore,
     SqliteRuntimeStore,
+    TimeseriesStore,
 )
+from suncore.storage.timeseries import META_HISTORY_REBUILT
 from suncore.templates import TemplateCatalog
 
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
@@ -82,7 +88,13 @@ log = structlog.get_logger(__name__)
 
 DB_FILENAME = "suncore.db"
 PRUNE_INTERVAL_S = 3600.0
-"""Decision-log retention runs hourly."""
+"""Decision-log and plan-snapshot retention run hourly."""
+REBUILD_BACKOFF_S = (60.0, 300.0, 900.0, 3600.0)
+"""Retry delays of the statistics rebuild after a timeout or Home Assistant error."""
+MAINTENANCE_WAKE_S = 3600.0
+"""The nightly loop wakes at most this often to re-check the time (zone changes, clock jumps)."""
+MAINTENANCE_TIME = time(3, 30)
+"""Local time of the nightly time-series job (downsample, retention, vacuum if worth it)."""
 
 
 def utc_now() -> datetime:
@@ -116,6 +128,15 @@ class Runtime:
     devices: DevicesConfig | None = None
     region: RegionConfig | None = None
     goals: GoalsConfig | None = None
+    timeseries_db: Database | None = None
+    """``timeseries.db``; ``None`` = unavailable (too new, unopenable): control is unaffected."""
+    timeseries: TimeseriesStore | None = None
+    plans: PlanSnapshotStore | None = None
+    learned: LearnedParamStore | None = None
+    recorder: MeasurementRecorder = field(default_factory=lambda: MeasurementRecorder(None))
+    """Batched writer of the controller's measurements (disabled without ``timeseries``)."""
+    flush_interval_s: float = FLUSH_INTERVAL_S
+    maintenance_time: time = MAINTENANCE_TIME
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     prune_interval_s: float = PRUNE_INTERVAL_S
     real_clock: Clock = utc_now
@@ -136,6 +157,11 @@ class Runtime:
     _unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _tempdir: tempfile.TemporaryDirectory[str] | None = None
     _prune_task: asyncio.Task[None] | None = None
+    _flush_task: asyncio.Task[None] | None = None
+    _maintenance_task: asyncio.Task[None] | None = None
+    _history_task: asyncio.Task[None] | None = None
+    _history_done: bool = False
+    """The statistics rebuild ran (or was not needed) in this process."""
     _stack_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _started: bool = False
@@ -182,6 +208,11 @@ class Runtime:
         self.stack.start_ticking()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
         self._prune_task = asyncio.create_task(self._prune_loop(), name="suncore-prune")
+        if self.timeseries is not None:
+            self._flush_task = asyncio.create_task(self._flush_loop(), name="suncore-ts-flush")
+            self._maintenance_task = asyncio.create_task(
+                self._maintenance_loop(), name="suncore-ts-maintenance"
+            )
 
     async def _load_live_sections(self) -> None:
         self.site = await self.config.get_site()
@@ -237,6 +268,7 @@ class Runtime:
             reserve_soc_pct=None if battery is None else battery.min_soc_pct,
             cadences=merge_cadences(device_cadences(devices), self.extra_cadences),
             sink=self._record_decision,
+            on_measurements=self.recorder.record,
             cache=self.cache,
             power_store=self.power_store,
             attach=False,
@@ -271,6 +303,7 @@ class Runtime:
                 await new.start()
                 new.start_ticking()
         self._notify_control()
+        self._start_history_rebuild()  # a site configured after the first connect
 
     def _unchanged_devices(self, previous: Mapping[str, DeviceConfig]) -> frozenset[str]:
         """Ids of the devices that are the same device, controlled the same way, after a change."""
@@ -294,10 +327,123 @@ class Runtime:
             log.exception("decision_log.prune_failed")
             return 0
 
+    async def prune_plans(self) -> int:
+        """One retention pass over the plan snapshots; failures are logged, never raised."""
+        if self.plans is None:
+            return 0
+        try:
+            return await self.plans.prune(self.clock())
+        except Exception:
+            log.exception("plan_snapshot.prune_failed")
+            return 0
+
     async def _prune_loop(self) -> None:
         while True:
             await self.prune_decisions()
+            await self.prune_plans()
             await self.sleep(self.prune_interval_s)
+
+    # --- time series (timeseries.db) ---------------------------------------------
+
+    async def _flush_loop(self) -> None:
+        while True:
+            await self.sleep(self.flush_interval_s)
+            await self.recorder.flush()  # logs its own errors
+
+    async def maintain_timeseries(self) -> bool:
+        """The nightly job once: flush, downsample, retention, vacuum if worth it.
+
+        Failures are logged, never raised; returns whether the job ran through.
+        """
+        if self.timeseries is None:
+            return False
+        try:
+            await self.recorder.flush()  # the newest samples are aggregated too
+            await self.timeseries.maintain(self.clock())
+        except Exception:
+            log.exception("timeseries.maintenance_failed")
+            return False
+        return True
+
+    def next_maintenance_after(self, moment: datetime) -> datetime:
+        """The first ``maintenance_time`` (site time zone, DST safe) strictly after ``moment``."""
+        tz = self._timezone()
+        local = moment.astimezone(tz)
+        target = datetime.combine(local.date(), self.maintenance_time, tzinfo=tz)
+        if target.astimezone(UTC) <= moment.astimezone(UTC):
+            target = datetime.combine(
+                local.date() + timedelta(days=1), self.maintenance_time, tzinfo=tz
+            )
+        return target.astimezone(UTC)
+
+    def seconds_until_maintenance(self) -> float:
+        """Seconds to the next ``maintenance_time`` in the site's time zone."""
+        now = self.clock()
+        return (self.next_maintenance_after(now) - now.astimezone(UTC)).total_seconds()
+
+    async def _maintenance_loop(self) -> None:
+        """Run at start, then at every ``maintenance_time``; wakes at most hourly.
+
+        The target is always "the first 03:30 after the last run" in the *current* time zone, so
+        a zone that becomes known later (Home Assistant's, after the first connect) moves the
+        target instead of leaving a stale sleep, and one run can never happen twice.
+        """
+        await self.maintain_timeseries()
+        last_run = self.clock()
+        while True:
+            remaining = (self.next_maintenance_after(last_run) - self.clock()).total_seconds()
+            if remaining <= 0:
+                await self.maintain_timeseries()
+                last_run = self.clock()
+                continue
+            await self.sleep(min(remaining, MAINTENANCE_WAKE_S))
+
+    def _start_history_rebuild(self) -> None:
+        """Rebuild the 15-minute history from HA's statistics, once, in the background."""
+        if (
+            self._history_done
+            or not self._started
+            or self.timeseries is None
+            or self.site is None
+            or self.connection.state is not ConnectionState.CONNECTED
+            or (self._history_task is not None and not self._history_task.done())
+        ):
+            return
+        self._history_task = asyncio.create_task(self._rebuild_history(), name="suncore-history")
+
+    async def _rebuild_history(self) -> None:
+        """Rebuild until it succeeded once (marker in ``timeseries.db``), with back-off.
+
+        A timeout or Home Assistant error is retried after 1, 5, 15 and then every 60 minutes;
+        ``unknown_command`` (the recorder commands are not available, e.g. a proxy that does not
+        forward them - UNVERIFIED) is final for this process and retried at the next start.
+        """
+        attempt = 0
+        while True:
+            store, site = self.timeseries, self.site
+            if store is None or site is None:
+                return
+            try:
+                if await store.get_meta(META_HISTORY_REBUILT) is None:
+                    await rebuild_history(self.connection, store, site, self.clock())
+                    await store.set_meta(META_HISTORY_REBUILT, self.clock().isoformat())
+            except asyncio.CancelledError:
+                raise
+            except CommandError as exc:
+                log.warning("history.rebuild_failed", reason=exc.code, error=str(exc))
+                if exc.code == "unknown_command":
+                    break
+            except (HAError, TimeoutError) as exc:
+                log.warning("history.rebuild_failed", reason=type(exc).__name__, error=str(exc))
+            except Exception:
+                log.exception("history.rebuild_crashed")
+                break
+            else:
+                break
+            delay = REBUILD_BACKOFF_S[min(attempt, len(REBUILD_BACKOFF_S) - 1)]
+            attempt += 1
+            await self.sleep(delay)
+        self._history_done = True
 
     async def _connect(self) -> None:
         try:
@@ -308,6 +454,7 @@ class Runtime:
             log.error("ha.connect_failed", error_type=type(exc).__name__, error=str(exc))
             return
         await self._prepare_control()
+        self._start_history_rebuild()
 
     def _time_zone_settled(self) -> bool:
         return self.region is not None or self._tz_learnt
@@ -354,17 +501,37 @@ class Runtime:
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
-        for task in (self._connect_task, self._prune_task, self._tz_task):
+        control_tasks = (self._connect_task, self._tz_task)
+        storage_tasks = (
+            self._prune_task,
+            self._flush_task,
+            self._maintenance_task,
+            self._history_task,
+        )
+        for task in (*control_tasks, *storage_tasks):
             if task is not None:
                 task.cancel()
+        for task in control_tasks:
+            if task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         self._connect_task = self._prune_task = self._tz_task = None
+        self._flush_task = self._maintenance_task = self._history_task = None
+        # Hardware release comes first: a running downsample or retention statement keeps the
+        # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
+        # The storage tasks are awaited only after the devices are released.
         async with self._stack_lock:
             if self.stack is not None:
                 await self.stack.shutdown()
+        for task in storage_tasks:
+            if task is not None:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
         await self.catalogue.stop()
         await self.connection.close()
+        await self.recorder.flush()
+        if self.timeseries_db is not None:
+            await self.timeseries_db.close()
         await self.db.close()
         if self._tempdir is not None:
             self._tempdir.cleanup()

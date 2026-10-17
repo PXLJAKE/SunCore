@@ -15,7 +15,14 @@ from suncore.storage.errors import (
     StorageError,
     UnknownSectionError,
 )
+from suncore.storage.learned import LearnedParam, LearnedParamStore
+from suncore.storage.plans import PlanSnapshot, PlanSnapshotMeta, PlanSnapshotStore
 from suncore.storage.runtime import PowerModelStateStore, SqliteRuntimeStore
+from suncore.storage.timeseries import (
+    TimeseriesStore,
+    open_timeseries,
+    open_timeseries_or_recover,
+)
 
 __all__ = [
     "ConfigCorruptError",
@@ -25,11 +32,19 @@ __all__ = [
     "HistoryEntry",
     "HistoryEntryNotFoundError",
     "ImportRejectedError",
+    "LearnedParam",
+    "LearnedParamStore",
     "MigrationError",
+    "PlanSnapshot",
+    "PlanSnapshotMeta",
+    "PlanSnapshotStore",
     "PowerModelStateStore",
     "SchemaTooNewError",
     "SectionSpec",
     "SqliteRuntimeStore",
     "StorageError",
+    "TimeseriesStore",
     "UnknownSectionError",
+    "open_timeseries",
+    "open_timeseries_or_recover",
 ]

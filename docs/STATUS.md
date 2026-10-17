@@ -3,9 +3,9 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-16 · **Phase:** 4 in progress – PR 4-A contracts; Phase 3 (3-A
+**Last update:** 2026-10-17 · **Phase:** 4 in progress – PR 4-A contracts, PR 4-B storage; Phase 3 (3-A
 `phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
-maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
+maintainer's shadow test · **Branch:** `phase-4/b-storage` (stacked on `claude/zealous-mayer-j5oda9`)
 
 ## Done
 
@@ -28,6 +28,35 @@ maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
     HT/NT).
   - ADR-0013 "Battery as a controlled asset" **proposed** (prerequisite of WP10).
   - Review fixes: in progress (`fix(...)` commits on the branch).
+
+- **Phase 4 – PR 4-B (WP3, storage and statistics; branch `phase-4/b-storage`, stacked on 4-A)**:
+  - `/data/timeseries.db` (own migrations and `user_version`; excluded from backups together with
+    its WAL/SHM and `timeseries.db.corrupt*`): `measurement` 48 h and `measurement_1m` 30 days
+    (primary key `(ts, key)`: about 5x fewer WAL bytes per flush than `(key, ts)`), `measurement_15m`
+    unlimited with a `derived` flag, `forecast` versioned by issue time (kept 45 days after the
+    slot), `price` 400 days, `meta`. `TimeseriesStore`: batched appends, series round trips,
+    `latest_forecast_before`, nightly job 03:30 local (wakes at most hourly, follows the time
+    zone): downsample (1-minute tier only for complete quarter hours), retention, `VACUUM` only
+    when worth it, `size_report`.
+  - Corruption handling: only "not a database"/"malformed"/a failing `quick_check` move the file
+    aside (with WAL/SHM, `timeseries.db.corrupt-<UTC>`, newest two kept); locked, full, I/O or
+    permission errors and a file with a newer schema run SunCore without time series, nothing is
+    moved or deleted.
+  - Rebuild of 28 days of site history from `recorder/statistics_during_period` (period `hour`,
+    explicit units) as `derived` quarter hours (`suncore/ha/statistics.py`,
+    `suncore/app/history.py`), until it succeeded once (marker in `timeseries.db`), back-off 1, 5,
+    15, then 60 min; `unknown_command` is final for the process.
+  - Controller measurements through a batched writer (flush every 60 s and at shutdown, only
+    OK-quality values; the tick hook cannot disturb control).
+  - `suncore.db` migration 0004 (`plan_snapshot` zlib JSON, 200 rows / 14 days; `learned_param`):
+    **DB schema 4, earlier versions refuse it – export before updating (release-risk note).**
+  - `ActionRateLimiter` per `domain.service[#sub-key]` for `call_action_response` (default 30 s,
+    `ActionRateLimitedError`, follow-up A3 done); boundary rule 7 admits only
+    `suncore.app.adapters`.
+  - Fixed: a cancelled `Database.transaction` could leave a transaction open on the shared
+    connection.
+  - Follow-ups: `size_report` is not on a diagnostics page yet; a too-new `timeseries.db` is only
+    logged (a UI hint follows in 4-H).
 
 - **Fix after the first live test (2026-10-16, branch `fix/device-freshness`)**: on the maintainer's
   HA the SunSpec battery SoC (84 % for 25 min) and the `smartthinq_sensors` power sensors (5 W for a
@@ -308,7 +337,7 @@ maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
 - **ADR-0013 must be accepted before WP10** (4-G). Its contract changes (`BatteryAction` `None` =
   baseline, `BatteryBand.grid_charge_max_w`/`discharge_lock`, `effective_reserve_pct`,
-  `battery_identity`) land in a WP2 fix before 4-B.
+  `battery_identity`) land at the start of 4-G, after the maintainer accepted it.
 - Maintainer questions from 4-A: plan §6 "Offene Fragen aus PR 4-A" (grid-charge schedule
   precedence, VAT on negative spot prices, export tiers, grid charging on the Kostal).
 
@@ -501,6 +530,8 @@ maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
 | Kostal Modbus external battery management not enabled on the maintainer's inverter; how it is enabled; §3.5 fallback timer behaviour | `research/kostal-plenticore-modbus.md`, ADR-0013 | maintainer enables it and measures; `kostal_modbus` capped at assisted until then |
 | Creating a modbus hub from the HA UI (else YAML) | `research/ha-websocket-api.md` | maintainer's HA |
 | Supervisor proxy passes `recorder/*` and `energy/*` commands | `research/ha-websocket-api.md` | first Phase 4 run on HA OS |
+| Supervisor proxy forwards `recorder/statistics_during_period` (the 4-B rebuild logs a warning and retries) | `suncore/ha/statistics.py` | first run on HA OS |
+| `change`/`sum` rows of real energy counters (the rebuild reads them as verified from source, not tested against live counters); `backup_exclude` accepts the glob `timeseries.db.corrupt*` | `suncore/ha/statistics.py`, `addon/*/config.yaml` | maintainer's HA with an energy counter; a backup on HA OS |
 | Publication time of next-day prices (Tibber, Nord Pool, ENTSO-E, EPEX) | `research/integrations.md` | observe on the maintainer's HA |
 | VAT applied to negative spot prices | `suncore/core/tariff.py` | maintainer's bill / supplier terms |
 | KNN load model performance on aarch64 | plan WP12 | CI arm runner benchmark |

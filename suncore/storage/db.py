@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import sqlite3
 from collections.abc import AsyncIterator, Iterable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,10 +14,27 @@ from typing import Self
 
 import aiosqlite
 
-from suncore.storage.migrations import run_migrations
+from suncore.storage.migrations import Migration, run_migrations
 
 SqlParam = str | int | float | bytes | None
 Row = tuple[object, ...]
+
+
+async def _rollback(conn: aiosqlite.Connection) -> None:
+    """``ROLLBACK`` that completes even if the awaiting task is cancelled meanwhile.
+
+    Statements of a cancelled caller are still executed by the connection's worker thread, so
+    the rollback is queued behind them and shielded; "no transaction is active" is fine.
+    """
+
+    async def run() -> None:
+        with contextlib.suppress(sqlite3.OperationalError):
+            await conn.execute("ROLLBACK")
+
+    task = asyncio.ensure_future(run())
+    # Retrieve the outcome even if this await is cancelled: no "exception never retrieved".
+    task.add_done_callback(lambda t: t.cancelled() or t.exception())
+    await asyncio.shield(task)
 
 
 class Transaction:
@@ -32,6 +51,11 @@ class Transaction:
         finally:
             await cur.close()
 
+    async def executemany(self, sql: str, rows: Iterable[Sequence[SqlParam]]) -> None:
+        """Run a statement for every parameter row (one round trip to the SQLite thread)."""
+        cur = await self._conn.executemany(sql, rows)
+        await asyncio.shield(cur.close())  # closed even if this task is cancelled meanwhile
+
     async def fetchall(self, sql: str, params: Sequence[SqlParam] = ()) -> list[Row]:
         async with self._conn.execute(sql, params) as cur:
             return [tuple(r) for r in await cur.fetchall()]
@@ -42,7 +66,7 @@ class Transaction:
 
 
 class Database:
-    """One connection to ``suncore.db``; all access is serialised by a lock."""
+    """One connection to a SQLite file (``suncore.db``, ``timeseries.db``), serialised by a lock."""
 
     def __init__(self, path: Path | str) -> None:
         self._path = str(path)
@@ -50,12 +74,16 @@ class Database:
         self._lock = asyncio.Lock()
 
     @classmethod
-    async def open(cls, path: Path | str) -> Self:
-        """Open (creating if needed), configure, and migrate the database."""
+    async def open(cls, path: Path | str, *, migrations: list[Migration] | None = None) -> Self:
+        """Open (creating if needed), configure, and migrate the database.
+
+        ``migrations`` selects the migration set (default: ``suncore.db``'s; the time-series
+        database passes its own). A database newer than the set raises ``SchemaTooNewError``.
+        """
         db = cls(path)
         await db._connect()
         try:
-            await run_migrations(db._connection())
+            await run_migrations(db._connection(), migrations)
         except BaseException:
             await db.close()
             raise
@@ -116,8 +144,7 @@ class Database:
 
     async def executemany(self, sql: str, rows: Iterable[Sequence[SqlParam]]) -> None:
         async with self.transaction() as tx:
-            for row in rows:
-                await tx.execute(sql, row)
+            await tx.executemany(sql, rows)
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[Transaction]:
@@ -131,14 +158,14 @@ class Database:
             try:
                 await conn.execute("BEGIN IMMEDIATE")
             except BaseException:
-                # A cancelled caller may leave the BEGIN running in the worker thread.
-                if conn.in_transaction:
-                    await conn.execute("ROLLBACK")
+                # A cancelled caller may leave the BEGIN queued in the worker thread: the
+                # rollback queues behind it, so it always sees the transaction (if any).
+                await _rollback(conn)
                 raise
             try:
                 yield Transaction(conn)
             except BaseException:
-                await conn.execute("ROLLBACK")
+                await _rollback(conn)
                 raise
             else:
                 await conn.execute("COMMIT")

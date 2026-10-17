@@ -44,7 +44,7 @@ async def test_v2_database_migrates_to_v3_and_keeps_data(tmp_path: Path) -> None
         assert await run_migrations(conn, migrations) == 2
         await conn.execute("INSERT INTO learned VALUES ('k', '1', 't')")
     async with await Database.open(path) as db:
-        assert await db.user_version() == latest_version() == 3
+        assert await db.user_version() == latest_version() == 4
         assert await db.fetchone("SELECT value FROM learned") == ("1",)
         tables = {r[0] for r in await db.fetchall("SELECT name FROM sqlite_master")}
     assert {"device_runtime", "safety_state", "power_model_state"} <= tables
@@ -52,8 +52,8 @@ async def test_v2_database_migrates_to_v3_and_keeps_data(tmp_path: Path) -> None
 
 async def test_reader_expecting_v2_refuses_v3(tmp_path: Path) -> None:
     path = tmp_path / "v3.db"
-    async with await Database.open(path):
-        pass
+    async with aiosqlite.connect(path, isolation_level=None) as conn:
+        assert await run_migrations(conn, load_migrations()[:3]) == 3
     async with aiosqlite.connect(path, isolation_level=None) as conn:
         with pytest.raises(SchemaTooNewError) as info:
             await run_migrations(conn, load_migrations()[:2])

@@ -24,6 +24,7 @@ from suncore import __version__
 from suncore.api import create_app
 from suncore.app.demo import DemoClock, demo_tick_s
 from suncore.app.logconfig import configure_logging
+from suncore.app.recorder import MeasurementRecorder
 from suncore.app.runtime import DB_FILENAME, Runtime, utc_now
 from suncore.app.settings import ENV_SUPERVISOR_TOKEN, Settings, load_settings, under_supervisor
 from suncore.core.control import ControlSettings
@@ -40,9 +41,14 @@ from suncore.storage import (
     ConfigStore,
     Database,
     DecisionLog,
+    LearnedParamStore,
+    PlanSnapshotStore,
     PowerModelStateStore,
     SqliteRuntimeStore,
+    TimeseriesStore,
+    open_timeseries_or_recover,
 )
+from suncore.storage.timeseries import TS_FILENAME
 from suncore.templates import load_templates
 
 log = structlog.get_logger(__name__)
@@ -90,7 +96,7 @@ def _demo_wiring(settings: Settings) -> DemoWiring:
     )
 
 
-async def build_runtime(
+async def build_runtime(  # noqa: PLR0915 - the composition root
     settings: Settings,
     *,
     env: Mapping[str, str] | None = None,
@@ -120,11 +126,14 @@ async def build_runtime(
         data_dir = settings.data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
     db = await Database.open(data_dir / DB_FILENAME)
+    timeseries_db: Database | None = None
     try:
+        timeseries_db = await open_timeseries_or_recover(data_dir / TS_FILENAME)
         config = ConfigStore(db)
         if connection is None:
             connection = WebSocketConnection(transport_from_env(env))
         decision_log = DecisionLog(db)
+        timeseries = None if timeseries_db is None else TimeseriesStore(timeseries_db)
         cache = EntityCache(clock=clock)
         catalogue = EntityCatalogue(connection, wall_clock=clock)
         user_templates = None if demo else data_dir / "templates"
@@ -150,6 +159,11 @@ async def build_runtime(
             decision_log=decision_log,
             runtime_store=SqliteRuntimeStore(db, clock=clock),
             power_store=PowerModelStateStore(db, clock=clock),
+            plans=PlanSnapshotStore(db, clock=clock),
+            learned=LearnedParamStore(db, clock=clock),
+            timeseries_db=timeseries_db,
+            timeseries=timeseries,
+            recorder=MeasurementRecorder(timeseries),
             connection=connection,
             cache=cache,
             catalogue=catalogue,
@@ -166,6 +180,8 @@ async def build_runtime(
         runtime._tempdir = tempdir
         await runtime.prepare()
     except BaseException:
+        if timeseries_db is not None:
+            await timeseries_db.close()
         await db.close()
         if tempdir is not None:
             tempdir.cleanup()
