@@ -173,7 +173,9 @@ def test_blended_quantiles_are_ordered(
 
 @settings(max_examples=50)
 @given(st.lists(quantile_triples, min_size=1, max_size=24))
-def test_a_single_source_passes_through_unchanged(triples: list[tuple[float, float, float]]) -> None:
+def test_a_single_source_passes_through_unchanged(
+    triples: list[tuple[float, float, float]],
+) -> None:
     source = series([t[1] for t in triples], [t[0] for t in triples], [t[2] for t in triples])
     result = blend([BlendInput("only", source)], NOW, horizon=Q * len(triples))
     assert result is not None

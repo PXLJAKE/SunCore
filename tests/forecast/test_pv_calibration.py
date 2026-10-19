@@ -75,7 +75,8 @@ def test_plant_geometry_needs_location_and_every_kwp() -> None:
     assert plant_geometry(48.0, 11.0, [PvArray(name="x")]) is None
     assert plant_geometry(48.0, 11.0, []) is None
     southern = plant_geometry(-33.0, 151.0, [PvArray(name="S", kwp=5.0)])
-    assert southern is not None and southern.arrays[0].azimuth_deg == 0.0
+    assert southern is not None
+    assert southern.arrays[0].azimuth_deg == 0.0
 
 
 @pytest.mark.parametrize("plant", [SOUTH, EAST_WEST], ids=["south", "east_west"])
@@ -183,17 +184,23 @@ def test_a_source_30_percent_too_high_is_corrected_after_30_days_only() -> None:
     assert not state.active
     assert state.reason == "collecting"
     assert state.days_with_data == 29
-    assert state.factor_max is not None and state.factor_max < 0.9  # learnt, not applied
+    assert state.factor_max is not None
+    assert state.factor_max < 0.9
     table = learn_days(table, 1, plant=SOUTH, first=date(2026, 6, 30))
     state = calibration_state("b", table, plant=SOUTH, min_history_days=30)
-    assert state.active and state.reason == "active"
+    assert state.active
+    assert state.reason == "active"
 
     day = date(2026, 7, 1)
     forecast = day_series(day, clear(SOUTH, 0.85))
     truth = day_series(day, clear(SOUTH, 0.85 / 1.3))
     fixed = calibrate(QuantileSeries.deterministic(forecast), table, plant=SOUTH, tz=BERLIN)
-    raw_error = sum(abs((f or 0) - (t or 0)) for f, t in zip(forecast.values, truth.values))
-    fixed_error = sum(abs((f or 0) - (t or 0)) for f, t in zip(fixed.p50.values, truth.values))
+    raw_error = sum(
+        abs((f or 0) - (t or 0)) for f, t in zip(forecast.values, truth.values, strict=False)
+    )
+    fixed_error = sum(
+        abs((f or 0) - (t or 0)) for f, t in zip(fixed.p50.values, truth.values, strict=False)
+    )
     assert fixed_error < 0.25 * raw_error
 
 
@@ -223,7 +230,8 @@ def test_an_east_west_roof_forecast_as_south_learns_hourly_factors() -> None:
         )
     morning = [c for k, c in table.cells.items() if k.startswith("08.jja")]
     noon = [c for k, c in table.cells.items() if k.startswith("13.jja")]
-    assert morning and noon
+    assert morning
+    assert noon
     assert all(cell_factor(c) > 1.05 for c in morning)
     assert all(cell_factor(c) < 0.97 for c in noon)
 
@@ -249,13 +257,15 @@ def test_inactive_before_min_history_days(days: int, minimum: int) -> None:
 def test_an_inactive_classifier_is_never_applied_and_never_learnt_over() -> None:
     table = learn_days(new_table("b", SOUTH), 30, plant=SOUTH)
     state = calibration_state("b", table, plant=None, min_history_days=30)
-    assert state.reason == "classifier_changed" and not state.active
+    assert state.reason == "classifier_changed"
+    assert not state.active
     kept = learn_days(table, 2, plant=None, first=date(2026, 7, 1))
     assert kept == table  # a night without the location keeps the table
     reset = learn_days(new_table("b", None), 2, plant=None)
     assert reset.mode == "daily_peak"
     upgraded = learn_days(reset, 1, plant=SOUTH, first=date(2026, 7, 1))
-    assert upgraded.mode == "clear_sky" and upgraded.days_with_data == 1
+    assert upgraded.mode == "clear_sky"
+    assert upgraded.days_with_data == 1
 
 
 def test_calibrate_keeps_quantile_order_and_unknown_slots() -> None:
@@ -273,7 +283,8 @@ def test_calibrate_keeps_quantile_order_and_unknown_slots() -> None:
     )
     out = calibrate(QuantileSeries(p10=p10, p50=p50, p90=p50), table, plant=SOUTH, tz=BERLIN)
     assert out.p50.values[50] is None
-    assert out.p50.values[52] is not None and values[52] is not None
+    assert out.p50.values[52] is not None
+    assert values[52] is not None
     assert out.p50.values[52] < values[52]
 
 
