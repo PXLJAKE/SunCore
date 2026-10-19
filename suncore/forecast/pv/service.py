@@ -23,7 +23,6 @@ Time and sleeping are injected; the service never reads the wall clock.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -211,7 +210,8 @@ class PvForecastService:
         self._gap_fill_max_age = gap_fill_max_age
         self._state = {s.source_id: SourceSnapshot(s.source_id) for s in self._sources}
         self._watched = frozenset().union(*(s.watched_entities for s in self._sources))
-        self._wake = asyncio.Event()
+        self._woken = False
+        self._sleeper: asyncio.Future[None] | None = None
         self._lock = asyncio.Lock()
         self._last_refresh_at: datetime | None = None
 
@@ -227,8 +227,10 @@ class PvForecastService:
 
     def on_entities(self, entity_ids: Iterable[str]) -> None:
         """Request a refresh if one of the sources' entities changed (cheap, sync)."""
-        if not self._watched.isdisjoint(entity_ids):
-            self._wake.set()
+        if not self._watched.isdisjoint(entity_ids) and not self._woken:
+            self._woken = True
+            if self._sleeper is not None:
+                self._sleeper.cancel()
 
     # --- refresh --------------------------------------------------------------------
 
@@ -320,18 +322,17 @@ class PvForecastService:
             await self._wait()
 
     async def _wait(self) -> None:
-        self._wake.clear()
-        timer = asyncio.ensure_future(self._sleep(self._refresh_interval_s))
-        woken = asyncio.ensure_future(self._wake.wait())
+        """Sleep for the refresh interval; an entity change ends the sleep early (debounced)."""
+        self._woken = False
+        self._sleeper = asyncio.ensure_future(self._sleep(self._refresh_interval_s))
         try:
-            await asyncio.wait({timer, woken}, return_when=asyncio.FIRST_COMPLETED)
+            await self._sleeper
+        except asyncio.CancelledError:
+            if not self._woken:
+                raise  # the service itself is being stopped
         finally:
-            for task in (timer, woken):
-                task.cancel()
-            for task in (timer, woken):
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-        if self._wake.is_set():
+            self._sleeper = None
+        if self._woken:
             await self._sleep(self._min_refresh_gap_s)  # debounce a burst of entity updates
 
     # --- outputs --------------------------------------------------------------------
