@@ -70,15 +70,19 @@ class ScriptedSource:
 
 
 class RecordingStore:
+    """Records the stored issues; those of the blend are kept apart (``blended_calls``)."""
+
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, datetime, QuantileSeries]] = []
+        self.blended_calls: list[tuple[str, str, datetime, QuantileSeries]] = []
         self.fail = False
 
     async def store_forecast(self, source_id, kind, issued_at, forecast):  # type: ignore[no-untyped-def]
         if self.fail:
             msg = "disk full"
             raise OSError(msg)
-        self.calls.append((source_id, kind, issued_at, forecast))
+        target = self.blended_calls if source_id == "blended" else self.calls
+        target.append((source_id, kind, issued_at, forecast))
         return len(forecast)
 
 

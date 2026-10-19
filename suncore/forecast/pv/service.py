@@ -14,8 +14,14 @@
   changed materially against the last stored issue (decision from the review of PR 4-B: a forecast
   refresh every few minutes would write 18 000 rows a day per source). What is stored is what
   the source said, never the gap-filled series.
-* **Expose** per source the latest series with its freshness, and the *blended* forecast. The
-  blend is a **placeholder until part B**: the P50 of the first configured source that has data.
+* **Expose** per source the latest series with its freshness, and the *blended* forecast the
+  planner uses: every source on the 15-minute planning grid from now to +48 h, bias-calibrated
+  where its calibration is active (:mod:`~suncore.forecast.pv.calibration`), then blended by
+  measured skill (:mod:`~suncore.forecast.pv.blend`). The blend is stored like a source (id
+  ``blended``) so the accuracy job scores what the planner actually got.
+* **Learning state** (accuracy records, bias tables) is handed in by the runtime after the
+  nightly job (:meth:`PvForecastService.set_learning`); the location and time zone come through
+  the ``context`` callable because they become known only after Home Assistant answers.
 
 Time and sleeping are injected; the service never reads the wall clock.
 """
@@ -23,14 +29,14 @@ Time and sleeping are injected; the service never reads the wall clock.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Final, Literal, Protocol
 
 import structlog
 
-from suncore.core.forecast import ForecastSource
+from suncore.core.forecast import AccuracyRecord, ForecastSource
 from suncore.core.series import (
     PLANNING_STEP,
     QuantileSeries,
@@ -39,10 +45,21 @@ from suncore.core.series import (
     floor_to_step,
 )
 from suncore.forecast.pv.adapter import FetchReport, FetchStatus
+from suncore.forecast.pv.blend import BlendInput, BlendResult, blend
+from suncore.forecast.pv.calibration import (
+    BiasTable,
+    CalibrationState,
+    calibrate,
+    calibration_state,
+)
+from suncore.forecast.pv.clearsky import PlantGeometry
+from suncore.forecast.pv.learning import BLENDED_SOURCE_ID
 from suncore.forecast.pv.parsing import crop, has_known
 from suncore.forecast.views import (
     MAX_VIEW_HOURS,
     BlendedView,
+    BlendWeightsView,
+    CalibrationView,
     PvForecastView,
     PvSeriesView,
     PvSourceView,
@@ -61,6 +78,42 @@ MATERIAL_CHANGE: Final = 0.15
 MATERIAL_REFERENCE_WH: Final = 1000.0
 """Floor of the denominator, so a night-time forecast of a few Wh never counts as a change."""
 STALE_AFTER_REFRESHES: Final = 3
+DEFAULT_MIN_HISTORY_DAYS: Final = 30
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSettings:
+    """How a source is weighted (``forecast.sources[].weight_mode`` / ``weight``)."""
+
+    weight_mode: Literal["auto", "manual"] = "auto"
+    manual_weight: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BlendContext:
+    """What the blend needs from the site: time zone and (if known) the plant's geometry."""
+
+    tz: tzinfo = UTC
+    plant: PlantGeometry | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BlendedForecast:
+    """The forecast the planner uses, with how it was made."""
+
+    series: QuantileSeries
+    """Calibrated where active, blended; 15-minute grid from the current slot."""
+    result: BlendResult
+    uncalibrated: QuantileSeries
+    """The blend of the sources as they said it."""
+    calibrated: QuantileSeries | None
+    """The blend with every learnt calibration applied, active or not (``None``: no source has
+    a bias table yet) - lets the user compare before the calibration switches on."""
+    calibration: tuple[CalibrationState, ...]
+
+    @property
+    def calibration_active(self) -> bool:
+        return any(c.active for c in self.calibration)
 
 
 class ReportingSource(ForecastSource, Protocol):
@@ -197,8 +250,17 @@ class PvForecastService:
         min_refresh_gap_s: float = MIN_REFRESH_GAP_S,
         horizon: timedelta = HORIZON,
         gap_fill_max_age: timedelta = GAP_FILL_MAX_AGE,
+        settings: Mapping[str, SourceSettings] | None = None,
+        min_history_days: int = DEFAULT_MIN_HISTORY_DAYS,
+        context: Callable[[], BlendContext] = BlendContext,
     ) -> None:
         self._sources = list(sources)
+        self._settings = dict(settings or {})
+        self._min_history_days = min_history_days
+        self._context = context
+        self._accuracy: dict[str, tuple[AccuracyRecord, ...]] = {}
+        self._bias: dict[str, BiasTable] = {}
+        self._blend_state = SourceSnapshot(BLENDED_SOURCE_ID)
         self._clock = clock
         self._sleep = sleep
         self._store = store
@@ -243,7 +305,17 @@ class PvForecastService:
             window = TimeRange(start=begin, end=begin + self._horizon)
             for source in self._sources:
                 await self._refresh_one(source, window, now)
+            await self._store_blend(now)
             return list(self._state.values())
+
+    async def _store_blend(self, now: datetime) -> None:
+        try:
+            blended = self.blended(now)
+        except Exception:
+            log.exception("forecast.pv.blend_failed")
+            return
+        if blended is not None and has_known(blended.series):
+            await self._maybe_store(BLENDED_SOURCE_ID, self._blend_state, blended.series, now)
 
     async def _refresh_one(self, source: ReportingSource, window: TimeRange, now: datetime) -> None:
         state = self._state[source.source_id]
@@ -348,14 +420,72 @@ class PvForecastService:
     def snapshots(self) -> list[SourceSnapshot]:
         return [self._state[s.source_id] for s in self._sources]
 
-    def blended(self, now: datetime | None = None) -> tuple[str, QuantileSeries] | None:
-        """The forecast the planner would use - **a placeholder until part B adds blending**:
-        the series of the first configured source that has data reaching into the future."""
+    def set_learning(
+        self,
+        accuracy: Mapping[str, Sequence[AccuracyRecord]],
+        bias: Mapping[str, BiasTable],
+    ) -> None:
+        """Hand in the nightly job's results (accuracy records per source, bias tables)."""
+        self._accuracy = {k: tuple(v) for k, v in accuracy.items()}
+        self._bias = dict(bias)
+
+    def calibration_states(self) -> list[CalibrationState]:
+        plant = self._context().plant
+        return [
+            calibration_state(
+                s.source_id,
+                self._bias.get(s.source_id),
+                plant=plant,
+                min_history_days=self._min_history_days,
+            )
+            for s in self._sources
+        ]
+
+    def blended(self, now: datetime | None = None) -> BlendedForecast | None:
+        """The forecast the planner uses: every source with data reaching into the future,
+        calibrated where its calibration is active, blended on the planning grid from the
+        current slot for ``horizon``; ``None`` when no source has data."""
         moment = self._clock() if now is None else now
+        context = self._context()
+        states = {c.source_id: c for c in self.calibration_states()}
+        raw: list[BlendInput] = []
+        applied: list[BlendInput] = []
+        learnt: list[BlendInput] = []
         for snap in self.snapshots():
-            if snap.series is not None and _future_known(snap.series, moment):
-                return snap.source_id, snap.series
-        return None
+            if snap.series is None or not _future_known(snap.series, moment):
+                continue
+            setting = self._settings.get(snap.source_id, SourceSettings())
+            item = BlendInput(
+                source_id=snap.source_id,
+                series=snap.series,
+                weight_mode=setting.weight_mode,
+                manual_weight=setting.manual_weight,
+                records=self._accuracy.get(snap.source_id, ()),
+            )
+            raw.append(item)
+            table = self._bias.get(snap.source_id)
+            if table is None or not table.cells:
+                applied.append(item)
+                learnt.append(item)
+                continue
+            fixed = _replace_series(
+                item, calibrate(snap.series, table, plant=context.plant, tz=context.tz)
+            )
+            learnt.append(fixed)
+            applied.append(fixed if states[snap.source_id].active else item)
+        result = blend(applied, moment, horizon=self._horizon)
+        uncalibrated = blend(raw, moment, horizon=self._horizon)
+        if result is None or uncalibrated is None:
+            return None
+        has_table = any(a is not b for a, b in zip(raw, learnt, strict=True))
+        calibrated = blend(learnt, moment, horizon=self._horizon) if has_table else None
+        return BlendedForecast(
+            series=result.series,
+            result=result,
+            uncalibrated=uncalibrated.series,
+            calibrated=None if calibrated is None else calibrated.series,
+            calibration=tuple(states.values()),
+        )
 
     def is_stale(self, snap: SourceSnapshot, now: datetime) -> bool:
         age = snap.age_s(now)
@@ -369,17 +499,7 @@ class PvForecastService:
         end = begin + timedelta(hours=hours)
         sources = [self._source_view(snap, begin, end, now) for snap in self.snapshots()]
         chosen = self.blended(now)
-        blended = None
-        if chosen is not None:
-            source_id, series = chosen
-            cut = crop(series, begin, end)
-            blended = BlendedView(
-                method="first_source_p50",
-                source_id=source_id,
-                start=cut.start,
-                step_s=int(cut.step.total_seconds()),
-                p50_w=list(cut.p50.values),
-            )
+        blended = None if chosen is None else _blended_view(chosen, begin, end)
         return PvForecastView(generated_at=now, hours=hours, sources=sources, blended=blended)
 
     def _source_view(
@@ -406,16 +526,70 @@ class PvForecastService:
         )
 
 
+def _replace_series(item: BlendInput, series: QuantileSeries) -> BlendInput:
+    return BlendInput(
+        source_id=item.source_id,
+        series=series,
+        weight_mode=item.weight_mode,
+        manual_weight=item.manual_weight,
+        records=item.records,
+    )
+
+
+def _blended_view(chosen: BlendedForecast, begin: datetime, end: datetime) -> BlendedView:
+    cut = crop(chosen.series, begin, end)
+    raw = crop(chosen.uncalibrated, begin, end)
+    learnt = None if chosen.calibrated is None else crop(chosen.calibrated, begin, end)
+    return BlendedView(
+        method=chosen.result.method,
+        sources=list(chosen.result.sources),
+        start=cut.start,
+        step_s=int(cut.step.total_seconds()),
+        p10_w=list(cut.p10.values),
+        p50_w=list(cut.p50.values),
+        p90_w=list(cut.p90.values),
+        uncalibrated_p50_w=list(raw.p50.values),
+        calibrated_p50_w=None if learnt is None else list(learnt.p50.values),
+        calibration_active=chosen.calibration_active,
+        weights=[
+            BlendWeightsView(
+                horizon=w.horizon,
+                basis=w.auto_basis,
+                manual=w.manual,
+                weights=dict(w.weights),
+            )
+            for w in chosen.result.weights
+        ],
+        calibration=[
+            CalibrationView(
+                source_id=c.source_id,
+                active=c.active,
+                reason=c.reason,
+                days_with_data=c.days_with_data,
+                min_history_days=c.min_history_days,
+                cells=c.cells,
+                factor_min=c.factor_min,
+                factor_max=c.factor_max,
+            )
+            for c in chosen.calibration
+        ],
+    )
+
+
 __all__ = [
+    "DEFAULT_MIN_HISTORY_DAYS",
     "GAP_FILL_MAX_AGE",
     "HORIZON",
     "MATERIAL_CHANGE",
     "MIN_STORE_GAP_S",
     "REFRESH_INTERVAL_S",
     "STORE_INTERVAL_S",
+    "BlendContext",
+    "BlendedForecast",
     "ForecastStore",
     "PvForecastService",
     "ReportingSource",
+    "SourceSettings",
     "SourceSnapshot",
     "fill_from_previous",
     "materially_changed",

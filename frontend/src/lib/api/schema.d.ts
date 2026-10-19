@@ -379,8 +379,9 @@ export interface paths {
         /**
          * Forecast Accuracy
          * @description MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14
-         *     days; ``bias_w = actual - forecast`` (positive: the source under-forecasts); ``n`` counts
-         *     15-minute intervals; computed nightly.
+         *     days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
+         *     forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
+         *     clipped quarter hours are excluded; computed nightly.
          */
         get: operations["forecast_accuracy_api_v1_forecast_accuracy_get"];
         put?: never;
@@ -401,8 +402,10 @@ export interface paths {
         /**
          * Forecast Pv
          * @description Per source the latest good P10/P50/P90 in W from the current quarter hour on, with
-         *     its freshness; ``blended`` is a **placeholder** (the first source's P50) until the
-         *     blending of part B.
+         *     its freshness, and ``blended``: the forecast the planner uses (sources bias-calibrated
+         *     where active, blended by inverse 14-day MAE), its weights per horizon bucket, the
+         *     calibration state per source, and the blend without and with every learnt
+         *     calibration for comparison.
          */
         get: operations["forecast_pv_api_v1_forecast_pv_get"];
         put?: never;
@@ -672,6 +675,8 @@ export interface components {
         /**
          * AccuracySourceView
          * @description Measured accuracy of one source; ``records`` only holds buckets with data.
+         *
+         *     The source id ``blended`` is the blended forecast the planner used.
          */
         AccuracySourceView: {
             /** Computed At */
@@ -979,22 +984,50 @@ export interface components {
             unverified?: string[];
         };
         /**
+         * BlendWeightsView
+         * @description The weights of one horizon bucket (before the per-slot renormalisation over the sources
+         *     that have a value in a slot).
+         */
+        BlendWeightsView: {
+            /** Basis */
+            basis: ("inverse_mae" | "equal_no_history") | null;
+            horizon: components["schemas"]["HorizonBucket"];
+            /** Manual */
+            manual: boolean;
+            /** Weights */
+            weights: {
+                [key: string]: number;
+            };
+        };
+        /**
          * BlendedView
-         * @description The forecast the planner would use.
+         * @description The forecast the planner uses: the sources on the 15-minute grid, bias-calibrated where
+         *     the calibration is active, blended by measured skill (P10/P50/P90 in W).
          *
-         *     **Placeholder until the blending of part B**: ``method`` is ``first_source_p50`` - the P50
-         *     of the first configured source that has data, no blending, no bias calibration.
+         *     ``uncalibrated_p50_w`` is the blend of the sources as they said it; ``calibrated_p50_w`` the
+         *     blend with every learnt calibration applied, active or not (``None`` while no source has
+         *     learnt anything), so the effect can be compared before it switches on.
          */
         BlendedView: {
+            /** Calibrated P50 W */
+            calibrated_p50_w: (number | null)[] | null;
+            /** Calibration */
+            calibration: components["schemas"]["CalibrationView"][];
+            /** Calibration Active */
+            calibration_active: boolean;
             /**
              * Method
-             * @constant
+             * @enum {string}
              */
-            method: "first_source_p50";
+            method: "weighted" | "single_source";
+            /** P10 W */
+            p10_w: (number | null)[];
             /** P50 W */
             p50_w: (number | null)[];
-            /** Source Id */
-            source_id: string;
+            /** P90 W */
+            p90_w: (number | null)[];
+            /** Sources */
+            sources: string[];
             /**
              * Start
              * Format: date-time
@@ -1002,6 +1035,10 @@ export interface components {
             start: string;
             /** Step S */
             step_s: number;
+            /** Uncalibrated P50 W */
+            uncalibrated_p50_w: (number | null)[];
+            /** Weights */
+            weights: components["schemas"]["BlendWeightsView"][];
         };
         /**
          * CalibrationCharge
@@ -1026,6 +1063,35 @@ export interface components {
              * @default 100
              */
             target_soc_pct: number;
+        };
+        /**
+         * CalibrationView
+         * @description The bias calibration of one source.
+         *
+         *     ``reason``: ``active`` (applied), ``collecting`` (learnt and stored but not applied before
+         *     ``min_history_days`` days with data), ``no_history`` (nothing learnt yet),
+         *     ``classifier_changed`` (learnt with the other weather classifier; waits).
+         */
+        CalibrationView: {
+            /** Active */
+            active: boolean;
+            /** Cells */
+            cells: number;
+            /** Days With Data */
+            days_with_data: number;
+            /** Factor Max */
+            factor_max: number | null;
+            /** Factor Min */
+            factor_min: number | null;
+            /** Min History Days */
+            min_history_days: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "active" | "collecting" | "no_history" | "classifier_changed";
+            /** Source Id */
+            source_id: string;
         };
         /**
          * Capability

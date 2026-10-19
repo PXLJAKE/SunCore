@@ -155,7 +155,9 @@ def demo_site_config() -> SiteConfig:
     """Site configuration mapping the simulator entities (signed grid, one PV, battery)."""
     return SiteConfig(
         grid=GridConfig(power=EntityRef(entity_id=GRID_ID)),
-        pv=[PvArray(name="PV", power=EntityRef(entity_id=PV_ID))],
+        # The simulator's plant: 8 kWp following sin(elevation), i.e. a horizontal plane
+        # (``PVParams`` defaults; the clear-sky model of the forecast calibration reads this).
+        pv=[PvArray(name="PV", power=EntityRef(entity_id=PV_ID), kwp=8.0, tilt_deg=0.0)],
         battery=BatteryConfig(
             power=EntityRef(entity_id=BATTERY_ID), soc=EntityRef(entity_id=SOC_ID)
         ),

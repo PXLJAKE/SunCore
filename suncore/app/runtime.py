@@ -59,8 +59,12 @@ from suncore.core.identity import identity_token
 from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, collect_refs, preview, run_system_check
-from suncore.forecast.accuracy import accuracy_view, load_accuracy, update_accuracy
-from suncore.forecast.pv.service import PvForecastService
+from suncore.forecast.accuracy import accuracy_view, load_accuracy
+from suncore.forecast.pv.calibration import load_bias
+from suncore.forecast.pv.clearsky import plant_geometry
+from suncore.forecast.pv.clipping import export_limit_w
+from suncore.forecast.pv.learning import BLENDED_SOURCE_ID, LearningContext, run_nightly
+from suncore.forecast.pv.service import BlendContext, PvForecastService
 from suncore.forecast.views import ForecastAccuracyView, PvForecastView
 from suncore.ha import (
     SITE_ROLES,
@@ -184,6 +188,8 @@ class Runtime:
     _tz_learnt: bool = False
     """Home Assistant's time zone was asked for (or a region makes it irrelevant)."""
     _tz_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _ha_location: tuple[float, float] | None = None
+    """Home Assistant's ``latitude``/``longitude`` (``get_config``), for the PV clear-sky model."""
 
     @property
     def gate(self) -> SafetyGate:
@@ -203,6 +209,7 @@ class Runtime:
         await self._load_live_sections()
         self.stack = self._new_stack()
         self.pv_service = self._new_pv_service()
+        await self._load_pv_learning()
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -397,15 +404,29 @@ class Runtime:
         self._accuracy_task = asyncio.ensure_future(self.update_forecast_accuracy())
 
     async def update_forecast_accuracy(self) -> None:
-        """The nightly accuracy statistics of the PV forecast sources (never raises)."""
+        """The nightly PV forecast learning: clipping, accuracy of the sources and of the
+        blend, bias tables (never raises); the results go straight to the service."""
         if self.timeseries is None or self.learned is None or self.pv_service is None:
             return
+        if self._ha_location is None:
+            await self._learn_ha_location()
+        service = self.pv_service
+        context = self._blend_context()
         try:
-            await update_accuracy(
-                self.timeseries, self.learned, self.pv_service.source_ids, self.clock()
+            await run_nightly(
+                self.timeseries,
+                self.learned,
+                service.source_ids,
+                self.clock(),
+                LearningContext(
+                    tz=context.tz, plant=context.plant, export_limit_w=export_limit_w(self.site)
+                ),
             )
         except Exception:
             log.exception("forecast.accuracy_failed")
+            return
+        if self.pv_service is service:
+            await self._load_pv_learning()
 
     # --- PV forecast (Phase 4 WP5) ---------------------------------------------------
 
@@ -418,6 +439,52 @@ class Runtime:
             clock=self.clock,
             sleep=self.control_sleep,
             store=self.timeseries,
+            context=self._blend_context,
+        )
+
+    def _blend_context(self) -> BlendContext:
+        """Time zone and plant geometry for the blend (read anew on every use: the site, the
+        region and Home Assistant's location may change while the service runs)."""
+        name = self.region.timezone if self.region is not None else self._ha_timezone
+        tz: tzinfo = UTC
+        if name is not None:
+            with contextlib.suppress(ZoneInfoNotFoundError, ValueError, OSError):
+                tz = ZoneInfo(name)
+        lat, lon = self._ha_location or (None, None)
+        arrays = [] if self.site is None else self.site.pv
+        return BlendContext(tz=tz, plant=plant_geometry(lat, lon, arrays))
+
+    async def _learn_ha_location(self) -> None:
+        """Home Assistant's ``latitude``/``longitude`` from ``get_config`` (verified in
+        ``homeassistant/core_config.py`` ``Config.as_dict``); a failure keeps the fallback."""
+        try:
+            config = await self.connection.get_config()
+        except (HAError, TimeoutError) as exc:
+            log.warning("ha.get_config_failed", error=str(exc))
+            return
+        lat, lon = config.get("latitude"), config.get("longitude")
+        if (
+            isinstance(lat, int | float)
+            and isinstance(lon, int | float)
+            and not isinstance(lat, bool)
+            and not isinstance(lon, bool)
+        ):
+            self._ha_location = (float(lat), float(lon))
+
+    async def _load_pv_learning(self) -> None:
+        """Hand the stored accuracy records and bias tables to the PV service."""
+        service = self.pv_service
+        if service is None or self.learned is None:
+            return
+        try:
+            accuracy = await load_accuracy(self.learned, service.source_ids)
+            bias = await load_bias(self.learned)
+        except Exception:
+            log.exception("forecast.learning_load_failed")
+            return
+        service.set_learning(
+            {k: v.records for k, v in accuracy.items()},
+            {k: v for k, v in bias.items() if k in service.source_ids},
         )
 
     def _start_pv_task(self) -> None:
@@ -432,6 +499,7 @@ class Runtime:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
         self.pv_service = self._new_pv_service()
+        await self._load_pv_learning()
         if self._started:
             self._start_pv_task()
 
@@ -441,7 +509,7 @@ class Runtime:
         return self.pv_service.view(hours)
 
     async def forecast_accuracy(self) -> ForecastAccuracyView:
-        ids = [] if self.pv_service is None else self.pv_service.source_ids
+        ids = [] if self.pv_service is None else [*self.pv_service.source_ids, BLENDED_SOURCE_ID]
         stored = {} if self.learned is None else await load_accuracy(self.learned, ids)
         return accuracy_view(ids, stored)
 
@@ -534,6 +602,7 @@ class Runtime:
             log.error("ha.connect_failed", error_type=type(exc).__name__, error=str(exc))
             return
         await self._prepare_control()
+        await self._learn_ha_location()
         self._start_history_rebuild()
 
     def _time_zone_settled(self) -> bool:

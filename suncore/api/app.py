@@ -278,15 +278,18 @@ def _register_forecast(app: FastAPI, services: Services) -> None:
         hours: int = Query(default=48, ge=1, le=MAX_VIEW_HOURS),
     ) -> PvForecastView:
         """Per source the latest good P10/P50/P90 in W from the current quarter hour on, with
-        its freshness; ``blended`` is a **placeholder** (the first source's P50) until the
-        blending of part B."""
+        its freshness, and ``blended``: the forecast the planner uses (sources bias-calibrated
+        where active, blended by inverse 14-day MAE), its weights per horizon bucket, the
+        calibration state per source, and the blend without and with every learnt
+        calibration for comparison."""
         return await services.pv_forecast(hours)
 
     @app.get(f"{API_PREFIX}/forecast/accuracy", response_model=ForecastAccuracyView)
     async def forecast_accuracy() -> ForecastAccuracyView:
         """MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14
-        days; ``bias_w = actual - forecast`` (positive: the source under-forecasts); ``n`` counts
-        15-minute intervals; computed nightly."""
+        days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
+        forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
+        clipped quarter hours are excluded; computed nightly."""
         return await services.forecast_accuracy()
 
 

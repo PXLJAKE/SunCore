@@ -73,8 +73,28 @@ async def test_the_demo_shows_forecasts_of_all_three_sources(runtime: Runtime) -
         "forecast_solar.pv": 3600,
     }
     assert all(not s.stale for s in view.sources)
-    assert view.blended is not None
-    assert view.blended.source_id == "solcast.pv"
+    blended = view.blended
+    assert blended is not None
+    assert blended.sources == [
+        "solcast.pv",
+        "open_meteo_solar_forecast.pv",
+        "forecast_solar.pv",
+    ]
+    assert blended.method == "weighted"
+    assert blended.step_s == 900
+    assert {w.basis for w in blended.weights} == {"equal_no_history"}  # no history yet
+    assert not blended.calibration_active
+    assert {c.reason for c in blended.calibration} == {"no_history"}
+    assert blended.calibrated_p50_w is None
+    assert blended.uncalibrated_p50_w == blended.p50_w
+    for lo, mid, hi in zip(blended.p10_w, blended.p50_w, blended.p90_w, strict=True):
+        if mid is not None:
+            assert lo is not None
+            assert hi is not None
+            assert lo <= mid <= hi
+    # the location of Home Assistant reaches the clear-sky model
+    await until(lambda: runtime._ha_location is not None)
+    assert runtime._blend_context().plant is not None
     solcast = view.sources[0].series
     assert solcast is not None
     known = [v for v in solcast.p50_w if v is not None]
@@ -167,7 +187,12 @@ async def test_the_nightly_job_stores_accuracy_that_the_api_reads(runtime: Runti
     await runtime._accuracy_task
     accuracy = await runtime.forecast_accuracy()
     by_id = {s.source_id: s for s in accuracy.sources}
-    assert set(by_id) == {"solcast.pv", "open_meteo_solar_forecast.pv", "forecast_solar.pv"}
+    assert set(by_id) == {
+        "solcast.pv",
+        "open_meteo_solar_forecast.pv",
+        "forecast_solar.pv",
+        "blended",
+    }
     record = next(r for r in by_id["solcast.pv"].records if r.horizon is HorizonBucket.H6_24)
     assert record.bias_w == 300.0
     assert record.mae_w == 300.0

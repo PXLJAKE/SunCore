@@ -42,7 +42,7 @@
       },
       "AccuracySourceView": {
         "additionalProperties": false,
-        "description": "Measured accuracy of one source; ``records`` only holds buckets with data.",
+        "description": "Measured accuracy of one source; ``records`` only holds buckets with data.\n\nThe source id ``blended`` is the blended forecast the planner used.",
         "properties": {
           "computed_at": {
             "anyOf": [
@@ -751,14 +751,106 @@
         "title": "BatteryTemplate",
         "type": "object"
       },
+      "BlendWeightsView": {
+        "additionalProperties": false,
+        "description": "The weights of one horizon bucket (before the per-slot renormalisation over the sources\nthat have a value in a slot).",
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inverse_mae",
+                  "equal_no_history"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/HorizonBucket"
+          },
+          "manual": {
+            "title": "Manual",
+            "type": "boolean"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Weights",
+            "type": "object"
+          }
+        },
+        "required": [
+          "horizon",
+          "basis",
+          "manual",
+          "weights"
+        ],
+        "title": "BlendWeightsView",
+        "type": "object"
+      },
       "BlendedView": {
         "additionalProperties": false,
-        "description": "The forecast the planner would use.\n\n**Placeholder until the blending of part B**: ``method`` is ``first_source_p50`` - the P50\nof the first configured source that has data, no blending, no bias calibration.",
+        "description": "The forecast the planner uses: the sources on the 15-minute grid, bias-calibrated where\nthe calibration is active, blended by measured skill (P10/P50/P90 in W).\n\n``uncalibrated_p50_w`` is the blend of the sources as they said it; ``calibrated_p50_w`` the\nblend with every learnt calibration applied, active or not (``None`` while no source has\nlearnt anything), so the effect can be compared before it switches on.",
         "properties": {
+          "calibrated_p50_w": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibrated P50 W"
+          },
+          "calibration": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationView"
+            },
+            "title": "Calibration",
+            "type": "array"
+          },
+          "calibration_active": {
+            "title": "Calibration Active",
+            "type": "boolean"
+          },
           "method": {
-            "const": "first_source_p50",
+            "enum": [
+              "weighted",
+              "single_source"
+            ],
             "title": "Method",
             "type": "string"
+          },
+          "p10_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P10 W",
+            "type": "array"
           },
           "p50_w": {
             "items": {
@@ -774,9 +866,26 @@
             "title": "P50 W",
             "type": "array"
           },
-          "source_id": {
-            "title": "Source Id",
-            "type": "string"
+          "p90_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P90 W",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
           },
           "start": {
             "format": "date-time",
@@ -787,14 +896,42 @@
             "exclusiveMinimum": 0.0,
             "title": "Step S",
             "type": "integer"
+          },
+          "uncalibrated_p50_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Uncalibrated P50 W",
+            "type": "array"
+          },
+          "weights": {
+            "items": {
+              "$ref": "#/components/schemas/BlendWeightsView"
+            },
+            "title": "Weights",
+            "type": "array"
           }
         },
         "required": [
           "method",
-          "source_id",
+          "sources",
           "start",
           "step_s",
-          "p50_w"
+          "p10_w",
+          "p50_w",
+          "p90_w",
+          "uncalibrated_p50_w",
+          "calibrated_p50_w",
+          "calibration_active",
+          "weights",
+          "calibration"
         ],
         "title": "BlendedView",
         "type": "object"
@@ -824,6 +961,76 @@
           }
         },
         "title": "CalibrationCharge",
+        "type": "object"
+      },
+      "CalibrationView": {
+        "additionalProperties": false,
+        "description": "The bias calibration of one source.\n\n``reason``: ``active`` (applied), ``collecting`` (learnt and stored but not applied before\n``min_history_days`` days with data), ``no_history`` (nothing learnt yet),\n``classifier_changed`` (learnt with the other weather classifier; waits).",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "cells": {
+            "title": "Cells",
+            "type": "integer"
+          },
+          "days_with_data": {
+            "title": "Days With Data",
+            "type": "integer"
+          },
+          "factor_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor Max"
+          },
+          "factor_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor Min"
+          },
+          "min_history_days": {
+            "title": "Min History Days",
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "active",
+              "collecting",
+              "no_history",
+              "classifier_changed"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "active",
+          "reason",
+          "days_with_data",
+          "min_history_days",
+          "cells",
+          "factor_min",
+          "factor_max"
+        ],
+        "title": "CalibrationView",
         "type": "object"
       },
       "Capability": {
@@ -7250,7 +7457,7 @@
     },
     "/api/v1/forecast/accuracy": {
       "get": {
-        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays; ``bias_w = actual - forecast`` (positive: the source under-forecasts); ``n`` counts\n15-minute intervals; computed nightly.",
+        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -\nforecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;\nclipped quarter hours are excluded; computed nightly.",
         "operationId": "forecast_accuracy_api_v1_forecast_accuracy_get",
         "responses": {
           "200": {
@@ -7269,7 +7476,7 @@
     },
     "/api/v1/forecast/pv": {
       "get": {
-        "description": "Per source the latest good P10/P50/P90 in W from the current quarter hour on, with\nits freshness; ``blended`` is a **placeholder** (the first source's P50) until the\nblending of part B.",
+        "description": "Per source the latest good P10/P50/P90 in W from the current quarter hour on, with\nits freshness, and ``blended``: the forecast the planner uses (sources bias-calibrated\nwhere active, blended by inverse 14-day MAE), its weights per horizon bucket, the\ncalibration state per source, and the blend without and with every learnt\ncalibration for comparison.",
         "operationId": "forecast_pv_api_v1_forecast_pv_get",
         "parameters": [
           {

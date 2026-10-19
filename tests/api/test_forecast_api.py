@@ -8,6 +8,8 @@ from suncore.core.forecast import AccuracyRecord, HorizonBucket
 from suncore.forecast.accuracy import StoredAccuracy, accuracy_view
 from suncore.forecast.views import (
     BlendedView,
+    BlendWeightsView,
+    CalibrationView,
     PvForecastView,
     PvSeriesView,
     PvSourceView,
@@ -42,11 +44,36 @@ def pv_view() -> PvForecastView:
         series=None,
     )
     blended = BlendedView(
-        method="first_source_p50",
-        source_id="solcast.pv",
+        method="single_source",
+        sources=["solcast.pv"],
         start=NOW,
-        step_s=1800,
+        step_s=900,
+        p10_w=[None, 600.0],
         p50_w=[None, 1000.0],
+        p90_w=[None, 1200.0],
+        uncalibrated_p50_w=[None, 1000.0],
+        calibrated_p50_w=[None, 900.0],
+        calibration_active=False,
+        weights=[
+            BlendWeightsView(
+                horizon=HorizonBucket.H0_6,
+                basis="equal_no_history",
+                manual=False,
+                weights={"solcast.pv": 1.0},
+            )
+        ],
+        calibration=[
+            CalibrationView(
+                source_id="solcast.pv",
+                active=False,
+                reason="collecting",
+                days_with_data=12,
+                min_history_days=30,
+                cells=40,
+                factor_min=0.85,
+                factor_max=0.95,
+            )
+        ],
     )
     return PvForecastView(generated_at=NOW, hours=24, sources=[source, never], blended=blended)
 
@@ -70,8 +97,22 @@ async def test_pv_forecast_shape_and_default_hours(services: FakeServices) -> No
     assert never["series"] is None
     assert never["fetched_at"] is None
     assert never["stale"] is True
-    assert body["blended"]["method"] == "first_source_p50"  # the documented placeholder
-    assert body["blended"]["p50_w"] == [None, 1000.0]
+    blend = body["blended"]
+    assert blend["method"] == "single_source"
+    assert blend["p50_w"] == [None, 1000.0]
+    assert blend["uncalibrated_p50_w"] == [None, 1000.0]
+    assert blend["calibrated_p50_w"] == [None, 900.0]
+    assert blend["calibration_active"] is False
+    assert blend["weights"] == [
+        {
+            "horizon": "0_6h",
+            "basis": "equal_no_history",
+            "manual": False,
+            "weights": {"solcast.pv": 1.0},
+        }
+    ]
+    assert blend["calibration"][0]["reason"] == "collecting"
+    assert blend["calibration"][0]["days_with_data"] == 12
 
 
 async def test_pv_forecast_without_sources(services: FakeServices) -> None:
@@ -117,6 +158,8 @@ async def test_the_openapi_document_describes_both_routes(services: FakeServices
     for path in ("/api/v1/forecast/pv", "/api/v1/forecast/accuracy"):
         assert "get" in schema["paths"][path]
     description = schema["paths"]["/api/v1/forecast/pv"]["get"]["description"]
-    assert "placeholder" in description
+    assert "blended" in description
+    assert "calibration" in description
     accuracy = schema["paths"]["/api/v1/forecast/accuracy"]["get"]["description"]
-    assert "actual - forecast" in accuracy
+    assert "actual -" in accuracy
+    assert "blended" in accuracy

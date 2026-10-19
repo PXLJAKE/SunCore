@@ -12,7 +12,7 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from suncore.core.forecast import AccuracyRecord
+from suncore.core.forecast import AccuracyRecord, HorizonBucket
 
 MAX_VIEW_HOURS = 96
 """Largest ``hours`` the API serves."""
@@ -48,18 +48,61 @@ class PvSourceView(_View):
     series: PvSeriesView | None
 
 
-class BlendedView(_View):
-    """The forecast the planner would use.
+class BlendWeightsView(_View):
+    """The weights of one horizon bucket (before the per-slot renormalisation over the sources
+    that have a value in a slot)."""
 
-    **Placeholder until the blending of part B**: ``method`` is ``first_source_p50`` - the P50
-    of the first configured source that has data, no blending, no bias calibration.
+    horizon: HorizonBucket
+    basis: Literal["inverse_mae", "equal_no_history"] | None
+    """How the auto-weighted sources were weighted: by the inverse of their 14-day MAE, or
+    equally because a source lacks enough accuracy history; ``None`` = all weights manual."""
+    manual: bool
+    """A manually weighted source took part."""
+    weights: dict[str, float]
+    """Source id to weight; the weights sum to 1."""
+
+
+class CalibrationView(_View):
+    """The bias calibration of one source.
+
+    ``reason``: ``active`` (applied), ``collecting`` (learnt and stored but not applied before
+    ``min_history_days`` days with data), ``no_history`` (nothing learnt yet),
+    ``classifier_changed`` (learnt with the other weather classifier; waits).
     """
 
-    method: Literal["first_source_p50"]
     source_id: str
+    active: bool
+    reason: Literal["active", "collecting", "no_history", "classifier_changed"]
+    days_with_data: int
+    min_history_days: int
+    cells: int
+    """Cells (hour x season x weather class) with samples."""
+    factor_min: float | None
+    factor_max: float | None
+
+
+class BlendedView(_View):
+    """The forecast the planner uses: the sources on the 15-minute grid, bias-calibrated where
+    the calibration is active, blended by measured skill (P10/P50/P90 in W).
+
+    ``uncalibrated_p50_w`` is the blend of the sources as they said it; ``calibrated_p50_w`` the
+    blend with every learnt calibration applied, active or not (``None`` while no source has
+    learnt anything), so the effect can be compared before it switches on.
+    """
+
+    method: Literal["weighted", "single_source"]
+    sources: list[str]
     start: AwareDatetime
     step_s: Annotated[int, Field(gt=0)]
+    p10_w: list[float | None]
     p50_w: list[float | None]
+    p90_w: list[float | None]
+    uncalibrated_p50_w: list[float | None]
+    calibrated_p50_w: list[float | None] | None
+    calibration_active: bool
+    """At least one source's calibration is applied."""
+    weights: list[BlendWeightsView]
+    calibration: list[CalibrationView]
 
 
 class PvForecastView(_View):
@@ -70,7 +113,10 @@ class PvForecastView(_View):
 
 
 class AccuracySourceView(_View):
-    """Measured accuracy of one source; ``records`` only holds buckets with data."""
+    """Measured accuracy of one source; ``records`` only holds buckets with data.
+
+    The source id ``blended`` is the blended forecast the planner used.
+    """
 
     source_id: str
     computed_at: AwareDatetime | None
@@ -92,7 +138,9 @@ class ForecastAccuracyView(_View):
 __all__ = [
     "MAX_VIEW_HOURS",
     "AccuracySourceView",
+    "BlendWeightsView",
     "BlendedView",
+    "CalibrationView",
     "ForecastAccuracyView",
     "PvForecastView",
     "PvSeriesView",

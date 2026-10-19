@@ -22,7 +22,12 @@ from typing import Any
 
 from suncore.core.config import ForecastConfig
 from suncore.forecast.pv.factory import build_sources
-from suncore.forecast.pv.service import ForecastStore, PvForecastService
+from suncore.forecast.pv.service import (
+    BlendContext,
+    ForecastStore,
+    PvForecastService,
+    SourceSettings,
+)
 from suncore.ha import EntityCache, HAConnection, fetch_solar_forecast
 from suncore.ha.cache import UNAVAILABLE_STATES
 from suncore.templates import TemplateCatalog
@@ -61,12 +66,25 @@ def build_pv_forecast_service(
     clock: Callable[[], datetime],
     sleep: Callable[[float], Awaitable[None]],
     store: ForecastStore | None,
+    context: Callable[[], BlendContext] = BlendContext,
 ) -> PvForecastService | None:
     """The refresh service of the configured PV sources; ``None`` if none is usable."""
     sources = build_sources(config, catalog, HaPvDataReader(connection, cache))
-    if not sources:
+    if not sources or config is None:
         return None
-    return PvForecastService(sources, clock=clock, sleep=sleep, store=store)
+    settings = {
+        item.template_id: SourceSettings(weight_mode=item.weight_mode, manual_weight=item.weight)
+        for item in config.sources
+    }
+    return PvForecastService(
+        sources,
+        clock=clock,
+        sleep=sleep,
+        store=store,
+        settings=settings,
+        min_history_days=config.learning.min_history_days,
+        context=context,
+    )
 
 
 __all__ = ["HaPvDataReader", "build_pv_forecast_service"]

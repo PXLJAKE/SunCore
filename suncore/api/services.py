@@ -169,11 +169,12 @@ class Services(Protocol):
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
         """The PV forecast of every configured source for the next ``hours`` (W, P10/P50/P90),
-        its freshness, and the blended placeholder (first source's P50 until part B)."""
+        its freshness, and the blended forecast with its weights and calibration state."""
         ...
 
     async def forecast_accuracy(self) -> ForecastAccuracyView:
-        """MAE and bias (actual - forecast) per source and horizon bucket from the nightly job."""
+        """MAE and bias (actual - forecast) per source and horizon bucket from the nightly job,
+        including the blended forecast (source id ``blended``)."""
         ...
 
     # --- control (Phase 3 WP9) ---------------------------------------------------------
