@@ -306,9 +306,9 @@ maintainer's shadow test · **Branch:** `claude/zealous-mayer-j5oda9`
   (WP3) → 4-C tariffs (WP4) and 4-D PV forecast (WP5) → 4-E load + risk (WP6, WP7) → 4-F planner and
   runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
-- **ADR-0013 accepted (2026-10-19, defaults)**; prerequisite of WP10 (4-G) met. Its contract changes (`BatteryAction` `None` =
-  baseline, `BatteryBand.grid_charge_max_w`/`discharge_lock`, `effective_reserve_pct`,
-  `battery_identity`) land in a WP2 fix before 4-B.
+- **ADR-0013 accepted (2026-10-19, defaults)**; prerequisite of WP10 (4-G) met. Its contract
+  changes (`BatteryAction` `None` = baseline, `BatteryBand.grid_charge_max_w`/`discharge_lock`,
+  `effective_reserve_pct`, `battery_identity`) land at the start of 4-G.
 - Maintainer questions from 4-A: plan §6 "Offene Fragen aus PR 4-A" (grid-charge schedule
   precedence, VAT on negative spot prices, export tiers, grid charging on the Kostal).
 
