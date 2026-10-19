@@ -162,7 +162,9 @@ async def test_the_nightly_job_stores_accuracy_that_the_api_reads(runtime: Runti
         start=issued, step=timedelta(minutes=30), values=(700.0,) * 144, unit=SeriesUnit.W
     )
     await store.store_forecast("solcast.pv", "pv", issued, QuantileSeries.deterministic(forecast))
-    assert await runtime.maintain_timeseries() is True  # includes the accuracy job
+    assert await runtime.maintain_timeseries() is True  # starts the accuracy job in the background
+    assert runtime._accuracy_task is not None
+    await runtime._accuracy_task
     accuracy = await runtime.forecast_accuracy()
     by_id = {s.source_id: s for s in accuracy.sources}
     assert set(by_id) == {"solcast.pv", "open_meteo_solar_forecast.pv", "forecast_solar.pv"}

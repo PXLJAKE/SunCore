@@ -174,6 +174,7 @@ class Runtime:
     _maintenance_task: asyncio.Task[None] | None = None
     _history_task: asyncio.Task[None] | None = None
     _pv_task: asyncio.Task[None] | None = None
+    _accuracy_task: asyncio.Future[None] | None = None
     _history_done: bool = False
     """The statistics rebuild ran (or was not needed) in this process."""
     _stack_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -382,8 +383,18 @@ class Runtime:
         except Exception:
             log.exception("timeseries.maintenance_failed")
             return False
-        await self.update_forecast_accuracy()  # logs its own errors
+        self._schedule_forecast_accuracy()
         return True
+
+    def _schedule_forecast_accuracy(self) -> None:
+        """Run the accuracy statistics in the background (nightly timing unchanged)."""
+        if (
+            not self._started
+            or self.pv_service is None
+            or (self._accuracy_task is not None and not self._accuracy_task.done())
+        ):
+            return
+        self._accuracy_task = asyncio.ensure_future(self.update_forecast_accuracy())
 
     async def update_forecast_accuracy(self) -> None:
         """The nightly accuracy statistics of the PV forecast sources (never raises)."""
@@ -577,6 +588,7 @@ class Runtime:
             self._maintenance_task,
             self._history_task,
             self._pv_task,
+            self._accuracy_task,
         )
         for task in (*control_tasks, *storage_tasks):
             if task is not None:
@@ -598,6 +610,11 @@ class Runtime:
             if task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
+        late, self._accuracy_task = self._accuracy_task, None  # maybe scheduled while stopping
+        if late is not None:
+            late.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await late
         await self.catalogue.stop()
         await self.connection.close()
         await self.recorder.flush()
