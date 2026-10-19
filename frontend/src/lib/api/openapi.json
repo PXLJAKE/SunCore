@@ -1,6 +1,93 @@
 {
   "components": {
     "schemas": {
+      "AccuracyRecord": {
+        "additionalProperties": false,
+        "description": "Measured error of one source in one horizon bucket (WP5 bookkeeping).\n\n``mae_w`` is the mean absolute error and ``bias_w`` the mean signed error of P50 over\n``n`` intervals. **Sign convention (one for all of SunCore's forecast statistics):\nerror = actual - forecast**, so ``bias_w > 0`` means the source under-forecasts and\n``forecast + bias_w`` is the bias-corrected value; the risk model's net error\n(PV error - load error) uses the same convention.",
+        "properties": {
+          "bias_w": {
+            "title": "Bias W",
+            "type": "number"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/HorizonBucket"
+          },
+          "mae_w": {
+            "minimum": 0.0,
+            "title": "Mae W",
+            "type": "number"
+          },
+          "n": {
+            "minimum": 0.0,
+            "title": "N",
+            "type": "integer"
+          },
+          "source_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_.:-]+$",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "horizon",
+          "mae_w",
+          "bias_w",
+          "n"
+        ],
+        "title": "AccuracyRecord",
+        "type": "object"
+      },
+      "AccuracySourceView": {
+        "additionalProperties": false,
+        "description": "Measured accuracy of one source; ``records`` only holds buckets with data.",
+        "properties": {
+          "computed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Computed At"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/AccuracyRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "window_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Days"
+          }
+        },
+        "required": [
+          "source_id",
+          "computed_at",
+          "window_days",
+          "records"
+        ],
+        "title": "AccuracySourceView",
+        "type": "object"
+      },
       "ActionSeries": {
         "additionalProperties": false,
         "description": "Series returned by a read-only action (``return_response`` is implied).",
@@ -662,6 +749,54 @@
           "roles"
         ],
         "title": "BatteryTemplate",
+        "type": "object"
+      },
+      "BlendedView": {
+        "additionalProperties": false,
+        "description": "The forecast the planner would use.\n\n**Placeholder until the blending of part B**: ``method`` is ``first_source_p50`` - the P50\nof the first configured source that has data, no blending, no bias calibration.",
+        "properties": {
+          "method": {
+            "const": "first_source_p50",
+            "title": "Method",
+            "type": "string"
+          },
+          "p50_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P50 W",
+            "type": "array"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "step_s": {
+            "exclusiveMinimum": 0.0,
+            "title": "Step S",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method",
+          "source_id",
+          "start",
+          "step_s",
+          "p50_w"
+        ],
+        "title": "BlendedView",
         "type": "object"
       },
       "CalibrationCharge": {
@@ -1992,6 +2127,31 @@
         "title": "EmergencyStopOut",
         "type": "object"
       },
+      "EnergyDashboardSeries": {
+        "additionalProperties": false,
+        "description": "Series read from the WebSocket command ``energy/solar_forecast`` (Phase 4, forecasts only).\n\nThe command returns ``{config_entry_id: {\"wh_hours\": {iso_timestamp: Wh}}}`` for the forecast\nintegrations linked in the Energy dashboard (Forecast.Solar in Home Assistant core). The\ntemplate names no entity: the user binds the source to a config entry\n(``ForecastSourceConfig.config_entry_id``), or SunCore takes the only entry there is.\n``fields`` gives only ``value_unit`` (energy per period; no quantiles). The length of a\nperiod is inferred from the spacing of the timestamps; the template's ``resolution_min``\nis the expected length (used for a series of one point).",
+        "properties": {
+          "fields": {
+            "$ref": "#/components/schemas/SeriesFields"
+          },
+          "missing_is_zero": {
+            "default": false,
+            "title": "Missing Is Zero",
+            "type": "boolean"
+          },
+          "source": {
+            "const": "energy_solar_forecast",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "fields"
+        ],
+        "title": "EnergyDashboardSeries",
+        "type": "object"
+      },
       "EnergyPrefsOut": {
         "additionalProperties": false,
         "description": "Energy dashboard import: suggestions only, never applied by the server.",
@@ -2580,6 +2740,29 @@
         "title": "ForceChargeSwitchControl",
         "type": "object"
       },
+      "ForecastAccuracyView": {
+        "additionalProperties": false,
+        "description": "Accuracy per source and horizon bucket.\n\n``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts\n15-minute intervals. A record with ``n`` below ``min_samples`` is too thin to rely on.",
+        "properties": {
+          "min_samples": {
+            "title": "Min Samples",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AccuracySourceView"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "min_samples",
+          "sources"
+        ],
+        "title": "ForecastAccuracyView",
+        "type": "object"
+      },
       "ForecastConfig": {
         "additionalProperties": false,
         "description": "PV forecast sources (schema v2: several sources, blending, learning settings).\n\nIndependent of the tariff so that the wizard can store the choice without prices.\nForecast uncertainty is handled by the learned risk model and the battery section's\n``risk`` level, not by a flat discount.",
@@ -2612,6 +2795,18 @@
         "additionalProperties": false,
         "description": "One PV forecast source: its template, the entities of its roles and its weight.\n\n``weight_mode = auto`` blends by measured skill (inverse MAE, WP5); ``manual`` uses\n``weight`` (relative, normalised over all sources by the blender).",
         "properties": {
+          "config_entry_id": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Entry Id"
+          },
           "entities": {
             "patternProperties": {
               "^[a-z][a-z0-9_]{0,31}$": {
@@ -2666,6 +2861,16 @@
             "maxItems": 32,
             "title": "Capabilities",
             "type": "array"
+          },
+          "fallback_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionSeries"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "forecast_kind": {
             "enum": [
@@ -2728,7 +2933,8 @@
             "discriminator": {
               "mapping": {
                 "action": "#/components/schemas/ActionSeries",
-                "attribute": "#/components/schemas/AttributeSeries"
+                "attribute": "#/components/schemas/AttributeSeries",
+                "energy_solar_forecast": "#/components/schemas/EnergyDashboardSeries"
               },
               "propertyName": "source"
             },
@@ -2738,6 +2944,9 @@
               },
               {
                 "$ref": "#/components/schemas/ActionSeries"
+              },
+              {
+                "$ref": "#/components/schemas/EnergyDashboardSeries"
               }
             ],
             "title": "Series"
@@ -3085,6 +3294,17 @@
         ],
         "title": "HistoryRestoreOut",
         "type": "object"
+      },
+      "HorizonBucket": {
+        "description": "Lead-time bucket the accuracy of a forecast is tracked in.",
+        "enum": [
+          "0_6h",
+          "6_24h",
+          "24_48h",
+          "48h_plus"
+        ],
+        "title": "HorizonBucket",
+        "type": "string"
       },
       "ImportResultOut": {
         "additionalProperties": false,
@@ -4141,6 +4361,178 @@
           "name"
         ],
         "title": "PvArray",
+        "type": "object"
+      },
+      "PvForecastView": {
+        "additionalProperties": false,
+        "properties": {
+          "blended": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BlendedView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "hours": {
+            "title": "Hours",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/PvSourceView"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generated_at",
+          "hours",
+          "sources",
+          "blended"
+        ],
+        "title": "PvForecastView",
+        "type": "object"
+      },
+      "PvSeriesView": {
+        "additionalProperties": false,
+        "description": "P10/P50/P90 in W on one regular grid: ``p50_w[i]`` covers ``[start + i*step_s, ...)``.",
+        "properties": {
+          "p10_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P10 W",
+            "type": "array"
+          },
+          "p50_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P50 W",
+            "type": "array"
+          },
+          "p90_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P90 W",
+            "type": "array"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "step_s": {
+            "exclusiveMinimum": 0.0,
+            "title": "Step S",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "step_s",
+          "p10_w",
+          "p50_w",
+          "p90_w"
+        ],
+        "title": "PvSeriesView",
+        "type": "object"
+      },
+      "PvSourceView": {
+        "additionalProperties": false,
+        "description": "One source: its latest good series and how fresh it is.",
+        "properties": {
+          "age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age S"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "filled_slots": {
+            "title": "Filled Slots",
+            "type": "integer"
+          },
+          "series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PvSeriesView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "status",
+          "fetched_at",
+          "age_s",
+          "stale",
+          "filled_slots",
+          "series"
+        ],
+        "title": "PvSourceView",
         "type": "object"
       },
       "Quality": {
@@ -6854,6 +7246,68 @@
           }
         },
         "summary": "Entities"
+      }
+    },
+    "/api/v1/forecast/accuracy": {
+      "get": {
+        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays; ``bias_w = actual - forecast`` (positive: the source under-forecasts); ``n`` counts\n15-minute intervals; computed nightly.",
+        "operationId": "forecast_accuracy_api_v1_forecast_accuracy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForecastAccuracyView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Forecast Accuracy"
+      }
+    },
+    "/api/v1/forecast/pv": {
+      "get": {
+        "description": "Per source the latest good P10/P50/P90 in W from the current quarter hour on, with\nits freshness; ``blended`` is a **placeholder** (the first source's P50) until the\nblending of part B.",
+        "operationId": "forecast_pv_api_v1_forecast_pv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 48,
+              "maximum": 96,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PvForecastView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Forecast Pv"
       }
     },
     "/api/v1/info": {

@@ -304,8 +304,41 @@ class ActionSeries(_Frozen):
 SeriesSource = Annotated[AttributeSeries | ActionSeries, Field(discriminator="source")]
 
 
+class EnergyDashboardSeries(_Frozen):
+    """Series read from the WebSocket command ``energy/solar_forecast`` (Phase 4, forecasts only).
+
+    The command returns ``{config_entry_id: {"wh_hours": {iso_timestamp: Wh}}}`` for the forecast
+    integrations linked in the Energy dashboard (Forecast.Solar in Home Assistant core). The
+    template names no entity: the user binds the source to a config entry
+    (``ForecastSourceConfig.config_entry_id``), or SunCore takes the only entry there is.
+    ``fields`` gives only ``value_unit`` (energy per period; no quantiles). The length of a
+    period is inferred from the spacing of the timestamps; the template's ``resolution_min``
+    is the expected length (used for a series of one point).
+    """
+
+    source: Literal["energy_solar_forecast"]
+    fields: SeriesFields
+    missing_is_zero: bool = False
+    """The integration drops periods of value 0 (Forecast.Solar: every zero except at midnight),
+    so a period missing between two known ones is 0 Wh, not unknown."""
+
+    @model_validator(mode="after")
+    def _fields(self) -> Self:
+        f = self.fields
+        if any(x is not None for x in (f.timestamp_field, f.value_field, f.p10_field, f.p90_field)):
+            msg = "series.fields: `energy_solar_forecast` takes only `value_unit`"
+            raise ValueError(msg)
+        return self
+
+
+ForecastSeriesSource = Annotated[
+    AttributeSeries | ActionSeries | EnergyDashboardSeries, Field(discriminator="source")
+]
+
+
 def _check_series_roles(
-    series: AttributeSeries | ActionSeries, roles: dict[RoleName, RoleSpec]
+    series: AttributeSeries | ActionSeries | EnergyDashboardSeries,
+    roles: dict[RoleName, RoleSpec],
 ) -> None:
     if isinstance(series, AttributeSeries):
         for role in series.roles:
@@ -506,7 +539,10 @@ class ForecastTemplate(TemplateHeader):
     kind: Literal["forecast"]
     forecast_kind: Literal["pv", "load"]
     roles: dict[RoleName, RoleSpec] = Field(default_factory=dict)
-    series: SeriesSource
+    series: ForecastSeriesSource
+    fallback_series: ActionSeries | None = None
+    """Used when the primary ``series`` yields nothing (Solcast: the attribute is switched off,
+    then the read-only action ``query_forecast_data``)."""
     resolution_min: Annotated[int, Field(ge=1, le=1440)]
 
     @model_validator(mode="after")
@@ -516,13 +552,16 @@ class ForecastTemplate(TemplateHeader):
             raise ValueError(msg)
         _check_roles(self.roles, required=isinstance(self.series, AttributeSeries))
         _check_series_roles(self.series, self.roles)
-        unit = parse_unit(self.series.fields.value_unit)
-        if unit not in _FORECAST_UNITS:
-            msg = (
-                f"series.fields.value_unit: `{self.series.fields.value_unit}` must be one of "
-                "W, kW, Wh, kWh (power = average over the slot, energy = per slot)"
-            )
-            raise ValueError(msg)
+        for name, series in (("series", self.series), ("fallback_series", self.fallback_series)):
+            if series is None:
+                continue
+            unit = parse_unit(series.fields.value_unit)
+            if unit not in _FORECAST_UNITS:
+                msg = (
+                    f"{name}.fields.value_unit: `{series.fields.value_unit}` must be one of "
+                    "W, kW, Wh, kWh (power = average over the slot, energy = per slot)"
+                )
+                raise ValueError(msg)
         fields = self.series.fields
         has_quantiles = fields.p10_field is not None and fields.p90_field is not None
         _need(
@@ -825,9 +864,11 @@ __all__ = [
     "BatteryTemplate",
     "DeviceDefaults",
     "DeviceTemplate",
+    "EnergyDashboardSeries",
     "EntityMatcher",
     "FeedInTier",
     "ForceChargeSwitchControl",
+    "ForecastSeriesSource",
     "ForecastTemplate",
     "ModeSelectControl",
     "NegativePriceRule",

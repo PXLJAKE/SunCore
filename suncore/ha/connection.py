@@ -237,6 +237,18 @@ class HAConnection(Protocol):
         """``energy/get_prefs``; ``None`` where HA answers ``not_found`` ("No prefs")."""
         ...
 
+    async def energy_solar_forecast(self) -> Mapping[str, Mapping[str, float]]:
+        """``energy/solar_forecast`` (read only, not admin gated): ``{config_entry_id: {iso: Wh}}``.
+
+        Only forecast integrations that are linked in the Energy dashboard's solar source appear
+        (``{}`` when none is, or the dashboard was never saved); an entry that returned ``None``
+        is omitted by Home Assistant. The key is the **config entry id**, the value Wh per
+        period starting at the timestamp (period length differs per provider; infer it from the
+        key spacing). Entries whose values are not numbers are dropped here. Verified shape:
+        ``docs/research/ha-websocket-api.md`` "energy/solar_forecast".
+        """
+        ...
+
     async def subscribe_registry_updates(self, listener: RegistryListener) -> Unsubscribe:
         """Call ``listener(event_type)`` on every registry update event.
 

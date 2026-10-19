@@ -1,0 +1,7 @@
+template: generic.pv_forecast
+sim_scenario: summer_day
+roles:
+  forecast:
+    entity: sensor.sim_pv_forecast_template
+    unit: kWh
+    criteria: [domain, platforms]

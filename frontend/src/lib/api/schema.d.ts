@@ -369,6 +369,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/forecast/accuracy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Accuracy
+         * @description MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14
+         *     days; ``bias_w = actual - forecast`` (positive: the source under-forecasts); ``n`` counts
+         *     15-minute intervals; computed nightly.
+         */
+        get: operations["forecast_accuracy_api_v1_forecast_accuracy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/forecast/pv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Pv
+         * @description Per source the latest good P10/P50/P90 in W from the current quarter hour on, with
+         *     its freshness; ``blended`` is a **placeholder** (the first source's P50) until the
+         *     blending of part B.
+         */
+        get: operations["forecast_pv_api_v1_forecast_pv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/info": {
         parameters: {
             query?: never;
@@ -604,6 +648,41 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccuracyRecord
+         * @description Measured error of one source in one horizon bucket (WP5 bookkeeping).
+         *
+         *     ``mae_w`` is the mean absolute error and ``bias_w`` the mean signed error of P50 over
+         *     ``n`` intervals. **Sign convention (one for all of SunCore's forecast statistics):
+         *     error = actual - forecast**, so ``bias_w > 0`` means the source under-forecasts and
+         *     ``forecast + bias_w`` is the bias-corrected value; the risk model's net error
+         *     (PV error - load error) uses the same convention.
+         */
+        AccuracyRecord: {
+            /** Bias W */
+            bias_w: number;
+            horizon: components["schemas"]["HorizonBucket"];
+            /** Mae W */
+            mae_w: number;
+            /** N */
+            n: number;
+            /** Source Id */
+            source_id: string;
+        };
+        /**
+         * AccuracySourceView
+         * @description Measured accuracy of one source; ``records`` only holds buckets with data.
+         */
+        AccuracySourceView: {
+            /** Computed At */
+            computed_at: string | null;
+            /** Records */
+            records: components["schemas"]["AccuracyRecord"][];
+            /** Source Id */
+            source_id: string;
+            /** Window Days */
+            window_days: number | null;
+        };
         /**
          * ActionSeries
          * @description Series returned by a read-only action (``return_response`` is implied).
@@ -898,6 +977,31 @@ export interface components {
             tested_with: components["schemas"]["TestedWith"][];
             /** Unverified */
             unverified?: string[];
+        };
+        /**
+         * BlendedView
+         * @description The forecast the planner would use.
+         *
+         *     **Placeholder until the blending of part B**: ``method`` is ``first_source_p50`` - the P50
+         *     of the first configured source that has data, no blending, no bias calibration.
+         */
+        BlendedView: {
+            /**
+             * Method
+             * @constant
+             */
+            method: "first_source_p50";
+            /** P50 W */
+            p50_w: (number | null)[];
+            /** Source Id */
+            source_id: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Step S */
+            step_s: number;
         };
         /**
          * CalibrationCharge
@@ -1343,6 +1447,31 @@ export interface components {
             active: boolean;
         };
         /**
+         * EnergyDashboardSeries
+         * @description Series read from the WebSocket command ``energy/solar_forecast`` (Phase 4, forecasts only).
+         *
+         *     The command returns ``{config_entry_id: {"wh_hours": {iso_timestamp: Wh}}}`` for the forecast
+         *     integrations linked in the Energy dashboard (Forecast.Solar in Home Assistant core). The
+         *     template names no entity: the user binds the source to a config entry
+         *     (``ForecastSourceConfig.config_entry_id``), or SunCore takes the only entry there is.
+         *     ``fields`` gives only ``value_unit`` (energy per period; no quantiles). The length of a
+         *     period is inferred from the spacing of the timestamps; the template's ``resolution_min``
+         *     is the expected length (used for a series of one point).
+         */
+        EnergyDashboardSeries: {
+            fields: components["schemas"]["SeriesFields"];
+            /**
+             * Missing Is Zero
+             * @default false
+             */
+            missing_is_zero: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            source: "energy_solar_forecast";
+        };
+        /**
          * EnergyPrefsOut
          * @description Energy dashboard import: suggestions only, never applied by the server.
          */
@@ -1548,6 +1677,19 @@ export interface components {
             kind: "force_charge";
         };
         /**
+         * ForecastAccuracyView
+         * @description Accuracy per source and horizon bucket.
+         *
+         *     ``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts
+         *     15-minute intervals. A record with ``n`` below ``min_samples`` is too thin to rely on.
+         */
+        ForecastAccuracyView: {
+            /** Min Samples */
+            min_samples: number;
+            /** Sources */
+            sources: components["schemas"]["AccuracySourceView"][];
+        };
+        /**
          * ForecastConfig
          * @description PV forecast sources (schema v2: several sources, blending, learning settings).
          *
@@ -1579,6 +1721,8 @@ export interface components {
          *     ``weight`` (relative, normalised over all sources by the blender).
          */
         ForecastSourceConfig: {
+            /** Config Entry Id */
+            config_entry_id?: string | null;
             /** Entities */
             entities?: {
                 [key: string]: components["schemas"]["EntityRef"];
@@ -1598,6 +1742,7 @@ export interface components {
         ForecastTemplate: {
             /** Capabilities */
             capabilities: components["schemas"]["Capability"][];
+            fallback_series?: components["schemas"]["ActionSeries"] | null;
             /**
              * Forecast Kind
              * @enum {string}
@@ -1626,7 +1771,7 @@ export interface components {
              */
             schema_version: 1;
             /** Series */
-            series: components["schemas"]["AttributeSeries"] | components["schemas"]["ActionSeries"];
+            series: components["schemas"]["AttributeSeries"] | components["schemas"]["ActionSeries"] | components["schemas"]["EnergyDashboardSeries"];
             /** Source */
             source: components["schemas"]["SourceRef"][];
             /** Tested With */
@@ -1754,6 +1899,12 @@ export interface components {
             /** Section */
             section: string;
         };
+        /**
+         * HorizonBucket
+         * @description Lead-time bucket the accuracy of a forecast is tracked in.
+         * @enum {string}
+         */
+        HorizonBucket: "0_6h" | "6_24h" | "24_48h" | "48h_plus";
         /** ImportResultOut */
         ImportResultOut: {
             /** Imported Sections */
@@ -2195,6 +2346,57 @@ export interface components {
             power?: components["schemas"]["EntityRef"] | null;
             /** Tilt Deg */
             tilt_deg?: number | null;
+        };
+        /** PvForecastView */
+        PvForecastView: {
+            blended: components["schemas"]["BlendedView"] | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Hours */
+            hours: number;
+            /** Sources */
+            sources: components["schemas"]["PvSourceView"][];
+        };
+        /**
+         * PvSeriesView
+         * @description P10/P50/P90 in W on one regular grid: ``p50_w[i]`` covers ``[start + i*step_s, ...)``.
+         */
+        PvSeriesView: {
+            /** P10 W */
+            p10_w: (number | null)[];
+            /** P50 W */
+            p50_w: (number | null)[];
+            /** P90 W */
+            p90_w: (number | null)[];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Step S */
+            step_s: number;
+        };
+        /**
+         * PvSourceView
+         * @description One source: its latest good series and how fresh it is.
+         */
+        PvSourceView: {
+            /** Age S */
+            age_s: number | null;
+            /** Fetched At */
+            fetched_at: string | null;
+            /** Filled Slots */
+            filled_slots: number;
+            series: components["schemas"]["PvSeriesView"] | null;
+            /** Source Id */
+            source_id: string;
+            /** Stale */
+            stale: boolean;
+            /** Status */
+            status: string;
         };
         /**
          * Quality
@@ -3742,6 +3944,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    forecast_accuracy_api_v1_forecast_accuracy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastAccuracyView"];
+                };
+            };
+        };
+    };
+    forecast_pv_api_v1_forecast_pv_get: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PvForecastView"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

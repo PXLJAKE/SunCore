@@ -26,6 +26,7 @@ from suncore.api.services import (
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.app.adapters import build_pv_forecast_service
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import ControlStack
 from suncore.app.history import rebuild_history
@@ -33,7 +34,13 @@ from suncore.app.modes import ConfigModes
 from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
-from suncore.core.config import DevicesConfig, GoalsConfig, OperationConfig, RegionConfig
+from suncore.core.config import (
+    DevicesConfig,
+    ForecastConfig,
+    GoalsConfig,
+    OperationConfig,
+    RegionConfig,
+)
 from suncore.core.control import ControlSettings
 from suncore.core.controlstate import (
     ControlState,
@@ -52,6 +59,9 @@ from suncore.core.identity import identity_token
 from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, collect_refs, preview, run_system_check
+from suncore.forecast.accuracy import accuracy_view, load_accuracy, update_accuracy
+from suncore.forecast.pv.service import PvForecastService
+from suncore.forecast.views import ForecastAccuracyView, PvForecastView
 from suncore.ha import (
     SITE_ROLES,
     CommandError,
@@ -128,6 +138,9 @@ class Runtime:
     devices: DevicesConfig | None = None
     region: RegionConfig | None = None
     goals: GoalsConfig | None = None
+    forecast: ForecastConfig | None = None
+    pv_service: PvForecastService | None = None
+    """Refreshes the configured PV forecast sources (``None`` = none configured)."""
     timeseries_db: Database | None = None
     """``timeseries.db``; ``None`` = unavailable (too new, unopenable): control is unaffected."""
     timeseries: TimeseriesStore | None = None
@@ -160,6 +173,7 @@ class Runtime:
     _flush_task: asyncio.Task[None] | None = None
     _maintenance_task: asyncio.Task[None] | None = None
     _history_task: asyncio.Task[None] | None = None
+    _pv_task: asyncio.Task[None] | None = None
     _history_done: bool = False
     """The statistics rebuild ran (or was not needed) in this process."""
     _stack_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -187,6 +201,7 @@ class Runtime:
         """
         await self._load_live_sections()
         self.stack = self._new_stack()
+        self.pv_service = self._new_pv_service()
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -208,6 +223,7 @@ class Runtime:
         self.stack.start_ticking()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
         self._prune_task = asyncio.create_task(self._prune_loop(), name="suncore-prune")
+        self._start_pv_task()
         if self.timeseries is not None:
             self._flush_task = asyncio.create_task(self._flush_loop(), name="suncore-ts-flush")
             self._maintenance_task = asyncio.create_task(
@@ -225,6 +241,9 @@ class Runtime:
         goals = await self.config.get("goals")
         assert goals is None or isinstance(goals, GoalsConfig)
         self.goals = goals
+        forecast = await self.config.get("forecast")
+        assert forecast is None or isinstance(forecast, ForecastConfig)
+        self.forecast = forecast
         await self._load_modes()
 
     async def _load_modes(self) -> None:
@@ -363,7 +382,57 @@ class Runtime:
         except Exception:
             log.exception("timeseries.maintenance_failed")
             return False
+        await self.update_forecast_accuracy()  # logs its own errors
         return True
+
+    async def update_forecast_accuracy(self) -> None:
+        """The nightly accuracy statistics of the PV forecast sources (never raises)."""
+        if self.timeseries is None or self.learned is None or self.pv_service is None:
+            return
+        try:
+            await update_accuracy(
+                self.timeseries, self.learned, self.pv_service.source_ids, self.clock()
+            )
+        except Exception:
+            log.exception("forecast.accuracy_failed")
+
+    # --- PV forecast (Phase 4 WP5) ---------------------------------------------------
+
+    def _new_pv_service(self) -> PvForecastService | None:
+        return build_pv_forecast_service(
+            self.forecast,
+            catalog=self.template_catalog,
+            connection=self.connection,
+            cache=self.cache,
+            clock=self.clock,
+            sleep=self.control_sleep,
+            store=self.timeseries,
+        )
+
+    def _start_pv_task(self) -> None:
+        if self.pv_service is not None and (self._pv_task is None or self._pv_task.done()):
+            self._pv_task = asyncio.create_task(self.pv_service.run(), name="suncore-pv-forecast")
+
+    async def _rebuild_pv_service(self) -> None:
+        """Replace the PV forecast service after a ``forecast`` section change."""
+        task, self._pv_task = self._pv_task, None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        self.pv_service = self._new_pv_service()
+        if self._started:
+            self._start_pv_task()
+
+    async def pv_forecast(self, hours: int) -> PvForecastView:
+        if self.pv_service is None:
+            return PvForecastView(generated_at=self.clock(), hours=hours, sources=[], blended=None)
+        return self.pv_service.view(hours)
+
+    async def forecast_accuracy(self) -> ForecastAccuracyView:
+        ids = [] if self.pv_service is None else self.pv_service.source_ids
+        stored = {} if self.learned is None else await load_accuracy(self.learned, ids)
+        return accuracy_view(ids, stored)
 
     def next_maintenance_after(self, moment: datetime) -> datetime:
         """The first ``maintenance_time`` (site time zone, DST safe) strictly after ``moment``."""
@@ -507,6 +576,7 @@ class Runtime:
             self._flush_task,
             self._maintenance_task,
             self._history_task,
+            self._pv_task,
         )
         for task in (*control_tasks, *storage_tasks):
             if task is not None:
@@ -517,6 +587,7 @@ class Runtime:
                     await task
         self._connect_task = self._prune_task = self._tz_task = None
         self._flush_task = self._maintenance_task = self._history_task = None
+        self._pv_task = None
         # Hardware release comes first: a running downsample or retention statement keeps the
         # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
         # The storage tasks are awaited only after the devices are released.
@@ -556,6 +627,8 @@ class Runtime:
     def _on_entities(self, update: EntityUpdate) -> None:
         self.cache.ingest(update)  # the cache first: the stack reads it
         self._last_update = self.real_clock()
+        if self.pv_service is not None:
+            self.pv_service.on_entities(update.changed)
         if self.stack is not None:
             self.stack.on_update(update)
         self._notify()
@@ -581,6 +654,8 @@ class Runtime:
         refs = list(self.site.entity_refs()) if self.site else []
         if self.devices is not None:
             refs.extend(self.devices.entity_refs())
+        if self.forecast is not None:
+            refs.extend(self.forecast.entity_refs())
         ids = list(dict.fromkeys(r.entity_id for r in refs))
         try:
             await self.connection.subscribe_entities(ids)
@@ -702,10 +777,15 @@ class Runtime:
             self.goals = stored
             if self.stack is not None:
                 self.stack.set_goals(stored)
-        if name in ("site", "devices"):
+        elif name == "forecast":
+            assert isinstance(stored, ForecastConfig)
+            self.forecast = stored
+        if name in ("site", "devices", "forecast"):
             await self._resubscribe()
         if (self.site, self.devices, self.region) != before:
             await self._rebuild_stack()
+        if name == "forecast":
+            await self._rebuild_pv_service()
         if name == "devices":
             await self._sync_modes()
 
@@ -899,8 +979,8 @@ class Runtime:
     async def restore_section(self, name: str, entry_id: int) -> BaseModel:
         """Restore a history entry; live sections are reloaded like after a normal save."""
         restored = await self.config.restore(name, entry_id)
-        if name in ("site", "devices", "region", "goals", "operation"):
-            await self._reload_live_sections(resubscribe=name in ("site", "devices"))
+        if name in ("site", "devices", "region", "goals", "operation", "forecast"):
+            await self._reload_live_sections(resubscribe=name in ("site", "devices", "forecast"))
         self._notify()
         return restored
 
@@ -970,6 +1050,7 @@ class Runtime:
     async def _reload_live_sections(self, *, resubscribe: bool) -> None:
         """After a restore or import: re-read what the control layer runs on and apply it."""
         before = (self.site, self.devices, self.region)
+        forecast_before = self.forecast
         await self._load_live_sections()
         if resubscribe:
             await self._resubscribe()
@@ -977,6 +1058,8 @@ class Runtime:
             await self._rebuild_stack()
         elif self.stack is not None and self.goals is not None:
             self.stack.set_goals(self.goals)
+        if self.forecast != forecast_before:
+            await self._rebuild_pv_service()
         await self._sync_modes()
 
     def add_change_listener(self, listener: Callable[[], None]) -> Callable[[], None]:

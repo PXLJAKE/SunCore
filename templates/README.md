@@ -26,7 +26,10 @@ drift).
 | device | `generic.water_heater_steps` | water heater with power levels through one select entity, optional tank probe | generic, simulator only (`UNVERIFIED`: no hardware) |
 | device | `generic.water_heater_relays` | water heater with 1-3 heating elements switched by relays | generic, simulator only (`UNVERIFIED`: no hardware) |
 | tariff | `tibber.price` | Tibber dynamic price, curve from `tibber.get_prices` | from integration source |
-| forecast | `solcast.pv` | Solcast PV Forecast (HACS), `detailedForecast` P10/P50/P90 | from integration source |
+| forecast | `solcast.pv` | Solcast PV Forecast (HACS), `detailedForecast` P10/P50/P90 of today, tomorrow, d3, d4; fallback action `query_forecast_data` | from integration source (tag v4.6.1) |
+| forecast | `forecast_solar.pv` | Forecast.Solar (core), hourly Wh through `energy/solar_forecast` (only if linked in the Energy dashboard), P50 only | from integration source, `UNVERIFIED` timestamp semantics |
+| forecast | `open_meteo_solar_forecast.pv` | Open-Meteo Solar Forecast (HACS), `wh_period_15m` (Wh per 15 min), P50 only | from integration source (tag 0.1.33) |
+| forecast | `generic.pv_forecast` | any sensor attribute with points `{start, power_w}` (copy and adapt for others) | SunCore's own contract |
 | region | `de` | Germany: EUR, `Europe/Berlin`, no remuneration at negative prices for new PV | law text `UNVERIFIED` here |
 | region | `generic` | neutral international profile | – |
 
@@ -76,6 +79,18 @@ unverified: []                     # facts you could not verify; required if tes
   Power units in a forecast mean the average power over the slot, energy units the energy
   per slot. When the attribute is a mapping, `list_path` (dotted) leads to the list of
   points; the period of a point is `resolution_min`.
+- Forecast templates (Phase 4): `series.shape` is `list` (objects named by `fields`) or
+  `mapping` (`{iso_timestamp: value}`, `fields` holds only `value_unit`); a point is the
+  value of the period that **starts** at its timestamp. A forecast template may add
+  `fallback_series` (an allowlisted action) that is used when the attributes are missing.
+  `series.source: energy_solar_forecast` reads the Energy dashboard's `energy/solar_forecast`
+  (Forecast.Solar): the template names no entity, the user binds the source to a config entry
+  (`forecast.sources[].config_entry_id`; without one the only entry the command returns is
+  taken, several entries without a choice make the source report `ambiguous_entry`).
+  `missing_is_zero: true` reads a period missing between two known ones as 0 (the integration
+  drops zero values). For an attribute or field names the built-in templates do not cover, copy
+  `generic.pv_forecast` into `/data/templates` and change `attribute`, `fields`, `shape`,
+  `list_path` and `resolution_min`.
 - Battery templates (`kind: battery`) list the readable and writable roles (for example
   `soc`, `power`, `min_soc_number`, `max_charge_number`, `max_discharge_number`,
   `mode_select`, `force_charge_switch`) and in `controls` what each writable role
@@ -128,3 +143,4 @@ Every addition is recorded below with the SunCore version that introduced it.
 | 0.3.0 (unreleased, Phase 2) | `region.currency` is optional for `country: generic` (`None` = currency of the Home Assistant configuration). |
 | 0.4.0 (unreleased, Phase 3) | New `defaults.control` kind `relays` (additive union member, ADR-0012 policy): 1–3 switch roles (`roles`) and `steps`, each step naming the relays that are on (`relays`) and the power it draws (`power_w`, strictly increasing, relay sets distinct). `DeviceConfig` accepts the same control. Used by `generic.water_heater_relays`. |
 | 0.5.0 (unreleased, Phase 4) | New template kind `battery` (`battery.schema.json`): `roles`, `controls` (union on `kind`: `min_soc`, `max_charge`, `max_discharge`, `grid_charge_power` numbers; `mode` select with option meanings; `force_charge` switch), optional `settle_s`. New capabilities `battery_soc`, `min_soc_limit`, `charge_limit`, `discharge_limit`, `grid_charge`, `battery_modes`. `series` of `source: attribute` takes an optional `list_path` for the generic attribute adapter and an optional `shape` (`list` default, or `mapping` for `{iso_timestamp: value}` attributes such as Forecast.Solar `wh_hours` and Open-Meteo Solar Forecast `wh_period_15m`; `fields` then holds only `value_unit`, so `fields.timestamp_field`/`value_field` became optional and are required only for lists of point objects). Tariff `price_unit` and `price_series.fields.value_unit` may be per MWh (`{currency}/MWh`, `EUR/MWh`); the value unit's currency must match `price_unit`'s (or be `{currency}`), and adapters convert to currency/kWh (`price_unit_factor`: MWh / 1000). Battery mode option `value` is kept verbatim (no whitespace stripping). HT/NT needs no template change: time windows and prices are contract data in the `tariff` configuration section (v3). |
+| 0.5.0 (unreleased, Phase 4, PV forecasts) | Forecast templates: `series.source: energy_solar_forecast` (new union member, `fields` holds only `value_unit`, optional `missing_is_zero`) for the Energy dashboard's `energy/solar_forecast`; optional `fallback_series` (an `action` series) used when the attribute yields nothing. New templates `forecast_solar.pv`, `open_meteo_solar_forecast.pv`, `generic.pv_forecast`; `solcast.pv` gained the optional roles `forecast_d3`, `forecast_d4` and the fallback action `query_forecast_data`. |

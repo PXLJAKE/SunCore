@@ -80,6 +80,7 @@ from suncore.ha.connection import (
 from suncore.sim import registry
 from suncore.sim.demo_devices import (
     FORECAST_TODAY_ID,
+    FORECAST_TOMORROW_ID,
     SIM_DEVICE_ENTITY_IDS,
     DemoDevices,
     sim_price,
@@ -174,6 +175,25 @@ def _values(state: HouseState) -> dict[str, float]:
 
 def _format(value: float) -> str:
     return f"{value + 0.0:.1f}" if abs(value) >= 0.05 else "0.0"
+
+
+def _solcast_query_window(slots: list[Any], data: Mapping[str, Any] | None) -> list[Any]:
+    """The slots of ``query_forecast_data`` between ``start_date_time`` and ``end_date_time``.
+
+    Both default to *now* in the real action (an empty range); the fake keeps every slot when a
+    bound is absent so older tests that call it without a range still get the day.
+    """
+    if not data:
+        return slots
+    out = slots
+    start, end = data.get("start_date_time"), data.get("end_date_time")
+    if isinstance(start, str):
+        lo = datetime.fromisoformat(start)
+        out = [s for s in out if datetime.fromisoformat(s["period_start"]) >= lo]
+    if isinstance(end, str):
+        hi = datetime.fromisoformat(end)
+        out = [s for s in out if datetime.fromisoformat(s["period_start"]) < hi]
+    return out
 
 
 class FakeHAConnection:
@@ -408,6 +428,20 @@ class FakeHAConnection:
             except Exception:
                 _log.exception("registry listener failed")
 
+    async def energy_solar_forecast(self) -> Mapping[str, Mapping[str, float]]:
+        """``energy/solar_forecast``: the entries linked in the demo's Energy dashboard.
+
+        ``sim_entry_forecast_solar`` (hourly Wh, zeros dropped except midnight, like Forecast.Solar)
+        and ``sim_entry_solcast_solar`` (half-hourly Wh of the P50). ``{}`` while the dashboard is
+        not configured (:meth:`energy_get_prefs` returns ``None``).
+        """
+        self._require_connected()
+        if self.registry_error is not None:
+            raise self.registry_error
+        if not self._energy_prefs_configured or self._demo is None or self._house_state is None:
+            return {}
+        return self._demo.solar_forecast(self._house_state.time)
+
     async def statistics_during_period(
         self,
         statistic_ids: Sequence[str],
@@ -430,7 +464,7 @@ class FakeHAConnection:
         self,
         domain: str,
         service: str,
-        data: Mapping[str, Any] | None = None,  # noqa: ARG002
+        data: Mapping[str, Any] | None = None,
         *,
         target: Mapping[str, Any] | None = None,  # noqa: ARG002
         min_interval_s: float | None = None,
@@ -452,9 +486,12 @@ class FakeHAConnection:
             prices = [{"start_time": t.isoformat(), "price": sim_price(t)} for t in slots]
             return {"prices": {"Home": prices}}
         if (domain, service) == ("solcast_solar", "query_forecast_data"):
-            today = self._published.get(FORECAST_TODAY_ID)
-            slots_data = today.attributes.get("detailedForecast", []) if today else []
-            return {"data": list(slots_data)}
+            slots_data: list[Any] = []
+            for entity_id in (FORECAST_TODAY_ID, FORECAST_TOMORROW_ID):
+                day = self._published.get(entity_id)
+                if day is not None:
+                    slots_data.extend(day.attributes.get("detailedForecast", []))
+            return {"data": _solcast_query_window(slots_data, data)}
         raise CommandError("not_found", f"Service {domain}.{service} not found.")
 
     def entity_metas(self) -> list[EntityMeta]:

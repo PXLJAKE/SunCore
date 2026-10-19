@@ -9,3 +9,7 @@ roles:
     entity: sensor.sim_solcast_forecast_tomorrow
     unit: kWh
     criteria: [domain, device_class, translation_key, platforms, units]
+  forecast_d3:
+    none: true
+  forecast_d4:
+    none: true

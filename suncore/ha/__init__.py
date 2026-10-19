@@ -52,6 +52,7 @@ from suncore.ha.registry import (
     parse_device_registry,
     parse_entity_registry,
 )
+from suncore.ha.solar_forecast import SolarForecast, fetch_solar_forecast
 from suncore.ha.transport import (
     DirectTransport,
     SupervisorTransport,
@@ -96,6 +97,7 @@ __all__ = [
     "ServiceCallerProvider",
     "ServiceResult",
     "SiteRole",
+    "SolarForecast",
     "StateContext",
     "SupervisorTransport",
     "Transport",
@@ -106,6 +108,7 @@ __all__ = [
     "detect_site_role",
     "detect_template_role",
     "entity_candidates",
+    "fetch_solar_forecast",
     "is_candidate",
     "legacy_entities",
     "parse_area_registry",

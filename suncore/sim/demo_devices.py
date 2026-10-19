@@ -22,7 +22,11 @@ demo real content:
 * a Tibber-like price sensor ``sensor.sim_electricity_price`` (``EUR/kWh``, 15 min slots);
 * Solcast-like day sensors ``sensor.sim_solcast_forecast_today`` / ``..._tomorrow`` (kWh)
   whose ``detailedForecast`` attribute holds 30 min slots in kW average power (P50/P10/P90)
-  derived from the virtual house's PV model;
+  derived from the virtual house's PV model with deterministic noise
+  (``suncore.sim.forecasts``), Open-Meteo-like sensors
+  ``sensor.sim_open_meteo_energy_production_today`` / ``..._tomorrow`` (``wh_period_15m``) and a
+  template sensor ``sensor.sim_pv_forecast_template`` (points ``{start, power_w}``), all
+  refreshed hourly of house time;
 * kWh energy counters for grid, PV and battery so the fake Energy dashboard preferences have
   real statistics.
 
@@ -53,7 +57,11 @@ from suncore.sim.devices import (
     WaterHeaterParams,
     build_device_set,
 )
-from suncore.sim.house import HouseState, clear_sky_w
+from suncore.sim.forecasts import (
+    SOLCAST_SLOT_MIN,
+    SimForecastModel,
+)
+from suncore.sim.house import HouseState
 from suncore.sim.scenario import Scenario
 
 AC_ID: Final = "climate.sim_living_room_ac"
@@ -75,6 +83,9 @@ WATER_HEATER_RELAY_IDS: Final[tuple[str, ...]] = (
 PRICE_ID: Final = "sensor.sim_electricity_price"
 FORECAST_TODAY_ID: Final = "sensor.sim_solcast_forecast_today"
 FORECAST_TOMORROW_ID: Final = "sensor.sim_solcast_forecast_tomorrow"
+OPEN_METEO_TODAY_ID: Final = "sensor.sim_open_meteo_energy_production_today"
+OPEN_METEO_TOMORROW_ID: Final = "sensor.sim_open_meteo_energy_production_tomorrow"
+TEMPLATE_FORECAST_ID: Final = "sensor.sim_pv_forecast_template"
 GRID_IMPORT_KWH_ID: Final = "sensor.sim_grid_energy_import"
 GRID_EXPORT_KWH_ID: Final = "sensor.sim_grid_energy_export"
 PV_KWH_ID: Final = "sensor.sim_pv_energy"
@@ -97,6 +108,9 @@ SIM_DEVICE_ENTITY_IDS: Final[tuple[str, ...]] = (
     PRICE_ID,
     FORECAST_TODAY_ID,
     FORECAST_TOMORROW_ID,
+    OPEN_METEO_TODAY_ID,
+    OPEN_METEO_TOMORROW_ID,
+    TEMPLATE_FORECAST_ID,
     GRID_IMPORT_KWH_ID,
     GRID_EXPORT_KWH_ID,
     PV_KWH_ID,
@@ -113,9 +127,6 @@ AC_STANDBY_W: Final = 5.0
 """Electrical power of the demo air conditioner in standby."""
 POOL_PUMP_POWER_W: Final = 750.0
 PRICE_CURRENCY: Final = "EUR"
-SLOT_MIN: Final = 30
-TOMORROW_CLOUD_FACTOR: Final = 0.8
-"""Assumed cloud factor of the demo forecast for the next day."""
 
 
 def _gauss(x: float, centre: float, sigma: float) -> float:
@@ -238,13 +249,15 @@ class DemoDevices:
     _c: _Counters = field(default_factory=_Counters)
     _state: HouseState | None = None
     _forecast_key: tuple[Any, int] | None = None
-    _forecasts: tuple[DemoEntity, DemoEntity] | None = None
+    _forecasts: list[DemoEntity] | None = None
+    _model: SimForecastModel = field(init=False)
     _cloud: list[float] = field(default_factory=list)
     _user_ac_on: bool = False
     _user_pool_on: bool = False
 
     def __post_init__(self) -> None:
         self._cloud = self.scenario.cloud_series()
+        self._model = SimForecastModel(self.scenario, self._cloud_at)
         specs = [(spec.id, spec.physics) for spec in self.scenario.devices]
         self.is_default = not specs
         self.devices = build_device_set(specs) if specs else default_demo_devices()
@@ -325,7 +338,7 @@ class DemoDevices:
         if state is None:
             return []
         c = self._c
-        today, tomorrow = self._forecast_entities(state.time)
+        forecasts = self._forecast_entities(state.time)
         entities = [
             DemoEntity(s.entity_id, s.state, s.attributes) for s in self.devices.states(state.time)
         ]
@@ -340,8 +353,7 @@ class DemoDevices:
                         "state_class": "measurement",
                     },
                 ),
-                today,
-                tomorrow,
+                *forecasts,
                 self._kwh(GRID_IMPORT_KWH_ID, "Sim grid energy import", c.grid_import_kwh),
                 self._kwh(GRID_EXPORT_KWH_ID, "Sim grid energy export", c.grid_export_kwh),
                 self._kwh(PV_KWH_ID, "Sim PV energy", c.pv_kwh),
@@ -374,42 +386,32 @@ class DemoDevices:
             return 1.0
         return self._cloud[min(max(index, 0), len(self._cloud) - 1)]
 
-    def _day_slots(self, midnight: datetime, *, tomorrow: bool) -> list[dict[str, Any]]:
-        pv = self.scenario.house.pv
-        slots: list[dict[str, Any]] = []
-        for i in range(24 * 60 // SLOT_MIN):
-            start = midnight + timedelta(minutes=i * SLOT_MIN)
-            mid = start + timedelta(minutes=SLOT_MIN / 2)
-            clear_kw = clear_sky_w(mid, pv) / 1000
-            cloud = TOMORROW_CLOUD_FACTOR if tomorrow else self._cloud_at(mid)
-            p50 = clear_kw * cloud
-            slots.append(
-                {
-                    "period_start": start.isoformat(),
-                    "pv_estimate": round(p50, 4),
-                    "pv_estimate10": round(p50 * 0.6, 4),
-                    "pv_estimate90": round(min(clear_kw, p50 * 1.15), 4),
-                }
-            )
-        return slots
+    def solar_forecast(self, now: datetime) -> dict[str, dict[str, float]]:
+        """``energy/solar_forecast`` of the demo: the two entries linked in the Energy dashboard.
 
-    def _forecast_entities(self, now: datetime) -> tuple[DemoEntity, DemoEntity]:
+        ``sim_entry_forecast_solar``: hourly Wh, zeros dropped except midnight (Forecast.Solar);
+        ``sim_entry_solcast_solar``: half-hourly Wh of the P50 (Solcast's energy platform).
+        """
+        return {
+            "sim_entry_forecast_solar": self._model.forecast_solar_wh_hours(now),
+            "sim_entry_solcast_solar": self._model.solcast_wh_hours(
+                now.replace(minute=0, second=0, microsecond=0), 48, now
+            ),
+        }
+
+    def _forecast_entities(self, now: datetime) -> list[DemoEntity]:
         key = (now.date(), now.hour)
         if self._forecasts is not None and self._forecast_key == key:
             return self._forecasts
         midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        model = self._model
         result: list[DemoEntity] = []
-        for entity_id, name, day, tomorrow in (
-            (FORECAST_TODAY_ID, "Sim Solcast forecast today", midnight, False),
-            (
-                FORECAST_TOMORROW_ID,
-                "Sim Solcast forecast tomorrow",
-                midnight + timedelta(days=1),
-                True,
-            ),
+        for entity_id, name, day in (
+            (FORECAST_TODAY_ID, "Sim Solcast forecast today", midnight),
+            (FORECAST_TOMORROW_ID, "Sim Solcast forecast tomorrow", midnight + timedelta(days=1)),
         ):
-            slots = self._day_slots(day, tomorrow=tomorrow)
-            total_kwh = sum(s["pv_estimate"] for s in slots) * SLOT_MIN / 60
+            slots = model.solcast_day(day, now)
+            total_kwh = sum(s["pv_estimate"] for s in slots) * SOLCAST_SLOT_MIN / 60
             result.append(
                 DemoEntity(
                     entity_id,
@@ -425,6 +427,42 @@ class DemoDevices:
                     },
                 )
             )
+        for entity_id, name, day in (
+            (OPEN_METEO_TODAY_ID, "Sim Open-Meteo energy production today", midnight),
+            (
+                OPEN_METEO_TOMORROW_ID,
+                "Sim Open-Meteo energy production tomorrow",
+                midnight + timedelta(days=1),
+            ),
+        ):
+            wh_15m = model.open_meteo_day(day, now)
+            result.append(
+                DemoEntity(
+                    entity_id,
+                    f"{sum(wh_15m.values()) / 1000:.3f}",
+                    {
+                        "friendly_name": name,
+                        "unit_of_measurement": "kWh",
+                        "device_class": "energy",
+                        "state_class": "total",
+                        "wh_period_15m": wh_15m,
+                    },
+                )
+            )
+        points = model.template_points(midnight, 2, now)
+        template_kwh = sum(p["power_w"] for p in points) * 0.5 / 1000
+        result.append(
+            DemoEntity(
+                TEMPLATE_FORECAST_ID,
+                f"{template_kwh:.2f}",
+                {
+                    "friendly_name": "Sim PV forecast (template sensor)",
+                    "unit_of_measurement": "kWh",
+                    "device_class": "energy",
+                    "forecast": points,
+                },
+            )
+        )
         self._forecast_key = key
-        self._forecasts = (result[0], result[1])
-        return self._forecasts
+        self._forecasts = result
+        return result

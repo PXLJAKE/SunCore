@@ -36,6 +36,9 @@ a template only tested in the simulator has never run against real hardware.
 
 | Id | Kind | Name | Integration / platforms | Capabilities | Tested with | Unverified |
 |---|---|---|---|---|---|---|
+| `forecast_solar.pv` | forecast | Forecast.Solar PV forecast (Energy dashboard) | any | `pv_curve` | not tested on hardware | 6 |
+| `generic.pv_forecast` | forecast | Generic PV forecast (attribute of a template sensor) | `template` | `pv_curve` | not tested on hardware | 1 |
+| `open_meteo_solar_forecast.pv` | forecast | Open-Meteo Solar Forecast | `open_meteo_solar_forecast` | `pv_curve` | not tested on hardware | 5 |
 | `solcast.pv` | forecast | Solcast PV forecast | `solcast_solar` | `pv_curve`, `pv_quantiles` | not tested on hardware | 4 |
 
 ## Regions
