@@ -68,7 +68,7 @@ jobs:
       app: ${{ steps.meta.outputs.app }}
       beta_version: ${{ steps.meta.outputs.beta_version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Select channel
@@ -147,7 +147,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Build image
@@ -217,7 +217,7 @@ jobs:
     steps:
       # Only after the image and manifest exist: HA must never be offered a
       # version whose tag cannot be pulled.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: main
           # RELEASE_PLEASE_TOKEN (PAT) may bypass branch protection; GITHUB_TOKEN
