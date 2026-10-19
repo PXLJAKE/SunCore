@@ -23,7 +23,8 @@ error, ``n`` the number of 15-minute intervals.
 
 Excluded: intervals without a measurement, and intervals flagged by the ``is_clipped`` hook (an
 inverter or export limit makes the measured PV smaller than what the sun gave, which would
-read as a forecast error; the detection itself is part B - the default hook flags nothing).
+read as a forecast error; :mod:`suncore.forecast.pv.clipping` detects them and the nightly job
+:func:`suncore.forecast.pv.learning.run_nightly` passes the hook - the default flags nothing).
 """
 
 from __future__ import annotations
@@ -72,7 +73,7 @@ forecast package does not import the storage package)."""
 
 
 def no_clipping(_slot_start: datetime) -> bool:
-    """The default hook: nothing is flagged (detection is part B)."""
+    """The default hook: nothing is flagged."""
     return False
 
 

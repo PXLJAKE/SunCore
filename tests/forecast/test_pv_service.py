@@ -344,7 +344,7 @@ async def test_entity_changes_wake_the_loop_and_unrelated_ones_do_not() -> None:
             await task
 
 
-def test_blended_is_the_first_source_with_data() -> None:
+def test_no_blend_without_data_and_the_watched_entities_of_all_sources() -> None:
     clock = Clock()
     first, second = ScriptedSource("a.pv"), ScriptedSource("b.pv", frozenset({"sensor.b"}))
     service = PvForecastService([first, second], clock=clock)
