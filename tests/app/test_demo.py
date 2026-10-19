@@ -139,7 +139,7 @@ async def test_demo_starts_fully_configured(demo_runtime: Runtime) -> None:
     assert tariff.import_.price_entity == EntityRef(entity_id="sensor.sim_electricity_price")
     forecast = await demo_runtime.get_section("forecast")
     assert isinstance(forecast, ForecastConfig)
-    assert forecast.forecast_template_ids == ["solcast.pv"]
+    assert forecast.template_ids == ["solcast.pv"]
     operation = await demo_runtime.get_section("operation")
     assert isinstance(operation, OperationConfig)
     assert operation.mode is OperatingMode.SHADOW

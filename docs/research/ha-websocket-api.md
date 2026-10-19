@@ -53,8 +53,8 @@ the connector takes the URL and token as parameters.
 | `config/entity_registry/list_for_display` (preferred), `config/entity_registry/list`, `config/device_registry/list`, `config/area_registry/list` | – | setup wizard auto-detection (platform, device, area, category, translation key); verified, shapes in [Registries](#registries) |
 | `render_template` | `template` | last resort for integrations without actions |
 | `energy/get_prefs` | – | pre-fill from the Energy dashboard |
-| `energy/info`, `energy/validate`, `energy/solar_forecast` | – | diagnostics; `energy/solar_forecast` returns forecasts of integrations that implement the energy platform (Forecast.Solar, Solcast) |
-| `recorder/statistics_during_period` | `start_time`, `end_time?`, `statistic_ids[]`, `period` ∈ `5minute\|hour\|day\|week\|month\|year`, `types[]` ⊂ `change,last_reset,max,mean,min,state,sum`, `units` | load history for the load forecast, backtesting |
+| `energy/info`, `energy/validate`, `energy/solar_forecast` | – | diagnostics; `energy/solar_forecast` returns forecasts of integrations that implement the energy platform (core: Forecast.Solar, Victron Remote Monitoring; HACS: Solcast, Open-Meteo Solar Forecast); only for config entries listed in the Energy dashboard's solar sources, see section `energy/solar_forecast` below |
+| `recorder/statistics_during_period` | `start_time`, `end_time?`, `statistic_ids[]`, `period` ∈ `5minute\|hour\|day\|week\|month\|year`, `types[]` ⊂ `change,last_reset,max,mean,min,state,sum`, `units` | load history for the load forecast, backtesting; request/response verified, see section Long-term statistics below |
 | `recorder/list_statistic_ids` | `statistic_type?` | which sensors have statistics |
 | `recorder/get_statistics_metadata` | `statistic_ids?` | units |
 | `recorder/import_statistics` | `metadata{has_sum,name,source,statistic_id,unit_of_measurement,has_mean?,mean_type?,unit_class?}`, `stats[{start,mean?,min?,max?,state?,sum?,last_reset?}]` | optional: write savings / baseline series as external statistics (`source` must be a domain-like prefix, `statistic_id` `suncore:…`) – not admin-gated |
@@ -269,10 +269,266 @@ target `entity_id`. Response per entity: `{"forecast": [...]}` with items
 `wind_bearing`, `wind_speed`, `wind_gust_speed`, `uv_index`, `is_daytime`.
 Values are converted to the user's unit system.
 
+### Phase 4 verification (2026-10-16)
+
+Read from `home-assistant/core` `dev` `5cfe9aad7cb428c2c2ebb449719ae81976780de1`
+(2026.11 dev; tag `2026.10.2` = `8d7fd8b68677c2585be36ec86043308f403875b8`),
+files `homeassistant/components/weather/{services.py,services.yaml,const.py,entity.py}`,
+`homeassistant/helpers/service.py`.
+
+- **Name and registration** (`weather/services.py:60-74`): the only registered
+  action is **`weather.get_forecasts`** (`SERVICE_GET_FORECASTS = "get_forecasts"`,
+  `weather/const.py:122`). `services.yaml` still lists a stale singular
+  `get_forecast` entry; no code registers it. Schema:
+  `{Required("type"): In(("daily", "hourly", "twice_daily"))}`, target is the
+  entity (`required_features` = any of `FORECAST_DAILY`, `FORECAST_HOURLY`,
+  `FORECAST_TWICE_DAILY`), `supports_response=SupportsResponse.ONLY`, so
+  `return_response: true` is mandatory.
+- **Per-type support** (`_async_get_forecasts_service`): asking for a type the
+  entity lacks raises `ServiceValidationError` (`unsupported_forecast_type`,
+  placeholders `entity_id`, `forecast_type`) -> WebSocket `service_validation_error`.
+  A `None` result from the entity becomes an empty list.
+- **Response shape**: `entity_service_call` collects `{entity_id: result}`
+  (`helpers/service.py:807-811, 926`), so over WebSocket `call_service` the
+  result is `{"context": {...}, "response": {"weather.home": {"forecast": [ {...}, ... ]}}}`.
+  Each list item is the integration's forecast dict after `_convert_forecast`
+  (`weather/entity.py:608-`): native keys are folded into `temperature`,
+  `templow`, `apparent_temperature`, `dew_point`, `pressure`, `wind_speed`,
+  `wind_gust_speed`, `precipitation`, converted to the **user's** unit system and
+  rounded; `datetime` is passed through as the integration delivers it (ISO
+  string in practice, `ATTR_FORECAST_TIME = "datetime"`). `temperature` is set
+  to `null` when the entity delivered none. Keys the integration does not
+  provide are simply absent: the adapter must treat every key but `datetime` as
+  optional. The temperature unit is **not** in the response; read
+  `unit_of_measurement`-like info from the entity's `temperature_unit` state
+  attribute (not read in this pass, `UNVERIFIED`).
+- Whether `hourly` is offered depends on the integration (`supported_features`
+  bit `FORECAST_HOURLY = 2`); not every weather entity has it. Fall back to
+  `daily` (a coarser temperature profile) or no temperature term.
+
 ## Workday
 
 The `workday` binary sensor indicates whether the current day is a workday
 (holidays per country/region). The load forecast uses it to classify days.
+
+### Phase 4 verification (2026-10-16)
+
+Same core commit; `homeassistant/components/workday/{binary_sensor.py,entity.py,services.py,services.yaml,const.py}`.
+
+- State: `IsWorkdaySensor.update_data` sets `_attr_is_on = date_is_workday(now)`;
+  **`on` = today is a workday, `off` = not** (weekend, public holiday or a
+  configured exclusion). The state is recomputed at local midnight
+  (`get_next_interval` = start of the next local day), not at HA start only.
+- Attributes: `workdays` (list of weekday keys `mon`..`sun`, `holiday`),
+  `excludes` (same keys), `days_offset` (int). The sensor's offset shifts the
+  evaluated day (`days_offset`), so a sensor with a non-zero offset describes
+  another day than "today"; the adapter should require offset 0 or warn.
+- **Action `workday.check_date`** (`services.py`): entity service on the
+  `binary_sensor` entities of the integration, field `check_date` (required,
+  `cv.date`, `YYYY-MM-DD`), `supports_response=ONLY`; response
+  **`{"<binary_sensor.entity_id>": {"workday": true|false}}`** (`entity.py`
+  `check_date` returns `{"workday": bool}`, wrapped per entity id by the entity
+  service machinery). It applies the sensor's own `days_offset`, workdays and
+  excludes to the given date. This is enough to classify any past or future
+  date (also holidays) for the load profile without a separate holiday library.
+- Weekend vs holiday cannot be told apart from the boolean; the load profile
+  has the three classes workday / weekend / holiday (plan WP6). To split
+  "off" into weekend and holiday, combine with `date.weekday()` locally:
+  `off` on Mon-Fri means holiday. `UNVERIFIED`: that a user's `workdays`/`excludes`
+  configuration matches the Mon-Fri assumption (the attributes `workdays` and
+  `excludes` allow checking it).
+
+## Long-term statistics (`recorder/...`) (Phase 4 verification 2026-10-16)
+
+Read from `home-assistant/core` `dev` `5cfe9aad7cb428c2c2ebb449719ae81976780de1`:
+`homeassistant/components/recorder/{websocket_api.py,statistics.py,models/statistics.py,__init__.py,purge.py}`,
+`homeassistant/util/{unit_conversion.py,dt.py}`.
+
+**`recorder/statistics_during_period`** (`websocket_api.py:288-311`), not admin-gated:
+
+| Field | Type | Notes |
+|---|---|---|
+| `type` | `"recorder/statistics_during_period"` | |
+| `start_time` | string, required | `dt_util.parse_datetime`; a value **without UTC offset is read in the HA time zone** (`dt_util.as_utc` assumes `DEFAULT_TIME_ZONE`); send ISO 8601 with offset. Invalid -> error `invalid_start_time` |
+| `end_time` | string, optional | exclusive end; omitted = everything from `start_time` on; invalid -> `invalid_end_time` |
+| `statistic_ids` | list of string, required, non-empty | for sensors equal to the entity id |
+| `period` | `5minute` \| `hour` \| `day` \| `week` \| `month` \| `year`, required | `5minute` reads the short-term table, the others the long-term table; `day`/`week`/`month`/`year` are re-aggregated in **local** time, start/end are aligned to local midnight / Monday / 1st / 1 Jan |
+| `types` | list ⊂ `change, last_reset, max, mean, min, state, sum`, optional | omitted = all seven. `change` is derived from `sum` (difference to the previous row) |
+| `units` | object, optional | keys = unit class (e.g. `"power"`, `"energy"`, `"temperature"`), value = target unit from the class's `VALID_UNITS` (`PowerConverter`: `mW, W, kW, MW, GW, TW, BTU/h`; `EnergyConverter` includes `Wh, kWh, MWh`) |
+
+Response `result` (`_ws_get_statistics_during_period`):
+
+```text
+{ "<statistic_id>": [ {"start": <ms>, "end": <ms>, "mean": f, "min": f, "max": f,
+                       "state": f, "sum": f, "change": f, "last_reset": <ms>|null}, ... ] }
+```
+
+- `start` and `end` are **integer milliseconds since the Unix epoch** (UTC) of
+  the period (`end = start + 5 min / 1 h`; for day and longer the reduced
+  period). `last_reset` is also ms (or `null`). Only the requested `types`
+  appear as keys. Statistic ids without data in the range are **absent** from
+  the result object (not an empty list), and `{}` is returned if none has data.
+  A value can be `null` (e.g. `mean` of a period without samples).
+- **Units.** The response carries **no unit field**. Without `units`, values
+  are converted to the entity's *current state unit* (`_get_statistic_to_display_unit_converter`:
+  requested unit if given, else the unit in the live state attributes, else the
+  unit stored with the statistic). A power sensor that the user switches from W
+  to kW therefore changes the numbers. SunCore must either pass
+  `units: {"power": "W", "energy": "Wh"}` explicitly (verified valid unit
+  strings) or read `statistics_unit_of_measurement`/`display_unit_of_measurement`
+  from `recorder/list_statistic_ids` first. Statistics whose `unit_class` is
+  `null` (unitless or unknown units) are never converted.
+- **Meaning per sensor kind.** `mean`/`min`/`max` exist for `state_class:
+  measurement` sensors (power in W/kW, temperature); `state`, `sum` (and `change`,
+  `last_reset`) for `total`/`total_increasing` sensors (energy counters). The
+  `mean` of a power sensor is the arithmetic mean of the samples in the period
+  (`mean_type` `1` = arithmetic, `2` = circular, `0` = none). Which of the
+  columns are filled is given by `list_statistic_ids` (`mean_type`, `has_sum`).
+- **Retention.** The `5minute` table is purged with the recorder's
+  `purge_keep_days` (default **10**, `recorder/__init__.py:109`); the long-term (`hour` and
+  coarser) rows are not touched by the purge code, which removes only
+  `statistics_runs` and short-term rows (`recorder/purge.py:93-110`). A 14-day history for
+  the load profile must therefore use
+  `period: "hour"`, or `5minute` only for the last 10 days. `hour` is the finest
+  period beyond 10 days; sub-hourly profile slots (15 min) can come from
+  `5minute` for the recent days only.
+
+**`recorder/list_statistic_ids`** (`websocket_api.py:344-353`): optional
+`statistic_type` ∈ `sum|mean`. Result: list of
+`statistic_id`, `display_unit_of_measurement`, `has_mean`, `mean_type`, `has_sum`, `name`,
+`source`, `statistics_unit_of_measurement`, `unit_class`
+(`statistics.py:1136-1154`; `has_mean` is marked for removal with 2026.4 in the
+source comment, use `mean_type`). Includes statistics that integrations will add
+in the next period. **`recorder/get_statistics_metadata`** (`:456`) with optional
+`statistic_ids` returns the same metadata. `recorder/statistic_during_period`
+(singular, one `statistic_id`, `types` ⊂ `max, mean, min, change`) exists as
+well; not needed.
+
+Request example (verified shape):
+
+```json
+{"id": 31, "type": "recorder/statistics_during_period",
+ "start_time": "2026-10-02T00:00:00+02:00", "end_time": "2026-10-16T00:00:00+02:00",
+ "statistic_ids": ["sensor.house_power"], "period": "hour",
+ "types": ["mean", "min", "max"], "units": {"power": "W"}}
+```
+
+`UNVERIFIED`: the power/energy sign and unit of the user's own house-consumption
+sensor (user data); whether the Supervisor proxy forwards `recorder/*` commands
+(first run on HA OS; `call_service` is known to be forwarded, other commands
+are expected to be).
+
+## `energy/solar_forecast` (Phase 4 verification 2026-10-16)
+
+Read from `home-assistant/core` `dev` `5cfe9aad7cb428c2c2ebb449719ae81976780de1`:
+`homeassistant/components/energy/{websocket_api.py,types.py}`,
+`homeassistant/components/forecast_solar/{energy.py,coordinator.py,manifest.json}`,
+`homeassistant/components/victron_remote_monitoring/energy.py`;
+`BJReplay/ha-solcast-solar` tag `v4.6.1` `custom_components/solcast_solar/{energy.py,forecast.py}`;
+`rany2/ha-open-meteo-solar-forecast` tag `0.1.33` `custom_components/open_meteo_solar_forecast/energy.py`;
+PyPI wheels `forecast-solar 5.0.1`, `open-meteo-solar-forecast 0.1.32`.
+
+- **Request**: `{"id": n, "type": "energy/solar_forecast"}`, no fields, no admin
+  requirement (`websocket_api.py:187-190`).
+- **Which entries**: the command reads the Energy preferences
+  (`manager.data`); for every `energy_sources[]` entry of `type == "solar"`
+  it collects the ids in **`config_entry_solar_forecast`** and asks the
+  integration of each such config entry (`config_entry.domain` must have an
+  `energy` platform with `async_get_solar_forecast`). Consequences: (a) empty
+  result `{}` when the Energy dashboard was never saved, has no solar source or
+  the solar source has no forecast linked; (b) a forecast integration that is
+  installed but **not linked** in the Energy dashboard is invisible here;
+  (c) `energy/info` lists the available platform domains
+  (`solar_forecast_domains`, `:165`) - use it for auto-detection of what *could*
+  be linked.
+- **Response**: `{ "<config_entry_id>": {"wh_hours": {"<ISO 8601 timestamp>": <number>, ...}}, ... }`
+  (`types.py:9-12`: `SolarForecastType = {wh_hours: dict[str, float | int]}`);
+  entries returning `None` are omitted. The key is the **config entry id**
+  (not the domain, not an entity id); map it to the domain via the config entry
+  or `energy/get_prefs`.
+- **Semantics of `wh_hours` per provider** (the type is only "Wh per timestamp",
+  the period length differs):
+  - `forecast_solar` (`energy.py`): `wh_period` of the `forecast-solar` library,
+    Wh, ISO strings with the offset of the **API time zone** (the plant's
+    location), one entry per hour in the free tier; the library sums values
+    with `begin <= timestamp < end` for "current hour"
+    (`forecast-solar 5.0.1` wheel, `forecast_solar/models.py` `_interval_value_sum`), i.e. it
+    treats the key as the *start* of
+    the period. Entries with value 0 are dropped except non-midnight ones
+    (`val != 0 or time != 00:00:00`). `UNVERIFIED`: whether the vendor API itself
+    labels `watt_hours_period` keys as period start or end (api.forecast.solar
+    unreachable); the HA library's own usage implies start.
+  - `open_meteo_solar_forecast` (HACS, `energy.py`): `wh_period`, hourly, key =
+    start of the hour (`open_meteo_solar_forecast.py:610-617` groups by
+    `time.replace(minute=0)`), value = mean power of the hour in W (numerically
+    Wh for that hour), no zero filter, ISO strings in the location's fixed
+    offset.
+  - `solcast_solar` (HACS, `energy.py` -> `forecast.py:945-`): `make_energy_dict`
+    emits **half-hourly** keys = `period_start`, value =
+    `pv_estimate{,10,90} (kW) * 500` = Wh per 30 min, rounded to integers, for
+    **one** confidence level selected by the integration's option
+    (`use_forecast_confidence`: estimate, 10 or 90), not all three. So no P10/P90
+    band here; use the Solcast attributes for the band.
+  - `victron_remote_monitoring` (core): `data.get_dict_isoformat`, not analysed.
+- **Resampling rule for SunCore**: sum Wh per key into 15-minute slots by
+  splitting each period's energy uniformly over its length; infer the length
+  from the key spacing (30 or 60 min), never assume it. Only the energy sum is
+  trustworthy; there is no unit field (`UNVERIFIED` only in the sense that the
+  type has none; all four providers above deliver Wh).
+- **No quantiles** over this command in any provider. P10/P90 only from Solcast
+  attributes/`query_forecast_data`.
+
+## Modbus write action (Phase 4 verification 2026-10-16)
+
+Read from `home-assistant/core` `dev` `5cfe9aad7cb428c2c2ebb449719ae81976780de1`:
+`homeassistant/components/modbus/{services.py,services.yaml,modbus.py,const.py,strings.json,websocket_api.py,__init__.py}`,
+`homeassistant/helpers/config_validation.py`.
+
+- **Actions** registered by `async_setup_services`: `modbus.reload`,
+  `modbus.write_coil`, `modbus.write_register`, `modbus.stop`. There is **no
+  read action**: reading is only possible through `modbus:` YAML sensors /
+  binary sensors (polled by the hub) which become normal HA entities. The WebSocket
+  command `modbus/connections/list` (admin only) lists connections and unit
+  ids, nothing else.
+- **`modbus.write_register` fields** (`services.py:_write_service_schema`,
+  `services.yaml`):
+
+  | Field | Type | Notes |
+  |---|---|---|
+  | `address` | int >= 0, required | register address; the schema has **no upper bound or 16-bit check** (`cv.positive_int`) |
+  | `value` | required | either a single non-negative int, or a list of non-negative ints; **each is one 16-bit register word as an unsigned int** (negative numbers are rejected by `NonNegative`, so signed values (S16) must be sent as two's complement `v & 0xFFFF`); a value above 65535 is not range-checked by HA and fails inside pymodbus |
+  | `slave` **or** `unit` | int >= 0, optional, mutually exclusive (`Exclusive(…, "unit")`) | Modbus device/unit id; `slave` is the documented field (`services.yaml` min 1 max 255), `unit` is an accepted alias (`ATTR_UNIT = "unit"`); default **1** when both are absent (`service.data.get(ATTR_SLAVE, service.data.get(ATTR_UNIT, 1))`). The hub's own `slave` config option is **not** used as default for the service |
+  | `hub` | string, default `modbus_hub` (`DEFAULT_HUB`) | the hub `name` from the YAML `modbus:` entry |
+
+- **Single vs multiple registers**: `value` as int -> function code 0x06 (write
+  single register, `write_register`); `value` as list -> 0x10 (write multiple
+  registers, `write_registers`) (`services.py:_async_write_register`). A list of
+  length 1 uses 0x10 too.
+- **No float32 / typed values.** The action only writes raw register words.
+  SunCore must encode IEEE 754 float32 itself into two words and know the
+  device's word order. For the Kostal inverter (Float = 2 registers, byte order
+  register 5, see `kostal-plenticore-modbus.md`) that is the adapter's job;
+  e.g. `1038` (max charge power) gets `[hi, lo]` words as `value`.
+- **Errors are not raised.** `ModbusHub.async_pb_call` -> `low_level_pb_call`
+  (`modbus.py:325-361`) catches `ModbusException`, a `None`/error response and
+  `result.isError()`, **logs the error and returns `None`**; the service returns
+  normally. An unknown hub raises `KeyError` inside the service (HA reports
+  `unknown_error`); Modbus not set up raises `ServiceValidationError`
+  `not_loaded`. A failed write is therefore **silent** to the caller: read-back
+  of the register (via a modbus sensor) or of the battery power is the only
+  confirmation. A client that is not connected makes `async_pb_call` return
+  `None` immediately (`if not self._client: return None`).
+- **Concurrency**: all calls of a hub are serialised by a lock and an optional
+  `message_wait_milliseconds` pause (`modbus.py:363-378`). A heartbeat writer
+  (Kostal §3.5, every 20 s) shares the lock with all polled entities.
+- **Admin**: `write_register` is registered with a plain `hass.services.async_register`
+  (no `async_register_admin_service`), so the Supervisor's user may call it;
+  `reload` is admin-only.
+- `UNVERIFIED`: the exact exception HA returns for an unknown `hub` name (derived
+  from `hass.data[...][name]` lookup, not run); `modbus` hub setup over the UI
+  (the source shows YAML plus a new `connection.py` with `async_get_unit` for
+  config-entry based integrations; whether users can add a plain hub in the UI is
+  not established, the docs site is unreachable).
 
 ## Write services and contexts (Phase 3)
 
@@ -422,6 +678,11 @@ Success result (**the result carries the context**):
 ```
 
 With `return_response: true` (only for services that support it) `result.response` is added.
+For entity services the response is keyed by entity id (`helpers/service.py`
+`entity_service_call`, `response_data[entity.entity_id] = result`), e.g.
+`{"weather.home": {"forecast": [...]}}`; for plain services it is the handler's
+dict (`{"prices": {...}}`, `{"data": [...]}`). Phase 4 verification 2026-10-16,
+core `5cfe9aad`.
 `Context.as_dict()` is `{"id", "parent_id", "user_id"}` (`core.py:1322-1346`; JSON encoder
 `helpers/json.py` uses `as_dict`).
 
@@ -629,3 +890,38 @@ legacy `flow_from`/`flow_to` grid lists, which the parser should tolerate);
 `unknown_command` as the error code when the `energy` integration is not
 loaded; behaviour of the Supervisor Core proxy for these commands (first run
 on HA OS, same open item as `supported_features`).
+
+### Phase 4 verification (2026-10-16, WP1)
+
+Read on 2026-10-16 from `home-assistant/core` `dev`
+`5cfe9aad7cb428c2c2ebb449719ae81976780de1` (raw.githubusercontent.com; the
+doc sites and `api.github.com` are unreachable): `components/recorder/{websocket_api,statistics,purge,__init__,util}.py`,
+`components/recorder/models/statistics.py`, `components/energy/{websocket_api,types}.py`,
+`components/forecast_solar/{energy,coordinator,manifest.json}`, `components/victron_remote_monitoring/energy.py`,
+`components/weather/{services.py,services.yaml,const.py,entity.py}`,
+`components/workday/{binary_sensor,entity,services,const}.py`,
+`components/modbus/{services.py,services.yaml,modbus.py,const.py,websocket_api.py,strings.json,__init__.py}`,
+`components/{number,select,switch,event}/{services,entity}.py`,
+`helpers/{service,config_validation}.py`, `util/{dt,unit_conversion}.py`.
+HACS sources at tags: `BJReplay/ha-solcast-solar` `v4.6.1`,
+`rany2/ha-open-meteo-solar-forecast` `0.1.33`. PyPI wheels `forecast-solar 5.0.1`
+and `open-meteo-solar-forecast 0.1.32`.
+
+Resolved: the `recorder/statistics_during_period` request and response shape and
+unit behaviour; `energy/solar_forecast` request, response and the `wh_hours`
+key format and period length per provider; `weather.get_forecasts` name,
+`supports_response` and response shape; the `workday` state meaning and
+`workday.check_date`; `modbus.write_register` fields, multi-register form and
+the absence of float32 and of a read action; `number.set_value` and
+`select.select_option` payloads (unchanged from Phase 3, now with the dev
+`probatio` schemas: `value` is `Coerce(float)`, `option` is a string; `number`
+still range-checks against the entity's `min_value`/`max_value` and clamps to the
+native range, `select` still validates against `options`); `switch.turn_on/off/toggle`
+take no fields.
+
+Still `UNVERIFIED`: the Supervisor proxy forwarding of `recorder/*` and
+`energy/*` commands; the temperature unit of a `weather.get_forecasts` response
+(taken from the entity's attributes, not read); the vendor meaning of the
+Forecast.Solar `watt_hours_period` keys (start vs end of the period, API
+unreachable); the HA error for an unknown Modbus hub name; whether a plain Modbus
+hub can be added in the UI.

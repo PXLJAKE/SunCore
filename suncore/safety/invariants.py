@@ -24,6 +24,7 @@ from suncore.core.control import ControlSettings, DeviceState, PowerEstimate, he
 from suncore.core.conversion import value_to_power_w
 from suncore.core.decisions import (
     Action,
+    BatteryAction,
     ModeAction,
     PowerSetpointAction,
     Reason,
@@ -107,7 +108,7 @@ def action_turns_on(action: Action, device: DeviceConfig) -> bool | None:  # noq
             return power > 0
         case SetpointAction():
             return True
-        case ReleaseAction():
+        case ReleaseAction() | BatteryAction():  # battery: rejected by the gate before (WP10)
             return None
     return None  # pragma: no cover - exhaustive
 
@@ -149,7 +150,7 @@ def expected_power_w(  # noqa: PLR0911 - one branch per action kind
             return max(0.0, power)
         case SetpointAction():
             return nominal if nominal is not None else _upper(estimate)
-        case ReleaseAction():
+        case ReleaseAction() | BatteryAction():  # battery: rejected by the gate before (WP10)
             return None
     return None  # pragma: no cover - exhaustive
 
@@ -430,7 +431,7 @@ def action_matches_state(  # noqa: PLR0911
             if device is not None and isinstance(device.control, ContinuousControl):
                 current = _continuous_power_w(current, device.control, device.power_model.nominal_w)
             return abs(current - power) <= POWER_TOLERANCE_W
-        case ReleaseAction():
+        case ReleaseAction() | BatteryAction():  # battery: rejected by the gate before (WP10)
             return False
     return False  # pragma: no cover - exhaustive
 
