@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -72,11 +73,13 @@ async def test_the_demo_shows_forecasts_of_all_three_sources(runtime: Runtime) -
         "forecast_solar.pv": 3600,
     }
     assert all(not s.stale for s in view.sources)
-    assert view.blended is not None and view.blended.source_id == "solcast.pv"  # first source
+    assert view.blended is not None
+    assert view.blended.source_id == "solcast.pv"
     solcast = view.sources[0].series
     assert solcast is not None
     known = [v for v in solcast.p50_w if v is not None]
-    assert known and max(known) > 1000  # the sim PV produces kW at noon
+    assert known
+    assert max(known) > 1000
     # P10 <= P50 <= P90 where the source has quantiles
     for lo, mid, hi in zip(solcast.p10_w, solcast.p50_w, solcast.p90_w, strict=True):
         if lo is not None and mid is not None and hi is not None:
@@ -85,14 +88,16 @@ async def test_the_demo_shows_forecasts_of_all_three_sources(runtime: Runtime) -
 
 async def test_forecasts_are_stored_in_timeseries_db_at_most_hourly(runtime: Runtime) -> None:
     store = runtime.timeseries
-    assert store is not None and runtime.pv_service is not None
+    assert store is not None
+    assert runtime.pv_service is not None
     await until(lambda: runtime.pv_service.snapshot("solcast.pv").last_stored_at is not None)  # type: ignore[union-attr]
     issues = await store.forecast_issues("solcast.pv", "pv")
     assert issues
-    gaps = [b - a for a, b in zip(issues, issues[1:], strict=False)]
+    gaps = [b - a for a, b in itertools.pairwise(issues)]
     assert all(g >= timedelta(minutes=15) for g in gaps)  # never faster than the minimum gap
     back = await store.read_forecast("solcast.pv", "pv", issues[0])
-    assert back is not None and back.step == timedelta(minutes=30)
+    assert back is not None
+    assert back.step == timedelta(minutes=30)
 
 
 async def test_changing_the_forecast_section_rebuilds_the_service(runtime: Runtime) -> None:
@@ -115,13 +120,15 @@ async def test_changing_the_forecast_section_rebuilds_the_service(runtime: Runti
         ]
     )
     await runtime.put_section("forecast", only_open_meteo)
-    assert runtime.pv_service is not old and runtime.pv_service is not None
+    assert runtime.pv_service is not old
+    assert runtime.pv_service is not None
     assert runtime.pv_service.source_ids == ["open_meteo_solar_forecast.pv"]
     assert "sensor.sim_solcast_forecast_today" not in conn.subscriptions[-1]
     await runtime.put_section("forecast", ForecastConfig())
     assert runtime.pv_service is None
     view = await runtime.pv_forecast(24)
-    assert view.sources == [] and view.blended is None
+    assert view.sources == []
+    assert view.blended is None
     accuracy = await runtime.forecast_accuracy()
     assert accuracy.sources == []
 
@@ -139,7 +146,8 @@ async def test_unusable_templates_are_skipped_not_fatal(runtime: Runtime) -> Non
 
 async def test_the_nightly_job_stores_accuracy_that_the_api_reads(runtime: Runtime) -> None:
     store, learned = runtime.timeseries, runtime.learned
-    assert store is not None and learned is not None
+    assert store is not None
+    assert learned is not None
     now = runtime.clock()
     day = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     quarters = 96
@@ -159,7 +167,8 @@ async def test_the_nightly_job_stores_accuracy_that_the_api_reads(runtime: Runti
     by_id = {s.source_id: s for s in accuracy.sources}
     assert set(by_id) == {"solcast.pv", "open_meteo_solar_forecast.pv", "forecast_solar.pv"}
     record = next(r for r in by_id["solcast.pv"].records if r.horizon is HorizonBucket.H6_24)
-    assert record.bias_w == 300.0 and record.mae_w == 300.0  # actual 1000 - forecast 700
+    assert record.bias_w == 300.0
+    assert record.mae_w == 300.0
     assert record.n > 0
     assert by_id["open_meteo_solar_forecast.pv"].records == []
 

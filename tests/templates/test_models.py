@@ -287,3 +287,31 @@ def test_attribute_series_mapping_shape() -> None:
     nested["series"]["list_path"] = "result.watts"
     assert TEMPLATE_ADAPTER.validate_python(nested).kind == "forecast"
     _bad(nested, lambda d: d["series"].update(list_path="result..watts"))
+
+
+def test_energy_solar_forecast_series_and_fallback() -> None:
+    doc = forecast_doc()
+    doc["series"] = {
+        "source": "energy_solar_forecast",
+        "missing_is_zero": True,
+        "fields": {"value_unit": "Wh"},
+    }
+    doc["roles"] = {}
+    template = TEMPLATE_ADAPTER.validate_python(doc)
+    assert template.series.missing_is_zero is True  # type: ignore[union-attr]
+    doc["series"]["fields"]["timestamp_field"] = "t"
+    with pytest.raises(ValidationError):
+        TEMPLATE_ADAPTER.validate_python(doc)
+    doc2 = forecast_doc()
+    doc2["fallback_series"] = {
+        "source": "action",
+        "domain": "tibber",
+        "service": "get_prices",
+        "response_path": "data",
+        "fields": {"timestamp_field": "a", "value_field": "b", "value_unit": "kW"},
+        "max_horizon_h": 24,
+    }
+    assert TEMPLATE_ADAPTER.validate_python(doc2).fallback_series is not None  # type: ignore[union-attr]
+    doc2["fallback_series"]["service"] = "evil"
+    with pytest.raises(ValidationError):
+        TEMPLATE_ADAPTER.validate_python(doc2)
