@@ -375,6 +375,14 @@ shadow and assisted run is the acceptance test.
   write at all (the inverter's own self-consumption logic does it).
 - Self-sufficiency weight: explained to the maintainer, default 0.01 currency/kWh kept.
 
+### Answers (2026-10-19)
+
+- ADR-0013: the maintainer takes the recommendation as default → **accepted**; WP10 may start
+  once 4-F is done.
+- All open questions of PRs 4-A, 4-B and 4-C: **defaults** as written in each PR.
+- Phase 3 acceptance (shadow run, one device to automatic) is postponed because of the weather;
+  Phase 4 keeps being built, the PRs are merged only after that acceptance.
+
 ### Offene Fragen aus PR 4-A (an den Maintainer)
 
 1. **Doppelter Netzladeplan:** `goals.grid_charge_night_only` wird zu einem Zeitplan migriert,
