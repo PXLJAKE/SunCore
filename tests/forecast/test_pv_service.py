@@ -346,3 +346,45 @@ def test_blended_is_the_first_source_with_data() -> None:
     service = PvForecastService([first, second], clock=clock)
     assert service.blended() is None
     assert service.watched_entities == {"sensor.a", "sensor.b"}
+
+
+async def test_stopping_the_service_wins_over_a_simultaneous_wake() -> None:
+    clock, source = Clock(), ScriptedSource()
+    source.next = day(1000.0)
+    gate = asyncio.Event()
+
+    async def sleep(delay: float) -> None:
+        if delay > 100:
+            await gate.wait()
+
+    service = make(source, clock, sleep=sleep)
+    task = asyncio.create_task(service.run())
+    for _ in range(20):
+        await asyncio.sleep(0)
+    service.on_entities(["sensor.a"])  # a wake ...
+    task.cancel()  # ... and a stop in the same loop iteration
+    async with asyncio.timeout(2):
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+async def test_a_change_during_the_refresh_is_not_lost() -> None:
+    clock, source = Clock(), ScriptedSource()
+    source.next = day(1000.0)
+    sleeps: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        sleeps.append(delay)
+        if delay > 100:
+            await asyncio.Event().wait()
+
+    service = make(source, clock, sleep=sleep)
+    service.on_entities(["sensor.a"])  # arrives before the loop reaches its sleep
+    task = asyncio.create_task(service.run())
+    for _ in range(30):
+        await asyncio.sleep(0)
+    assert len(source.windows) >= 2
+    assert 1800.0 not in sleeps[:1]
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

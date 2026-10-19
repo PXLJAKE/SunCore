@@ -227,7 +227,7 @@ class PvForecastService:
 
     def on_entities(self, entity_ids: Iterable[str]) -> None:
         """Request a refresh if one of the sources' entities changed (cheap, sync)."""
-        if not self._watched.isdisjoint(entity_ids) and not self._woken:
+        if not self._watched.isdisjoint(entity_ids):
             self._woken = True
             if self._sleeper is not None:
                 self._sleeper.cancel()
@@ -322,17 +322,22 @@ class PvForecastService:
             await self._wait()
 
     async def _wait(self) -> None:
-        """Sleep for the refresh interval; an entity change ends the sleep early (debounced)."""
-        self._woken = False
-        self._sleeper = asyncio.ensure_future(self._sleep(self._refresh_interval_s))
-        try:
-            await self._sleeper
-        except asyncio.CancelledError:
-            if not self._woken:
-                raise  # the service itself is being stopped
-        finally:
-            self._sleeper = None
-        if self._woken:
+        """Sleep for the refresh interval; an entity change ends the sleep early (debounced).
+
+        A change that arrived while the refresh ran is not lost: it skips the sleep.
+        """
+        if not self._woken:
+            self._sleeper = asyncio.ensure_future(self._sleep(self._refresh_interval_s))
+            try:
+                await self._sleeper
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise  # the service itself is being stopped, not woken
+            finally:
+                self._sleeper = None
+        woke, self._woken = self._woken, False
+        if woke:
             await self._sleep(self._min_refresh_gap_s)  # debounce a burst of entity updates
 
     # --- outputs --------------------------------------------------------------------
