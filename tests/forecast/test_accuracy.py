@@ -238,3 +238,9 @@ async def test_every_issue_is_read_once_for_all_its_buckets(store: TimeseriesSto
         HorizonBucket.H24_48,
     }
     assert len(calls) == 1  # one read for all three buckets
+
+
+def test_night_slots_where_both_are_zero_do_not_count() -> None:
+    actual = ts([0.0, 0.0, 500.0, 0.0], D)
+    forecast = ts([0.0, 100.0, 400.0, 0.0], D)
+    assert quarter_errors(forecast, actual) == [-100.0, 100.0]

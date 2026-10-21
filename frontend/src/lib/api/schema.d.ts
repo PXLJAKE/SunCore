@@ -1757,7 +1757,8 @@ export interface components {
          * @description Accuracy per source and horizon bucket.
          *
          *     ``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts
-         *     15-minute intervals. A record with ``n`` below ``min_samples`` is too thin to rely on.
+         *     15-minute daylight intervals (forecast or measurement above 0 W; clipped ones excluded).
+         *     A record with ``n`` below ``min_samples`` is too thin to rely on.
          */
         ForecastAccuracyView: {
             /** Min Samples */

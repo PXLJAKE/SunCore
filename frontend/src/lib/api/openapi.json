@@ -2977,7 +2977,7 @@
       },
       "ForecastAccuracyView": {
         "additionalProperties": false,
-        "description": "Accuracy per source and horizon bucket.\n\n``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts\n15-minute intervals. A record with ``n`` below ``min_samples`` is too thin to rely on.",
+        "description": "Accuracy per source and horizon bucket.\n\n``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts\n15-minute daylight intervals (forecast or measurement above 0 W; clipped ones excluded).\nA record with ``n`` below ``min_samples`` is too thin to rely on.",
         "properties": {
           "min_samples": {
             "title": "Min Samples",

@@ -68,7 +68,8 @@ implemented, waiting for the maintainer's shadow test · **Branch:** `phase-4/d-
     `None`). Refresh service: every 30 min and on entity changes (debounced), keeps the last good
     data, bounded gap filling, stores issues in `timeseries.db` hourly or on a material change
     (≥ 15 %). Nightly accuracy bookkeeping (MAE and bias = actual − forecast per source and
-    horizon bucket 0–6/6–24/24–48 h over 14 days, `learned_param` `forecast_accuracy`).
+    horizon bucket 0–6/6–24/24–48 h over 14 days, daylight quarter hours only, clipped ones
+    excluded, `learned_param` `forecast_accuracy`).
     `GET /api/v1/forecast/pv` and `/forecast/accuracy`; the demo publishes three deterministic
     biased sources.
   - Part B – blending, calibration, clipping: `blend.py` (weights per horizon bucket from the

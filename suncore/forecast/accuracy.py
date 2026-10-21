@@ -21,7 +21,10 @@ not cover completely are skipped.
 mean error, so a positive bias means the source under-forecasts. ``mae_w`` is the mean absolute
 error, ``n`` the number of 15-minute intervals.
 
-Excluded: intervals without a measurement, and intervals flagged by the ``is_clipped`` hook (an
+Only **daylight** intervals count: the forecast or the measurement is above 0 W. A night of
+exact zeros would otherwise dilute the MAE and the bias by about half and make every source
+look better than it is during the day. Also excluded: intervals without a measurement, and
+intervals flagged by the ``is_clipped`` hook (an
 inverter or export limit makes the measured PV smaller than what the sun gave, which would
 read as a forecast error; :mod:`suncore.forecast.pv.clipping` detects them and the nightly job
 :func:`suncore.forecast.pv.learning.run_nightly` passes the hook - the default flags nothing).
@@ -145,7 +148,8 @@ def quarter_errors(
     *,
     is_clipped: ClipFilter = no_clipping,
 ) -> list[float]:
-    """``actual - forecast`` per 15-minute interval both series know and that is not clipped.
+    """``actual - forecast`` per 15-minute daylight interval (forecast or measurement above 0 W)
+    both series know and that is not clipped.
 
     ``forecast_p50`` is resampled onto the grid of ``actual`` (must be the 15-minute grid).
     """
@@ -160,6 +164,8 @@ def quarter_errors(
     ):
         if measured is None or predicted is None or is_clipped(begin):
             continue
+        if measured <= 0 and predicted <= 0:
+            continue  # night: both zero says nothing about the forecast
         errors.append(measured - predicted)
     return errors
 
