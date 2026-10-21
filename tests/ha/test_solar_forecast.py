@@ -119,7 +119,9 @@ async def test_fake_serves_the_two_linked_entries_and_respects_the_dashboard() -
     linked = next(s for s in prefs["energy_sources"] if s["type"] == "solar")
     assert set(entries) == set(linked["config_entry_solar_forecast"])
     hourly = entries["sim_entry_forecast_solar"]
-    assert all(v != 0 or k.endswith("T00:00:00+02:00") for k, v in hourly.items())  # zeros dropped
+    # forecast_solar/energy.py drops only a 0 Wh entry at exactly 00:00:00
+    assert not any(v == 0 and k.endswith("T00:00:00+02:00") for k, v in hourly.items())
+    assert any(v == 0 for v in hourly.values())  # the other night hours are listed
     half_hourly = entries["sim_entry_solcast_solar"]
     assert len(half_hourly) == 96
     await conn.close()

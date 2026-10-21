@@ -454,8 +454,9 @@ PyPI wheels `forecast-solar 5.0.1`, `open-meteo-solar-forecast 0.1.32`.
     with `begin <= timestamp < end` for "current hour"
     (`forecast-solar 5.0.1` wheel, `forecast_solar/models.py` `_interval_value_sum`), i.e. it
     treats the key as the *start* of
-    the period. Entries with value 0 are dropped except non-midnight ones
-    (`val != 0 or time != 00:00:00`). `UNVERIFIED`: whether the vendor API itself
+    the period. Only an entry with value 0 that starts exactly at 00:00:00 is
+    dropped; every other zero is listed (kept: `val != 0 or time != 00:00:00`).
+    `UNVERIFIED`: whether the vendor API itself
     labels `watt_hours_period` keys as period start or end (api.forecast.solar
     unreachable); the HA library's own usage implies start.
   - `open_meteo_solar_forecast` (HACS, `energy.py`): `wh_period`, hourly, key =
