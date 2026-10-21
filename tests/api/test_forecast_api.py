@@ -54,6 +54,8 @@ def pv_view() -> PvForecastView:
         uncalibrated_p50_w=[None, 1000.0],
         calibrated_p50_w=[None, 900.0],
         calibration_active=False,
+        stale=False,
+        excluded_sources=[],
         weights=[
             BlendWeightsView(
                 horizon=HorizonBucket.H0_6,

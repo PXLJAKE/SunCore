@@ -79,6 +79,8 @@ MATERIAL_REFERENCE_WH: Final = 1000.0
 """Floor of the denominator, so a night-time forecast of a few Wh never counts as a change."""
 STALE_AFTER_REFRESHES: Final = 3
 DEFAULT_MIN_HISTORY_DAYS: Final = 30
+BLEND_STALE_AFTER: Final = timedelta(hours=12)
+"""A source whose last good fetch is older is left out of the blend while a fresher one exists."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +112,10 @@ class BlendedForecast:
     """The blend with every learnt calibration applied, active or not (``None``: no source has
     a bias table yet) - lets the user compare before the calibration switches on."""
     calibration: tuple[CalibrationState, ...]
+    stale: bool = False
+    """Every source with data is older than ``BLEND_STALE_AFTER`` (they are used anyway)."""
+    excluded: tuple[str, ...] = ()
+    """Sources left out because they are stale while a fresher one exists."""
 
     @property
     def calibration_active(self) -> bool:
@@ -451,8 +457,21 @@ class PvForecastService:
         raw: list[BlendInput] = []
         applied: list[BlendInput] = []
         learnt: list[BlendInput] = []
-        for snap in self.snapshots():
-            if snap.series is None or not _future_known(snap.series, moment):
+        usable = [
+            snap
+            for snap in self.snapshots()
+            if snap.series is not None and _future_known(snap.series, moment)
+        ]
+        fresh = [
+            snap
+            for snap in usable
+            if snap.fetched_at is not None and moment - snap.fetched_at <= BLEND_STALE_AFTER
+        ]
+        chosen = fresh or usable
+        chosen_ids = {s.source_id for s in chosen}
+        excluded = tuple(s.source_id for s in usable if s.source_id not in chosen_ids)
+        for snap in chosen:
+            if snap.series is None:
                 continue
             setting = self._settings.get(snap.source_id, SourceSettings())
             item = BlendInput(
@@ -485,6 +504,8 @@ class PvForecastService:
             uncalibrated=uncalibrated.series,
             calibrated=None if calibrated is None else calibrated.series,
             calibration=tuple(states.values()),
+            stale=bool(usable) and not fresh,
+            excluded=excluded,
         )
 
     def is_stale(self, snap: SourceSnapshot, now: datetime) -> bool:
@@ -551,6 +572,8 @@ def _blended_view(chosen: BlendedForecast, begin: datetime, end: datetime) -> Bl
         uncalibrated_p50_w=list(raw.p50.values),
         calibrated_p50_w=None if learnt is None else list(learnt.p50.values),
         calibration_active=chosen.calibration_active,
+        stale=chosen.stale,
+        excluded_sources=list(chosen.excluded),
         weights=[
             BlendWeightsView(
                 horizon=w.horizon,
@@ -577,6 +600,7 @@ def _blended_view(chosen: BlendedForecast, begin: datetime, end: datetime) -> Bl
 
 
 __all__ = [
+    "BLEND_STALE_AFTER",
     "DEFAULT_MIN_HISTORY_DAYS",
     "GAP_FILL_MAX_AGE",
     "HORIZON",

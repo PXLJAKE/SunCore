@@ -830,6 +830,13 @@
             "title": "Calibration Active",
             "type": "boolean"
           },
+          "excluded_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Excluded Sources",
+            "type": "array"
+          },
           "method": {
             "enum": [
               "weighted",
@@ -887,6 +894,10 @@
             "title": "Sources",
             "type": "array"
           },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
           "start": {
             "format": "date-time",
             "title": "Start",
@@ -930,6 +941,8 @@
           "uncalibrated_p50_w",
           "calibrated_p50_w",
           "calibration_active",
+          "stale",
+          "excluded_sources",
           "weights",
           "calibration"
         ],

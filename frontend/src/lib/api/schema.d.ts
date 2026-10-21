@@ -1015,6 +1015,8 @@ export interface components {
             calibration: components["schemas"]["CalibrationView"][];
             /** Calibration Active */
             calibration_active: boolean;
+            /** Excluded Sources */
+            excluded_sources: string[];
             /**
              * Method
              * @enum {string}
@@ -1028,6 +1030,8 @@ export interface components {
             p90_w: (number | null)[];
             /** Sources */
             sources: string[];
+            /** Stale */
+            stale: boolean;
             /**
              * Start
              * Format: date-time

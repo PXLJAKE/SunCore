@@ -234,3 +234,46 @@ async def test_the_service_blends_calibrates_and_stores_the_blend() -> None:
     assert view.blended.calibration_active
     assert [c.reason for c in view.blended.calibration] == ["active", "no_history"]
     assert view.blended.uncalibrated_p50_w != view.blended.p50_w
+
+
+async def test_a_stale_source_leaves_the_blend_while_a_fresh_one_exists() -> None:
+    clock = [datetime(2026, 6, 21, 4, tzinfo=UTC)]
+    day = days_series(date(2026, 6, 21), 2, sun(0.8))
+    old_source = Source("old.pv", QuantileSeries.deterministic(day))
+    new_source = Source("new.pv", QuantileSeries.deterministic(day))
+    service = PvForecastService(
+        [old_source, new_source],
+        clock=lambda: clock[0],
+        context=lambda: BlendContext(tz=BERLIN, plant=PLANT),
+    )
+    await service.refresh()
+    both = service.blended()
+    assert both is not None
+    assert both.result.sources == ("old.pv", "new.pv")
+    assert not both.stale
+
+    # 13 h later only new.pv still delivers
+    clock[0] += timedelta(hours=13)
+    old_source.last_report = FetchReport(FetchStatus.NO_DATA)
+    old_source._series = QuantileSeries.deterministic(
+        TimeSeries(start=day.start, step=Q, values=(), unit=SeriesUnit.W)
+    )
+    await service.refresh()
+    fresh = service.blended()
+    assert fresh is not None
+    assert fresh.result.sources == ("new.pv",)
+    assert fresh.excluded == ("old.pv",)
+    assert not fresh.stale
+
+    # another 13 h without any delivery: both are stale, used anyway and flagged
+    clock[0] += timedelta(hours=13)
+    new_source._series = old_source._series
+    await service.refresh()
+    stale = service.blended()
+    assert stale is not None
+    assert stale.stale
+    assert stale.result.sources == ("old.pv", "new.pv")
+    view = service.view(24)
+    assert view.blended is not None
+    assert view.blended.stale
+    assert view.blended.excluded_sources == []

@@ -101,6 +101,10 @@ class BlendedView(_View):
     calibrated_p50_w: list[float | None] | None
     calibration_active: bool
     """At least one source's calibration is applied."""
+    stale: bool
+    """Every source's last good fetch is older than 12 h; the blend uses them anyway."""
+    excluded_sources: list[str]
+    """Sources left out of the blend: older than 12 h while a fresher source has data."""
     weights: list[BlendWeightsView]
     calibration: list[CalibrationView]
 
