@@ -90,6 +90,8 @@ implemented, waiting for the maintainer's shadow test · **Branch:** `phase-4/d-
   - Deviation: the built-in PV fallback (Open-Meteo API, question 5) is **not shipped**; it moves
     to Phase 6 with the price fallbacks (Open-Meteo terms and live azimuth convention
     `UNVERIFIED`, plan §"Deviations during implementation").
+  - Zero-export plants (`export_limit_w` 0 or 0 %): clipping by the export limit is not detected
+    (grid ≈ 0 W also without curtailment); only the inverter-plateau rule applies.
   - Follow-ups: the weights come from the *uncalibrated* sources' MAE (a calibrated source is
     under-weighted until a calibrated accuracy is scored); no UI yet (4-H).
 

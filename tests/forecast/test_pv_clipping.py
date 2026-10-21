@@ -138,3 +138,16 @@ def test_clipped_slots_are_excluded_from_the_accuracy() -> None:
     assert len(kept) == len(all_errors) - len(flagged)
     assert min(all_errors) < -100.0
     assert min(kept) > -1e-6  # the forecast was exact wherever nothing was clipped
+
+
+def test_a_zero_export_limit_flags_nothing_by_the_export_rule() -> None:
+    """Documented decision: grid ~ 0 W is the normal state of a zero-export plant."""
+    potential = days_series(date(2026, 6, 21), 1, sun())
+    pv = TimeSeries(
+        start=potential.start,
+        step=Q,
+        values=tuple(0.6 * (v or 0.0) for v in potential.values),
+        unit=SeriesUnit.W,
+    )
+    grid = days_series(date(2026, 6, 21), 1, lambda _b: 0.0)
+    assert not clipped_slots(pv, tz=BERLIN, grid=grid, export_limit=0.0, reference=potential)

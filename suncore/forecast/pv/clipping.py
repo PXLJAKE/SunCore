@@ -17,6 +17,12 @@ sample):
     lets the PV follow the house load (PV = limit + load + battery charge), so the export pinned
     at the limit is the flat signal, and "PV flat" is not required here.
 
+    **Zero-export plants** (limit 0) are not detected by this rule, only by the plateau rule
+    below. Decision: with a limit of 0 the grid sits at about 0 W whether the PV is curtailed or
+    not - a battery charging from PV, or plain self-consumption, keeps it there too - so "export
+    at the limit while the forecast is higher" would flag every over-forecast and hide exactly
+    the errors the statistics should see.
+
 **Inverter plateau** (derived from the data)
     SunCore has no inverter AC rating in its configuration (``PvArray.inverter`` is a name), so
     none is invented: the cap is the PV level that the data itself repeats. The window's largest
