@@ -245,6 +245,9 @@ class TemplateForecastSource:
     ) -> tuple[QuantileSeries | None, FetchReport]:
         end = min(window.end, window.start + timedelta(hours=series.max_horizon_h))
         data: dict[str, Any] = {}
+        # UNVERIFIED: the date-time format Solcast's `query_forecast_data` accepts for
+        # `start_date_time`/`end_date_time` (read from source as a datetime selector; SunCore sends
+        # ISO 8601 with the UTC offset, not tested against a running integration).
         if series.start_field is not None:
             data[series.start_field] = window.start.isoformat()
         if series.end_field is not None:
