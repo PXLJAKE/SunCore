@@ -1369,6 +1369,25 @@
         "title": "ControlState",
         "type": "object"
       },
+      "DayType": {
+        "enum": [
+          "workday",
+          "weekend",
+          "holiday"
+        ],
+        "title": "DayType",
+        "type": "string"
+      },
+      "DayTypeSource": {
+        "description": "Where the day type of a date came from.",
+        "enum": [
+          "workday_sensor",
+          "check_date",
+          "weekday_rule"
+        ],
+        "title": "DayTypeSource",
+        "type": "string"
+      },
       "Decision": {
         "additionalProperties": false,
         "description": "The safety gate's verdict on an intent, as stored in the decision log.",
@@ -3800,6 +3819,42 @@
           }
         ]
       },
+      "LoadDayView": {
+        "additionalProperties": false,
+        "description": "The day type (and forecast mean temperature) of one local date of the forecast.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "day_type": {
+            "$ref": "#/components/schemas/DayType"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DayTypeSource"
+          },
+          "temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature C"
+          }
+        },
+        "required": [
+          "date",
+          "day_type",
+          "source",
+          "temperature_c"
+        ],
+        "title": "LoadDayView",
+        "type": "object"
+      },
       "LoadForecastConfig": {
         "additionalProperties": false,
         "description": "Optional inputs of the load forecast (Phase 4 WP6; additive in ``forecast`` v2).\n\n``workday``: a ``binary_sensor`` of the ``workday`` integration (``on`` = today is a\nworkday); with it the day types come from the user's own holiday calendar (today from the\nstate, other days through ``workday.check_date``), without it from the weekday (Mon-Fri\nworkday, Sat/Sun weekend, no holidays). ``weather``: a ``weather`` entity whose outside\ntemperature (state attribute ``temperature``) is recorded and whose hourly forecast\n(``weather.get_forecasts``) drives the temperature term of the load profile.",
@@ -3826,6 +3881,201 @@
           }
         },
         "title": "LoadForecastConfig",
+        "type": "object"
+      },
+      "LoadForecastView": {
+        "additionalProperties": false,
+        "description": "The base load forecast (W, P10/P50/P90 on the 15-minute grid from the current slot).\n\nThe base load is the house consumption without the configured (controllable) devices; their\ndraw is planned separately. ``quality``: ``ok`` (profiles from history), ``cold_start``\n(fewer than 3 days: a flat line at the recent mean with a wide band) or ``no_history``\n(nothing measured yet: no forecast).",
+        "properties": {
+          "clamped_slots": {
+            "title": "Clamped Slots",
+            "type": "integer"
+          },
+          "controlled_devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Controlled Devices",
+            "type": "array"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/LoadDayView"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "days_of_history": {
+            "title": "Days Of History",
+            "type": "integer"
+          },
+          "devices_unmeasured": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Devices Unmeasured",
+            "type": "object"
+          },
+          "fitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fitted At"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "hours": {
+            "title": "Hours",
+            "type": "integer"
+          },
+          "p10_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P10 W",
+            "type": "array"
+          },
+          "p50_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P50 W",
+            "type": "array"
+          },
+          "p90_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P90 W",
+            "type": "array"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/LoadQuality"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "step_s": {
+            "exclusiveMinimum": 0.0,
+            "title": "Step S",
+            "type": "integer"
+          },
+          "temperature": {
+            "$ref": "#/components/schemas/LoadTemperatureView"
+          }
+        },
+        "required": [
+          "generated_at",
+          "hours",
+          "source_id",
+          "quality",
+          "days_of_history",
+          "fitted_at",
+          "start",
+          "step_s",
+          "p10_w",
+          "p50_w",
+          "p90_w",
+          "days",
+          "temperature",
+          "controlled_devices",
+          "devices_unmeasured",
+          "clamped_slots"
+        ],
+        "title": "LoadForecastView",
+        "type": "object"
+      },
+      "LoadQuality": {
+        "enum": [
+          "ok",
+          "cold_start",
+          "no_history"
+        ],
+        "title": "LoadQuality",
+        "type": "string"
+      },
+      "LoadTemperatureView": {
+        "additionalProperties": false,
+        "description": "The temperature term of the load profile.\n\n``reason``: ``active``, ``not_configured`` (no weather entity), ``too_few_days`` (fewer\nthan 14 days with a recorded temperature) or ``no_spread`` (the temperatures varied too\nlittle to learn anything).",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "cooling_w_per_k": {
+            "title": "Cooling W Per K",
+            "type": "number"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "heating_w_per_k": {
+            "title": "Heating W Per K",
+            "type": "number"
+          },
+          "reason": {
+            "enum": [
+              "active",
+              "not_configured",
+              "too_few_days",
+              "no_spread"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "reason",
+          "days",
+          "heating_w_per_k",
+          "cooling_w_per_k"
+        ],
+        "title": "LoadTemperatureView",
         "type": "object"
       },
       "Mode": {
@@ -7516,7 +7766,7 @@
     },
     "/api/v1/forecast/accuracy": {
       "get": {
-        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -\nforecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;\nclipped quarter hours are excluded; computed nightly.",
+        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -\nforecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;\nclipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is\nthe base load forecast (scored on every quarter hour, not only in daylight).",
         "operationId": "forecast_accuracy_api_v1_forecast_accuracy_get",
         "responses": {
           "200": {
@@ -7531,6 +7781,49 @@
           }
         },
         "summary": "Forecast Accuracy"
+      }
+    },
+    "/api/v1/forecast/load": {
+      "get": {
+        "description": "The base load forecast (house consumption without the configured devices; W,\nP10/P50/P90 on the 15-minute grid from the current quarter hour), learnt from the\nhistory per day type (workday/weekend/holiday) with an optional temperature term; its\nquality (``ok``, ``cold_start``, ``no_history``), the day type of every forecast date\nand where it came from, and how many quarter hours lacked a device measurement.",
+        "operationId": "forecast_load_api_v1_forecast_load_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 48,
+              "maximum": 96,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoadForecastView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Forecast Load"
       }
     },
     "/api/v1/forecast/pv": {

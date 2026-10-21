@@ -52,7 +52,8 @@ from suncore.core.signals import Quality
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, PreviewTooLargeError
 from suncore.forecast.accuracy import accuracy_view
-from suncore.forecast.views import ForecastAccuracyView, PvForecastView
+from suncore.forecast.load_service import LoadForecastService
+from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView
 from suncore.storage import (
     HistoryEntry,
     HistoryEntryNotFoundError,
@@ -213,6 +214,8 @@ class FakeServices:
         self.pv_view = PvForecastView(generated_at=NOW, hours=48, sources=[], blended=None)
         self.accuracy = accuracy_view([], {})
         self.pv_hours: list[int] = []
+        self.load_view = LoadForecastService(None, None, clock=lambda: NOW).view(48)
+        self.load_hours: list[int] = []
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
         self.pv_hours.append(hours)
@@ -220,6 +223,10 @@ class FakeServices:
 
     async def forecast_accuracy(self) -> ForecastAccuracyView:
         return self.accuracy
+
+    async def load_forecast(self, hours: int) -> LoadForecastView:
+        self.load_hours.append(hours)
+        return self.load_view
 
     async def health(self) -> HealthReport:
         self.health_calls += 1

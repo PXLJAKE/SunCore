@@ -381,9 +381,34 @@ export interface paths {
          * @description MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14
          *     days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
          *     forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
-         *     clipped quarter hours are excluded; computed nightly.
+         *     clipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is
+         *     the base load forecast (scored on every quarter hour, not only in daylight).
          */
         get: operations["forecast_accuracy_api_v1_forecast_accuracy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/forecast/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Load
+         * @description The base load forecast (house consumption without the configured devices; W,
+         *     P10/P50/P90 on the 15-minute grid from the current quarter hour), learnt from the
+         *     history per day type (workday/weekend/holiday) with an optional temperature term; its
+         *     quality (``ok``, ``cold_start``, ``no_history``), the day type of every forecast date
+         *     and where it came from, and how many quarter hours lacked a device measurement.
+         */
+        get: operations["forecast_load_api_v1_forecast_load_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1224,6 +1249,17 @@ export interface components {
             /** Ts */
             ts: string | null;
         };
+        /**
+         * DayType
+         * @enum {string}
+         */
+        DayType: "workday" | "weekend" | "holiday";
+        /**
+         * DayTypeSource
+         * @description Where the day type of a date came from.
+         * @enum {string}
+         */
+        DayTypeSource: "workday_sensor" | "check_date" | "weekday_rule";
         /**
          * Decision
          * @description The safety gate's verdict on an intent, as stored in the decision log.
@@ -2076,6 +2112,21 @@ export interface components {
         };
         LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"] | components["schemas"]["ControlMessage"];
         /**
+         * LoadDayView
+         * @description The day type (and forecast mean temperature) of one local date of the forecast.
+         */
+        LoadDayView: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            day_type: components["schemas"]["DayType"];
+            source: components["schemas"]["DayTypeSource"];
+            /** Temperature C */
+            temperature_c: number | null;
+        };
+        /**
          * LoadForecastConfig
          * @description Optional inputs of the load forecast (Phase 4 WP6; additive in ``forecast`` v2).
          *
@@ -2089,6 +2140,80 @@ export interface components {
         LoadForecastConfig: {
             weather?: components["schemas"]["EntityRef"] | null;
             workday?: components["schemas"]["EntityRef"] | null;
+        };
+        /**
+         * LoadForecastView
+         * @description The base load forecast (W, P10/P50/P90 on the 15-minute grid from the current slot).
+         *
+         *     The base load is the house consumption without the configured (controllable) devices; their
+         *     draw is planned separately. ``quality``: ``ok`` (profiles from history), ``cold_start``
+         *     (fewer than 3 days: a flat line at the recent mean with a wide band) or ``no_history``
+         *     (nothing measured yet: no forecast).
+         */
+        LoadForecastView: {
+            /** Clamped Slots */
+            clamped_slots: number;
+            /** Controlled Devices */
+            controlled_devices: string[];
+            /** Days */
+            days: components["schemas"]["LoadDayView"][];
+            /** Days Of History */
+            days_of_history: number;
+            /** Devices Unmeasured */
+            devices_unmeasured: {
+                [key: string]: number;
+            };
+            /** Fitted At */
+            fitted_at: string | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Hours */
+            hours: number;
+            /** P10 W */
+            p10_w: (number | null)[];
+            /** P50 W */
+            p50_w: (number | null)[];
+            /** P90 W */
+            p90_w: (number | null)[];
+            quality: components["schemas"]["LoadQuality"];
+            /** Source Id */
+            source_id: string;
+            /** Start */
+            start: string | null;
+            /** Step S */
+            step_s: number;
+            temperature: components["schemas"]["LoadTemperatureView"];
+        };
+        /**
+         * LoadQuality
+         * @enum {string}
+         */
+        LoadQuality: "ok" | "cold_start" | "no_history";
+        /**
+         * LoadTemperatureView
+         * @description The temperature term of the load profile.
+         *
+         *     ``reason``: ``active``, ``not_configured`` (no weather entity), ``too_few_days`` (fewer
+         *     than 14 days with a recorded temperature) or ``no_spread`` (the temperatures varied too
+         *     little to learn anything).
+         */
+        LoadTemperatureView: {
+            /** Active */
+            active: boolean;
+            /** Cooling W Per K */
+            cooling_w_per_k: number;
+            /** Days */
+            days: number;
+            /** Heating W Per K */
+            heating_w_per_k: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "active" | "not_configured" | "too_few_days" | "no_spread";
         };
         /**
          * Mode
@@ -4059,6 +4184,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ForecastAccuracyView"];
+                };
+            };
+        };
+    };
+    forecast_load_api_v1_forecast_load_get: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoadForecastView"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

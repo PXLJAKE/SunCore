@@ -440,12 +440,22 @@ def _shrink(
     return tuple(out)
 
 
-def _cold_start(base: TimeSeries, now: datetime, days: int) -> LoadModel:
+def _cold_start(
+    base: TimeSeries, now: datetime, days: int, *, temperature_configured: bool
+) -> LoadModel:
+    term = TemperatureTerm(
+        active=False, reason="too_few_days" if temperature_configured else "not_configured"
+    )
     since = now - timedelta(days=COLD_START_RECENT_DAYS)
     recent = [v for begin, _, v in base.slots() if v is not None and since <= begin < now]
     if not recent:
-        return LoadModel(quality=LoadQuality.NO_HISTORY, days=days)
-    return LoadModel(quality=LoadQuality.COLD_START, days=days, flat_w=sum(recent) / len(recent))
+        return LoadModel(quality=LoadQuality.NO_HISTORY, days=days, temperature=term)
+    return LoadModel(
+        quality=LoadQuality.COLD_START,
+        days=days,
+        flat_w=sum(recent) / len(recent),
+        temperature=term,
+    )
 
 
 def _profiles(
@@ -544,7 +554,7 @@ def fit_load_model(
     today = local_midnight(now, tz).astimezone(UTC)
     days = [d for d in day_values(base, tz, today) if d.coverage >= DAY_COVERAGE]
     if len(days) < COLD_START_MIN_DAYS:
-        return _cold_start(base, now, len(days))
+        return _cold_start(base, now, len(days), temperature_configured=temperature_configured)
     today_date = now.astimezone(tz).date()
     weights = {d.day: recency_weight((today_date - d.day).days, half_life_days) for d in days}
     kinds = {d.day: day_types.get(d.day, weekday_rule(d.day)) for d in days}

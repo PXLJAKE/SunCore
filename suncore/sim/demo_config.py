@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from suncore.core.battery import BatterySettings
+from suncore.core.battery import BatteryModel, BatterySettings
 from suncore.core.config import (
     BatteryTarget,
     DevicesConfig,
@@ -21,6 +21,7 @@ from suncore.core.config import (
     ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
+    LoadForecastConfig,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -42,6 +43,8 @@ from suncore.sim.demo_devices import (
     POOL_SWITCH_ID,
     PRICE_ID,
     ROD_LIMIT_ID,
+    WEATHER_ID,
+    WORKDAY_ID,
 )
 from suncore.storage import ConfigStore
 from suncore.templates import DeviceTemplate, TemplateCatalog
@@ -196,6 +199,9 @@ async def seed_demo_config(config: ConfigStore, catalog: TemplateCatalog) -> Non
                     template_id="forecast_solar.pv", config_entry_id="sim_entry_forecast_solar"
                 ),
             ],
+            load=LoadForecastConfig(
+                workday=EntityRef(entity_id=WORKDAY_ID), weather=EntityRef(entity_id=WEATHER_ID)
+            ),
         ),
     )
     await config.put("devices", demo_devices(catalog))
@@ -207,6 +213,12 @@ async def seed_demo_config(config: ConfigStore, catalog: TemplateCatalog) -> Non
         ),
     )
     await config.put("operation", OperationConfig(mode=OperatingMode.SHADOW))
-    # Observe only: the demo battery is read, never written; the model follows with WP8.
-    await config.put("battery", BatterySettings())
+    # Observe only (no adapter): the demo battery is read, never written. The model (the
+    # simulator's 10 kWh, 5 kW battery) lets the risk model show its buffer and evening target.
+    await config.put(
+        "battery",
+        BatterySettings(
+            model=BatteryModel(capacity_wh=10_000.0, max_charge_w=5_000.0, max_discharge_w=5_000.0)
+        ),
+    )
     await config.put("wizard", WizardState(completed=True, completed_steps=list(WIZARD_STEPS)))

@@ -20,7 +20,8 @@ from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
 from suncore.forecast.accuracy import accuracy_view
-from suncore.forecast.views import ForecastAccuracyView, PvForecastView
+from suncore.forecast.load_service import LoadForecastService
+from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView
 from suncore.storage import HistoryEntry
 from suncore.templates import TemplateCatalog
 
@@ -85,6 +86,9 @@ class StubServices:
 
     async def forecast_accuracy(self) -> ForecastAccuracyView:
         return accuracy_view([], {})
+
+    async def load_forecast(self, hours: int) -> LoadForecastView:
+        return LoadForecastService(None, None, clock=lambda: datetime.now(UTC)).view(hours)
 
     def control_state(self) -> ControlState:
         return ControlState(

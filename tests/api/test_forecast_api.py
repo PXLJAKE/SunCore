@@ -165,3 +165,16 @@ async def test_the_openapi_document_describes_both_routes(services: FakeServices
     accuracy = schema["paths"]["/api/v1/forecast/accuracy"]["get"]["description"]
     assert "actual -" in accuracy
     assert "blended" in accuracy
+
+
+async def test_load_forecast_endpoint() -> None:
+    services = FakeServices()
+    async with client_for(create_app(services)) as client:
+        response = await client.get("/api/v1/forecast/load?hours=12")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source_id"] == "load_profile"
+        assert body["quality"] == "no_history"
+        assert body["temperature"]["reason"] == "not_configured"
+        assert (await client.get("/api/v1/forecast/load?hours=0")).status_code == 422
+    assert services.load_hours == [12]

@@ -50,7 +50,7 @@ import itertools
 import logging
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Any, Final
 
@@ -82,6 +82,8 @@ from suncore.sim.demo_devices import (
     FORECAST_TODAY_ID,
     FORECAST_TOMORROW_ID,
     SIM_DEVICE_ENTITY_IDS,
+    WEATHER_ID,
+    WORKDAY_ID,
     DemoDevices,
     sim_price,
 )
@@ -468,7 +470,7 @@ class FakeHAConnection:
         service: str,
         data: Mapping[str, Any] | None = None,
         *,
-        target: Mapping[str, Any] | None = None,  # noqa: ARG002
+        target: Mapping[str, Any] | None = None,
         min_interval_s: float | None = None,
         max_wait_s: float = 0.0,
         rate_key: str | None = None,
@@ -494,6 +496,13 @@ class FakeHAConnection:
                 if day is not None:
                     slots_data.extend(day.attributes.get("detailedForecast", []))
             return {"data": _solcast_query_window(slots_data, data)}
+        entity_id = str((target or {}).get("entity_id", ""))
+        demo = self.demo
+        if (domain, service) == ("weather", "get_forecasts") and entity_id == WEATHER_ID:
+            return {entity_id: {"forecast": demo.hourly_weather(now)}}
+        if (domain, service) == ("workday", "check_date") and entity_id == WORKDAY_ID:
+            asked = date.fromisoformat(str((data or {}).get("check_date")))
+            return {entity_id: {"workday": demo.is_workday(asked)}}
         raise CommandError("not_found", f"Service {domain}.{service} not found.")
 
     def entity_metas(self) -> list[EntityMeta]:

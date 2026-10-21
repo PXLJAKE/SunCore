@@ -395,6 +395,10 @@ class LoadForecastService:
 
     # --- refresh ----------------------------------------------------------------------
 
+    def request_refit(self) -> None:
+        """Refit at the next refresh (e.g. after the history was rebuilt)."""
+        self._fitted_at = None
+
     def _forecast_days(self, now: datetime, tz: tzinfo) -> list[date]:
         first = now.astimezone(tz).date()
         last = (now + self._horizon).astimezone(tz).date()
@@ -422,6 +426,8 @@ class LoadForecastService:
                 tz = self._tz()
                 if (
                     self._fitted_at is None
+                    or self._model is None
+                    or self._model.quality is not LoadQuality.OK  # little data: refit cheaply
                     or now - self._fitted_at >= self._refit_interval
                     or self._fitted_at.astimezone(tz).date() != now.astimezone(tz).date()
                 ):
