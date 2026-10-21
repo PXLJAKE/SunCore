@@ -17,9 +17,11 @@ own P50, bucketed into :class:`WeatherClass`. Two ways to get the clear-sky esti
 
 ``daily_peak`` (fallback: no location or an array without ``kwp``)
     No sun model is possible, so the class is a **day-level** index: the forecast's peak of the
-    local day divided by a reference peak (the largest daily forecast peak seen so far, kept in
-    the bias table, or of the series itself). All daytime slots of a day share the class; a
-    slot is daytime when the forecast exceeds 2 % of the reference peak.
+    local day divided by a reference peak: the 95th percentile of the daily forecast peaks the
+    bias table has stored (up to a year; a percentile, not the maximum, so one absurd forecast
+    does not push every later day into ``overcast``), or - without stored peaks - of the
+    series' own daily peaks. All daytime slots of a day share the class; a slot is daytime when
+    the forecast exceeds 2 % of the reference peak.
 
 The exact numbers matter little: calibration only needs the class to be a *consistent*
 function of the forecast, because the same function sorts the learning samples and the slots
@@ -187,6 +189,18 @@ def clear_sky_slot_w(plant: PlantGeometry, start: datetime, step: timedelta) -> 
     return sum(clear_sky_power_w(plant, p) for p in points) / 3
 
 
+PEAK_PERCENTILE: Final = 0.95
+
+
+def peak_reference(peaks: Sequence[float]) -> float | None:
+    """The ``PEAK_PERCENTILE`` (nearest rank) of positive daily peaks, ``None`` without any."""
+    ordered = sorted(p for p in peaks if p > 0)
+    if not ordered:
+        return None
+    rank = max(1, math.ceil(PEAK_PERCENTILE * len(ordered)))
+    return ordered[rank - 1]
+
+
 def daily_peaks(series: TimeSeries, tz: tzinfo) -> dict[date, float]:
     """Largest known value per local day."""
     peaks: dict[date, float] = {}
@@ -208,7 +222,7 @@ def classify_slots(
     """The weather class of every slot of ``forecast`` (P50, W); ``None`` = night/unknown.
 
     ``plant`` selects the mode (module doc); ``peak_reference_w`` is the ``daily_peak`` mode's
-    reference (the larger of it and the series' own largest daily peak is used).
+    reference (``None``: the percentile of the series' own daily peaks).
     """
     if plant is not None:
         twilight = TWILIGHT_SHARE * plant.total_kwp * 1000
@@ -218,7 +232,7 @@ def classify_slots(
             out.append(None if value is None or clear < twilight else classify_kt(value / clear))
         return out
     peaks = daily_peaks(forecast, tz)
-    reference = max([peak_reference_w or 0.0, *peaks.values()])
+    reference = peak_reference_w or peak_reference(list(peaks.values())) or 0.0
     if reference <= 0:
         return [None] * len(forecast)
     result: list[WeatherClass | None] = []
@@ -247,6 +261,7 @@ __all__ = [
     "clear_sky_power_w",
     "clear_sky_slot_w",
     "daily_peaks",
+    "peak_reference",
     "plant_geometry",
     "sun_position",
 ]

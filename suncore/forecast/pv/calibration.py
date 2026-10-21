@@ -49,6 +49,7 @@ from suncore.forecast.pv.clearsky import (
     classifier_mode,
     classify_slots,
     daily_peaks,
+    peak_reference,
 )
 
 log = structlog.get_logger(__name__)
@@ -62,6 +63,7 @@ SHRINK_K: Final = 16.0
 """Quarter hours at which a cell's factor goes half-way from 1 to its raw ratio."""
 DECAY: Final = 0.98
 """Per learned day with samples in the cell (half-life about 34 such days)."""
+PEAK_HISTORY_DAYS: Final = 365
 MIN_SAMPLE_W: Final = 50.0
 """Slots with a smaller forecast (dawn, dusk) carry no usable ratio."""
 
@@ -129,8 +131,13 @@ class BiasTable:
     days_with_data: int = 0
     learned_until: datetime | None = None
     """End of the last day that was processed (with or without samples)."""
-    peak_reference_w: float | None = None
-    """Largest daily forecast peak seen (reference of the ``daily_peak`` classifier)."""
+    daily_peaks: tuple[float, ...] = ()
+    """Forecast peak of every learnt day, newest last (at most ``PEAK_HISTORY_DAYS``)."""
+
+    @property
+    def peak_reference_w(self) -> float | None:
+        """Reference of the ``daily_peak`` classifier: 95th percentile of ``daily_peaks``."""
+        return peak_reference(self.daily_peaks)
 
     @property
     def samples(self) -> float:
@@ -274,15 +281,15 @@ def learn_day(
             forecast_wh=old.forecast_wh * decay + add.forecast_wh,
             actual_wh=old.actual_wh * decay + add.actual_wh,
         )
-    peaks = daily_peaks(forecast, tz).values()
-    peak = max([table.peak_reference_w or 0.0, *peaks])
+    new_peaks = tuple(p for p in daily_peaks(forecast, tz).values() if p > 0)
+    history = (*table.daily_peaks, *new_peaks)[-PEAK_HISTORY_DAYS:]
     return BiasTable(
         source_id=table.source_id,
         mode=mode,
         cells=cells,
         days_with_data=table.days_with_data + (1 if day else 0),
         learned_until=day_end,
-        peak_reference_w=peak if peak > 0 else None,
+        daily_peaks=history,
     )
 
 
@@ -294,7 +301,7 @@ def encode(table: BiasTable) -> dict[str, Any]:
         "mode": table.mode,
         "days_with_data": table.days_with_data,
         "learned_until": None if table.learned_until is None else table.learned_until.isoformat(),
-        "peak_reference_w": table.peak_reference_w,
+        "daily_peaks": list(table.daily_peaks),
         "cells": {k: [c.n, c.forecast_wh, c.actual_wh] for k, c in sorted(table.cells.items())},
     }
 
@@ -309,8 +316,10 @@ def decode(source_id: str, payload: Mapping[str, Any], version: int) -> BiasTabl
             raise ValueError(mode)
         until_raw = payload.get("learned_until")
         until = None if until_raw is None else datetime.fromisoformat(str(until_raw))
-        peak_raw = payload.get("peak_reference_w")
-        peak = None if peak_raw is None else float(peak_raw)
+        peaks_raw = payload.get("daily_peaks", [])
+        if not isinstance(peaks_raw, list):
+            raise TypeError("daily_peaks")
+        peaks = tuple(float(v) for v in peaks_raw)
         raw_cells = payload["cells"]
         if not isinstance(raw_cells, Mapping):
             raise TypeError("cells")
@@ -322,7 +331,7 @@ def decode(source_id: str, payload: Mapping[str, Any], version: int) -> BiasTabl
     except (KeyError, ValueError, TypeError):
         log.warning("forecast.bias.unreadable", source=source_id)
         return None
-    return BiasTable(source_id, mode, cells, days, until, peak)
+    return BiasTable(source_id, mode, cells, days, until, peaks)
 
 
 async def save_bias(learned: LearnedParams, table: BiasTable) -> None:

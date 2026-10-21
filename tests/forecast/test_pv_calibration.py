@@ -34,6 +34,7 @@ from suncore.forecast.pv.clearsky import (
     WeatherClass,
     classify_slots,
     clear_sky_slot_w,
+    peak_reference,
     plant_geometry,
 )
 from suncore.storage.learned import NS_FORECAST_BIAS as STORAGE_NS
@@ -319,3 +320,21 @@ def test_unreadable_payloads_are_skipped() -> None:
     assert decode("s", {"mode": "nope"}, 1) is None
     assert decode("s", encode(new_table("s", SOUTH)), 2) is None
     assert decode("s", {"mode": "clear_sky", "cells": [], "days_with_data": 1}, 1) is None
+
+
+def test_one_absurd_forecast_peak_does_not_move_the_reference() -> None:
+    peaks = [5000.0 + 10 * i for i in range(40)] + [50_000.0]
+    table = BiasTable("s", "daily_peak", daily_peaks=tuple(peaks))
+    reference = table.peak_reference_w
+    assert reference is not None
+    assert 5000.0 < reference < 5400.0
+    assert peak_reference([]) is None
+
+
+def test_daily_peaks_are_kept_for_a_year_and_survive_storage() -> None:
+    table = learn_days(new_table("b", None), 3, plant=None)
+    assert len(table.daily_peaks) == 3
+    assert decode("b", encode(table), 1) == table
+    many = BiasTable("b", "daily_peak", daily_peaks=tuple(float(i + 1) for i in range(400)))
+    grown = learn_days(many, 1, plant=None)
+    assert len(grown.daily_peaks) == 365

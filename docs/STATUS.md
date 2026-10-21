@@ -80,7 +80,8 @@ implemented, waiting for the maintainer's shadow test · **Branch:** `phase-4/d-
     slots, applied only after `min_history_days` = 30 days with data, stored in `forecast_bias`);
     `clearsky.py` (weather class = clear-sky index of the forecast itself: sun position + Haurwitz
     clear sky on the configured arrays with HA's `latitude`/`longitude` from `get_config`;
-    fallback without location or `kwp`: the day's forecast peak against the largest peak seen);
+    fallback without location or `kwp`: the day's forecast peak against the 95th percentile of
+    the stored daily peaks);
     `clipping.py` (grid export at the export limit while the forecast is higher; an inverter
     plateau derived from the data – no AC-rating field exists, none was invented); `learning.py`
     (nightly order clipping → accuracy incl. `blended` → bias tables). The service blends on the
