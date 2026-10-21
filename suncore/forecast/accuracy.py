@@ -30,6 +30,7 @@ read as a forecast error; :mod:`suncore.forecast.pv.clipping` detects them and t
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -179,20 +180,27 @@ async def compute_accuracy(
     sums = {bucket: _Sums() for bucket, _, _ in BUCKETS}
     for index, issued in enumerate(issues):
         following = issues[index + 1] if index + 1 < len(issues) else None
+        ranges: list[tuple[HorizonBucket, datetime, datetime]] = []
         for bucket, lower, upper in BUCKETS:
             lo = _ceil(max(start, issued + lower))
             upper_edge = min(end, issued + upper)
             if following is not None:
                 upper_edge = min(upper_edge, following + lower)  # then a newer issue is judged
             hi = _ceil(upper_edge)
-            if hi <= lo:
-                continue
-            # A forecast slot may start before ``lo`` and still cover its first quarter hour.
-            forecast = await data.read_forecast(
-                source_id, "pv", issued, TimeRange(start=lo - timedelta(hours=1), end=hi)
-            )
-            if forecast is None:
-                continue
+            if hi > lo:
+                ranges.append((bucket, lo, hi))
+        if not ranges:
+            continue
+        # One read per issue over the union of its buckets; a forecast slot may start before
+        # the first quarter hour and still cover it.
+        first = min(lo for _, lo, _ in ranges)
+        last = max(hi for _, _, hi in ranges)
+        forecast = await data.read_forecast(
+            source_id, "pv", issued, TimeRange(start=first - timedelta(hours=1), end=last)
+        )
+        if forecast is None:
+            continue
+        for bucket, lo, hi in ranges:
             measured = _slice(actual, lo, hi)
             for error in quarter_errors(forecast.p50, measured, is_clipped=is_clipped):
                 sums[bucket].add(error)
@@ -320,6 +328,7 @@ async def update_accuracy(
     the others (it is logged and keeps last night's result)."""
     results: dict[str, list[AccuracyRecord]] = {}
     for source_id in source_ids:
+        began = time.perf_counter()  # runtime for the log only, never for the statistics
         try:
             records = await compute_accuracy(
                 data, source_id, now, window_days=window_days, is_clipped=is_clipped
@@ -328,6 +337,12 @@ async def update_accuracy(
         except Exception:
             log.exception("forecast.accuracy.failed", source=source_id)
             continue
+        log.info(
+            "forecast.accuracy.source",
+            source=source_id,
+            records=len(records),
+            runtime_ms=round((time.perf_counter() - began) * 1000, 1),
+        )
         results[source_id] = records
     return results
 

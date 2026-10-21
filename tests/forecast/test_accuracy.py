@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -217,3 +218,23 @@ async def test_one_failing_source_does_not_stop_the_others(learned: LearnedParam
             return None
 
     assert await update_accuracy(Broken(), learned, ["a.pv", "b.pv"], NOW) == {}  # type: ignore[arg-type]
+
+
+async def test_every_issue_is_read_once_for_all_its_buckets(store: TimeseriesStore) -> None:
+    await measure(store, [1000.0] * 96)
+    await issue(store, D - timedelta(hours=3), 900.0)  # 0-6 h, 6-24 h and 24-48 h of day D
+    calls: list[datetime] = []
+    original = store.read_forecast
+
+    async def counting(source_id: str, kind: Any, issued: datetime, window: Any = None) -> Any:
+        calls.append(issued)
+        return await original(source_id, kind, issued, window)
+
+    store.read_forecast = counting  # type: ignore[method-assign]
+    records = await compute_accuracy(store, "solcast.pv", NOW, window_days=1)
+    assert {r.horizon for r in records} == {
+        HorizonBucket.H0_6,
+        HorizonBucket.H6_24,
+        HorizonBucket.H24_48,
+    }
+    assert len(calls) == 1  # one read for all three buckets
