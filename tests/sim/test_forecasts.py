@@ -41,7 +41,9 @@ def test_open_meteo_and_forecast_solar_shapes() -> None:
     assert len(wh) == 96
     assert all(v >= 0 for v in wh.values())
     hours = model().forecast_solar_wh_hours(NOW)
-    assert all(v != 0 or k.endswith("T00:00:00" + k[-6:]) for k, v in hours.items())
+    # only a zero at local midnight is dropped: hours are contiguous apart from midnight
+    assert not any(v == 0 and k.endswith("T00:00:00" + k[-6:]) for k, v in hours.items())
+    assert any(v == 0 for v in hours.values())  # night zeros are listed
     half = model().solcast_wh_hours(NOW, 48, NOW)
     assert len(half) == 96
     points = model().template_points(MIDNIGHT, 2, NOW)

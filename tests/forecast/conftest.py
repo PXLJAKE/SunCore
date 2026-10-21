@@ -9,7 +9,7 @@ The shapes are the ones ``docs/research/integrations.md`` "PV forecasts" documen
   ``period_start`` in Home Assistant's time zone with the local offset;
 * Solcast action ``query_forecast_data`` (lines 67-74): ``{"data": [same entries]}``;
 * Forecast.Solar via ``energy/solar_forecast`` (lines 92-109): ``{"wh_hours": {iso: Wh}}``,
-  hourly, zero values dropped except at midnight;
+  hourly, only a zero value at exactly 00:00:00 dropped;
 * Open-Meteo Solar Forecast ``wh_period_15m`` (lines 133-144): ``{iso interval start: Wh}``,
   15 minutes, fixed UTC offset of the location.
 """

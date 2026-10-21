@@ -433,7 +433,7 @@ class FakeHAConnection:
     async def energy_solar_forecast(self) -> Mapping[str, Mapping[str, float]]:
         """``energy/solar_forecast``: the entries linked in the demo's Energy dashboard.
 
-        ``sim_entry_forecast_solar`` (hourly Wh, zeros dropped except midnight, like Forecast.Solar)
+        ``sim_entry_forecast_solar`` (hourly Wh, a zero at midnight dropped, like Forecast.Solar)
         and ``sim_entry_solcast_solar`` (half-hourly Wh of the P50). ``{}`` while the dashboard is
         not configured (:meth:`energy_get_prefs` returns ``None``).
         """

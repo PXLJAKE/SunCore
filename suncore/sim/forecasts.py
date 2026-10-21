@@ -9,8 +9,9 @@ statistics have something to show:
 
 * ``solcast``: unbiased, 6 % noise, P10 = 0.6 x P50 and P90 = min(clear sky, 1.15 x P50);
 * ``open_meteo``: 6 % too low, 8 % noise, no quantiles;
-* ``forecast_solar``: 4 % too high, 7 % noise, hourly Wh, zero hours dropped except midnight
-  (the behaviour of the real integration's ``energy`` platform, ``forecast_solar/energy.py``);
+* ``forecast_solar``: 4 % too high, 7 % noise, hourly Wh, only a zero hour at local midnight is
+  dropped (the real integration's ``energy`` platform, ``forecast_solar/energy.py``, keeps
+  ``val != 0 or (h, m, s) != (0, 0, 0)``);
 * ``template``: the generic template's own contract, points ``{start, power_w}`` (30 min).
 
 The noise grows with the lead time (half at lead 0, full at 48 h), and a forecast issued in a
@@ -117,14 +118,16 @@ class SimForecastModel:
     # --- Forecast.Solar --------------------------------------------------------------
 
     def forecast_solar_wh_hours(self, now: datetime, hours: int = 48) -> dict[str, float]:
-        """Hourly Wh from the current hour on; zero hours are dropped except local midnight."""
+        """Hourly Wh from the current hour on; only a zero hour starting at local midnight is
+        dropped (like ``forecast_solar/energy.py``)."""
         first = now.replace(minute=0, second=0, microsecond=0)
         out: dict[str, float] = {}
         for i in range(hours):
             start = first + timedelta(hours=i)
             _, p50 = self._powers_w("forecast_solar", start, 60, now)
             wh = float(round(p50))
-            if wh != 0 or (start.hour, start.minute, start.second) == (0, 0, 0):
+            midnight = (start.hour, start.minute, start.second) == (0, 0, 0)
+            if not (wh == 0 and midnight):
                 out[start.isoformat()] = wh
         return out
 

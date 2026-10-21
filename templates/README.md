@@ -87,8 +87,8 @@ unverified: []                     # facts you could not verify; required if tes
   (Forecast.Solar): the template names no entity, the user binds the source to a config entry
   (`forecast.sources[].config_entry_id`; without one the only entry the command returns is
   taken, several entries without a choice make the source report `ambiguous_entry`).
-  `missing_is_zero: true` reads a period missing between two known ones as 0 (the integration
-  drops zero values). For an attribute or field names the built-in templates do not cover, copy
+  `missing_is_zero: true` reads a period missing between two known ones as 0 (Forecast.Solar's
+  integration drops a zero value that starts exactly at midnight). For an attribute or field names the built-in templates do not cover, copy
   `generic.pv_forecast` into `/data/templates` and change `attribute`, `fields`, `shape`,
   `list_path` and `resolution_min`.
 - Battery templates (`kind: battery`) list the readable and writable roles (for example

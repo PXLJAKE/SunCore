@@ -179,7 +179,8 @@ def test_refining_the_hourly_forecast_onto_the_planning_grid_keeps_the_energy() 
 
 def test_missing_is_zero_fills_between_known_periods_only() -> None:
     start = datetime(2026, 6, 21, 4, tzinfo=UTC)
-    # Forecast.Solar drops zero hours: 04:00 and 07:00 known, 05:00 and 06:00 dropped
+    # two missing periods between known ones are read as 0 (the general rule; Forecast.Solar
+    # itself only ever drops the zero at 00:00:00)
     points = [RawPoint(start, 100.0), RawPoint(start + 3 * HOUR, 300.0)]
     filled = build_quantiles(points, Unit.WH, HOUR, missing_is_zero=True)
     assert filled is not None
@@ -193,7 +194,7 @@ def test_missing_is_zero_fills_between_known_periods_only() -> None:
 
 def test_infer_step_from_spacing_never_assumes() -> None:
     start = datetime(2026, 6, 21, 4, tzinfo=UTC)
-    hourly = [RawPoint(start + HOUR * i, 1.0) for i in (0, 1, 3, 4)]  # a dropped zero hour
+    hourly = [RawPoint(start + HOUR * i, 1.0) for i in (0, 1, 3, 4)]  # one missing hour
     assert infer_step(hourly, QUARTER) == HOUR
     half = [RawPoint(start + HALF_HOUR * i, 1.0) for i in range(3)]
     assert infer_step(half, HOUR) == HALF_HOUR

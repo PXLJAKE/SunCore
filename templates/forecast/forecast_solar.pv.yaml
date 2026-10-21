@@ -26,7 +26,8 @@ unverified:
   - "Read from the integration source (core 5cfe9aad, forecast-solar 5.0.1) only; not observed on a running Home Assistant."
   - "Whether the vendor API labels `watt_hours_period` keys as period start or end (api.forecast.solar unreachable); the HA library, and so SunCore, treats a key as the start."
   - "Period length: hourly in the free tier (inferred from the key spacing); finer periods in paid plans are unverified."
-  - "The integration drops 0 Wh entries (except at 00:00:00): a period missing between two known ones is read as 0 Wh (`missing_is_zero`). Before the first and after the last entry nothing is assumed."
+  - "The integration drops only a 0 Wh entry starting exactly at 00:00:00 (`energy.py`: `val != 0 or not midnight`); every other zero is listed."
+  - "A period missing between two known ones is read as 0 Wh (`missing_is_zero`); before the first and after the last entry nothing is assumed."
   - "Whether the vendor API itself ever omits a non-zero period is unverified."
   - "Listed by `energy/solar_forecast` only if linked in the Energy dashboard; the user picks the config entry (`config_entry_id`) unless there is exactly one."
 forecast_kind: pv

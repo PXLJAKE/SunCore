@@ -279,7 +279,7 @@ async def _check_forecast(
         stamps = sorted(datetime.fromisoformat(k) for k in hours)
         assert all(s.utcoffset() is not None for s in stamps)
         assert all(v >= 0 for v in hours.values())
-        # The integration drops zero hours: spacing is a multiple of the period.
+        # The integration drops only a zero at 00:00:00: spacing is a multiple of the period.
         assert {
             (b - a).total_seconds() / 60 % template.resolution_min
             for a, b in itertools.pairwise(stamps)

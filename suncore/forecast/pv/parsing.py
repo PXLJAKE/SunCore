@@ -14,8 +14,8 @@ Every function is pure. The shapes it understands are the ones the research docu
 A point is the value of the period that **starts** at its timestamp. The result lies on the
 source's native grid (one regular segment, absolute time, so a DST day with 23 or 25 local
 hours needs no special case); a missing period is ``None``, never filled with a neighbour's
-value (the one exception is ``missing_is_zero``: Forecast.Solar's integration drops zero
-values, so a period missing between two known ones is 0).
+value (the one exception is ``missing_is_zero``: Forecast.Solar's integration drops a zero
+value that starts exactly at midnight, so a period missing between two known ones is 0).
 
 Units: power (W, kW) is the average power over the slot and kept; energy (Wh, kWh) per slot is
 converted with ``W = Wh * 3600 / slot_seconds``, which preserves the energy exactly.

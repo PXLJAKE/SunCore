@@ -389,7 +389,7 @@ class DemoDevices:
     def solar_forecast(self, now: datetime) -> dict[str, dict[str, float]]:
         """``energy/solar_forecast`` of the demo: the two entries linked in the Energy dashboard.
 
-        ``sim_entry_forecast_solar``: hourly Wh, zeros dropped except midnight (Forecast.Solar);
+        ``sim_entry_forecast_solar``: hourly Wh, a zero at midnight dropped (Forecast.Solar);
         ``sim_entry_solcast_solar``: half-hourly Wh of the P50 (Solcast's energy platform).
         """
         return {

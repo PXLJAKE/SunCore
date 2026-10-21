@@ -319,8 +319,9 @@ class EnergyDashboardSeries(_Frozen):
     source: Literal["energy_solar_forecast"]
     fields: SeriesFields
     missing_is_zero: bool = False
-    """The integration drops periods of value 0 (Forecast.Solar: every zero except at midnight),
-    so a period missing between two known ones is 0 Wh, not unknown."""
+    """The integration drops periods of value 0 (Forecast.Solar: only a 0 Wh period that starts
+    exactly at 00:00:00, ``forecast_solar/energy.py`` keeps ``val != 0 or not midnight``), so a
+    period missing between two known ones is 0 Wh, not unknown."""
 
     @model_validator(mode="after")
     def _fields(self) -> Self:

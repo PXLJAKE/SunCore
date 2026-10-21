@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import itertools
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -194,16 +195,17 @@ async def test_open_meteo_15_minute_wh_become_w(catalog: TemplateCatalog) -> Non
 
 
 def forecast_solar_hours(day: date) -> dict[str, float]:
-    """Hourly Wh; zero hours dropped except at midnight (``forecast_solar/energy.py``)."""
+    """Hourly Wh; only a zero hour at exactly 00:00:00 is dropped (``forecast_solar/energy.py``
+    keeps ``val != 0 or (h, m, s) != (0, 0, 0)``)."""
     hours = {}
     for slot in local_day_slots(day, 60):
         wh = 1000.0 if 8 <= slot.hour < 18 else 0.0
-        if wh != 0 or (slot.hour, slot.minute, slot.second) == (0, 0, 0):
+        if wh != 0 or (slot.hour, slot.minute, slot.second) != (0, 0, 0):
             hours[slot.isoformat()] = wh
     return hours
 
 
-async def test_forecast_solar_reads_the_only_entry_and_fills_dropped_zero_hours(
+async def test_forecast_solar_reads_the_only_entry_and_fills_the_dropped_midnight(
     catalog: TemplateCatalog,
 ) -> None:
     reader = FakeReader()
@@ -214,13 +216,35 @@ async def test_forecast_solar_reads_the_only_entry_and_fills_dropped_zero_hours(
     series = await source.fetch(WINDOW)
     assert series.step == timedelta(hours=1)
     assert series.p10 == series.p90 == series.p50
-    # from local midnight of day 1 to the last sunlit hour of day 2 (17:00-18:00 -> 18:00 end)
-    assert len(series) == 24 + 18
-    assert series.p50.values[0] == 0.0  # the kept midnight entry
-    assert series.p50.values[3] == 0.0  # a dropped zero hour, filled between known periods
-    assert series.p50.values[10] == 1000.0  # 1000 Wh in an hour = 1000 W
+    # day 1 starts at 01:00 (its 0 Wh midnight was dropped) and day 2 runs to its end
+    assert len(series) == 23 + 24
+    assert series.p50.values[0] == 0.0  # 01:00, a listed zero hour
+    assert series.p50.values[22] == 0.0  # 23:00
+    assert series.p50.values[23] == 0.0  # day 2's dropped midnight, filled between known hours
+    assert series.p50.values[9] == 1000.0  # 10:00: 1000 Wh in an hour = 1000 W
     assert None not in series.p50.values
     assert source.last_report.route == "energy"
+
+
+async def test_forecast_solar_continuous_hours_with_only_midnight_missing(
+    catalog: TemplateCatalog,
+) -> None:
+    """The shape ``forecast_solar/energy.py`` really produces: every hour, zeros included, only
+    the 0 Wh hour at 00:00:00 is absent."""
+    hours = forecast_solar_hours(DAY + timedelta(days=1))
+    stamps = sorted(datetime.fromisoformat(k) for k in hours)
+    assert len(stamps) == 23
+    assert stamps[0].hour == 1
+    assert all(b - a == timedelta(hours=1) for a, b in itertools.pairwise(stamps))
+    previous = forecast_solar_hours(DAY)
+    reader = FakeReader()
+    reader.entries = {"entry1": {**previous, **hours}}
+    source = TemplateForecastSource(forecast_template(catalog, "forecast_solar.pv"), {}, reader)
+    series = await source.fetch(WINDOW)
+    midnight = datetime.combine(DAY + timedelta(days=1), datetime.min.time(), tzinfo=BERLIN)
+    index = (midnight - series.start) // timedelta(hours=1)
+    assert series.p50.values[index] == 0.0
+    assert series.p50.total() == pytest.approx(2 * 10 * 1000.0)
 
 
 async def test_forecast_solar_with_several_entries_needs_a_choice(catalog: TemplateCatalog) -> None:
