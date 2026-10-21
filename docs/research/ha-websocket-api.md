@@ -49,7 +49,7 @@ the connector takes the URL and token as parameters.
 | `call_service` | `domain`, `service`, `service_data`, `target`, `return_response` | actuation; `return_response: true` for actions that return data (`weather.get_forecasts`, `tibber.get_prices`, `solcast_solar.query_forecast_data`, `nordpool.get_prices_for_date`) |
 | `get_states` | – | initial snapshot |
 | `get_services` | – | capability discovery (which actions exist) |
-| `get_config` | – | unit system, time zone, currency, location, version |
+| `get_config` | – | unit system, time zone, currency, location, version; `latitude`/`longitude` (floats, degrees) feed the PV clear-sky model of the forecast calibration – verified in `home-assistant/core` `5cfe9aad7cb428c2c2ebb449719ae81976780de1` `homeassistant/core_config.py` `Config.as_dict` (lines 706, 713) returned unchanged by `websocket_api/commands.py` `handle_get_config` (only `external_url` is removed for local-only users) |
 | `config/entity_registry/list_for_display` (preferred), `config/entity_registry/list`, `config/device_registry/list`, `config/area_registry/list` | – | setup wizard auto-detection (platform, device, area, category, translation key); verified, shapes in [Registries](#registries) |
 | `render_template` | `template` | last resort for integrations without actions |
 | `energy/get_prefs` | – | pre-fill from the Energy dashboard |
