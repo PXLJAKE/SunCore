@@ -544,7 +544,7 @@ class PvForecastService:
             )
         return PvSourceView(
             source_id=snap.source_id,
-            status=snap.status,
+            status=FetchStatus(snap.status),
             fetched_at=snap.fetched_at,
             age_s=snap.age_s(now),
             stale=self.is_stale(snap, now),

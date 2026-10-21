@@ -1701,6 +1701,12 @@ export interface components {
             valid_until?: string | null;
         };
         /**
+         * FetchStatus
+         * @description What a fetch found (rendered as ``forecast.status.<value>`` in the UI).
+         * @enum {string}
+         */
+        FetchStatus: "ok" | "partial" | "no_data" | "not_configured" | "not_linked" | "ambiguous_entry" | "entry_not_found" | "error";
+        /**
          * FlowOut
          * @description A value in W (or % for the state of charge) with its data quality.
          */
@@ -2465,8 +2471,7 @@ export interface components {
             source_id: string;
             /** Stale */
             stale: boolean;
-            /** Status */
-            status: string;
+            status: components["schemas"]["FetchStatus"];
         };
         /**
          * Quality

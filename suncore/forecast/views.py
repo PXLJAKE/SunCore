@@ -13,6 +13,7 @@ from typing import Annotated, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from suncore.core.forecast import AccuracyRecord, HorizonBucket
+from suncore.forecast.pv.adapter import FetchStatus
 
 MAX_VIEW_HOURS = 96
 """Largest ``hours`` the API serves."""
@@ -36,7 +37,7 @@ class PvSourceView(_View):
     """One source: its latest good series and how fresh it is."""
 
     source_id: str
-    status: str
+    status: FetchStatus
     """Result of the latest attempt (``ok``, ``partial``, ``no_data``, ``error``, ...)."""
     fetched_at: AwareDatetime | None
     """When the source last delivered data; ``None`` = never."""

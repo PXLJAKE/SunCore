@@ -33,10 +33,8 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    only in ``suncore.ha`` (implementation, rate limited per action), ``suncore.sim`` (fake) and
    the one adapter wiring module ``suncore.app.adapters`` (Phase 4); no other part of
    ``suncore.app`` may use it. ``READ_ONLY_ACTIONS`` is the fixed allowlist.
-
-8. ``statistics_during_period`` (read-only recorder statistics) is used only in ``suncore.ha``,
+8. ``statistics_during_period`` (read-only recorder statistics) is used only in ``suncore.ha``
    and ``suncore.sim`` (``suncore.app.history`` goes through ``suncore.ha.statistics``).
-
 9. ``energy_solar_forecast`` (the read-only ``energy/solar_forecast`` command) is used only in
    ``suncore.ha`` and ``suncore.sim`` (``suncore.app.adapters`` goes through
    ``suncore.ha.fetch_solar_forecast``). It is a read: no write path changes (Phase 4 WP5).

@@ -2842,6 +2842,21 @@
         "title": "FeedInTier",
         "type": "object"
       },
+      "FetchStatus": {
+        "description": "What a fetch found (rendered as ``forecast.status.<value>`` in the UI).",
+        "enum": [
+          "ok",
+          "partial",
+          "no_data",
+          "not_configured",
+          "not_linked",
+          "ambiguous_entry",
+          "entry_not_found",
+          "error"
+        ],
+        "title": "FetchStatus",
+        "type": "string"
+      },
       "FlowOut": {
         "additionalProperties": false,
         "description": "A value in W (or % for the state of charge) with its data quality.",
@@ -4739,8 +4754,7 @@
             "type": "boolean"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/FetchStatus"
           }
         },
         "required": [
