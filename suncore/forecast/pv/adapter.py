@@ -39,9 +39,9 @@ from suncore.forecast.pv.parsing import (
     dig_response,
     empty_series,
     has_known,
-    infer_step,
     list_points,
     mapping_points,
+    regularize_energy,
 )
 from suncore.templates.models import (
     ActionSeries,
@@ -88,6 +88,8 @@ class FetchReport:
     skipped_points: int = 0
     dropped_entities: tuple[str, ...] = ()
     """Sensors whose timestamps were irregular."""
+    merged_points: int = 0
+    """Off-grid energy points added to their enclosing period (``energy/solar_forecast``)."""
 
 
 @runtime_checkable
@@ -113,6 +115,7 @@ class PvDataReader(Protocol):
 class _Collected:
     points: list[RawPoint] = field(default_factory=list)
     skipped: int = 0
+    merged: int = 0
     used: int = 0
     missing: list[str] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
@@ -196,6 +199,7 @@ class TemplateForecastSource:
                 report.entities_missing,
                 report.skipped_points,
                 report.dropped_entities,
+                report.merged_points,
             )
             return empty_series(window.start, self._step if result is None else result.step)
         self.last_report = report
@@ -271,11 +275,23 @@ class TemplateForecastSource:
         else:
             return None, FetchReport(FetchStatus.AMBIGUOUS_ENTRY, "energy")
         parsed = mapping_points(chosen)
-        step = infer_step(parsed.points, self._step)
+        regular = regularize_energy(parsed.points, self._step)
+        if regular.dropped or regular.merged:
+            log.info(
+                "forecast.pv.off_grid_points",
+                source=self.source_id,
+                dropped=regular.dropped,
+                merged=regular.merged,
+            )
         collected = _Collected(
-            points=list(parsed.points), skipped=parsed.skipped, used=int(bool(parsed.points))
+            points=list(regular.points),
+            skipped=parsed.skipped + regular.dropped,
+            merged=regular.merged,
+            used=int(bool(regular.points)),
         )
-        return self._join(collected, unit, "energy", step, missing_is_zero=series.missing_is_zero)
+        return self._join(
+            collected, unit, "energy", regular.step, missing_is_zero=series.missing_is_zero
+        )
 
     # --- helpers --------------------------------------------------------------------
 
@@ -313,6 +329,7 @@ class TemplateForecastSource:
             tuple(collected.missing),
             collected.skipped,
             tuple(collected.dropped),
+            collected.merged,
         )
         return built, report
 

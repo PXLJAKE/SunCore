@@ -22,6 +22,7 @@ from suncore.forecast.pv.parsing import (
     mapping_points,
     number,
     parse_timestamp,
+    regularize_energy,
 )
 from suncore.templates.models import SeriesFields
 from tests.forecast.conftest import BERLIN, local_day_slots, solcast_entries
@@ -248,3 +249,44 @@ def test_local_timestamps_keep_their_offsets_in_utc() -> None:
     slots = local_day_slots(date(2026, 6, 21), 30)
     assert slots[0].utcoffset() == timedelta(hours=2)
     assert slots[0].tzinfo == BERLIN
+
+
+# --- off-grid points of an energy mapping (energy/solar_forecast) -------------------------
+
+
+def test_an_off_grid_sunrise_key_never_makes_a_one_minute_grid() -> None:
+    start = datetime(2026, 6, 21, 4, tzinfo=UTC)
+    points = [RawPoint(start + HOUR * i, 100.0 * i) for i in range(6)]
+    sunrise = RawPoint(datetime(2026, 6, 21, 3, 41, 13, tzinfo=UTC), 0.0)
+    sunset = RawPoint(datetime(2026, 6, 21, 8, 12, 5, tzinfo=UTC), 40.0)
+    assert infer_step([*points, sunrise, sunset], HOUR) < HOUR  # the old behaviour
+    regular = regularize_energy([*points, sunrise, sunset], HOUR)
+    assert regular.step == HOUR
+    assert regular.dropped == 1
+    assert regular.merged == 1
+    series = build_quantiles(regular.points, Unit.WH, regular.step)
+    assert series is not None
+    assert series.p50.values == (0.0, 100.0, 200.0, 300.0, 440.0, 500.0)
+    total_in = sum(p.value or 0.0 for p in [*points, sunrise, sunset])
+    assert series.p50.total() == pytest.approx(total_in)
+
+
+def test_an_off_grid_point_outside_the_series_opens_its_period() -> None:
+    start = datetime(2026, 6, 21, 4, tzinfo=UTC)
+    points = [RawPoint(start + HOUR * i, 10.0) for i in range(3)]
+    late = RawPoint(datetime(2026, 6, 21, 7, 30, tzinfo=UTC), 5.0)
+    regular = regularize_energy([*points, late], HOUR)
+    assert regular.step == HOUR  # 07:30 lies on the 15-min grid but the hours dominate
+    assert [p.start.hour for p in regular.points] == [4, 5, 6, 7]
+    assert regular.points[-1].value == 5.0
+
+
+@pytest.mark.parametrize("minutes", [15, 30, 60])
+def test_regular_mappings_keep_their_period(minutes: int) -> None:
+    step = timedelta(minutes=minutes)
+    start = datetime(2026, 6, 21, 4, tzinfo=UTC)
+    points = [RawPoint(start + step * i, 1.0) for i in range(8)]
+    regular = regularize_energy(points, HOUR)
+    assert regular.step == step
+    assert (regular.dropped, regular.merged) == (0, 0)
+    assert regular.points == tuple(points)

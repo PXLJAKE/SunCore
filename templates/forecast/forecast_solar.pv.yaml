@@ -29,6 +29,7 @@ unverified:
   - "The integration drops only a 0 Wh entry starting exactly at 00:00:00 (`energy.py`: `val != 0 or not midnight`); every other zero is listed."
   - "A period missing between two known ones is read as 0 Wh (`missing_is_zero`); before the first and after the last entry nothing is assumed."
   - "Whether the vendor API itself ever omits a non-zero period is unverified."
+  - "Whether the vendor API emits off-grid keys (sunrise/sunset times): such a key is dropped at 0 Wh, else added to its enclosing period."
   - "Listed by `energy/solar_forecast` only if linked in the Energy dashboard; the user picks the config entry (`config_entry_id`) unless there is exactly one."
 forecast_kind: pv
 series:

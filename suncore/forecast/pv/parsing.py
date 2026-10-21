@@ -25,13 +25,20 @@ from __future__ import annotations
 
 import itertools
 import math
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import reduce
 from typing import Any, Final
 
-from suncore.core.series import QuantileSeries, SeriesUnit, TimeSeries, segments_from_points
+from suncore.core.series import (
+    QuantileSeries,
+    SeriesUnit,
+    TimeSeries,
+    floor_to_step,
+    segments_from_points,
+)
 from suncore.core.units import Dimension, Unit, to_base
 from suncore.templates.models import SeriesFields
 
@@ -181,6 +188,77 @@ def infer_step(points: Sequence[RawPoint], default: timedelta) -> timedelta:
     return timedelta(seconds=max(divisor, 60))
 
 
+ALLOWED_STEPS: Final = (timedelta(minutes=60), timedelta(minutes=30), timedelta(minutes=15))
+"""Period lengths an energy mapping may have (``energy/solar_forecast``)."""
+
+
+@dataclass(frozen=True, slots=True)
+class Regularized:
+    """Energy points brought onto one grid (:func:`regularize_energy`)."""
+
+    points: tuple[RawPoint, ...]
+    step: timedelta
+    dropped: int
+    """Off-grid points without energy (0 Wh or unknown) that were left out."""
+    merged: int
+    """Off-grid points whose energy was added to the period that encloses them."""
+
+
+def _on_grid(moment: datetime, step: timedelta) -> bool:
+    return floor_to_step(moment, step) == moment
+
+
+def _sum(a: float | None, b: float | None) -> float | None:
+    return None if a is None or b is None else a + b
+
+
+def regularize_energy(points: Sequence[RawPoint], default: timedelta) -> Regularized:
+    """Energy points (Wh per period, key = period start) on one grid of 15, 30 or 60 minutes.
+
+    The period is the most frequent gap between consecutive points that lie on the 15-minute
+    grid, if that gap is 15, 30 or 60 minutes (a tie takes the longer one; no such gap:
+    ``default``). A point that is not on the grid of that period - a sunrise or sunset key such
+    as ``07:41:13`` that a vendor may emit (UNVERIFIED for Forecast.Solar) - never fails the
+    source: without energy (0 Wh or unknown) it is dropped, with energy it is **added to the
+    period that encloses it** (energy preserving; P10/P90 only where both points have them).
+    """
+    base = ALLOWED_STEPS[-1]
+    aligned = sorted({p.start for p in points if _on_grid(p.start, base)})
+    gaps = Counter(b - a for a, b in itertools.pairwise(aligned) if b - a in ALLOWED_STEPS)
+    step = default
+    if gaps:
+        top = max(gaps.values())
+        step = max(g for g, count in gaps.items() if count == top)
+    regular: dict[datetime, RawPoint] = {}
+    off: list[RawPoint] = []
+    for point in points:
+        if _on_grid(point.start, step):
+            regular[point.start] = point  # the later one wins, like _dedupe
+        else:
+            off.append(point)
+    dropped = merged = 0
+    for point in off:
+        if point.value is None or abs(point.value) <= NEGATIVE_TOLERANCE:
+            dropped += 1
+            continue
+        key = floor_to_step(point.start, step)
+        current = regular.get(key)
+        if current is None:
+            regular[key] = RawPoint(key, point.value, point.p10, point.p90)
+        elif current.value is None:
+            regular[key] = RawPoint(current.start, point.value, point.p10, point.p90)
+        else:
+            regular[key] = RawPoint(
+                current.start,
+                current.value + point.value,
+                _sum(current.p10, point.p10),
+                _sum(current.p90, point.p90),
+            )
+        merged += 1
+    ordered = tuple(sorted(regular.values(), key=lambda p: p.start))
+    return Regularized(ordered, step, dropped, merged)
+
+
 def _dedupe(points: Sequence[RawPoint]) -> list[RawPoint]:
     """Sorted by time, one point per instant (the later one in input order wins)."""
     unique = {p.start.timestamp(): p for p in points}
@@ -309,9 +387,11 @@ def empty_series(start: datetime, step: timedelta) -> QuantileSeries:
 
 
 __all__ = [
+    "ALLOWED_STEPS",
     "NEGATIVE_TOLERANCE",
     "ParsedPoints",
     "RawPoint",
+    "Regularized",
     "build_quantiles",
     "crop",
     "dig",
@@ -323,4 +403,5 @@ __all__ = [
     "mapping_points",
     "number",
     "parse_timestamp",
+    "regularize_energy",
 ]

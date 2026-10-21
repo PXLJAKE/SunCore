@@ -247,6 +247,25 @@ async def test_forecast_solar_continuous_hours_with_only_midnight_missing(
     assert series.p50.total() == pytest.approx(2 * 10 * 1000.0)
 
 
+async def test_forecast_solar_with_an_off_grid_key_still_delivers(
+    catalog: TemplateCatalog,
+) -> None:
+    hours = forecast_solar_hours(DAY)
+    sunrise = datetime.combine(DAY, datetime.min.time(), tzinfo=BERLIN) + timedelta(
+        hours=7, minutes=41, seconds=13
+    )
+    reader = FakeReader()
+    reader.entries = {"entry1": {**hours, sunrise.isoformat(): 250.0}}
+    source = TemplateForecastSource(forecast_template(catalog, "forecast_solar.pv"), {}, reader)
+    series = await source.fetch(WINDOW)
+    assert series.step == timedelta(hours=1)
+    assert source.last_report.status is FetchStatus.OK
+    assert source.last_report.merged_points == 1
+    assert series.p50.total() == pytest.approx(10 * 1000.0 + 250.0)
+    seven = (sunrise.replace(minute=0, second=0) - series.start) // timedelta(hours=1)
+    assert series.p50.values[seven] == 250.0  # the 07:00 hour was 0 Wh before
+
+
 async def test_forecast_solar_with_several_entries_needs_a_choice(catalog: TemplateCatalog) -> None:
     reader = FakeReader()
     reader.entries = {
