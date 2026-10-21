@@ -219,3 +219,51 @@ async def test_a_reconnect_wakes_the_pv_service(runtime: Runtime) -> None:
     service.wake = lambda: woken.append(True)  # type: ignore[method-assign]
     runtime._on_state(ConnectionState.CONNECTED)
     assert woken == [True]
+
+
+async def test_stop_during_the_nightly_learning_releases_devices_first(tmp_path: Path) -> None:
+    """The nightly PV job may sit in a slow storage call when SunCore stops: the devices are
+    released first, the job is awaited after that, and the databases close last."""
+    conn = RecordingConnection(speed=6000.0)
+    rt = await build_runtime(
+        demo_settings(tmp_path), env={}, connection=conn, clock=lambda: SCENARIO_DAY
+    )
+    await rt.start()
+    assert rt.stack is not None
+    assert rt.timeseries is not None
+    assert rt.timeseries_db is not None
+    order: list[str] = []
+    entered = asyncio.Event()
+
+    async def slow_read(*_a: object, **_k: object) -> TimeSeries:
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.05)  # a cancelled statement's rollback takes a moment
+            order.append("job_ended")
+            raise
+        raise AssertionError  # pragma: no cover
+
+    rt.timeseries.read_series = slow_read  # type: ignore[method-assign]
+    shutdown, ts_close, db_close = rt.stack.shutdown, rt.timeseries_db.close, rt.db.close
+
+    async def record_shutdown() -> None:
+        order.append("release")
+        await shutdown()
+
+    async def record_ts_close() -> None:
+        order.append("timeseries_closed")
+        await ts_close()
+
+    async def record_db_close() -> None:
+        order.append("db_closed")
+        await db_close()
+
+    rt.stack.shutdown = record_shutdown  # type: ignore[method-assign]
+    rt.timeseries_db.close = record_ts_close  # type: ignore[method-assign]
+    rt.db.close = record_db_close  # type: ignore[method-assign]
+    rt._schedule_forecast_accuracy()
+    await asyncio.wait_for(entered.wait(), 5)
+    await rt.stop()
+    assert order == ["release", "job_ended", "timeseries_closed", "db_closed"]
