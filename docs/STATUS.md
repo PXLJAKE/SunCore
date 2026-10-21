@@ -87,6 +87,9 @@ implemented, waiting for the maintainer's shadow test · **Branch:** `phase-4/d-
     15-min grid for now → +48 h, stores the blend as source `blended`, and the API shows the
     weights, the calibration state per source and the blend without and with the learnt
     calibration. The demo site now declares its 8 kWp horizontal plant.
+  - Deviation: the built-in PV fallback (Open-Meteo API, question 5) is **not shipped**; it moves
+    to Phase 6 with the price fallbacks (Open-Meteo terms and live azimuth convention
+    `UNVERIFIED`, plan §"Deviations during implementation").
   - Follow-ups: the weights come from the *uncalibrated* sources' MAE (a calibrated source is
     under-weighted until a calibrated accuracy is scored); no UI yet (4-H).
 

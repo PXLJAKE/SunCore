@@ -57,7 +57,8 @@ Phase 4 is done when (roadmap Phase 4 milestones plus the concept):
 1. **Forecast adapters:** Solcast (P10/P50/P90 from the attributes or the read-only query action,
    never the Solcast API), Forecast.Solar (core, via `energy/solar_forecast`), Open-Meteo Solar
    Forecast (HACS), a generic attribute adapter (mapping per template), and the built-in fallback
-   behind an explicit opt-in (question 5). Several sources are blended by measured skill; a bias
+   behind an explicit opt-in (question 5; deferred to Phase 6, see "Deviations during
+   implementation"). Several sources are blended by measured skill; a bias
    calibration per hour of day × season × weather class (cloudiness) is learnt; clipping
    (inverter limit, export limit) is recognised and excluded from the statistics; accuracy (MAE,
    bias per source and horizon) is stored and shown.
@@ -150,10 +151,11 @@ region; fixtures from verified shapes; templates with `source` and a conformance
 ### WP5 – PV forecast · `device-adapters` (adapters), `optimizer-engineer` (Opus, blending/calibration)
 
 `suncore/forecast/pv/`: Solcast, Forecast.Solar, Open-Meteo Solar Forecast, generic attribute,
-built-in fallback (question 5). Blending by inverse MAE over 14 days with a minimum weight and a
-manual override; bias calibration per hour × season × weather class (clear-sky index buckets
-from the forecast itself), bounded and shrinking to 1 with little data, active after
-`min_history_days`; clipping detection; accuracy in `timeseries.db`.
+built-in fallback (question 5; deferred to Phase 6, see "Deviations during implementation").
+Blending by inverse MAE over 14 days with a minimum weight and a manual override; bias
+calibration per hour × season × weather class (clear-sky index buckets from the forecast
+itself), bounded and shrinking to 1 with little data, active after `min_history_days`;
+clipping detection; accuracy in `timeseries.db`.
 
 ### WP6 – Load forecast · `optimizer-engineer` (Opus)
 
@@ -400,7 +402,12 @@ shadow and assisted run is the acceptance test.
   Phase 6).
 - Open-Meteo API terms are known only from the repository README (free for open-source and
   non-commercial use, fair use, 10 000 requests/day, CC BY 4.0 attribution); the separate terms
-  page was unreachable. The built-in PV fallback stays opt-in and off.
+  page was unreachable.
+- The built-in PV fallback (Open-Meteo API) is **not shipped in Phase 4** either (PR 4-D): its
+  terms and the azimuth convention of a live response are `UNVERIFIED` (question 5 default). It
+  moves to Phase 6 together with the price fallbacks, opt-in and off as planned; Phase 4 reads PV
+  forecasts only from the integrations the user already runs (Solcast, Forecast.Solar,
+  Open-Meteo Solar Forecast, generic template).
 - `BatteryAction` is part of the 4-A contracts but rejected by the gate until WP10
   (ADR-0011 addendum); its semantics are proposed in ADR-0013.
 
