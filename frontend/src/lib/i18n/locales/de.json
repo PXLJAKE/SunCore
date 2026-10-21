@@ -860,5 +860,7 @@
   "api.validation.import_formula_all_in": "Der Tarif {template_id} liefert bereits Endpreise inklusive Gebühren und Steuern; eine Preisformel würde sie doppelt zählen.",
   "tariff.import.tou_stored": "Ein Zeittarif (HT/NT) ist gespeichert. Er lässt sich in einer späteren Version hier bearbeiten; Speichern lässt ihn unverändert, solange du keine andere Art wählst.",
   "safety.battery_not_supported": "Batteriesteuerung ist noch nicht verfügbar; es wurde nichts geschrieben.",
-  "action.battery": "Batterie-Limits setzen"
+  "action.battery": "Batterie-Limits setzen",
+  "api.validation.forecast_workday_domain": "{entity_id} ist kein Binärsensor. Wähle den Binärsensor der Workday-Integration.",
+  "api.validation.forecast_weather_domain": "{entity_id} ist keine Wetter-Entität."
 }

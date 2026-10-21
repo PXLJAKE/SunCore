@@ -1768,7 +1768,9 @@ export interface components {
         };
         /**
          * ForecastConfig
-         * @description PV forecast sources (schema v2: several sources, blending, learning settings).
+         * @description PV forecast sources (schema v2: several sources, blending, learning settings) and the
+         *     optional inputs of the load forecast (``load``, added in Phase 4 WP6 without a version
+         *     bump: an absent ``load`` is the default, so every stored v2 document stays valid).
          *
          *     Independent of the tariff so that the wizard can store the choice without prices.
          *     Forecast uncertainty is handled by the learned risk model and the battery section's
@@ -1782,6 +1784,8 @@ export interface components {
              *     }
              */
             learning: components["schemas"]["LearningSettings"];
+            /** @default {} */
+            load: components["schemas"]["LoadForecastConfig"];
             /**
              * Schema Version
              * @default 2
@@ -2071,6 +2075,21 @@ export interface components {
             min_history_days: number;
         };
         LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"] | components["schemas"]["ControlMessage"];
+        /**
+         * LoadForecastConfig
+         * @description Optional inputs of the load forecast (Phase 4 WP6; additive in ``forecast`` v2).
+         *
+         *     ``workday``: a ``binary_sensor`` of the ``workday`` integration (``on`` = today is a
+         *     workday); with it the day types come from the user's own holiday calendar (today from the
+         *     state, other days through ``workday.check_date``), without it from the weekday (Mon-Fri
+         *     workday, Sat/Sun weekend, no holidays). ``weather``: a ``weather`` entity whose outside
+         *     temperature (state attribute ``temperature``) is recorded and whose hourly forecast
+         *     (``weather.get_forecasts``) drives the temperature term of the load profile.
+         */
+        LoadForecastConfig: {
+            weather?: components["schemas"]["EntityRef"] | null;
+            workday?: components["schemas"]["EntityRef"] | null;
+        };
         /**
          * Mode
          * @description One mode of a mode-controlled device and the power it draws.

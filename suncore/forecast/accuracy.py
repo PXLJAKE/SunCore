@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Final, Literal, Protocol
@@ -69,6 +69,10 @@ BUCKETS: Final[tuple[tuple[HorizonBucket, timedelta, timedelta], ...]] = (
 
 ClipFilter = Callable[[datetime], bool]
 """``is_clipped(slot_start)``: whether the measured PV of that quarter hour was limited."""
+
+ForecastKind = Literal["pv", "load", "price"]
+ActualReader = Callable[[TimeRange], Awaitable[TimeSeries]]
+"""Reads the measured quantity (15-minute means, W) a forecast is scored against."""
 
 SCHEMA_VERSION: Final = 1
 NS_FORECAST_ACCURACY: Final = "forecast_accuracy"
@@ -147,11 +151,13 @@ def quarter_errors(
     actual: TimeSeries,
     *,
     is_clipped: ClipFilter = no_clipping,
+    daylight_only: bool = True,
 ) -> list[float]:
     """``actual - forecast`` per 15-minute daylight interval (forecast or measurement above 0 W)
     both series know and that is not clipped.
 
     ``forecast_p50`` is resampled onto the grid of ``actual`` (must be the 15-minute grid).
+    ``daylight_only=False`` (the load forecast) keeps the intervals where both are zero too.
     """
     if not len(actual) or not len(forecast_p50):
         return []
@@ -164,7 +170,7 @@ def quarter_errors(
     ):
         if measured is None or predicted is None or is_clipped(begin):
             continue
-        if measured <= 0 and predicted <= 0:
+        if daylight_only and measured <= 0 and predicted <= 0:
             continue  # night: both zero says nothing about the forecast
         errors.append(measured - predicted)
     return errors
@@ -177,12 +183,24 @@ async def compute_accuracy(
     *,
     window_days: int = WINDOW_DAYS,
     is_clipped: ClipFilter = no_clipping,
+    kind: ForecastKind = "pv",
+    actual_reader: ActualReader | None = None,
 ) -> list[AccuracyRecord]:
-    """The records of one source for the last ``window_days`` complete days (buckets with data)."""
+    """The records of one source for the last ``window_days`` complete days (buckets with data).
+
+    ``kind`` and ``actual_reader`` select what is scored: by default the PV forecast against
+    ``site.pv_w`` on daylight intervals; the load forecast passes ``kind="load"`` and a reader
+    of the measured base load, and then every interval counts (a night is load too).
+    """
     end = floor_to_step(now, PLANNING_STEP)
     start = end - timedelta(days=window_days)
-    actual = await data.read_series(SITE_PV_W, TimeRange(start=start, end=end), "15m", SeriesUnit.W)
-    issues = await data.forecast_issues(source_id, "pv", start - BUCKETS[-1][2])
+    window = TimeRange(start=start, end=end)
+    if actual_reader is None:
+        actual = await data.read_series(SITE_PV_W, window, "15m", SeriesUnit.W)
+    else:
+        actual = await actual_reader(window)
+    daylight_only = kind == "pv"
+    issues = await data.forecast_issues(source_id, kind, start - BUCKETS[-1][2])
     sums = {bucket: _Sums() for bucket, _, _ in BUCKETS}
     for index, issued in enumerate(issues):
         following = issues[index + 1] if index + 1 < len(issues) else None
@@ -202,13 +220,15 @@ async def compute_accuracy(
         first = min(lo for _, lo, _ in ranges)
         last = max(hi for _, _, hi in ranges)
         forecast = await data.read_forecast(
-            source_id, "pv", issued, TimeRange(start=first - timedelta(hours=1), end=last)
+            source_id, kind, issued, TimeRange(start=first - timedelta(hours=1), end=last)
         )
         if forecast is None:
             continue
         for bucket, lo, hi in ranges:
             measured = _slice(actual, lo, hi)
-            for error in quarter_errors(forecast.p50, measured, is_clipped=is_clipped):
+            for error in quarter_errors(
+                forecast.p50, measured, is_clipped=is_clipped, daylight_only=daylight_only
+            ):
                 sums[bucket].add(error)
     return [
         AccuracyRecord(
@@ -329,6 +349,8 @@ async def update_accuracy(
     *,
     window_days: int = WINDOW_DAYS,
     is_clipped: ClipFilter = no_clipping,
+    kind: ForecastKind = "pv",
+    actual_reader: ActualReader | None = None,
 ) -> dict[str, list[AccuracyRecord]]:
     """The nightly job: recompute and store every source; one failing source does not stop
     the others (it is logged and keeps last night's result)."""
@@ -337,7 +359,13 @@ async def update_accuracy(
         began = time.perf_counter()  # runtime for the log only, never for the statistics
         try:
             records = await compute_accuracy(
-                data, source_id, now, window_days=window_days, is_clipped=is_clipped
+                data,
+                source_id,
+                now,
+                window_days=window_days,
+                is_clipped=is_clipped,
+                kind=kind,
+                actual_reader=actual_reader,
             )
             await save_accuracy(learned, source_id, records, now=now, window_days=window_days)
         except Exception:
@@ -359,7 +387,9 @@ __all__ = [
     "NS_FORECAST_ACCURACY",
     "WINDOW_DAYS",
     "AccuracyData",
+    "ActualReader",
     "ClipFilter",
+    "ForecastKind",
     "LearnedParams",
     "StoredAccuracy",
     "accuracy_view",

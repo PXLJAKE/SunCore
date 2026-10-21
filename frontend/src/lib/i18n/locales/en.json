@@ -860,5 +860,7 @@
   "api.validation.import_formula_all_in": "The tariff {template_id} already delivers end prices including fees and taxes; a price formula would count them twice.",
   "tariff.import.tou_stored": "A time-of-use tariff (HT/NT) is stored. It can be edited here in a later version; saving keeps it unchanged unless you choose another kind.",
   "safety.battery_not_supported": "Battery control is not available yet; nothing was written.",
-  "action.battery": "Set battery limits"
+  "action.battery": "Set battery limits",
+  "api.validation.forecast_workday_domain": "{entity_id} is not a binary sensor. Choose the binary sensor of the Workday integration.",
+  "api.validation.forecast_weather_domain": "{entity_id} is not a weather entity."
 }

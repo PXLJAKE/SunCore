@@ -245,8 +245,50 @@ class LearningSettings(_Frozen):
     load_ml_mode: Literal["off", "shadow", "auto"] = "shadow"
 
 
+class LoadForecastConfig(_Frozen):
+    """Optional inputs of the load forecast (Phase 4 WP6; additive in ``forecast`` v2).
+
+    ``workday``: a ``binary_sensor`` of the ``workday`` integration (``on`` = today is a
+    workday); with it the day types come from the user's own holiday calendar (today from the
+    state, other days through ``workday.check_date``), without it from the weekday (Mon-Fri
+    workday, Sat/Sun weekend, no holidays). ``weather``: a ``weather`` entity whose outside
+    temperature (state attribute ``temperature``) is recorded and whose hourly forecast
+    (``weather.get_forecasts``) drives the temperature term of the load profile.
+    """
+
+    workday: EntityRef | None = None
+    weather: EntityRef | None = None
+
+    @field_validator("workday")
+    @classmethod
+    def _binary_sensor(cls, value: EntityRef | None) -> EntityRef | None:
+        if value is not None and not value.entity_id.startswith("binary_sensor."):
+            raise invalid(
+                "forecast_workday_domain",
+                "forecast.load.workday: {entity_id} is not a binary_sensor",
+                entity_id=value.entity_id,
+            )
+        return value
+
+    @field_validator("weather")
+    @classmethod
+    def _weather(cls, value: EntityRef | None) -> EntityRef | None:
+        if value is not None and not value.entity_id.startswith("weather."):
+            raise invalid(
+                "forecast_weather_domain",
+                "forecast.load.weather: {entity_id} is not a weather entity",
+                entity_id=value.entity_id,
+            )
+        return value
+
+    def entity_refs(self) -> list[EntityRef]:
+        return [r for r in (self.workday, self.weather) if r is not None]
+
+
 class ForecastConfig(_Frozen):
-    """PV forecast sources (schema v2: several sources, blending, learning settings).
+    """PV forecast sources (schema v2: several sources, blending, learning settings) and the
+    optional inputs of the load forecast (``load``, added in Phase 4 WP6 without a version
+    bump: an absent ``load`` is the default, so every stored v2 document stays valid).
 
     Independent of the tariff so that the wizard can store the choice without prices.
     Forecast uncertainty is handled by the learned risk model and the battery section's
@@ -258,6 +300,7 @@ class ForecastConfig(_Frozen):
         default_factory=list
     )
     learning: LearningSettings = LearningSettings()
+    load: LoadForecastConfig = LoadForecastConfig()
 
     @model_validator(mode="after")
     def _unique_templates(self) -> Self:
@@ -275,6 +318,8 @@ class ForecastConfig(_Frozen):
         for source in self.sources:
             for ref in source.entities.values():
                 refs.setdefault(ref.entity_id, ref)
+        for ref in self.load.entity_refs():
+            refs.setdefault(ref.entity_id, ref)
         return list(refs.values())
 
 

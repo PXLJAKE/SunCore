@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Read models of the PV forecast and its accuracy (what the API serves; Phase 4 WP5).
+"""Read models of the PV and load forecasts and their accuracy (what the API serves; Phase 4
+WP5/WP6).
 
 Values are W; ``None`` is an unknown slot (never zero). ``status`` is a
 :class:`~suncore.forecast.pv.adapter.FetchStatus` value, rendered by the UI as
@@ -8,11 +9,13 @@ Values are W; ``None`` is an unknown slot (never zero). ``status`` is a
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from suncore.core.forecast import AccuracyRecord, HorizonBucket
+from suncore.forecast.load import DayType, DayTypeSource, LoadQuality, TemperatureReason
 from suncore.forecast.pv.adapter import FetchStatus
 
 MAX_VIEW_HOURS = 96
@@ -141,6 +144,66 @@ class ForecastAccuracyView(_View):
     sources: list[AccuracySourceView]
 
 
+class LoadDayView(_View):
+    """The day type (and forecast mean temperature) of one local date of the forecast."""
+
+    date: date
+    day_type: DayType
+    source: DayTypeSource
+    """``workday_sensor`` (today's state), ``check_date`` (the Workday action) or
+    ``weekday_rule`` (Mon-Fri workday, Sat/Sun weekend)."""
+    temperature_c: float | None
+    """Mean outside temperature of the day the temperature term used (``None``: none)."""
+
+
+class LoadTemperatureView(_View):
+    """The temperature term of the load profile.
+
+    ``reason``: ``active``, ``not_configured`` (no weather entity), ``too_few_days`` (fewer
+    than 14 days with a recorded temperature) or ``no_spread`` (the temperatures varied too
+    little to learn anything)."""
+
+    active: bool
+    reason: TemperatureReason
+    days: int
+    heating_w_per_k: float
+    """Extra base load (W) per kelvin of heating degrees (below 15 °C)."""
+    cooling_w_per_k: float
+    """Extra base load (W) per kelvin of cooling degrees (above 22 °C)."""
+
+
+class LoadForecastView(_View):
+    """The base load forecast (W, P10/P50/P90 on the 15-minute grid from the current slot).
+
+    The base load is the house consumption without the configured (controllable) devices; their
+    draw is planned separately. ``quality``: ``ok`` (profiles from history), ``cold_start``
+    (fewer than 3 days: a flat line at the recent mean with a wide band) or ``no_history``
+    (nothing measured yet: no forecast)."""
+
+    generated_at: AwareDatetime
+    hours: int
+    source_id: str
+    quality: LoadQuality
+    days_of_history: int
+    """Complete local days the profiles were learnt from."""
+    fitted_at: AwareDatetime | None
+    start: AwareDatetime | None
+    step_s: Annotated[int, Field(gt=0)]
+    p10_w: list[float | None]
+    p50_w: list[float | None]
+    p90_w: list[float | None]
+    days: list[LoadDayView]
+    temperature: LoadTemperatureView
+    controlled_devices: list[str]
+    """Devices subtracted from the house consumption (forecast by the planner, not here)."""
+    devices_unmeasured: dict[str, int]
+    """Per device the quarter hours of the fit window without a measurement (counted as 0 W:
+    the base load still contains its draw there, e.g. in the history rebuilt from Home
+    Assistant's statistics)."""
+    clamped_slots: int
+    """Quarter hours where the devices drew more than the house measured (clipped to 0 W)."""
+
+
 __all__ = [
     "MAX_VIEW_HOURS",
     "AccuracySourceView",
@@ -148,6 +211,9 @@ __all__ = [
     "BlendedView",
     "CalibrationView",
     "ForecastAccuracyView",
+    "LoadDayView",
+    "LoadForecastView",
+    "LoadTemperatureView",
     "PvForecastView",
     "PvSeriesView",
     "PvSourceView",

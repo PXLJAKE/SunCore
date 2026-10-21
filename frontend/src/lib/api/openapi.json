@@ -3000,7 +3000,7 @@
       },
       "ForecastConfig": {
         "additionalProperties": false,
-        "description": "PV forecast sources (schema v2: several sources, blending, learning settings).\n\nIndependent of the tariff so that the wizard can store the choice without prices.\nForecast uncertainty is handled by the learned risk model and the battery section's\n``risk`` level, not by a flat discount.",
+        "description": "PV forecast sources (schema v2: several sources, blending, learning settings) and the\noptional inputs of the load forecast (``load``, added in Phase 4 WP6 without a version\nbump: an absent ``load`` is the default, so every stored v2 document stays valid).\n\nIndependent of the tariff so that the wizard can store the choice without prices.\nForecast uncertainty is handled by the learned risk model and the battery section's\n``risk`` level, not by a flat discount.",
         "properties": {
           "learning": {
             "$ref": "#/components/schemas/LearningSettings",
@@ -3008,6 +3008,10 @@
               "load_ml_mode": "shadow",
               "min_history_days": 30
             }
+          },
+          "load": {
+            "$ref": "#/components/schemas/LoadForecastConfig",
+            "default": {}
           },
           "schema_version": {
             "default": 2,
@@ -3795,6 +3799,34 @@
             "$ref": "#/components/schemas/ControlMessage"
           }
         ]
+      },
+      "LoadForecastConfig": {
+        "additionalProperties": false,
+        "description": "Optional inputs of the load forecast (Phase 4 WP6; additive in ``forecast`` v2).\n\n``workday``: a ``binary_sensor`` of the ``workday`` integration (``on`` = today is a\nworkday); with it the day types come from the user's own holiday calendar (today from the\nstate, other days through ``workday.check_date``), without it from the weekday (Mon-Fri\nworkday, Sat/Sun weekend, no holidays). ``weather``: a ``weather`` entity whose outside\ntemperature (state attribute ``temperature``) is recorded and whose hourly forecast\n(``weather.get_forecasts``) drives the temperature term of the load profile.",
+        "properties": {
+          "weather": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workday": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "LoadForecastConfig",
+        "type": "object"
       },
       "Mode": {
         "additionalProperties": false,

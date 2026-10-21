@@ -214,7 +214,12 @@ def test_allowlist_is_exactly_the_verified_read_only_set() -> None:
     """Adding an action needs a PR that verifies it against the integration source."""
     assert (
         frozenset(
-            {"tibber.get_prices", "solcast_solar.query_forecast_data", "weather.get_forecasts"}
+            {
+                "tibber.get_prices",
+                "solcast_solar.query_forecast_data",
+                "weather.get_forecasts",
+                "workday.check_date",
+            }
         )
         == READ_ONLY_ACTIONS
     )

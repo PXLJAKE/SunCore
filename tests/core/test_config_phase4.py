@@ -207,3 +207,33 @@ def test_device_planner_value_is_optional() -> None:
     )
     with pytest.raises(ValidationError):
         DeviceConfig.model_validate(doc | {"planner_value_per_kwh": -0.1})
+
+
+# --- forecast.load (WP6, additive in v2) ---------------------------------------------------
+
+
+def test_forecast_load_inputs_are_optional_and_additive() -> None:
+    stored_v2 = {"schema_version": 2, "sources": [], "learning": {"min_history_days": 30}}
+    config = ForecastConfig.model_validate(stored_v2)
+    assert config.load.workday is None
+    assert config.load.weather is None
+    assert config.entity_refs() == []
+
+
+def test_forecast_load_entities_are_checked_and_listed() -> None:
+    config = ForecastConfig.model_validate(
+        {
+            "load": {
+                "workday": {"entity_id": "binary_sensor.workday_sensor"},
+                "weather": {"entity_id": "weather.forecast_home"},
+            }
+        }
+    )
+    assert [r.entity_id for r in config.entity_refs()] == [
+        "binary_sensor.workday_sensor",
+        "weather.forecast_home",
+    ]
+    with pytest.raises(ValidationError, match="forecast_workday_domain"):
+        ForecastConfig.model_validate({"load": {"workday": {"entity_id": "sensor.x"}}})
+    with pytest.raises(ValidationError, match="forecast_weather_domain"):
+        ForecastConfig.model_validate({"load": {"weather": {"entity_id": "sensor.x"}}})
