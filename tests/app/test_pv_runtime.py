@@ -18,6 +18,7 @@ from suncore.core.forecast import HorizonBucket
 from suncore.core.measurements import SITE_PV_W
 from suncore.core.series import QuantileSeries, SeriesUnit, TimeSeries
 from suncore.core.site import EntityRef
+from suncore.ha import ConnectionState
 from tests.app.conftest import RecordingConnection, demo_settings
 
 SCENARIO_DAY = datetime(2026, 6, 21, tzinfo=UTC)
@@ -209,3 +210,12 @@ async def test_the_accuracy_job_never_raises(runtime: Runtime) -> None:
 
     runtime.learned.put = boom  # type: ignore[method-assign]
     await runtime.update_forecast_accuracy()  # logged, not raised
+
+
+async def test_a_reconnect_wakes_the_pv_service(runtime: Runtime) -> None:
+    service = runtime.pv_service
+    assert service is not None
+    woken: list[bool] = []
+    service.wake = lambda: woken.append(True)  # type: ignore[method-assign]
+    runtime._on_state(ConnectionState.CONNECTED)
+    assert woken == [True]

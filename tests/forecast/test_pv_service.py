@@ -312,6 +312,35 @@ async def test_the_issue_is_readable_from_timeseries_db(tsdb: Database) -> None:
 # --- loop and wake ------------------------------------------------------------------
 
 
+async def test_wake_refreshes_a_source_without_entities() -> None:
+    clock, source = Clock(), ScriptedSource(entities=frozenset())
+    source.next = day(1000.0)
+    gate = asyncio.Event()
+
+    async def sleep(delay: float) -> None:
+        if delay > 100:
+            await gate.wait()
+
+    service = make(source, clock, sleep=sleep, refresh_interval_s=1800.0)
+    task = asyncio.create_task(service.run())
+    try:
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert len(source.windows) == 1
+        service.on_entities(["sensor.a"])  # an energy/solar_forecast source watches nothing
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert len(source.windows) == 1
+        service.wake()
+        for _ in range(30):
+            await asyncio.sleep(0)
+        assert len(source.windows) == 2
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
 async def test_entity_changes_wake_the_loop_and_unrelated_ones_do_not() -> None:
     clock, source = Clock(), ScriptedSource()
     source.next = day(1000.0)

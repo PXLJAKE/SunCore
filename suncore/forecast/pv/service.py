@@ -296,9 +296,15 @@ class PvForecastService:
     def on_entities(self, entity_ids: Iterable[str]) -> None:
         """Request a refresh if one of the sources' entities changed (cheap, sync)."""
         if not self._watched.isdisjoint(entity_ids):
-            self._woken = True
-            if self._sleeper is not None:
-                self._sleeper.cancel()
+            self.wake()
+
+    def wake(self) -> None:
+        """Request a refresh soon (debounced like an entity change), e.g. after Home Assistant
+        (re)connected: ``energy/solar_forecast`` sources watch no entity and would otherwise
+        wait for the next interval."""
+        self._woken = True
+        if self._sleeper is not None:
+            self._sleeper.cancel()
 
     # --- refresh --------------------------------------------------------------------
 

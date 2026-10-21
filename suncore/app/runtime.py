@@ -729,6 +729,8 @@ class Runtime:
             and self._tz_task is None
         ):
             self._tz_task = asyncio.ensure_future(self._prepare_control())
+        if state is ConnectionState.CONNECTED and self.pv_service is not None:
+            self.pv_service.wake()  # (re)connected: refresh the forecasts now, not in 30 min
         self._notify()
         for listener in list(self._health_listeners):
             try:
