@@ -86,6 +86,7 @@ from suncore.core.controlstate import (
 from suncore.core.decisions import Decision, DecisionKind
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import PreviewTooLargeError
+from suncore.forecast.views import MAX_VIEW_HOURS, ForecastAccuracyView, PvForecastView
 from suncore.storage.errors import (
     ConfigCorruptError,
     HistoryEntryNotFoundError,
@@ -170,6 +171,7 @@ def _register_http(app: FastAPI, services: Services) -> None:
     _register_sections(app, services)
     _register_history(app, services)
     _register_control(app, services)
+    _register_forecast(app, services)
 
     @app.get(
         f"{API_PREFIX}/entities",
@@ -266,6 +268,29 @@ def _register_http(app: FastAPI, services: Services) -> None:
         if device_id is None and not kind:
             return await services.decisions(limit)
         return await services.decisions(limit, device_id=device_id, kinds=kind)
+
+
+def _register_forecast(app: FastAPI, services: Services) -> None:
+    """PV forecast and its measured accuracy (Phase 4 WP5; read only, no UI yet)."""
+
+    @app.get(f"{API_PREFIX}/forecast/pv", response_model=PvForecastView)
+    async def forecast_pv(
+        hours: int = Query(default=48, ge=1, le=MAX_VIEW_HOURS),
+    ) -> PvForecastView:
+        """Per source the latest good P10/P50/P90 in W from the current quarter hour on, with
+        its freshness, and ``blended``: the forecast the planner uses (sources bias-calibrated
+        where active, blended by inverse 14-day MAE), its weights per horizon bucket, the
+        calibration state per source, and the blend without and with every learnt
+        calibration for comparison."""
+        return await services.pv_forecast(hours)
+
+    @app.get(f"{API_PREFIX}/forecast/accuracy", response_model=ForecastAccuracyView)
+    async def forecast_accuracy() -> ForecastAccuracyView:
+        """MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14
+        days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
+        forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
+        clipped quarter hours are excluded; computed nightly."""
+        return await services.forecast_accuracy()
 
 
 def _register_control(app: FastAPI, services: Services) -> None:

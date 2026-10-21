@@ -164,6 +164,31 @@
       "title": "Capability",
       "type": "string"
     },
+    "EnergyDashboardSeries": {
+      "additionalProperties": false,
+      "description": "Series read from the WebSocket command ``energy/solar_forecast`` (Phase 4, forecasts only).\n\nThe command returns ``{config_entry_id: {\"wh_hours\": {iso_timestamp: Wh}}}`` for the forecast\nintegrations linked in the Energy dashboard (Forecast.Solar in Home Assistant core). The\ntemplate names no entity: the user binds the source to a config entry\n(``ForecastSourceConfig.config_entry_id``), or SunCore takes the only entry there is.\n``fields`` gives only ``value_unit`` (energy per period; no quantiles). The length of a\nperiod is inferred from the spacing of the timestamps; the template's ``resolution_min``\nis the expected length (used for a series of one point).",
+      "properties": {
+        "fields": {
+          "$ref": "#/$defs/SeriesFields"
+        },
+        "missing_is_zero": {
+          "default": false,
+          "title": "Missing Is Zero",
+          "type": "boolean"
+        },
+        "source": {
+          "const": "energy_solar_forecast",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "fields"
+      ],
+      "title": "EnergyDashboardSeries",
+      "type": "object"
+    },
     "EntityMatcher": {
       "additionalProperties": false,
       "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive);\n``unit_pattern`` is a regular expression matched with ``re.fullmatch`` on the stripped\nunit. ``translation_key`` / ``translation_key_pattern`` likewise. Exact and pattern\nforms exclude each other.",
@@ -463,6 +488,17 @@
       "title": "Capabilities",
       "type": "array"
     },
+    "fallback_series": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ActionSeries"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "forecast_kind": {
       "enum": [
         "pv",
@@ -525,7 +561,8 @@
       "discriminator": {
         "mapping": {
           "action": "#/$defs/ActionSeries",
-          "attribute": "#/$defs/AttributeSeries"
+          "attribute": "#/$defs/AttributeSeries",
+          "energy_solar_forecast": "#/$defs/EnergyDashboardSeries"
         },
         "propertyName": "source"
       },
@@ -535,6 +572,9 @@
         },
         {
           "$ref": "#/$defs/ActionSeries"
+        },
+        {
+          "$ref": "#/$defs/EnergyDashboardSeries"
         }
       ],
       "title": "Series"

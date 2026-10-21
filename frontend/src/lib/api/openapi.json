@@ -1,6 +1,93 @@
 {
   "components": {
     "schemas": {
+      "AccuracyRecord": {
+        "additionalProperties": false,
+        "description": "Measured error of one source in one horizon bucket (WP5 bookkeeping).\n\n``mae_w`` is the mean absolute error and ``bias_w`` the mean signed error of P50 over\n``n`` intervals. **Sign convention (one for all of SunCore's forecast statistics):\nerror = actual - forecast**, so ``bias_w > 0`` means the source under-forecasts and\n``forecast + bias_w`` is the bias-corrected value; the risk model's net error\n(PV error - load error) uses the same convention.",
+        "properties": {
+          "bias_w": {
+            "title": "Bias W",
+            "type": "number"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/HorizonBucket"
+          },
+          "mae_w": {
+            "minimum": 0.0,
+            "title": "Mae W",
+            "type": "number"
+          },
+          "n": {
+            "minimum": 0.0,
+            "title": "N",
+            "type": "integer"
+          },
+          "source_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_.:-]+$",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "horizon",
+          "mae_w",
+          "bias_w",
+          "n"
+        ],
+        "title": "AccuracyRecord",
+        "type": "object"
+      },
+      "AccuracySourceView": {
+        "additionalProperties": false,
+        "description": "Measured accuracy of one source; ``records`` only holds buckets with data.\n\nThe source id ``blended`` is the blended forecast the planner used.",
+        "properties": {
+          "computed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Computed At"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/AccuracyRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "window_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Days"
+          }
+        },
+        "required": [
+          "source_id",
+          "computed_at",
+          "window_days",
+          "records"
+        ],
+        "title": "AccuracySourceView",
+        "type": "object"
+      },
       "ActionSeries": {
         "additionalProperties": false,
         "description": "Series returned by a read-only action (``return_response`` is implied).",
@@ -664,6 +751,204 @@
         "title": "BatteryTemplate",
         "type": "object"
       },
+      "BlendWeightsView": {
+        "additionalProperties": false,
+        "description": "The weights of one horizon bucket (before the per-slot renormalisation over the sources\nthat have a value in a slot).",
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inverse_mae",
+                  "equal_no_history"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/HorizonBucket"
+          },
+          "manual": {
+            "title": "Manual",
+            "type": "boolean"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Weights",
+            "type": "object"
+          }
+        },
+        "required": [
+          "horizon",
+          "basis",
+          "manual",
+          "weights"
+        ],
+        "title": "BlendWeightsView",
+        "type": "object"
+      },
+      "BlendedView": {
+        "additionalProperties": false,
+        "description": "The forecast the planner uses: the sources on the 15-minute grid, bias-calibrated where\nthe calibration is active, blended by measured skill (P10/P50/P90 in W).\n\n``uncalibrated_p50_w`` is the blend of the sources as they said it; ``calibrated_p50_w`` the\nblend with every learnt calibration applied, active or not (``None`` while no source has\nlearnt anything), so the effect can be compared before it switches on.",
+        "properties": {
+          "calibrated_p50_w": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibrated P50 W"
+          },
+          "calibration": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationView"
+            },
+            "title": "Calibration",
+            "type": "array"
+          },
+          "calibration_active": {
+            "title": "Calibration Active",
+            "type": "boolean"
+          },
+          "excluded_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Excluded Sources",
+            "type": "array"
+          },
+          "method": {
+            "enum": [
+              "weighted",
+              "single_source"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "p10_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P10 W",
+            "type": "array"
+          },
+          "p50_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P50 W",
+            "type": "array"
+          },
+          "p90_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P90 W",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "step_s": {
+            "exclusiveMinimum": 0.0,
+            "title": "Step S",
+            "type": "integer"
+          },
+          "uncalibrated_p50_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Uncalibrated P50 W",
+            "type": "array"
+          },
+          "weights": {
+            "items": {
+              "$ref": "#/components/schemas/BlendWeightsView"
+            },
+            "title": "Weights",
+            "type": "array"
+          }
+        },
+        "required": [
+          "method",
+          "sources",
+          "start",
+          "step_s",
+          "p10_w",
+          "p50_w",
+          "p90_w",
+          "uncalibrated_p50_w",
+          "calibrated_p50_w",
+          "calibration_active",
+          "stale",
+          "excluded_sources",
+          "weights",
+          "calibration"
+        ],
+        "title": "BlendedView",
+        "type": "object"
+      },
       "CalibrationCharge": {
         "additionalProperties": false,
         "description": "Periodic full charge for the BMS's SoC calibration (off by default, question 11).\n\nWhen enabled the planner schedules a charge to ``target_soc_pct`` once every\n``interval_days`` into a sunny day (from PV; grid only if the policy allows it).",
@@ -689,6 +974,76 @@
           }
         },
         "title": "CalibrationCharge",
+        "type": "object"
+      },
+      "CalibrationView": {
+        "additionalProperties": false,
+        "description": "The bias calibration of one source.\n\n``reason``: ``active`` (applied), ``collecting`` (learnt and stored but not applied before\n``min_history_days`` days with data), ``no_history`` (nothing learnt yet),\n``classifier_changed`` (learnt with the other weather classifier; waits).",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "cells": {
+            "title": "Cells",
+            "type": "integer"
+          },
+          "days_with_data": {
+            "title": "Days With Data",
+            "type": "integer"
+          },
+          "factor_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor Max"
+          },
+          "factor_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor Min"
+          },
+          "min_history_days": {
+            "title": "Min History Days",
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "active",
+              "collecting",
+              "no_history",
+              "classifier_changed"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "active",
+          "reason",
+          "days_with_data",
+          "min_history_days",
+          "cells",
+          "factor_min",
+          "factor_max"
+        ],
+        "title": "CalibrationView",
         "type": "object"
       },
       "Capability": {
@@ -1992,6 +2347,31 @@
         "title": "EmergencyStopOut",
         "type": "object"
       },
+      "EnergyDashboardSeries": {
+        "additionalProperties": false,
+        "description": "Series read from the WebSocket command ``energy/solar_forecast`` (Phase 4, forecasts only).\n\nThe command returns ``{config_entry_id: {\"wh_hours\": {iso_timestamp: Wh}}}`` for the forecast\nintegrations linked in the Energy dashboard (Forecast.Solar in Home Assistant core). The\ntemplate names no entity: the user binds the source to a config entry\n(``ForecastSourceConfig.config_entry_id``), or SunCore takes the only entry there is.\n``fields`` gives only ``value_unit`` (energy per period; no quantiles). The length of a\nperiod is inferred from the spacing of the timestamps; the template's ``resolution_min``\nis the expected length (used for a series of one point).",
+        "properties": {
+          "fields": {
+            "$ref": "#/components/schemas/SeriesFields"
+          },
+          "missing_is_zero": {
+            "default": false,
+            "title": "Missing Is Zero",
+            "type": "boolean"
+          },
+          "source": {
+            "const": "energy_solar_forecast",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "fields"
+        ],
+        "title": "EnergyDashboardSeries",
+        "type": "object"
+      },
       "EnergyPrefsOut": {
         "additionalProperties": false,
         "description": "Energy dashboard import: suggestions only, never applied by the server.",
@@ -2462,6 +2842,21 @@
         "title": "FeedInTier",
         "type": "object"
       },
+      "FetchStatus": {
+        "description": "What a fetch found (rendered as ``forecast.status.<value>`` in the UI).",
+        "enum": [
+          "ok",
+          "partial",
+          "no_data",
+          "not_configured",
+          "not_linked",
+          "ambiguous_entry",
+          "entry_not_found",
+          "error"
+        ],
+        "title": "FetchStatus",
+        "type": "string"
+      },
       "FlowOut": {
         "additionalProperties": false,
         "description": "A value in W (or % for the state of charge) with its data quality.",
@@ -2580,6 +2975,29 @@
         "title": "ForceChargeSwitchControl",
         "type": "object"
       },
+      "ForecastAccuracyView": {
+        "additionalProperties": false,
+        "description": "Accuracy per source and horizon bucket.\n\n``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts\n15-minute daylight intervals (forecast or measurement above 0 W; clipped ones excluded).\nA record with ``n`` below ``min_samples`` is too thin to rely on.",
+        "properties": {
+          "min_samples": {
+            "title": "Min Samples",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AccuracySourceView"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "min_samples",
+          "sources"
+        ],
+        "title": "ForecastAccuracyView",
+        "type": "object"
+      },
       "ForecastConfig": {
         "additionalProperties": false,
         "description": "PV forecast sources (schema v2: several sources, blending, learning settings).\n\nIndependent of the tariff so that the wizard can store the choice without prices.\nForecast uncertainty is handled by the learned risk model and the battery section's\n``risk`` level, not by a flat discount.",
@@ -2612,6 +3030,18 @@
         "additionalProperties": false,
         "description": "One PV forecast source: its template, the entities of its roles and its weight.\n\n``weight_mode = auto`` blends by measured skill (inverse MAE, WP5); ``manual`` uses\n``weight`` (relative, normalised over all sources by the blender).",
         "properties": {
+          "config_entry_id": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Entry Id"
+          },
           "entities": {
             "patternProperties": {
               "^[a-z][a-z0-9_]{0,31}$": {
@@ -2666,6 +3096,16 @@
             "maxItems": 32,
             "title": "Capabilities",
             "type": "array"
+          },
+          "fallback_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionSeries"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "forecast_kind": {
             "enum": [
@@ -2728,7 +3168,8 @@
             "discriminator": {
               "mapping": {
                 "action": "#/components/schemas/ActionSeries",
-                "attribute": "#/components/schemas/AttributeSeries"
+                "attribute": "#/components/schemas/AttributeSeries",
+                "energy_solar_forecast": "#/components/schemas/EnergyDashboardSeries"
               },
               "propertyName": "source"
             },
@@ -2738,6 +3179,9 @@
               },
               {
                 "$ref": "#/components/schemas/ActionSeries"
+              },
+              {
+                "$ref": "#/components/schemas/EnergyDashboardSeries"
               }
             ],
             "title": "Series"
@@ -3085,6 +3529,17 @@
         ],
         "title": "HistoryRestoreOut",
         "type": "object"
+      },
+      "HorizonBucket": {
+        "description": "Lead-time bucket the accuracy of a forecast is tracked in.",
+        "enum": [
+          "0_6h",
+          "6_24h",
+          "24_48h",
+          "48h_plus"
+        ],
+        "title": "HorizonBucket",
+        "type": "string"
       },
       "ImportResultOut": {
         "additionalProperties": false,
@@ -4141,6 +4596,177 @@
           "name"
         ],
         "title": "PvArray",
+        "type": "object"
+      },
+      "PvForecastView": {
+        "additionalProperties": false,
+        "properties": {
+          "blended": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BlendedView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "hours": {
+            "title": "Hours",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/PvSourceView"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generated_at",
+          "hours",
+          "sources",
+          "blended"
+        ],
+        "title": "PvForecastView",
+        "type": "object"
+      },
+      "PvSeriesView": {
+        "additionalProperties": false,
+        "description": "P10/P50/P90 in W on one regular grid: ``p50_w[i]`` covers ``[start + i*step_s, ...)``.",
+        "properties": {
+          "p10_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P10 W",
+            "type": "array"
+          },
+          "p50_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P50 W",
+            "type": "array"
+          },
+          "p90_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P90 W",
+            "type": "array"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "step_s": {
+            "exclusiveMinimum": 0.0,
+            "title": "Step S",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "step_s",
+          "p10_w",
+          "p50_w",
+          "p90_w"
+        ],
+        "title": "PvSeriesView",
+        "type": "object"
+      },
+      "PvSourceView": {
+        "additionalProperties": false,
+        "description": "One source: its latest good series and how fresh it is.",
+        "properties": {
+          "age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age S"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "filled_slots": {
+            "title": "Filled Slots",
+            "type": "integer"
+          },
+          "series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PvSeriesView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FetchStatus"
+          }
+        },
+        "required": [
+          "source_id",
+          "status",
+          "fetched_at",
+          "age_s",
+          "stale",
+          "filled_slots",
+          "series"
+        ],
+        "title": "PvSourceView",
         "type": "object"
       },
       "Quality": {
@@ -6854,6 +7480,68 @@
           }
         },
         "summary": "Entities"
+      }
+    },
+    "/api/v1/forecast/accuracy": {
+      "get": {
+        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -\nforecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;\nclipped quarter hours are excluded; computed nightly.",
+        "operationId": "forecast_accuracy_api_v1_forecast_accuracy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForecastAccuracyView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Forecast Accuracy"
+      }
+    },
+    "/api/v1/forecast/pv": {
+      "get": {
+        "description": "Per source the latest good P10/P50/P90 in W from the current quarter hour on, with\nits freshness, and ``blended``: the forecast the planner uses (sources bias-calibrated\nwhere active, blended by inverse 14-day MAE), its weights per horizon bucket, the\ncalibration state per source, and the blend without and with every learnt\ncalibration for comparison.",
+        "operationId": "forecast_pv_api_v1_forecast_pv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 48,
+              "maximum": 96,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PvForecastView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Forecast Pv"
       }
     },
     "/api/v1/info": {

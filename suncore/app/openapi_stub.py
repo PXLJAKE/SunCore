@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,8 @@ from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
+from suncore.forecast.accuracy import accuracy_view
+from suncore.forecast.views import ForecastAccuracyView, PvForecastView
 from suncore.storage import HistoryEntry
 from suncore.templates import TemplateCatalog
 
@@ -76,6 +79,12 @@ class StubServices:
         kinds: Collection[DecisionKind] | None = None,  # noqa: ARG002
     ) -> list[Decision]:
         return []
+
+    async def pv_forecast(self, hours: int) -> PvForecastView:
+        return PvForecastView(generated_at=datetime.now(UTC), hours=hours, sources=[], blended=None)
+
+    async def forecast_accuracy(self) -> ForecastAccuracyView:
+        return accuracy_view([], {})
 
     def control_state(self) -> ControlState:
         return ControlState(

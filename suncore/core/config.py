@@ -212,6 +212,12 @@ class ForecastSourceConfig(_Frozen):
     """Role of the template (e.g. ``forecast_today``) to entity."""
     weight_mode: Literal["auto", "manual"] = "auto"
     weight: Annotated[float, Field(gt=0, le=1)] | None = None
+    config_entry_id: (
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")] | None
+    ) = None
+    """Template ``series.source: energy_solar_forecast`` (Forecast.Solar): the config entry id
+    under which ``energy/solar_forecast`` lists the integration (the wizard offers the ids of
+    ``energy/get_prefs`` ``config_entry_solar_forecast``). ``None`` = the only entry there is."""
 
     @model_validator(mode="after")
     def _weight(self) -> Self:

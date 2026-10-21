@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=../schema/forecast.schema.json
+# Open-Meteo Solar Forecast (HACS `rany2/ha-open-meteo-solar-forecast`, domain
+# `open_meteo_solar_forecast`). The sensors `energy_production_today`, `_tomorrow`, `_d2` ...
+# carry `wh_period_15m` = {interval start (ISO 8601 with offset): Wh per 15 minutes}. A single
+# deterministic estimate (no P10/P90).
+id: open_meteo_solar_forecast.pv
+kind: forecast
+schema_version: 1
+name: template.open_meteo_solar_forecast.pv.name
+source:
+  - title: "ha-open-meteo-solar-forecast 0.1.33 sensor.py (energy_production_* sensors, wh_period_15m attribute)"
+    url: "https://github.com/rany2/ha-open-meteo-solar-forecast/blob/7af5d681c3ffeb7d8f678fd4eadd7f5aebd2a1ac/custom_components/open_meteo_solar_forecast/sensor.py"
+    date: 2026-10-16
+  - title: "ha-open-meteo-solar-forecast 0.1.33 const.py (ATTR_WH_PERIOD_15M)"
+    url: "https://github.com/rany2/ha-open-meteo-solar-forecast/blob/7af5d681c3ffeb7d8f678fd4eadd7f5aebd2a1ac/custom_components/open_meteo_solar_forecast/const.py"
+    date: 2026-10-16
+  - title: "ha-open-meteo-solar-forecast 0.1.33 coordinator.py (update interval 30 min)"
+    url: "https://github.com/rany2/ha-open-meteo-solar-forecast/blob/7af5d681c3ffeb7d8f678fd4eadd7f5aebd2a1ac/custom_components/open_meteo_solar_forecast/coordinator.py"
+    date: 2026-10-16
+tested_with: []
+capabilities: [pv_curve]
+unverified:
+  - "Read from the integration source (tag 0.1.33) only; not observed on a running Home Assistant."
+  - "The sensors' translation key is assumed to equal the description key (`energy_production_today` ...); the research names only the key and the entity id pattern."
+  - "The state unit is Wh with kWh suggested for display; the matcher accepts both, the adapter reads the attribute, not the state."
+  - "Keys carry a fixed UTC offset of the plant location; the day boundary for a plant in another time zone than Home Assistant's is unverified."
+  - "Open-Meteo data is CC BY 4.0 (attribution in the UI); the separate terms page was unreachable."
+forecast_kind: pv
+roles:
+  energy_today:
+    matcher:
+      domain: sensor
+      platforms: [open_meteo_solar_forecast]
+      translation_key: energy_production_today
+      device_class: energy
+      units: [Wh, kWh]
+    description: template.open_meteo_solar_forecast.pv.role.energy_today
+  energy_tomorrow:
+    matcher:
+      domain: sensor
+      platforms: [open_meteo_solar_forecast]
+      translation_key: energy_production_tomorrow
+      device_class: energy
+      units: [Wh, kWh]
+    description: template.open_meteo_solar_forecast.pv.role.energy_tomorrow
+  energy_d2:
+    required: false
+    matcher:
+      domain: sensor
+      platforms: [open_meteo_solar_forecast]
+      translation_key: energy_production_d2
+      device_class: energy
+      units: [Wh, kWh]
+    description: template.open_meteo_solar_forecast.pv.role.energy_d2
+  energy_d3:
+    required: false
+    matcher:
+      domain: sensor
+      platforms: [open_meteo_solar_forecast]
+      translation_key: energy_production_d3
+      device_class: energy
+      units: [Wh, kWh]
+    description: template.open_meteo_solar_forecast.pv.role.energy_d3
+series:
+  source: attribute
+  roles: [energy_today, energy_tomorrow, energy_d2, energy_d3]
+  attribute: wh_period_15m
+  shape: mapping
+  fields:
+    value_unit: Wh
+resolution_min: 15

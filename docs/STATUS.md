@@ -3,9 +3,10 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-17 · **Phase:** 4 in progress – PR 4-A contracts, PR 4-B storage; Phase 3 (3-A
-`phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
-maintainer's shadow test · **Branch:** `phase-4/b-storage` (stacked on `claude/zealous-mayer-j5oda9`)
+**Last update:** 2026-10-19 · **Phase:** 4 in progress – PR 4-A contracts, PR 4-B storage, PR 4-D PV
+forecast; Phase 3 (3-A `phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`)
+implemented, waiting for the maintainer's shadow test · **Branch:** `phase-4/d-pv-forecast`
+(stacked on `phase-4/b-storage`)
 
 ## Done
 
@@ -57,6 +58,44 @@ maintainer's shadow test · **Branch:** `phase-4/b-storage` (stacked on `claude/
     connection.
   - Follow-ups: `size_report` is not on a diagnostics page yet; a too-new `timeseries.db` is only
     logged (a UI hint follows in 4-H).
+
+- **Phase 4 – PR 4-D (WP5, PV forecast; branch `phase-4/d-pv-forecast`, stacked on 4-B)**:
+  - Part A – adapters: template-driven sources (`suncore/forecast/pv/`) for Solcast
+    (`detailedForecast` attributes, fallback read-only action `solcast_solar.query_forecast_data`,
+    never the Solcast API), Forecast.Solar (core, `energy/solar_forecast`, `config_entry_id` when
+    several entries are linked), Open-Meteo Solar Forecast (`wh_period_15m`) and the generic
+    attribute template; pure parsing onto the source's native grid (DST-safe, unknown slots stay
+    `None`). Refresh service: every 30 min and on entity changes (debounced), keeps the last good
+    data, bounded gap filling, stores issues in `timeseries.db` hourly or on a material change
+    (≥ 15 %). Nightly accuracy bookkeeping (MAE and bias = actual − forecast per source and
+    horizon bucket 0–6/6–24/24–48 h over 14 days, daylight quarter hours only, clipped ones
+    excluded, `learned_param` `forecast_accuracy`).
+    `GET /api/v1/forecast/pv` and `/forecast/accuracy`; the demo publishes three deterministic
+    biased sources.
+  - Part B – blending, calibration, clipping: `blend.py` (weights per horizon bucket from the
+    inverse 14-day MAE, minimum weight 0.1, manual weights as shares, equal weights until every
+    auto source has ≥ 96 scored quarter hours; renormalised per slot; P50 weighted, P10/P90 from
+    the sources with quantiles widened by the sources' disagreement); `calibration.py`
+    (multiplicative factor per local hour × month-group season × weather class, bounded 0.5–1.5,
+    shrunk with `n/(n+16)`, learnt nightly per source from the day-start issue without clipped
+    slots, applied only after `min_history_days` = 30 days with data, stored in `forecast_bias`);
+    `clearsky.py` (weather class = clear-sky index of the forecast itself: sun position + Haurwitz
+    clear sky on the configured arrays with HA's `latitude`/`longitude` from `get_config`;
+    fallback without location or `kwp`: the day's forecast peak against the 95th percentile of
+    the stored daily peaks);
+    `clipping.py` (grid export at the export limit while the forecast is higher; an inverter
+    plateau derived from the data – no AC-rating field exists, none was invented); `learning.py`
+    (nightly order clipping → accuracy incl. `blended` → bias tables). The service blends on the
+    15-min grid for now → +48 h, stores the blend as source `blended`, and the API shows the
+    weights, the calibration state per source and the blend without and with the learnt
+    calibration. The demo site now declares its 8 kWp horizontal plant.
+  - Deviation: the built-in PV fallback (Open-Meteo API, question 5) is **not shipped**; it moves
+    to Phase 6 with the price fallbacks (Open-Meteo terms and live azimuth convention
+    `UNVERIFIED`, plan §"Deviations during implementation").
+  - Zero-export plants (`export_limit_w` 0 or 0 %): clipping by the export limit is not detected
+    (grid ≈ 0 W also without curtailment); only the inverter-plateau rule applies.
+  - Follow-ups: the weights come from the *uncalibrated* sources' MAE (a calibrated source is
+    under-weighted until a calibrated accuracy is scored); no UI yet (4-H).
 
 - **Fix after the first live test (2026-10-16, branch `fix/device-freshness`)**: on the maintainer's
   HA the SunSpec battery SoC (84 % for 25 min) and the `smartthinq_sensors` power sensors (5 W for a
@@ -548,6 +587,11 @@ maintainer's shadow test · **Branch:** `phase-4/b-storage` (stacked on `claude/
 | Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (`power_update_s` is in the device editor since WP10) |
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
+| Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
+| Open-Meteo Solar Forecast: translation key assumed equal to the description key; CC BY 4.0 attribution still to be shown in the UI (4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration; PR 4-H |
+| Forecast.Solar `wh_hours`/`watt_hours_period` keys read as period *start* (vendor API unreachable) | `templates/forecast/forecast_solar.pv.yaml`, `suncore/forecast/pv/parsing.py` | live comparison with the integration's sensors |
+| Supervisor proxy forwards `energy/solar_forecast` | `suncore/ha/` (`fetch_solar_forecast`) | first run on HA OS |
+| PV calibration constants (classes kt 0.3/0.65, shrink k = 16, decay 0.98, factor 0.5–1.5) and the clipping thresholds (plateau ±0.3 % for ≥ 1 h on ≥ 2 days; export within max(3 %, 50 W)) are reasoned, not fitted to real data | `suncore/forecast/pv/` | 30+ days of the maintainer's data |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
 
 ## Environment notes

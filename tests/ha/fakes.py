@@ -112,6 +112,8 @@ class FakeHA:
         self.device_registry: list[dict[str, Any]] = []
         self.area_registry: list[dict[str, Any]] = []
         self.energy_prefs: dict[str, Any] | None = None  # None = "No prefs" (not_found)
+        # energy/solar_forecast: config entry id -> {wh_hours: {iso: Wh}} (research: types.py).
+        self.solar_forecast: Any = {}
         # recorder/statistics_during_period: statistic_id -> rows (ms epoch, as HA answers).
         self.statistics: dict[str, list[dict[str, Any]]] = {}
         self.service_response: Callable[[dict[str, Any]], Any] = lambda msg: {"echo": msg}
@@ -275,6 +277,8 @@ class FakeHA:
                 )
             else:
                 await self._reply(ws, ok(self.energy_prefs))
+        elif kind == "energy/solar_forecast":
+            await self._reply(ws, ok(self.solar_forecast))
         elif kind == "recorder/statistics_during_period":
             wanted_ids = msg["statistic_ids"]
             result = {i: self.statistics[i] for i in wanted_ids if self.statistics.get(i)}

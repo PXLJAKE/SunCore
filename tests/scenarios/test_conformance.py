@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import re
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -35,7 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from suncore.core.devices import DeviceConfig
 from suncore.core.entities import EntityMeta
 from suncore.core.site import EntityRef
-from suncore.core.units import parse_unit
+from suncore.core.units import Dimension, parse_unit
 from suncore.ha.connection import EntityState
 from suncore.sim.fake_ha import FakeHAConnection
 from suncore.sim.scenario import load_scenario
@@ -49,7 +49,7 @@ from suncore.templates import (
     matched_criteria,
     rank_entities,
 )
-from suncore.templates.models import AttributeSeries
+from suncore.templates.models import AttributeSeries, EnergyDashboardSeries
 
 pytestmark = pytest.mark.simulator
 
@@ -205,7 +205,7 @@ async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> No
     elif isinstance(template, TariffTemplate):
         await _check_tariff(template, fake, resolved, states)
     elif isinstance(template, ForecastTemplate):
-        _check_forecast(template, resolved, states)
+        await _check_forecast(template, fake, resolved, states)
     elif isinstance(template, RegionTemplate):
         await _check_region(template, fake)
 
@@ -254,39 +254,71 @@ async def _check_tariff(
     assert template.price_series.fields.value_unit == "{currency}/kWh"
 
 
-def _check_forecast(
+def _energy_kwh(points: Sequence[float], unit_text: str, resolution_min: int) -> float:
+    """Energy of equally spaced values: power = mean over the slot, energy = per slot."""
+    unit = parse_unit(unit_text)
+    assert unit is not None
+    base = sum(points) * unit.factor  # W or Wh
+    wh = base * resolution_min / 60 if unit.dimension is Dimension.POWER else base
+    return wh / 1000
+
+
+async def _check_forecast(
     template: ForecastTemplate,
+    fake: FakeHAConnection,
     resolved: Mapping[str, EntityMeta],
     states: Mapping[str, EntityState],
 ) -> None:
     series = template.series
-    assert isinstance(series, AttributeSeries)
     fields = series.fields
-    unit = parse_unit(fields.value_unit)
-    assert unit is not None
-    points: list[dict[str, Any]] = []
-    for role in series.roles:
+    assert parse_unit(fields.value_unit) is not None
+    if isinstance(series, EnergyDashboardSeries):
+        entries = await fake.energy_solar_forecast()
+        assert entries
+        hours = entries["sim_entry_forecast_solar"]
+        stamps = sorted(datetime.fromisoformat(k) for k in hours)
+        assert all(s.utcoffset() is not None for s in stamps)
+        assert all(v >= 0 for v in hours.values())
+        # The integration drops only a zero at 00:00:00: spacing is a multiple of the period.
+        assert {
+            (b - a).total_seconds() / 60 % template.resolution_min
+            for a, b in itertools.pairwise(stamps)
+        } == {0.0}
+        return
+    assert isinstance(series, AttributeSeries)
+    resolved_roles = [r for r in series.roles if r in resolved]
+    assert resolved_roles, "a forecast scenario resolves at least one series role"
+    for role in resolved_roles:
         entity = states[resolved[role].entity_id]
         attribute = entity.attributes[series.attribute]
-        assert isinstance(attribute, list)
-        assert attribute, role
-        points.extend(attribute)
-    required = {fields.timestamp_field, fields.value_field, fields.p10_field, fields.p90_field}
-    assert all(required <= set(p) for p in points)
-    stamps = [datetime.fromisoformat(p[fields.timestamp_field]) for p in points]
-    assert stamps == sorted(stamps)
-    deltas = {(b - a).total_seconds() / 60 for a, b in itertools.pairwise(stamps)}
-    assert deltas == {template.resolution_min}
-    assert all(p[fields.p10_field] <= p[fields.value_field] <= p[fields.p90_field] for p in points)
-    # kW is average power over the slot: the day sensor in kWh equals sum(kW) * slot hours.
-    today = states[resolved[series.roles[0]].entity_id]
-    day = [
-        p
-        for p in points
-        if p[fields.timestamp_field][:10] == points[0][fields.timestamp_field][:10]
-    ]
-    kwh = sum(p[fields.value_field] for p in day) * template.resolution_min / 60
-    assert float(today.state) == pytest.approx(kwh, abs=0.05)
+        if series.shape == "mapping":
+            assert isinstance(attribute, dict)
+            assert attribute, role
+            stamps = [datetime.fromisoformat(k) for k in attribute]
+            values = list(attribute.values())
+            assert all(isinstance(v, int | float) and v >= 0 for v in values)
+        else:
+            assert isinstance(attribute, list)
+            assert attribute, role
+            required = {fields.timestamp_field, fields.value_field}
+            required |= {f for f in (fields.p10_field, fields.p90_field) if f is not None}
+            assert all(required <= set(p) for p in attribute)
+            stamps = [datetime.fromisoformat(p[fields.timestamp_field]) for p in attribute]
+            values = [p[fields.value_field] for p in attribute]
+            if fields.p10_field is not None and fields.p90_field is not None:
+                assert all(
+                    p[fields.p10_field] <= p[fields.value_field] <= p[fields.p90_field]
+                    for p in attribute
+                )
+        assert all(s.utcoffset() is not None for s in stamps)  # offsets, never naive times
+        assert stamps == sorted(stamps)
+        deltas = {(b - a).total_seconds() / 60 for a, b in itertools.pairwise(stamps)}
+        assert deltas == {template.resolution_min}
+        # The day sensor's state is the sum of its series (kWh).
+        state_unit = parse_unit(entity.attributes["unit_of_measurement"])
+        assert state_unit is not None
+        expected = _energy_kwh(values, fields.value_unit, template.resolution_min)
+        assert float(entity.state) * state_unit.factor / 1000 == pytest.approx(expected, abs=0.05)
 
 
 async def _check_region(template: RegionTemplate, fake: FakeHAConnection) -> None:
