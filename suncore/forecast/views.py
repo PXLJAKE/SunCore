@@ -266,6 +266,8 @@ class RiskView(_View):
     samples: dict[str, int]
     """Learnt samples per ``window/weather`` cell."""
     evening_at: AwareDatetime | None
+    """Start of the ``night`` window: today's sunset (the time the evening target refers to);
+    after sunset the current quarter hour (the evening has begun)."""
     windows: list[RiskWindowView]
     morning_buffer: RiskTargetView | None
     evening_target: RiskTargetView | None

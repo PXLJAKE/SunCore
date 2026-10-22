@@ -12,15 +12,21 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from suncore.core.battery import BatteryModel, BatterySettings, BatteryStrategy, RiskLevel
+from suncore.core.battery import (
+    BatteryModel,
+    BatterySettings,
+    BatteryStrategy,
+    RiskLevel,
+    effective_reserve_pct,
+)
 from suncore.core.series import QuantileSeries, SeriesUnit, TimeSeries, planning_grid
+from suncore.core.site import BatteryConfig, EntityRef
 from suncore.forecast.risk import (
     EnergyQuantiles,
     ErrorModel,
     ErrorSample,
     NetWindow,
     RiskWindow,
-    coming_daytime,
     coverage,
     day_windows,
     daylight_spans,
@@ -69,7 +75,7 @@ def pv_forecast(
     )
 
 
-def load_forecast(level: float = 400.0, now: datetime = NOW) -> QuantileSeries:
+def load_forecast(level: float = 400.0, now: datetime = NOW, high: float = 1.3) -> QuantileSeries:
     grid = planning_grid(now, timedelta(hours=48))
 
     def series(value: float) -> TimeSeries:
@@ -77,7 +83,7 @@ def load_forecast(level: float = 400.0, now: datetime = NOW) -> QuantileSeries:
             start=grid.start, step=grid.step, values=(value,) * grid.count, unit=SeriesUnit.W
         )
 
-    return QuantileSeries(p10=series(level * 0.8), p50=series(level), p90=series(level * 1.3))
+    return QuantileSeries(p10=series(level * 0.8), p50=series(level), p90=series(level * high))
 
 
 def targets(
@@ -91,12 +97,15 @@ def targets(
     battery: BatteryModel = BATTERY,
     load: QuantileSeries | None = None,
     now: datetime = NOW,
+    site: BatteryConfig | None = None,
 ) -> tuple[float, float, str, str]:
     windows = day_windows(now, pv, load or load_forecast(now=now), BERLIN)
     config = BatterySettings(risk=risk, morning_buffer_pct=manual, strategy=strategy)
-    evening = evening_target_pct(battery, config, windows, user_target_pct=user, model=model)
+    evening = evening_target_pct(
+        battery, config, windows, user_target_pct=user, site_battery=site, model=model
+    )
     buffer = morning_buffer_pct(
-        battery, config, coming_daytime(windows), evening.soc_pct, model=model
+        battery, config, windows, evening.soc_pct, site_battery=site, model=model
     )
     return (
         buffer.soc_pct,
@@ -114,7 +123,10 @@ def test_windows_are_anchored_on_the_next_sunset() -> None:
     rest, night = windows[RiskWindow.REST_OF_TODAY], windows[RiskWindow.NIGHT]
     nxt, bridge = windows[RiskWindow.NEXT_DAY], windows[RiskWindow.BRIDGE]
     assert rest.start == NOW
+    assert windows[RiskWindow.REST_OF_NIGHT].start == windows[RiskWindow.REST_OF_NIGHT].end
     assert rest.end == night.start == bridge.start
+    both = windows[RiskWindow.DAY_AND_NIGHT]
+    assert (both.start, both.end) == (rest.start, night.end)
     assert night.end == nxt.start
     assert nxt.end == bridge.end
     assert rest.end.astimezone(BERLIN).hour in (20, 21)
@@ -131,7 +143,21 @@ def test_after_sunset_the_night_starts_now() -> None:
     windows = day_windows(late, pv, load_forecast(now=late), BERLIN)
     assert windows[RiskWindow.REST_OF_TODAY].start == windows[RiskWindow.REST_OF_TODAY].end
     assert windows[RiskWindow.NIGHT].start == late
-    assert coming_daytime(windows).kind is RiskWindow.NEXT_DAY
+    both, nxt = windows[RiskWindow.DAY_AND_NIGHT], windows[RiskWindow.NEXT_DAY]
+    assert both.start == nxt.start  # the next daytime and the night after it
+    assert both.end > nxt.end
+
+
+def test_before_sunrise_the_rest_of_the_night_is_its_own_window() -> None:
+    early = datetime(2026, 6, 22, 3, 0, tzinfo=BERLIN).astimezone(UTC)
+    windows = day_windows(early, pv_forecast(now=early), load_forecast(now=early), BERLIN)
+    rest_night, rest = windows[RiskWindow.REST_OF_NIGHT], windows[RiskWindow.REST_OF_TODAY]
+    assert rest_night.start == early
+    assert rest_night.end == rest.start
+    assert rest.start.astimezone(BERLIN).hour == 6  # today's sunrise, not 03:00
+    assert rest_night.weather == "night"
+    assert rest_night.pv.p50 == 0
+    assert windows[RiskWindow.DAY_AND_NIGHT].start == early
 
 
 def test_without_pv_the_fallback_times_apply() -> None:
@@ -236,12 +262,14 @@ def test_measured_energy_and_coverage() -> None:
     assert coverage(series, NOW, end) == 0.75
     assert measured_energy(series, NOW, end) == pytest.approx(400)
     assert coverage(series, end, end + timedelta(hours=1)) == 0.0
+    assert coverage(series, NOW, NOW + timedelta(hours=2)) == 3 / 8  # beyond the series: unknown
 
 
 # --- properties ----------------------------------------------------------------------------------
 
 peaks = st.floats(0, 9000)
-spread = st.floats(0.3, 1.0)
+spread = st.floats(0.3, 0.99)
+"""A band (P10 below P50): a source without any band uses the default band (a step)."""
 
 
 @settings(max_examples=40, deadline=None)
@@ -317,7 +345,7 @@ def test_reasons_carry_the_value_and_the_source() -> None:
     assert evening.reason.args["soc_pct"] == round(evening.soc_pct, 1)
     assert evening.reason.args["source"] == "source_quantiles"
     assert evening.reason.args["risk"] == "cautious"
-    buffer = morning_buffer_pct(BATTERY, config, windows[RiskWindow.REST_OF_TODAY], evening.soc_pct)
+    buffer = morning_buffer_pct(BATTERY, config, windows, evening.soc_pct)
     assert buffer.reason.key == "planner.battery.morning_buffer"
 
 
@@ -374,3 +402,96 @@ def test_scenario_a_too_optimistic_forecast_raises_the_target_after_30_days() ->
     assert bridge.pv.p50 > 0
     assert before[3] == "next_day_deficit"
     assert after[1] > before[1]
+
+
+# --- review findings: reserve floor, default band, learned path, load band -------------------
+
+
+def site_battery(min_soc: float | None) -> BatteryConfig:
+    return BatteryConfig(
+        power=EntityRef(entity_id="sensor.bat_power"),
+        soc=EntityRef(entity_id="sensor.bat_soc"),
+        min_soc_pct=min_soc,
+    )
+
+
+def test_effective_reserve_takes_the_higher_floor() -> None:
+    assert effective_reserve_pct(None, BATTERY) == 15  # reserve 10 + drift 5
+    assert effective_reserve_pct(site_battery(None), BATTERY) == 15
+    assert effective_reserve_pct(site_battery(30), BATTERY) == 30
+    assert effective_reserve_pct(site_battery(5), BATTERY) == 15
+
+
+@settings(max_examples=40, deadline=None)
+@given(peaks, peaks, st.sampled_from(LEVELS), st.floats(0, 59))
+def test_never_below_the_site_min_soc(
+    today: float, tomorrow: float, level: RiskLevel, site_min: float
+) -> None:
+    battery = BATTERY.model_copy(update={"max_soc_pct": 60})
+    buffer, evening, _, _ = targets(
+        pv_forecast((today, tomorrow, tomorrow)),
+        level,
+        battery=battery,
+        site=site_battery(site_min),
+    )
+    assert buffer >= site_min - 1e-9
+    assert evening >= site_min - 1e-9
+
+
+def test_a_source_without_a_band_gets_the_default_band() -> None:
+    flat = pv_forecast((1500, 1500, 1500), low=1.0, high=1.0)
+    windows = day_windows(NOW, flat, load_forecast(), BERLIN)
+    day = windows[RiskWindow.REST_OF_TODAY]
+    cautious = net_energy_quantile(day, RiskLevel.CAUTIOUS)
+    bold = net_energy_quantile(day, RiskLevel.BOLD)
+    assert cautious.source == "default_band"
+    assert cautious.value_wh < bold.value_wh
+    assert targets(flat, RiskLevel.CAUTIOUS)[0] > targets(flat, RiskLevel.BOLD)[0]
+    reason = evening_target_pct(BATTERY, BatterySettings(), windows).reason
+    assert reason.args["source"] == "default_band"
+    # the night has no PV: its load band is the source's own
+    assert net_energy_quantile(windows[RiskWindow.NIGHT], 0.1).source == "source_quantiles"
+
+
+def learned_model(seed: int) -> ErrorModel:
+    rng = __import__("random").Random(seed)
+    samples = [
+        ErrorSample(
+            day=date(2026, 4, 1) + timedelta(days=i),
+            window=kind,
+            weather=weather,  # type: ignore[arg-type]
+            error_wh=rng.gauss(-0.1, 0.2) * 10_000,
+            scale_wh=10_000,
+        )
+        for i in range(40)
+        for kind in RiskWindow
+        for weather in ("clear", "mixed", "overcast", "night")
+    ]
+    return ErrorModel(tuple(samples))
+
+
+@settings(max_examples=25, deadline=None)
+@given(peaks, peaks, st.integers(0, 1000))
+def test_monotone_in_the_risk_level_on_the_learned_path(
+    today: float, tomorrow: float, seed: int
+) -> None:
+    model = learned_model(seed)
+    pv = pv_forecast((today, tomorrow, tomorrow))
+    results = [targets(pv, level, model=model) for level in LEVELS]
+    for cautious, bold in itertools.pairwise(results):
+        assert cautious[0] >= bold[0] - 1e-9
+        assert cautious[1] >= bold[1] - 1e-9
+    windows = day_windows(NOW, pv, load_forecast(), BERLIN)
+    assert net_energy_quantile(windows[RiskWindow.NIGHT], 0.1, model).source == "learned"
+
+
+@settings(max_examples=30, deadline=None)
+@given(peaks, peaks, st.floats(1.0, 1.5), st.floats(0.0, 1.0), st.sampled_from(LEVELS))
+def test_monotone_in_the_load_band(
+    today: float, tomorrow: float, high: float, wider: float, level: RiskLevel
+) -> None:
+    pv = pv_forecast((today, tomorrow, tomorrow))
+    narrow = targets(pv, level, load=load_forecast(high=high))
+    wide = targets(pv, level, load=load_forecast(high=high + wider))
+    assert wide[0] >= narrow[0] - 1e-9
+    assert wide[1] >= narrow[1] - 1e-9

@@ -87,6 +87,8 @@ class NightlyResult:
     accuracy: Mapping[str, Sequence[AccuracyRecord]]
     bias: Mapping[str, BiasTable]
     clipped_slots: int
+    clipped: frozenset[datetime] = frozenset()
+    """The flagged quarter hours (slot starts), for the risk model's learning."""
 
 
 async def day_start_forecast(
@@ -215,7 +217,9 @@ async def run_nightly(
         days=len(days),
         clipped_slots=len(clipped),
     )
-    return NightlyResult(accuracy=accuracy, bias=learnt, clipped_slots=len(clipped))
+    return NightlyResult(
+        accuracy=accuracy, bias=learnt, clipped_slots=len(clipped), clipped=clipped
+    )
 
 
 __all__ = [

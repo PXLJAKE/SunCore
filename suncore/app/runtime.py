@@ -65,7 +65,7 @@ from suncore.forecast.load import LOAD_SOURCE_ID
 from suncore.forecast.load_service import LoadForecastService
 from suncore.forecast.pv.calibration import load_bias
 from suncore.forecast.pv.clearsky import plant_geometry
-from suncore.forecast.pv.clipping import export_limit_w
+from suncore.forecast.pv.clipping import clip_filter, export_limit_w
 from suncore.forecast.pv.learning import BLENDED_SOURCE_ID, LearningContext, run_nightly
 from suncore.forecast.pv.service import BlendContext, PvForecastService
 from suncore.forecast.risk import ErrorModel
@@ -157,6 +157,8 @@ class Runtime:
     """Refreshes the configured PV forecast sources (``None`` = none configured)."""
     load_service: LoadForecastService | None = None
     """The base load forecast (``None`` without ``timeseries.db``)."""
+    _clipped: frozenset[datetime] = frozenset()
+    """Quarter hours the last PV nightly job flagged as clipped (risk learning skips them)."""
     risk_model: ErrorModel = field(default_factory=ErrorModel)
     """The learnt net energy errors (WP7), loaded at start and after the nightly job."""
     timeseries_db: Database | None = None
@@ -448,6 +450,7 @@ class Runtime:
                 tz=context.tz,
                 plant=context.plant,
                 base_reader=service.base_load_series,
+                is_clipped=clip_filter(self._clipped),
             )
         except Exception:
             log.exception("forecast.risk.nightly_failed")
@@ -474,6 +477,7 @@ class Runtime:
             load=None if self.load_service is None else self.load_service.forecast(now),
             settings=settings,
             user_target_pct=None if target is None else target.soc_pct,
+            site_battery=None if self.site is None else self.site.battery,
             model=self.risk_model,
             min_history_days=(
                 30 if self.forecast is None else self.forecast.learning.min_history_days
@@ -490,7 +494,7 @@ class Runtime:
         service = self.pv_service
         context = self._blend_context()
         try:
-            await run_nightly(
+            result = await run_nightly(
                 self.timeseries,
                 self.learned,
                 service.source_ids,
@@ -502,6 +506,7 @@ class Runtime:
         except Exception:
             log.exception("forecast.accuracy_failed")
             return
+        self._clipped = result.clipped
         if self.pv_service is service:
             await self._load_pv_learning()
 

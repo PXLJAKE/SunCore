@@ -3,20 +3,28 @@
 
 **Samples.** For every complete anchor day ``D`` (at most ``BACKFILL_DAYS`` back - the stored
 forecasts are kept 45 days - and only once: ``learned_until``), the forecasts as they stood at
-two fixed local times are compared with what was measured:
+two anchors relative to the sun of ``D`` (sunrise and sunset from the PV forecast as it stood at
+the start of ``D``, the fallback times without one) are compared with what was measured:
 
-* at ``MORNING_ANCHOR`` (06:00) of ``D``: the window ``rest_of_today`` (06:00 -> sunset of ``D``),
-  the situation the morning buffer is computed in;
-* at ``EVENING_ANCHOR`` (18:00) of ``D``: ``night`` (sunset ``D`` -> sunrise ``D+1``),
+* at sunrise + ``DAY_ANCHOR_OFFSET`` (1 h): ``rest_of_today`` (anchor -> sunset of ``D``) and
+  ``day_and_night`` (anchor -> sunrise ``D+1``), the situation of the morning buffer;
+* at sunset - ``EVENING_ANCHOR_OFFSET`` (1 h): ``night`` (sunset ``D`` -> sunrise ``D+1``),
   ``next_day`` (daytime of ``D+1``) and ``bridge`` (sunset ``D`` -> sunset ``D+1``), the
   situation of the evening target.
+
+Sun-relative anchors keep the situation alike in winter and summer (a fixed 06:00 would lie
+before sunrise in winter and hours after it in summer).
 
 The forecast of a slot is the newest issue at or before the anchor (``latest_forecast_before``)
 of the PV forecast the planner uses (source ``blended``) and of the load forecast
 (``load_profile``); windows, sunrise/sunset and the weather class are derived from that issue
 exactly as live (:func:`suncore.forecast.risk.day_windows`). The measurement is the PV power
-(``site.pv_w``) and the base load (house minus devices, through the load forecast's reader); a
-window counts only if both cover at least ``MIN_COVERAGE`` of its quarter hours. ``D`` is
+(``site.pv_w``) and the base load (house minus devices, through the load forecast's reader). A
+window counts only if the measured PV and base load **and** the PV and load forecasts cover at
+least ``MIN_COVERAGE`` of its quarter hours; without a PV forecast only the ``night`` (no PV by
+definition) is sampled. A daytime window with a quarter hour that the PV clipping detection
+(:mod:`suncore.forecast.pv.clipping`, handed in as ``is_clipped``) flagged is dropped: a limited
+inverter would read as a forecast error. ``D`` is
 processed once ``D+1`` ended (the night ``bridge`` window reaches the sunset of ``D+1``), i.e.
 the nightly job at 03:30 learns the day before yesterday.
 
@@ -35,7 +43,15 @@ import structlog
 
 from suncore.core.battery import BatterySettings
 from suncore.core.measurements import SITE_PV_W
-from suncore.core.series import QuantileSeries, SeriesUnit, TimeRange, TimeSeries
+from suncore.core.series import (
+    PLANNING_STEP,
+    QuantileSeries,
+    SeriesUnit,
+    TimeRange,
+    TimeSeries,
+    floor_to_step,
+)
+from suncore.core.site import BatteryConfig
 from suncore.forecast.accuracy import LearnedParams
 from suncore.forecast.load import LOAD_SOURCE_ID
 from suncore.forecast.pv.clearsky import PlantGeometry
@@ -46,15 +62,16 @@ from suncore.forecast.risk import (
     ErrorSample,
     NetWindow,
     RiskWindow,
-    coming_daytime,
     coverage,
     day_windows,
+    daylight_spans,
     evening_target_pct,
     measured_energy,
     merge_samples,
     morning_buffer_pct,
     net_energy_quantile,
     samples_view,
+    sun_times,
 )
 from suncore.forecast.views import (
     EnergyView,
@@ -71,13 +88,17 @@ SAMPLES_KEY: Final = "samples"
 SCHEMA_VERSION: Final = 1
 KEEP_DAYS: Final = 365
 BACKFILL_DAYS: Final = 45
-MORNING_ANCHOR: Final = time(6, 0)
-EVENING_ANCHOR: Final = time(18, 0)
+DAY_ANCHOR_OFFSET: Final = timedelta(hours=1)
+EVENING_ANCHOR_OFFSET: Final = timedelta(hours=1)
+DAYTIME_WINDOWS: Final = frozenset(
+    {RiskWindow.REST_OF_TODAY, RiskWindow.NEXT_DAY, RiskWindow.BRIDGE, RiskWindow.DAY_AND_NIGHT}
+)
 MIN_COVERAGE: Final = 0.9
 PV_SOURCE_ID: Final = "blended"
 """The PV forecast the planner uses (``suncore.forecast.pv.learning.BLENDED_SOURCE_ID``)."""
 
 BaseLoadReader = Callable[[TimeRange], Awaitable[TimeSeries]]
+ClipFilter = Callable[[datetime], bool]
 
 
 class RiskData(Protocol):
@@ -148,6 +169,29 @@ def _at(day: date, moment: time, tz: tzinfo) -> datetime:
     return datetime.combine(day, moment, tzinfo=tz).astimezone(UTC)
 
 
+def no_clipping(_slot_start: datetime) -> bool:
+    return False
+
+
+def _forecast_covers(window: NetWindow, pv: QuantileSeries | None, load: QuantileSeries) -> bool:
+    if coverage(load.p50, window.start, window.end) < MIN_COVERAGE:
+        return False
+    if pv is None:
+        return window.kind is RiskWindow.NIGHT
+    return coverage(pv.p50, window.start, window.end) >= MIN_COVERAGE
+
+
+def _clipped(window: NetWindow, is_clipped: ClipFilter) -> bool:
+    if window.kind not in DAYTIME_WINDOWS:
+        return False
+    moment = window.start
+    while moment < window.end:
+        if is_clipped(moment):
+            return True
+        moment += PLANNING_STEP
+    return False
+
+
 def _sample(day: date, window: NetWindow, pv: TimeSeries, base: TimeSeries) -> ErrorSample | None:
     if window.end <= window.start:
         return None
@@ -187,6 +231,7 @@ async def learn_day(
     tz: tzinfo,
     plant: PlantGeometry | None,
     base_reader: BaseLoadReader,
+    is_clipped: ClipFilter = no_clipping,
 ) -> list[ErrorSample]:
     """The samples of one anchor day (module doc); empty when data is missing."""
     start = _at(day, time(0), tz)
@@ -195,18 +240,27 @@ async def learn_day(
     measured = TimeRange(start=start, end=end)
     pv_actual = await data.read_series(SITE_PV_W, measured, "15m", SeriesUnit.W)
     base = await base_reader(measured)
+    first = await _issue(data, start, span)
+    sunrise, sunset = sun_times(day, daylight_spans(None if first is None else first[0], tz), tz)
     out: list[ErrorSample] = []
     for anchor, kinds in (
-        (MORNING_ANCHOR, (RiskWindow.REST_OF_TODAY,)),
-        (EVENING_ANCHOR, (RiskWindow.NIGHT, RiskWindow.NEXT_DAY, RiskWindow.BRIDGE)),
+        (sunrise + DAY_ANCHOR_OFFSET, (RiskWindow.REST_OF_TODAY, RiskWindow.DAY_AND_NIGHT)),
+        (
+            sunset - EVENING_ANCHOR_OFFSET,
+            (RiskWindow.NIGHT, RiskWindow.NEXT_DAY, RiskWindow.BRIDGE),
+        ),
     ):
-        moment = _at(day, anchor, tz)
+        moment = floor_to_step(anchor, PLANNING_STEP)
         issue = await _issue(data, moment, span)
         if issue is None:
             continue
-        windows = day_windows(moment, issue[0], issue[1], tz, plant=plant)
+        pv, load = issue
+        windows = day_windows(moment, pv, load, tz, plant=plant)
         for kind in kinds:
-            sample = _sample(day, windows[kind], pv_actual, base)
+            window = windows[kind]
+            if not _forecast_covers(window, pv, load) or _clipped(window, is_clipped):
+                continue
+            sample = _sample(day, window, pv_actual, base)
             if sample is not None:
                 out.append(sample)
     return out
@@ -220,6 +274,7 @@ async def learn_net_errors(
     tz: tzinfo,
     plant: PlantGeometry | None,
     base_reader: BaseLoadReader,
+    is_clipped: ClipFilter = no_clipping,
     backfill_days: int = BACKFILL_DAYS,
 ) -> ErrorModel:
     """The nightly job: learn every new complete anchor day and store the samples; a failure
@@ -234,7 +289,11 @@ async def learn_net_errors(
     day = first
     try:
         while day <= last:
-            new.extend(await learn_day(data, day, tz=tz, plant=plant, base_reader=base_reader))
+            new.extend(
+                await learn_day(
+                    data, day, tz=tz, plant=plant, base_reader=base_reader, is_clipped=is_clipped
+                )
+            )
             day += timedelta(days=1)
     except Exception:
         log.exception("forecast.risk.learning_failed", day=day.isoformat())
@@ -261,6 +320,7 @@ def risk_view(
     load: QuantileSeries | None,
     settings: BatterySettings,
     user_target_pct: float | None,
+    site_battery: BatteryConfig | None = None,
     model: ErrorModel,
     min_history_days: int,
     tz: tzinfo,
@@ -317,14 +377,16 @@ def risk_view(
             settings,
             windows,
             user_target_pct=user_target_pct,
+            site_battery=site_battery,
             model=model,
             min_history_days=min_history_days,
         )
         morning = morning_buffer_pct(
             battery,
             settings,
-            coming_daytime(windows),
+            windows,
             evening.soc_pct,
+            site_battery=site_battery,
             model=model,
             min_history_days=min_history_days,
         )
@@ -348,9 +410,9 @@ def risk_view(
 
 __all__ = [
     "BACKFILL_DAYS",
-    "EVENING_ANCHOR",
+    "DAY_ANCHOR_OFFSET",
+    "EVENING_ANCHOR_OFFSET",
     "KEEP_DAYS",
-    "MORNING_ANCHOR",
     "NS_NET_ERROR",
     "BaseLoadReader",
     "RiskData",

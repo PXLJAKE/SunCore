@@ -6,13 +6,17 @@
 statistics, :class:`~suncore.core.forecast.AccuracyRecord`). Taking the quantile of the *net*
 error, instead of P10 PV and P90 load separately, avoids counting caution twice (plan §0).
 
-**Windows** (:class:`RiskWindow`), anchored on the next sunset after ``now`` ("the evening"):
+**Windows** (:class:`RiskWindow`), anchored on today's sunset ("the evening"):
 
-* ``rest_of_today``: now -> the evening;
-* ``night``: the evening -> the next sunrise;
+* ``rest_of_night``: now -> today's sunrise (only before sunrise, else empty);
+* ``rest_of_today``: max(now, today's sunrise) -> the evening (empty after sunset);
+* ``night``: the evening -> the next sunrise (after sunset: now -> the next sunrise);
 * ``next_day``: that sunrise -> the following sunset;
 * ``bridge``: the evening -> the following sunset (night + next day, one quantile, used for
-  next-day bridging so the two parts are not each taken at the risk quantile).
+  next-day bridging so the two parts are not each taken at the risk quantile);
+* ``day_and_night``: the coming daytime and the night after it, as one window for the morning
+  buffer - before the evening ``now -> the next sunrise``, after it ``next_day`` plus the
+  following night.
 
 Sunrise and sunset come from the PV forecast itself: the first and the last quarter hour of a
 local day whose P50 exceeds ``max(DAYLIGHT_MIN_W, DAYLIGHT_SHARE * the day's peak)``; a day
@@ -20,8 +24,8 @@ without PV in the forecast uses ``FALLBACK_SUNRISE``/``FALLBACK_SUNSET`` local t
 
 **Weather class** of a daytime window: the class (:class:`~suncore.forecast.pv.clearsky
 .WeatherClass`, the PV calibration's clear-sky index of the forecast) that carries the largest
-share of the window's forecast PV energy; the night is its own class ``night``; ``bridge`` takes
-the class of its day part.
+share of the window's forecast PV energy; the nights are their own class ``night``; ``bridge``
+and ``day_and_night`` take the class of their day part.
 
 **Distribution** (:func:`net_energy_quantile`) for a quantile ``q`` (the risk level's: cautious
 0.1, balanced 0.25, bold 0.5):
@@ -45,27 +49,36 @@ the class of its day part.
 
     and ``net_0.5 = PV50 - L50``. The lower side combines the PV shortfall with the load
     excess, the upper side the reverse.
+``default_band``
+    The same, but for a window whose PV forecast has **no spread** (a source without
+    quantiles: P10 = P50 = P90) the PV band is ``DEFAULT_PV_BAND`` of the window's weather class
+    (relative P10/P90 factors, ``UNVERIFIED`` reasoned constants) - otherwise every risk level
+    would plan on the median PV until the learnt distribution takes over.
 
 **Planner-facing targets** (all return a value and a :class:`~suncore.core.decisions.Reason`):
 
 :func:`evening_target_pct`
-    ``floor + 100 * need / capacity`` with ``floor`` = reserve + BMS drift margin
-    (``BatteryModel.min_soc_pct``) and ``need = max(-net_q(night), -net_q(bridge) if
-    bridge_next_day) / discharge_efficiency`` (Wh the battery must deliver; never negative).
-    Never below the user's target SoC (``goals.battery_target``), never above ``max_soc_pct``;
-    ``prefer_full`` -> ``max_soc_pct``.
+    ``floor + 100 * need / capacity`` with ``floor`` =
+    :func:`~suncore.core.battery.effective_reserve_pct` (the site battery's minimum SoC or
+    reserve + BMS drift margin, whichever is higher) and
+    ``need = max(-net_q(night), -net_q(bridge) if bridge_next_day) / discharge_efficiency``
+    (Wh the battery must deliver; never negative).
+    Never below the user's target SoC (``goals.battery_target``; its time is not used here, the
+    timed constraint is the planner's, 4-F), never above ``max_soc_pct``; ``prefer_full`` ->
+    ``max_soc_pct``.
 :func:`morning_buffer_pct`
-    "Battery first until X %": with ``fill = (target - floor) * capacity / charge_efficiency``
-    (the energy from the floor to the evening target) and ``S = net_q(day)`` (the surplus of
-    the coming daytime at the risk quantile), ``share = clamp(COMFORT_RATIO - S / fill, 0, 1)``
-    and ``X = floor + share * (target - floor)``: a pessimistic surplus of at least
-    ``COMFORT_RATIO`` (2) times the fill lets consumers go first (X = floor), one that does not
-    even cover the fill puts the battery first all the way to the target (X = target). Never
-    below the user's manual floor (``BatterySettings.morning_buffer_pct``), capped at
-    ``max_soc_pct``; ``prefer_full`` -> ``max_soc_pct``.
+    "Battery first until X %" from **one** quantile: ``M = net_q(day_and_night)`` is the energy
+    left after the coming daytime *and* the night after it are covered, at the risk quantile;
+    ``N = max(1 Wh, -net_0.5(night))`` the median night need (a scale, no second quantile).
+    ``share = clamp(1 - M / N, 0, 1)`` and ``X = floor + share * (target - floor)``: a margin of
+    at least one more median night lets consumers go first (X = floor), no margin puts the
+    battery first up to the evening target (X = target, an upper bound only). Never below the
+    user's manual floor (``BatterySettings.morning_buffer_pct``), capped at ``max_soc_pct``;
+    ``prefer_full`` -> ``max_soc_pct``.
 
 Both are monotone: a more cautious risk level or a wider distribution never lowers them (a lower
-``q`` lowers every net quantile, which raises the need and lowers ``S``).
+``q`` lowers every net quantile, which raises the need and lowers ``M``). The default band is a
+step: a source that gains a tiny spread falls back to its own (possibly narrower) band.
 """
 
 from __future__ import annotations
@@ -78,9 +91,16 @@ from enum import StrEnum, unique
 from statistics import NormalDist
 from typing import Any, Final, Literal
 
-from suncore.core.battery import BatteryModel, BatterySettings, BatteryStrategy, RiskLevel
+from suncore.core.battery import (
+    BatteryModel,
+    BatterySettings,
+    BatteryStrategy,
+    RiskLevel,
+    effective_reserve_pct,
+)
 from suncore.core.decisions import Reason
 from suncore.core.series import PLANNING_STEP, QuantileSeries, TimeSeries, floor_to_step
+from suncore.core.site import BatteryConfig
 from suncore.forecast.pv.clearsky import PlantGeometry, WeatherClass, classify_slots
 from suncore.forecast.stats import weighted_quantile
 
@@ -90,7 +110,6 @@ FALLBACK_SUNRISE: Final = time(7, 0)
 FALLBACK_SUNSET: Final = time(19, 0)
 MIN_CLASS_SAMPLES: Final = 10
 MIN_WINDOW_SAMPLES: Final = 20
-COMFORT_RATIO: Final = 2.0
 Z90: Final = NormalDist().inv_cdf(0.9)
 NIGHT_CLASS: Final = "night"
 
@@ -98,7 +117,7 @@ REASON_MORNING_BUFFER: Final = "planner.battery.morning_buffer"
 REASON_EVENING_TARGET: Final = "planner.battery.evening_target"
 
 RiskClass = Literal["overcast", "mixed", "clear", "night"]
-DistributionSource = Literal["learned", "source_quantiles"]
+DistributionSource = Literal["learned", "source_quantiles", "default_band"]
 BufferCause = Literal[
     "prefer_full", "forecast_poor", "forecast_uncertain", "forecast_good", "manual_floor"
 ]
@@ -110,6 +129,14 @@ _RISK_CLASS: Final[dict[WeatherClass, RiskClass]] = {
     WeatherClass.MIXED: "mixed",
     WeatherClass.CLEAR: "clear",
 }
+DEFAULT_PV_BAND: Final[dict[RiskClass, tuple[float, float]]] = {
+    "clear": (0.85, 1.10),
+    "mixed": (0.55, 1.35),
+    "overcast": (0.35, 1.70),
+    "night": (1.0, 1.0),
+}
+"""``(P10, P90)`` as factors of the PV P50 for a window without a source band (``UNVERIFIED``:
+reasoned, not fitted - replaced by the learnt distribution after ``min_history_days``)."""
 _CLASSES: Final[dict[str, RiskClass]] = {
     "overcast": "overcast",
     "mixed": "mixed",
@@ -120,10 +147,12 @@ _CLASSES: Final[dict[str, RiskClass]] = {
 
 @unique
 class RiskWindow(StrEnum):
+    REST_OF_NIGHT = "rest_of_night"
     REST_OF_TODAY = "rest_of_today"
     NIGHT = "night"
     NEXT_DAY = "next_day"
     BRIDGE = "bridge"
+    DAY_AND_NIGHT = "day_and_night"
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,7 +234,7 @@ def daylight_spans(pv: QuantileSeries | None, tz: tzinfo) -> dict[date, tuple[da
     return spans
 
 
-def _span(
+def sun_times(
     day: date, spans: Mapping[date, tuple[datetime, datetime]], tz: tzinfo
 ) -> tuple[datetime, datetime]:
     if day in spans:
@@ -247,13 +276,14 @@ def day_windows(
     *,
     plant: PlantGeometry | None = None,
 ) -> dict[RiskWindow, NetWindow]:
-    """The four windows anchored on the next sunset after ``now`` (module doc)."""
+    """The windows anchored on today's sunset (module doc)."""
     spans = daylight_spans(pv, tz)
     today = now.astimezone(tz).date()
-    evening = _span(today, spans, tz)[1]
+    sunrise, evening = sun_times(today, spans, tz)
     # After today's sunset the evening has passed: ``rest_of_today`` is empty and the night
-    # window starts now (both are clipped to the current slot below).
-    next_rise, next_set = _span(today + timedelta(days=1), spans, tz)
+    # window starts now (every window is clipped to the current slot below).
+    next_rise, next_set = sun_times(today + timedelta(days=1), spans, tz)
+    third_rise = sun_times(today + timedelta(days=2), spans, tz)[0]
     begin = floor_to_step(now, PLANNING_STEP)
     out: dict[RiskWindow, NetWindow] = {}
 
@@ -272,11 +302,18 @@ def day_windows(
     def daytime(start: datetime, end: datetime) -> RiskClass:
         return window_class(pv, start, end, plant=plant, tz=tz)
 
-    add(RiskWindow.REST_OF_TODAY, begin, evening, daytime(begin, evening))
+    add(RiskWindow.REST_OF_NIGHT, begin, sunrise, NIGHT_CLASS)
+    day_start = max(begin, sunrise)
+    today_class = daytime(day_start, evening)
+    add(RiskWindow.REST_OF_TODAY, day_start, evening, today_class)
     add(RiskWindow.NIGHT, evening, next_rise, NIGHT_CLASS)
     next_class = daytime(next_rise, next_set)
     add(RiskWindow.NEXT_DAY, next_rise, next_set, next_class)
     add(RiskWindow.BRIDGE, evening, next_set, next_class)
+    if begin < evening:
+        add(RiskWindow.DAY_AND_NIGHT, begin, next_rise, today_class)
+    else:
+        add(RiskWindow.DAY_AND_NIGHT, next_rise, third_rise, next_class)
     return out
 
 
@@ -352,6 +389,21 @@ class NetQuantile:
     """``learned`` from the window kind over all weather classes (the class cell was thin)."""
 
 
+def has_pv_band(window: NetWindow) -> bool:
+    """Whether the window's PV forecast carries a spread (or has no PV at all)."""
+    pv = window.pv
+    tiny = 1e-6 * max(1.0, pv.p50)
+    return pv.p50 <= tiny or pv.p50 - pv.p10 > tiny or pv.p90 - pv.p50 > tiny
+
+
+def with_default_band(window: NetWindow) -> NetWindow:
+    """The window with ``DEFAULT_PV_BAND`` of its weather class as PV band."""
+    low, high = DEFAULT_PV_BAND[window.weather]
+    p50 = window.pv.p50
+    band = EnergyQuantiles(p50 * low, p50, p50 * high)
+    return NetWindow(window.kind, window.start, window.end, band, window.load, window.weather)
+
+
 def source_net_quantile(window: NetWindow, q: float) -> float:
     """The two-piece normal of the module doc (``source_quantiles``)."""
     if not 0 < q < 1:
@@ -392,6 +444,13 @@ def net_energy_quantile(
                 samples=len(values),
                 pooled=pooled,
             )
+    if not has_pv_band(window):
+        return NetQuantile(
+            value_wh=source_net_quantile(with_default_band(window), q),
+            q=q,
+            source="default_band",
+            samples=0,
+        )
     return NetQuantile(
         value_wh=source_net_quantile(window, q), q=q, source="source_quantiles", samples=0
     )
@@ -419,12 +478,13 @@ def evening_target_pct(
     windows: Mapping[RiskWindow, NetWindow],
     *,
     user_target_pct: float | None = None,
+    site_battery: BatteryConfig | None = None,
     model: ErrorModel | None = None,
     min_history_days: int = 30,
 ) -> SocTarget:
     """The SoC (%) the battery should hold at the evening (module doc)."""
     cap = battery.max_soc_pct
-    floor = battery.min_soc_pct
+    floor = min(cap, effective_reserve_pct(site_battery, battery))
     risk = settings.risk
     night = net_energy_quantile(
         windows[RiskWindow.NIGHT], risk, model, min_history_days=min_history_days
@@ -437,8 +497,8 @@ def evening_target_pct(
             windows[RiskWindow.BRIDGE], risk, model, min_history_days=min_history_days
         )
         bridge_need = max(0.0, -bridge.value_wh) / battery.discharge_efficiency
-        if bridge.source == "source_quantiles":
-            source = "source_quantiles"
+        if bridge.source != "learned":
+            source = bridge.source
     computed = floor + battery.wh_to_soc(max(night_need, bridge_need))
     user = 0.0 if user_target_pct is None else user_target_pct
     cause: TargetCause
@@ -469,26 +529,32 @@ def evening_target_pct(
 def morning_buffer_pct(
     battery: BatteryModel,
     settings: BatterySettings,
-    day: NetWindow,
+    windows: Mapping[RiskWindow, NetWindow],
     evening_target: float,
     *,
+    site_battery: BatteryConfig | None = None,
     model: ErrorModel | None = None,
     min_history_days: int = 30,
 ) -> SocTarget:
-    """ "Battery first until X %" for the coming daytime ``day`` (module doc)."""
+    """ "Battery first until X %" for the coming daytime (module doc)."""
     cap = battery.max_soc_pct
     manual = settings.morning_buffer_pct
-    floor = min(cap, max(battery.min_soc_pct, manual or 0.0))
-    surplus = net_energy_quantile(day, settings.risk, model, min_history_days=min_history_days)
+    auto_floor = min(cap, effective_reserve_pct(site_battery, battery))
+    floor = min(cap, max(auto_floor, manual or 0.0))
+    margin = net_energy_quantile(
+        windows[RiskWindow.DAY_AND_NIGHT],
+        settings.risk,
+        model,
+        min_history_days=min_history_days,
+    )
+    night_need = max(1.0, -windows[RiskWindow.NIGHT].net_p50)
     cause: BufferCause
     if settings.strategy is BatteryStrategy.PREFER_FULL:
         value, cause = cap, "prefer_full"
     else:
         target = min(cap, max(floor, evening_target))
-        fill = battery.soc_to_wh(target - floor) / battery.charge_efficiency
-        share = 0.0 if fill <= 0 else min(1.0, max(0.0, COMFORT_RATIO - surplus.value_wh / fill))
+        share = min(1.0, max(0.0, 1.0 - margin.value_wh / night_need))
         value = floor + share * (target - floor)
-        auto_floor = battery.min_soc_pct
         if share >= 1.0:
             cause = "forecast_poor"
         elif share > 0.0:
@@ -503,46 +569,42 @@ def morning_buffer_pct(
         args={
             "soc_pct": _round(value),
             "cause": cause,
-            "surplus_kwh": _round(surplus.value_wh / 1000),
+            "surplus_kwh": _round(margin.value_wh / 1000),
             "risk": settings.risk.value,
-            "source": surplus.source,
+            "source": margin.source,
         },
     )
-    return SocTarget(soc_pct=value, reason=reason, source=surplus.source)
-
-
-def coming_daytime(windows: Mapping[RiskWindow, NetWindow]) -> NetWindow:
-    """The daytime the morning buffer is about: the rest of today while it still has PV,
-    else the next day."""
-    rest = windows[RiskWindow.REST_OF_TODAY]
-    return rest if rest.pv.p50 > 0 else windows[RiskWindow.NEXT_DAY]
+    return SocTarget(soc_pct=value, reason=reason, source=margin.source)
 
 
 # --- learning samples -------------------------------------------------------------------------
 
 
-def coverage(series: TimeSeries, start: datetime, end: datetime) -> float:
-    """Share of the slots of ``series`` inside ``[start, end)`` that are known."""
-    total = known = 0
+def _window_slots(series: TimeSeries, start: datetime, end: datetime) -> tuple[int, int, float]:
+    """``(slots of the window, known slots, energy Wh of the known ones)`` on the series' grid;
+    a window slot the series does not reach counts as unknown."""
+    total = max(0, -(-(end - start) // series.step))
+    hours = series.step / timedelta(hours=1)
+    known = 0
+    energy = 0.0
     for begin, _, value in series.slots():
-        if start <= begin < end:
-            total += 1
-            known += value is not None
+        if start <= begin < end and value is not None:
+            known += 1
+            energy += value * hours
+    return total, known, energy
+
+
+def coverage(series: TimeSeries, start: datetime, end: datetime) -> float:
+    """Share of the window ``[start, end)`` whose slots ``series`` knows (a slot outside the
+    series counts as unknown)."""
+    total, known, _ = _window_slots(series, start, end)
     return known / total if total else 0.0
 
 
 def measured_energy(series: TimeSeries, start: datetime, end: datetime) -> float:
     """Energy (Wh) of the known slots of a W series in ``[start, end)``, scaled up to the whole
     window from the known share (the caller requires a high coverage)."""
-    hours = series.step / timedelta(hours=1)
-    total = known = 0
-    energy = 0.0
-    for begin, _, value in series.slots():
-        if start <= begin < end:
-            total += 1
-            if value is not None:
-                known += 1
-                energy += value * hours
+    total, known, energy = _window_slots(series, start, end)
     return energy * total / known if known else 0.0
 
 
@@ -571,7 +633,7 @@ def samples_view(samples: Sequence[ErrorSample]) -> dict[str, int]:
 
 
 __all__ = [
-    "COMFORT_RATIO",
+    "DEFAULT_PV_BAND",
     "MIN_CLASS_SAMPLES",
     "MIN_WINDOW_SAMPLES",
     "REASON_EVENING_TARGET",
@@ -585,17 +647,19 @@ __all__ = [
     "RiskClass",
     "RiskWindow",
     "SocTarget",
-    "coming_daytime",
     "coverage",
     "day_windows",
     "daylight_spans",
     "evening_target_pct",
+    "has_pv_band",
     "measured_energy",
     "merge_samples",
     "morning_buffer_pct",
     "net_energy_quantile",
     "samples_view",
     "source_net_quantile",
+    "sun_times",
     "window_class",
     "window_energy",
+    "with_default_band",
 ]

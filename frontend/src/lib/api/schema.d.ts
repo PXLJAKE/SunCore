@@ -2802,7 +2802,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "learned" | "source_quantiles";
+            source: "learned" | "source_quantiles" | "default_band";
         };
         /**
          * RiskView
@@ -2820,7 +2820,7 @@ export interface components {
              * Distribution Source
              * @enum {string}
              */
-            distribution_source: "learned" | "source_quantiles";
+            distribution_source: "learned" | "source_quantiles" | "default_band";
             /** Evening At */
             evening_at: string | null;
             evening_target: components["schemas"]["RiskTargetView"] | null;
@@ -2856,7 +2856,7 @@ export interface components {
          * RiskWindow
          * @enum {string}
          */
-        RiskWindow: "rest_of_today" | "night" | "next_day" | "bridge";
+        RiskWindow: "rest_of_night" | "rest_of_today" | "night" | "next_day" | "bridge" | "day_and_night";
         /**
          * RiskWindowView
          * @description One window of the risk model and its net energy (PV - base load) at the risk quantile.
@@ -2881,7 +2881,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "learned" | "source_quantiles";
+            source: "learned" | "source_quantiles" | "default_band";
             /**
              * Start
              * Format: date-time

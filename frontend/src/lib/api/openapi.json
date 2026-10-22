@@ -5391,7 +5391,8 @@
           "source": {
             "enum": [
               "learned",
-              "source_quantiles"
+              "source_quantiles",
+              "default_band"
             ],
             "title": "Source",
             "type": "string"
@@ -5416,7 +5417,8 @@
           "distribution_source": {
             "enum": [
               "learned",
-              "source_quantiles"
+              "source_quantiles",
+              "default_band"
             ],
             "title": "Distribution Source",
             "type": "string"
@@ -5526,10 +5528,12 @@
       },
       "RiskWindow": {
         "enum": [
+          "rest_of_night",
           "rest_of_today",
           "night",
           "next_day",
-          "bridge"
+          "bridge",
+          "day_and_night"
         ],
         "title": "RiskWindow",
         "type": "string"
@@ -5568,7 +5572,8 @@
           "source": {
             "enum": [
               "learned",
-              "source_quantiles"
+              "source_quantiles",
+              "default_band"
             ],
             "title": "Source",
             "type": "string"
