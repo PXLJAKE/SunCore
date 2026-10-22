@@ -7,8 +7,11 @@ history and writes the result.
 house: ``house = pv + grid - battery``) minus the draw of every configured (controllable) device
 (``device.<id>.power_w``). A device is subtracted exactly once; a quarter hour without a device
 measurement counts that device as 0 W (the base load then still contains its draw) and is
-counted in ``unmeasured_slots`` - the rebuilt history from Home Assistant's statistics has no
-device rows at all. A negative difference (sensor mismatch) is clipped to 0 W and counted.
+counted in ``unmeasured_slots`` (the history rebuilt from Home Assistant's statistics has device
+rows only for devices with a power sensor). The fit leaves such quarter hours out of a day
+type's profile once it has ``MIN_CLEAN_DAYS`` (7) fully measured days; before that they are kept
+and the day type is flagged (``unmeasured_kept``). A negative difference (sensor mismatch) is
+clipped to 0 W and counted.
 Controlled devices are forecast by the planner from their own models, never here.
 
 **Profile** per day type (:class:`DayType`) and local quarter hour of the day (96 slots, wall
@@ -94,6 +97,9 @@ fridge, a heating season) onto the old median for weeks."""
 SHRINK_DAYS: Final = 3.0
 SMOOTHING_KERNEL: Final = (0.25, 0.5, 0.25)
 COLD_START_MIN_DAYS: Final = 3
+MIN_CLEAN_DAYS: Final = 7
+"""Fully measured days (every device measured) a day type needs before quarter hours with an
+unmeasured device are left out of its profile."""
 COLD_START_RECENT_DAYS: Final = 7
 COLD_START_LOW: Final = 0.5
 COLD_START_HIGH: Final = 2.0
@@ -203,6 +209,8 @@ class BaseLoad:
     assumed, so the base load still contains that device's draw)."""
     clamped_slots: int = 0
     """Quarter hours where the devices exceeded the house (clipped to 0 W)."""
+    unmeasured: tuple[bool, ...] = ()
+    """Per slot of ``series``: a device had no measurement (its draw is inside the value)."""
 
 
 def base_load(house: TimeSeries, devices: Mapping[str, TimeSeries]) -> BaseLoad:
@@ -214,15 +222,19 @@ def base_load(house: TimeSeries, devices: Mapping[str, TimeSeries]) -> BaseLoad:
     unmeasured = dict.fromkeys(devices, 0)
     clamped = 0
     values: list[float | None] = []
+    mask: list[bool] = []
     for i, total in enumerate(house.values):
         if total is None:
             values.append(None)
+            mask.append(False)
             continue
         draw = 0.0
+        missing = False
         for device_id, series in devices.items():
             value = series.values[i]
             if value is None:
                 unmeasured[device_id] += 1
+                missing = True
             else:
                 draw += max(0.0, value)
         rest = total - draw
@@ -230,11 +242,13 @@ def base_load(house: TimeSeries, devices: Mapping[str, TimeSeries]) -> BaseLoad:
             clamped += 1
             rest = 0.0
         values.append(rest)
+        mask.append(missing)
     series = house.model_copy(update={"values": tuple(values), "unit": SeriesUnit.W})
     return BaseLoad(
         series=series,
         unmeasured_slots={k: v for k, v in unmeasured.items() if v},
         clamped_slots=clamped,
+        unmeasured=tuple(mask),
     )
 
 
@@ -393,6 +407,9 @@ class LoadModel:
     flat_w: float | None = None
     """Cold start: the flat level (W)."""
     temperature: TemperatureTerm = TemperatureTerm(active=False, reason="not_configured")
+    unmeasured_kept: frozenset[DayType] = frozenset()
+    """Day types whose profile still contains quarter hours with an unmeasured device (fewer
+    than ``MIN_CLEAN_DAYS`` fully measured days of that type)."""
 
     def day_mean(self, day_type: DayType) -> float:
         profile = self.profiles.get(day_type)
@@ -541,6 +558,39 @@ def _residuals(
     return residuals
 
 
+def _drop_unmeasured(
+    days: list[DayValues],
+    *,
+    kinds: Mapping[date, DayType],
+    base: TimeSeries,
+    unmeasured: Sequence[bool],
+    tz: tzinfo,
+    until: datetime,
+) -> tuple[list[DayValues], frozenset[DayType]]:
+    """Remove the quarter hours with an unmeasured device from the days of every day type that
+    has at least ``MIN_CLEAN_DAYS`` fully measured days; the other types keep them (flagged)."""
+    if not any(unmeasured):
+        return days, frozenset()
+    masked_values = tuple(
+        None if i < len(unmeasured) and unmeasured[i] else v for i, v in enumerate(base.values)
+    )
+    masked = {
+        d.day: d for d in day_values(base.model_copy(update={"values": masked_values}), tz, until)
+    }
+    clean = dict.fromkeys(DayType, 0)
+    for d in days:
+        if masked[d.day].slots == d.slots:
+            clean[kinds[d.day]] += 1
+    kept = frozenset(
+        t
+        for t, n in clean.items()
+        if n < MIN_CLEAN_DAYS
+        and any(kinds[d.day] is t and masked[d.day].slots != d.slots for d in days)
+    )
+    out = [d if kinds[d.day] in kept else masked[d.day] for d in days]
+    return [d for d in out if d.known()], kept
+
+
 def fit_load_model(
     base: TimeSeries,
     *,
@@ -550,19 +600,24 @@ def fit_load_model(
     temperature: TimeSeries | None = None,
     temperature_configured: bool = False,
     half_life_days: float = HALF_LIFE_DAYS,
+    unmeasured: Sequence[bool] = (),
 ) -> LoadModel:
     """Fit the profiles (module doc) from the base load history up to ``now``.
 
     ``day_types`` maps history dates to their type (missing dates: weekday rule);
-    ``temperature`` is the recorded outside temperature (°C, 15 minutes).
+    ``temperature`` is the recorded outside temperature (°C, 15 minutes); ``unmeasured`` flags
+    the slots of ``base`` where a device had no measurement (:attr:`BaseLoad.unmeasured`).
     """
     today = local_midnight(now, tz).astimezone(UTC)
     days = [d for d in day_values(base, tz, today) if d.coverage >= DAY_COVERAGE]
     if len(days) < COLD_START_MIN_DAYS:
         return _cold_start(base, now, len(days), temperature_configured=temperature_configured)
     today_date = now.astimezone(tz).date()
-    weights = {d.day: recency_weight((today_date - d.day).days, half_life_days) for d in days}
     kinds = {d.day: day_types.get(d.day, weekday_rule(d.day)) for d in days}
+    days, kept = _drop_unmeasured(
+        days, kinds=kinds, base=base, unmeasured=unmeasured, tz=tz, until=today
+    )
+    weights = {d.day: recency_weight((today_date - d.day).days, half_life_days) for d in days}
     profiles = _profiles(days, weights, kinds)
     counts = {t: sum(1 for d in days if kinds[d.day] is t) for t in DayType}
     term = TemperatureTerm(active=False, reason="not_configured")
@@ -586,6 +641,7 @@ def fit_load_model(
         day_counts=counts,
         residuals=residuals,
         temperature=term,
+        unmeasured_kept=kept,
     )
 
 

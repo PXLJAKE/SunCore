@@ -205,6 +205,9 @@ class LoadForecastView(_View):
     Assistant's statistics)."""
     clamped_slots: int
     """Quarter hours where the devices drew more than the house measured (clipped to 0 W)."""
+    unmeasured_in_profile: list[DayType]
+    """Day types whose profile still contains quarter hours with an unmeasured device (fewer
+    than 7 fully measured days of that type; elsewhere those quarter hours are left out)."""
 
 
 class EnergyView(_View):

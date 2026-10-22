@@ -4030,6 +4030,13 @@
           },
           "temperature": {
             "$ref": "#/components/schemas/LoadTemperatureView"
+          },
+          "unmeasured_in_profile": {
+            "items": {
+              "$ref": "#/components/schemas/DayType"
+            },
+            "title": "Unmeasured In Profile",
+            "type": "array"
           }
         },
         "required": [
@@ -4048,7 +4055,8 @@
           "temperature",
           "controlled_devices",
           "devices_unmeasured",
-          "clamped_slots"
+          "clamped_slots",
+          "unmeasured_in_profile"
         ],
         "title": "LoadForecastView",
         "type": "object"

@@ -2224,6 +2224,8 @@ export interface components {
             /** Step S */
             step_s: number;
             temperature: components["schemas"]["LoadTemperatureView"];
+            /** Unmeasured In Profile */
+            unmeasured_in_profile: components["schemas"]["DayType"][];
         };
         /**
          * LoadQuality

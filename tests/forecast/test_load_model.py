@@ -468,3 +468,35 @@ def test_the_forecast_follows_the_wall_clock_over_a_dst_day() -> None:
             assert value > 600  # the evening peak stays at local 17-21 h after the switch
         elif 1 <= local_hour < 6:
             assert value < 400
+
+
+def test_unmeasured_device_slots_are_left_out_with_enough_clean_days() -> None:
+    def house(moment: datetime) -> float:
+        return 500.0 if 12 <= local(moment).hour < 16 else 300.0  # the AC runs at noon
+
+    def ac(moment: datetime, measured_from: int) -> float | None:
+        if moment < START + timedelta(days=measured_from):
+            return None  # not measured (history rebuilt without the device)
+        return 200.0 if 12 <= local(moment).hour < 16 else 0.0
+
+    now = START + timedelta(days=28)
+    for measured_from, expect_clean in ((14, True), (25, False)):
+        starts = [START + Q * i for i in range(96 * 28)]
+        result = base_load(
+            series([house(t) for t in starts]),
+            {"ac": series([ac(t, measured_from) for t in starts])},
+        )
+        assert any(result.unmeasured)
+        model = fit_load_model(
+            result.series, now=now, tz=BERLIN, day_types={}, unmeasured=result.unmeasured
+        )
+        noon = model.profiles[DayType.WORKDAY][13 * 4]
+        if expect_clean:  # 10 measured workdays: the unmeasured noons are left out
+            # (the shrinkage still pulls a little towards the weekend days, which have only
+            # 4 measured days and keep their unmeasured noons)
+            assert noon < 320
+            assert DayType.WORKDAY not in model.unmeasured_kept
+            assert DayType.WEEKEND in model.unmeasured_kept
+        else:  # 3 measured days only: kept and flagged
+            assert noon > 400
+            assert DayType.WORKDAY in model.unmeasured_kept

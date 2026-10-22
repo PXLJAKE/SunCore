@@ -8,9 +8,12 @@ balance does (``suncore.core.balance.compute_flows``): grid as ``import - export
 PV as the sum of the arrays, the house from its sensor or from ``pv + grid - battery``. The
 rows are stored as *derived* quarter hours.
 
-Controlled devices are not rebuilt: their power comes from their own power models, which have
-no statistic to read. ``UNVERIFIED``: whether the Supervisor proxy forwards ``recorder/*``;
-an error is reported to the caller, which logs it and carries on without history.
+Controlled devices with a power sensor (``power_model.power_role`` mapped) are rebuilt too, from
+the same statistics (``mean``, W) into ``device.<id>.power_w``, so the load forecast can take
+their draw out of the base load from the first day (PR 4-E review M2). A device without a power
+sensor (nominal or counter-derived model) has no statistic; its quarter hours stay unmeasured.
+``UNVERIFIED``: whether the Supervisor proxy forwards ``recorder/*``; an error is reported to
+the caller, which logs it and carries on without history.
 """
 
 from __future__ import annotations
@@ -21,12 +24,14 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 
+from suncore.core.devices import DeviceConfig
 from suncore.core.measurements import (
     SITE_BATTERY_W,
     SITE_GRID_W,
     SITE_HOUSE_W,
     SITE_PV_W,
     SITE_SOC_PCT,
+    device_power_key,
 )
 from suncore.core.series import Grid, SeriesUnit, TimeSeries, resample_power
 from suncore.core.site import SiteConfig
@@ -148,6 +153,22 @@ def assemble_site_series(
     return {key: series for key, series in named.items() if series is not None}
 
 
+_DEVICE_PREFIX = "device:"
+
+
+def device_statistic_specs(devices: Sequence[DeviceConfig]) -> list[StatisticSpec]:
+    """The power sensor of every device that maps one (``power_model.power_role``)."""
+    specs: list[StatisticSpec] = []
+    for device in devices:
+        role = device.power_model.power_role
+        ref = None if role is None else device.entities.get(role)
+        if ref is not None:
+            specs.append(
+                StatisticSpec(f"{_DEVICE_PREFIX}{device.id}", ref.entity_id, invert=ref.invert_sign)
+            )
+    return specs
+
+
 async def rebuild_history(
     connection: HAConnection,
     store: TimeseriesStore,
@@ -155,18 +176,23 @@ async def rebuild_history(
     now: datetime,
     *,
     days: int = REBUILD_DAYS,
+    devices: Sequence[DeviceConfig] = (),
 ) -> RebuildResult:
-    """Fetch the site's hourly statistics and store them as derived quarter hours.
+    """Fetch the site's (and the devices' power) hourly statistics and store them as derived
+    quarter hours.
 
     Home Assistant errors propagate. Existing measured rows are never overwritten.
     """
     end = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
-    history = await fetch_quarter_history(
-        connection, site_statistic_specs(site), end - timedelta(days=days), end
-    )
+    specs = [*site_statistic_specs(site), *device_statistic_specs(devices)]
+    history = await fetch_quarter_history(connection, specs, end - timedelta(days=days), end)
     stored: dict[str, int] = {}
     for key, series in assemble_site_series(site, history.series).items():
         stored[key] = await store.store_quarter_hours(key, series, derived=True)
+    for key, series in history.series.items():
+        if key.startswith(_DEVICE_PREFIX):
+            device_key = device_power_key(key.removeprefix(_DEVICE_PREFIX))
+            stored[device_key] = await store.store_quarter_hours(device_key, series, derived=True)
     result = RebuildResult(stored=stored, missing=history.missing)
     log.info("history.rebuilt", quarter_hours=result.total, missing=list(result.missing))
     return result

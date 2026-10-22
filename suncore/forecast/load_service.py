@@ -350,6 +350,7 @@ class LoadForecastService:
                 day_types=self.day_types(history_days, today),
                 temperature=temperature,
                 temperature_configured=self._inputs.weather_entity is not None,
+                unmeasured=base.unmeasured,
             )
         except asyncio.CancelledError:
             raise
@@ -579,6 +580,9 @@ class LoadForecastService:
             controlled_devices=list(self._inputs.device_ids),
             devices_unmeasured={} if base is None else dict(base.unmeasured_slots),
             clamped_slots=0 if base is None else base.clamped_slots,
+            unmeasured_in_profile=(
+                [] if model is None else sorted(model.unmeasured_kept, key=lambda t: t.value)
+            ),
         )
 
 

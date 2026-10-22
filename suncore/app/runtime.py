@@ -698,7 +698,10 @@ class Runtime:
                 return
             try:
                 if await store.get_meta(META_HISTORY_REBUILT) is None:
-                    await rebuild_history(self.connection, store, site, self.clock())
+                    devices = () if self.devices is None else self.devices.devices
+                    await rebuild_history(
+                        self.connection, store, site, self.clock(), devices=devices
+                    )
                     await store.set_meta(META_HISTORY_REBUILT, self.clock().isoformat())
                     if self.load_service is not None:
                         self.load_service.request_refit()  # the profiles can use it now
