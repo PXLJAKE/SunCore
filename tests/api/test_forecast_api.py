@@ -178,3 +178,16 @@ async def test_load_forecast_endpoint() -> None:
         assert body["temperature"]["reason"] == "not_configured"
         assert (await client.get("/api/v1/forecast/load?hours=0")).status_code == 422
     assert services.load_hours == [12]
+
+
+async def test_risk_endpoint() -> None:
+    services = FakeServices()
+    async with client_for(create_app(services)) as client:
+        response = await client.get("/api/v1/forecast/risk")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "no_forecast"
+    assert body["risk"] == "cautious"
+    assert body["quantile"] == 0.1
+    assert body["distribution_source"] == "source_quantiles"
+    assert body["min_history_days"] == 30

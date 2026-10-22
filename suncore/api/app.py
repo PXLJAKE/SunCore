@@ -91,6 +91,7 @@ from suncore.forecast.views import (
     ForecastAccuracyView,
     LoadForecastView,
     PvForecastView,
+    RiskView,
 )
 from suncore.storage.errors import (
     ConfigCorruptError,
@@ -309,6 +310,17 @@ def _register_forecast(app: FastAPI, services: Services) -> None:
         quality (``ok``, ``cold_start``, ``no_history``), the day type of every forecast date
         and where it came from, and how many quarter hours lacked a device measurement."""
         return await services.load_forecast(hours)
+
+    @app.get(f"{API_PREFIX}/forecast/risk", response_model=RiskView)
+    async def forecast_risk() -> RiskView:
+        """The risk model now: the windows ``rest_of_today``, ``night``, ``next_day`` and
+        ``bridge`` (night + next day) with PV, base load and net energy (P50 and at the risk
+        level's quantile), the morning buffer ("battery first until X %") and the evening
+        target with their structured reasons, and whether the error distribution is
+        ``learned`` (from ``min_history_days`` days of measured net errors) or still taken from
+        the ``source_quantiles``. Targets are ``null`` until the ``battery`` section has a
+        model."""
+        return await services.forecast_risk()
 
 
 def _register_control(app: FastAPI, services: Services) -> None:

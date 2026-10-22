@@ -34,6 +34,7 @@ from suncore.app.modes import ConfigModes
 from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
+from suncore.core.battery import BatterySettings
 from suncore.core.config import (
     DevicesConfig,
     ForecastConfig,
@@ -67,7 +68,14 @@ from suncore.forecast.pv.clearsky import plant_geometry
 from suncore.forecast.pv.clipping import export_limit_w
 from suncore.forecast.pv.learning import BLENDED_SOURCE_ID, LearningContext, run_nightly
 from suncore.forecast.pv.service import BlendContext, PvForecastService
-from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView
+from suncore.forecast.risk import ErrorModel
+from suncore.forecast.risk_learning import learn_net_errors, load_error_model, risk_view
+from suncore.forecast.views import (
+    ForecastAccuracyView,
+    LoadForecastView,
+    PvForecastView,
+    RiskView,
+)
 from suncore.ha import (
     SITE_ROLES,
     CommandError,
@@ -149,6 +157,8 @@ class Runtime:
     """Refreshes the configured PV forecast sources (``None`` = none configured)."""
     load_service: LoadForecastService | None = None
     """The base load forecast (``None`` without ``timeseries.db``)."""
+    risk_model: ErrorModel = field(default_factory=ErrorModel)
+    """The learnt net energy errors (WP7), loaded at start and after the nightly job."""
     timeseries_db: Database | None = None
     """``timeseries.db``; ``None`` = unavailable (too new, unopenable): control is unaffected."""
     timeseries: TimeseriesStore | None = None
@@ -216,6 +226,7 @@ class Runtime:
         self.pv_service = self._new_pv_service()
         await self._load_pv_learning()
         self.load_service = self._new_load_service()
+        await self._load_risk_model()
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -425,6 +436,51 @@ class Runtime:
             await service.nightly(self.clock())
         except Exception:
             log.exception("forecast.load.nightly_failed")
+            return
+        if self.timeseries is None or self.learned is None:
+            return
+        context = self._blend_context()
+        try:
+            self.risk_model = await learn_net_errors(
+                self.timeseries,
+                self.learned,
+                self.clock(),
+                tz=context.tz,
+                plant=context.plant,
+                base_reader=service.base_load_series,
+            )
+        except Exception:
+            log.exception("forecast.risk.nightly_failed")
+
+    async def _load_risk_model(self) -> None:
+        if self.learned is None:
+            return
+        try:
+            self.risk_model = (await load_error_model(self.learned)).model
+        except Exception:
+            log.exception("forecast.risk.load_failed")
+
+    async def forecast_risk(self) -> RiskView:
+        """Morning buffer, evening target and their windows as the planner would get them."""
+        now = self.clock()
+        stored = await self.config.get("battery")
+        settings = stored if isinstance(stored, BatterySettings) else BatterySettings()
+        target = None if self.goals is None else self.goals.battery_target
+        blended = None if self.pv_service is None else self.pv_service.blended(now)
+        context = self._blend_context()
+        return risk_view(
+            now,
+            pv=None if blended is None else blended.series,
+            load=None if self.load_service is None else self.load_service.forecast(now),
+            settings=settings,
+            user_target_pct=None if target is None else target.soc_pct,
+            model=self.risk_model,
+            min_history_days=(
+                30 if self.forecast is None else self.forecast.learning.min_history_days
+            ),
+            tz=context.tz,
+            plant=context.plant,
+        )
 
     async def _update_pv_learning(self) -> None:
         if self.timeseries is None or self.learned is None or self.pv_service is None:

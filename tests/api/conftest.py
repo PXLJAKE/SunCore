@@ -26,6 +26,7 @@ from suncore.api import (
     UnknownTemplateError,
 )
 from suncore.core.balance import Flow, FlowSnapshot
+from suncore.core.battery import BatterySettings
 from suncore.core.config import SECTION_MODELS, OperationConfig
 from suncore.core.control import DeviceState, PowerEstimate
 from suncore.core.controlstate import (
@@ -53,7 +54,9 @@ from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, PreviewTooLargeError
 from suncore.forecast.accuracy import accuracy_view
 from suncore.forecast.load_service import LoadForecastService
-from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView
+from suncore.forecast.risk import ErrorModel
+from suncore.forecast.risk_learning import risk_view
+from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView, RiskView
 from suncore.storage import (
     HistoryEntry,
     HistoryEntryNotFoundError,
@@ -216,6 +219,17 @@ class FakeServices:
         self.pv_hours: list[int] = []
         self.load_view = LoadForecastService(None, None, clock=lambda: NOW).view(48)
         self.load_hours: list[int] = []
+        self.risk = risk_view(
+            NOW,
+            pv=None,
+            load=None,
+            settings=BatterySettings(),
+            user_target_pct=None,
+            model=ErrorModel(),
+            min_history_days=30,
+            tz=UTC,
+            plant=None,
+        )
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
         self.pv_hours.append(hours)
@@ -227,6 +241,9 @@ class FakeServices:
     async def load_forecast(self, hours: int) -> LoadForecastView:
         self.load_hours.append(hours)
         return self.load_view
+
+    async def forecast_risk(self) -> RiskView:
+        return self.risk
 
     async def health(self) -> HealthReport:
         self.health_calls += 1

@@ -441,6 +441,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/forecast/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Risk
+         * @description The risk model now: the windows ``rest_of_today``, ``night``, ``next_day`` and
+         *     ``bridge`` (night + next day) with PV, base load and net energy (P50 and at the risk
+         *     level's quantile), the morning buffer ("battery first until X %") and the evening
+         *     target with their structured reasons, and whether the error distribution is
+         *     ``learned`` (from ``min_history_days`` days of measured net errors) or still taken from
+         *     the ``source_quantiles``. Targets are ``null`` until the ``battery`` section has a
+         *     model.
+         */
+        get: operations["forecast_risk_api_v1_forecast_risk_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/info": {
         parameters: {
             query?: never;
@@ -1592,6 +1618,18 @@ export interface components {
             };
             /** Suggestions */
             suggestions: components["schemas"]["SuggestionOut"][];
+        };
+        /**
+         * EnergyView
+         * @description P10/P50/P90 energy (Wh) of a window (the slot quantiles summed).
+         */
+        EnergyView: {
+            /** P10 Wh */
+            p10_wh: number;
+            /** P50 Wh */
+            p50_wh: number;
+            /** P90 Wh */
+            p90_wh: number;
         };
         /**
          * EntityCandidateOut
@@ -2752,6 +2790,110 @@ export interface components {
          * @enum {string}
          */
         RiskLevel: "cautious" | "balanced" | "bold";
+        /**
+         * RiskTargetView
+         * @description A computed state of charge with its structured reason.
+         */
+        RiskTargetView: {
+            reason: components["schemas"]["Reason"];
+            /** Soc Pct */
+            soc_pct: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "learned" | "source_quantiles";
+        };
+        /**
+         * RiskView
+         * @description The current morning buffer and evening target and what they rest on (Phase 4 WP7).
+         *
+         *     ``status``: ``ok``; ``no_battery_model`` (the ``battery`` section has no model yet: the
+         *     windows are shown, the targets are ``null``); ``no_forecast`` (no load forecast yet).
+         *     ``distribution_source``: ``learned`` once ``min_history_days`` days of measured net errors
+         *     exist, else ``source_quantiles`` (the PV sources' P10/P90 and the load residuals).
+         */
+        RiskView: {
+            /** Bridge Next Day */
+            bridge_next_day: boolean;
+            /**
+             * Distribution Source
+             * @enum {string}
+             */
+            distribution_source: "learned" | "source_quantiles";
+            /** Evening At */
+            evening_at: string | null;
+            evening_target: components["schemas"]["RiskTargetView"] | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** History Days */
+            history_days: number;
+            /** Min History Days */
+            min_history_days: number;
+            morning_buffer: components["schemas"]["RiskTargetView"] | null;
+            /** Pv Forecast */
+            pv_forecast: boolean;
+            /** Quantile */
+            quantile: number;
+            risk: components["schemas"]["RiskLevel"];
+            /** Samples */
+            samples: {
+                [key: string]: number;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "no_battery_model" | "no_forecast";
+            strategy: components["schemas"]["BatteryStrategy"];
+            /** Windows */
+            windows: components["schemas"]["RiskWindowView"][];
+        };
+        /**
+         * RiskWindow
+         * @enum {string}
+         */
+        RiskWindow: "rest_of_today" | "night" | "next_day" | "bridge";
+        /**
+         * RiskWindowView
+         * @description One window of the risk model and its net energy (PV - base load) at the risk quantile.
+         */
+        RiskWindowView: {
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            load: components["schemas"]["EnergyView"];
+            /** Net P50 Wh */
+            net_p50_wh: number;
+            /** Net Quantile Wh */
+            net_quantile_wh: number;
+            /** Pooled */
+            pooled: boolean;
+            pv: components["schemas"]["EnergyView"];
+            /** Samples */
+            samples: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "learned" | "source_quantiles";
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * Weather
+             * @enum {string}
+             */
+            weather: "overcast" | "mixed" | "clear" | "night";
+            window: components["schemas"]["RiskWindow"];
+        };
         /**
          * RoleSpec
          * @description One entity role of a template.
@@ -4246,6 +4388,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    forecast_risk_api_v1_forecast_risk_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskView"];
                 };
             };
         };

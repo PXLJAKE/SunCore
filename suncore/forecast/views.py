@@ -14,9 +14,12 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from suncore.core.battery import BatteryStrategy, RiskLevel
+from suncore.core.decisions import Reason
 from suncore.core.forecast import AccuracyRecord, HorizonBucket
 from suncore.forecast.load import DayType, DayTypeSource, LoadQuality, TemperatureReason
 from suncore.forecast.pv.adapter import FetchStatus
+from suncore.forecast.risk import DistributionSource, RiskClass, RiskWindow
 
 MAX_VIEW_HOURS = 96
 """Largest ``hours`` the API serves."""
@@ -204,12 +207,77 @@ class LoadForecastView(_View):
     """Quarter hours where the devices drew more than the house measured (clipped to 0 W)."""
 
 
+class EnergyView(_View):
+    """P10/P50/P90 energy (Wh) of a window (the slot quantiles summed)."""
+
+    p10_wh: float
+    p50_wh: float
+    p90_wh: float
+
+
+class RiskWindowView(_View):
+    """One window of the risk model and its net energy (PV - base load) at the risk quantile."""
+
+    window: RiskWindow
+    start: AwareDatetime
+    end: AwareDatetime
+    weather: RiskClass
+    pv: EnergyView
+    load: EnergyView
+    net_p50_wh: float
+    net_quantile_wh: float
+    """Net energy that is reached with the risk level's probability."""
+    source: DistributionSource
+    samples: int
+    """Learnt samples behind ``net_quantile_wh`` (0 for ``source_quantiles``)."""
+    pooled: bool
+    """Learnt over all weather classes of the window (its own class had too few samples)."""
+
+
+class RiskTargetView(_View):
+    """A computed state of charge with its structured reason."""
+
+    soc_pct: float
+    reason: Reason
+    source: DistributionSource
+
+
+class RiskView(_View):
+    """The current morning buffer and evening target and what they rest on (Phase 4 WP7).
+
+    ``status``: ``ok``; ``no_battery_model`` (the ``battery`` section has no model yet: the
+    windows are shown, the targets are ``null``); ``no_forecast`` (no load forecast yet).
+    ``distribution_source``: ``learned`` once ``min_history_days`` days of measured net errors
+    exist, else ``source_quantiles`` (the PV sources' P10/P90 and the load residuals).
+    """
+
+    generated_at: AwareDatetime
+    status: Literal["ok", "no_battery_model", "no_forecast"]
+    risk: RiskLevel
+    quantile: float
+    strategy: BatteryStrategy
+    bridge_next_day: bool
+    pv_forecast: bool
+    """A PV forecast was available (without one PV counts as 0 Wh: the cautious direction)."""
+    distribution_source: DistributionSource
+    history_days: int
+    """Days with learnt net-error samples."""
+    min_history_days: int
+    samples: dict[str, int]
+    """Learnt samples per ``window/weather`` cell."""
+    evening_at: AwareDatetime | None
+    windows: list[RiskWindowView]
+    morning_buffer: RiskTargetView | None
+    evening_target: RiskTargetView | None
+
+
 __all__ = [
     "MAX_VIEW_HOURS",
     "AccuracySourceView",
     "BlendWeightsView",
     "BlendedView",
     "CalibrationView",
+    "EnergyView",
     "ForecastAccuracyView",
     "LoadDayView",
     "LoadForecastView",
@@ -217,4 +285,7 @@ __all__ = [
     "PvForecastView",
     "PvSeriesView",
     "PvSourceView",
+    "RiskTargetView",
+    "RiskView",
+    "RiskWindowView",
 ]

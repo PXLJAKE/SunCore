@@ -87,3 +87,19 @@ async def test_a_devices_or_forecast_change_rebuilds_the_load_forecast(runtime: 
     assert runtime.load_service.inputs.device_ids == ()
     await runtime.put_section("forecast", ForecastConfig())
     assert runtime.load_service.inputs.workday_entity is None
+
+
+async def test_the_demo_risk_view_has_a_buffer_and_a_target(runtime: Runtime) -> None:
+    service = runtime.load_service
+    assert service is not None
+    await until(lambda: service.model is not None)
+    await until(lambda: runtime.cache.get(WORKDAY_ID) is not None)
+    await service.refresh()
+    view = await runtime.forecast_risk()
+    assert view.status == "ok"  # the demo battery has a model
+    assert view.evening_target is not None
+    assert view.morning_buffer is not None
+    assert view.distribution_source == "source_quantiles"
+    assert view.history_days == 0
+    await runtime.update_forecast_accuracy()  # the nightly job learns (nothing yet) safely
+    assert runtime.risk_model.samples == ()
