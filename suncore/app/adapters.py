@@ -27,9 +27,10 @@ from typing import Any
 from suncore.core.config import ForecastConfig
 from suncore.forecast.accuracy import LearnedParams
 from suncore.forecast.load import (
+    WorkdayState,
     parse_check_date,
     parse_hourly_temperatures,
-    parse_workday_state,
+    parse_workday_sensor,
     temperature_c,
 )
 from suncore.forecast.load_service import LoadData, LoadForecastService, LoadInputs
@@ -117,9 +118,9 @@ class HaLoadReader:
             return None
         return entry.state.state, entry.state.attributes
 
-    def workday_today(self, entity_id: str) -> bool | None:
+    def workday_state(self, entity_id: str) -> WorkdayState | None:
         current = self._state(entity_id)
-        return None if current is None else parse_workday_state(*current)
+        return None if current is None else parse_workday_sensor(entity_id, *current)
 
     async def check_workday(self, entity_id: str, day: date, *, min_interval_s: float) -> bool:
         response = await self._connection.call_action_response(

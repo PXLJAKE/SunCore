@@ -65,7 +65,10 @@ async def test_the_reader_reads_the_fake_home_assistant(runtime: Runtime) -> Non
     await until(lambda: runtime.cache.get(WEATHER_ID) is not None)
     reader = HaLoadReader(runtime.connection, runtime.cache)
     assert reader.outside_temperature(WEATHER_ID) is not None
-    assert reader.workday_today(WORKDAY_ID) is (SCENARIO_DAY.weekday() < 5)
+    state = reader.workday_state(WORKDAY_ID)
+    assert state is not None
+    assert state.workday is (SCENARIO_DAY.weekday() < 5)
+    assert state.offset == 0
     monday = date(2026, 6, 22)
     assert await reader.check_workday(WORKDAY_ID, monday, min_interval_s=1.0) is True
     assert (
@@ -75,7 +78,7 @@ async def test_the_reader_reads_the_fake_home_assistant(runtime: Runtime) -> Non
     points = await reader.hourly_temperatures(WEATHER_ID, min_interval_s=1.0)
     assert len(points) == 48
     assert reader.outside_temperature("weather.unknown") is None
-    assert reader.workday_today("binary_sensor.unknown") is None
+    assert reader.workday_state("binary_sensor.unknown") is None
 
 
 async def test_a_devices_or_forecast_change_rebuilds_the_load_forecast(runtime: Runtime) -> None:

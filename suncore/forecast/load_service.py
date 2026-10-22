@@ -6,12 +6,16 @@
   (15-minute means), form the base load (:func:`suncore.forecast.load.base_load`), resolve the
   day types and fit :class:`~suncore.forecast.load.LoadModel`. The device histories are kept
   for the planner (4-F) - controlled devices are never part of the base load.
-* **Day types** with a mapped ``workday`` binary sensor: today from its state, every other
-  date from the read-only action ``workday.check_date`` (rate limited per date, at most
-  ``MAX_CHECKS_PER_RUN`` calls per refresh, forecast days first, then the history newest
-  first); the answers are cached in ``learned_param`` (namespace ``load_profile``, key
-  ``day_types``) so each date is asked once. A date without an answer (no sensor, the action
-  failed or is rate limited) uses the weekday rule and is asked again later.
+* **Day types** with a mapped ``workday`` binary sensor: the date ``today + days_offset`` from
+  its state, every other date ``d`` from the read-only action ``workday.check_date`` asked for
+  ``d - days_offset`` (Home Assistant evaluates both for the date plus the offset; rate limited
+  per date, at most ``MAX_CHECKS_PER_RUN`` calls per refresh, forecast days first, then the
+  history newest first). The answers are cached in ``learned_param`` (namespace
+  ``load_profile``, key ``day_types``) with a fingerprint of the sensor's entity id,
+  ``workdays``, ``excludes`` and ``days_offset``; a changed fingerprint drops the cache (a changed
+  country or holiday list is not visible in the attributes - remap the sensor to reset). A date
+  without an answer (no sensor, its state unavailable, the action failed or is rate limited)
+  uses the weekday rule and is asked again later.
 * **Temperature** with a mapped ``weather`` entity: its ``temperature`` attribute is recorded
   with every refresh (key ``weather.temperature_c``, °C) - Home Assistant keeps no long-term
   statistics of a weather entity, so the term learns from SunCore's own recording and becomes
@@ -51,6 +55,7 @@ from suncore.core.series import (
 from suncore.forecast.accuracy import AccuracyData, LearnedParams, update_accuracy
 from suncore.forecast.days import local_midnight
 from suncore.forecast.load import (
+    FORECAST_TEMPERATURE_HOURS,
     HISTORY_DAYS,
     LOAD_SOURCE_ID,
     BaseLoad,
@@ -59,6 +64,7 @@ from suncore.forecast.load import (
     DayTypeSource,
     LoadModel,
     LoadQuality,
+    WorkdayState,
     base_load,
     daily_mean_temperatures,
     day_type_from_workday,
@@ -108,12 +114,13 @@ class LoadData(AccuracyData, Protocol):
 class LoadHaReader(Protocol):
     """What the load forecast reads from Home Assistant (implemented in ``suncore.app``)."""
 
-    def workday_today(self, entity_id: str) -> bool | None:
-        """The ``workday`` sensor's state (``on`` = workday); ``None`` if unknown/shifted."""
+    def workday_state(self, entity_id: str) -> WorkdayState | None:
+        """The ``workday`` sensor's state, offset and configuration; ``None`` if unknown."""
         ...
 
     async def check_workday(self, entity_id: str, day: date, *, min_interval_s: float) -> bool:
-        """``workday.check_date`` for ``day``; raises on any failure (rate limit included)."""
+        """``workday.check_date`` for ``day`` (Home Assistant answers for ``day + offset``);
+        raises on any failure (rate limit included)."""
         ...
 
     def outside_temperature(self, entity_id: str) -> float | None:
@@ -174,6 +181,8 @@ class LoadForecastService:
         self._base: BaseLoad | None = None
         self._devices: dict[str, TimeSeries] = {}
         self._cache: dict[date, DayInfo] = {}
+        self._fingerprint: str | None = None
+        """The workday configuration the cached answers belong to (m6)."""
         self._cache_loaded = False
         self._weather_points: list[tuple[datetime, float]] = []
         self._weather_at: datetime | None = None
@@ -203,13 +212,19 @@ class LoadForecastService:
         """The day type of ``day`` and where it came from (module doc)."""
         entity = self._inputs.workday_entity
         if entity is not None and self._reader is not None:
-            if day == today:
-                state = self._reader.workday_today(entity)
-                if state is not None:
-                    return DayInfo(day_type_from_workday(day, state), DayTypeSource.WORKDAY_SENSOR)
-            cached = self._cache.get(day)
-            if cached is not None:
-                return cached
+            live = self._reader.workday_state(entity)
+            if (
+                live is not None
+                and today is not None
+                and day == today + timedelta(days=live.offset)
+            ):
+                return DayInfo(
+                    day_type_from_workday(day, live.workday), DayTypeSource.WORKDAY_SENSOR
+                )
+            if live is None or live.fingerprint == self._fingerprint:
+                cached = self._cache.get(day)
+                if cached is not None:
+                    return cached
         return DayInfo(weekday_rule(day), DayTypeSource.WEEKDAY_RULE)
 
     def day_types(self, days: Iterable[date], today: date) -> dict[date, DayType]:
@@ -224,6 +239,8 @@ class LoadForecastService:
             for entry in await self._learned.in_namespace(NS_LOAD_PROFILE):
                 if entry.key == DAY_TYPES_KEY and entry.schema_version == DAY_TYPES_SCHEMA:
                     self._cache.update(_decode_days(entry.payload))
+                    fingerprint = entry.payload.get("fingerprint")
+                    self._fingerprint = fingerprint if isinstance(fingerprint, str) else None
         except Exception:
             log.exception("forecast.load.day_types_unreadable")
 
@@ -233,10 +250,11 @@ class LoadForecastService:
         oldest = today - timedelta(days=self._history_days + 7)
         self._cache = {d: v for d, v in self._cache.items() if d >= oldest}
         payload = {
+            "fingerprint": self._fingerprint,
             "days": {
                 d.isoformat(): [v.day_type.value, v.source.value]
                 for d, v in sorted(self._cache.items())
-            }
+            },
         }
         try:
             await self._learned.put(
@@ -250,21 +268,30 @@ class LoadForecastService:
         entity = self._inputs.workday_entity
         if entity is None or self._reader is None:
             return
+        state = self._reader.workday_state(entity)
+        if state is None:
+            return  # without the state the offset is unknown: no answer can be placed
         changed = False
-        state = self._reader.workday_today(entity)
-        if state is not None:
-            info = DayInfo(day_type_from_workday(today, state), DayTypeSource.WORKDAY_SENSOR)
-            if self._cache.get(today) != info:
-                self._cache[today] = info
-                changed = True
+        if state.fingerprint != self._fingerprint:  # another sensor or configuration
+            if self._cache:
+                log.info("forecast.load.day_types_reset")
+            self._cache.clear()
+            self._fingerprint = state.fingerprint
+            changed = True
+        observed = today + timedelta(days=state.offset)
+        info = DayInfo(day_type_from_workday(observed, state.workday), DayTypeSource.WORKDAY_SENSOR)
+        if self._cache.get(observed) != info:
+            self._cache[observed] = info
+            changed = True
         asked = 0
         for day in wanted:
             if day in self._cache or asked >= MAX_CHECKS_PER_RUN:
                 continue
             asked += 1
             try:
+                # Home Assistant answers for the date plus the sensor's offset: ask d - offset
                 workday = await self._reader.check_workday(
-                    entity, day, min_interval_s=CHECK_DATE_INTERVAL_S
+                    entity, day - timedelta(days=state.offset), min_interval_s=CHECK_DATE_INTERVAL_S
                 )
             except asyncio.CancelledError:
                 raise
@@ -308,7 +335,7 @@ class LoadForecastService:
         start = local_midnight(moment, tz).astimezone(UTC) - timedelta(days=self._history_days)
         window = TimeRange(start=start, end=end)
         history_days = [today - timedelta(days=i) for i in range(1, self._history_days + 1)]
-        await self._resolve([*self._forecast_days(moment, tz)[1:], *history_days], today)
+        await self._resolve([*self._forecast_days(moment, tz), *history_days], today)
         try:
             base, devices = await self._read_base(window)
             temperature = None
@@ -386,12 +413,15 @@ class LoadForecastService:
 
     def daily_temperatures(self, now: datetime) -> dict[date, float]:
         """Mean temperature per forecast date: today from the recorded hours plus the forecast
-        hours, later dates from the forecast alone."""
+        hours, later dates from the forecast alone; only dates with at least
+        ``FORECAST_TEMPERATURE_HOURS`` hours (others get no temperature offset)."""
         tz = self._tz()
         today = now.astimezone(tz).date()
         observed = [(t, v) for t, v in self._observed if t.astimezone(tz).date() == today]
         upcoming = [(t, v) for t, v in self._weather_points if t >= floor_to_step(now)]
-        return daily_mean_temperatures([*observed, *upcoming], tz)
+        return daily_mean_temperatures(
+            [*observed, *upcoming], tz, min_hours=FORECAST_TEMPERATURE_HOURS
+        )
 
     # --- refresh ----------------------------------------------------------------------
 

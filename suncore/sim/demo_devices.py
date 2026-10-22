@@ -382,7 +382,7 @@ class DemoDevices:
     def _workday(self, now: datetime) -> DemoEntity:
         return DemoEntity(
             WORKDAY_ID,
-            "on" if self.is_workday(now.date()) else "off",
+            "on" if self.is_workday(now.astimezone(self.scenario.start.tzinfo).date()) else "off",
             {
                 "friendly_name": "Sim workday sensor",
                 "workdays": ["mon", "tue", "wed", "thu", "fri"],

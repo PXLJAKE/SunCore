@@ -30,7 +30,7 @@ from suncore.forecast.load import (
     forecast_load,
     parse_check_date,
     parse_hourly_temperatures,
-    parse_workday_state,
+    parse_workday_sensor,
     slot_block,
     temperature_c,
     weekday_rule,
@@ -119,10 +119,19 @@ def test_weekday_rule_and_workday_mapping() -> None:
 
 
 def test_workday_state_and_check_date_shapes() -> None:
-    assert parse_workday_state("on", {"days_offset": 0, "workdays": ["mon"]}) is True
-    assert parse_workday_state("off", {}) is False
-    assert parse_workday_state("unavailable", {}) is None
-    assert parse_workday_state("on", {"days_offset": 1}) is None  # describes tomorrow
+    entity_id = "binary_sensor.workday_sensor"
+    on = parse_workday_sensor(entity_id, "on", {"days_offset": 0, "workdays": ["mon"]})
+    assert on is not None
+    assert (on.workday, on.offset) == (True, 0)
+    off = parse_workday_sensor(entity_id, "off", {})
+    assert off is not None
+    assert not off.workday
+    assert parse_workday_sensor(entity_id, "unavailable", {}) is None
+    shifted = parse_workday_sensor(entity_id, "on", {"days_offset": 1})
+    assert shifted is not None
+    assert shifted.offset == 1  # describes tomorrow; compensated by the service
+    assert shifted.fingerprint != on.fingerprint
+    assert parse_workday_sensor(entity_id, "on", {"days_offset": "1"}) is None
     entity = "binary_sensor.workday_sensor"
     assert parse_check_date({entity: {"workday": False}}, entity) is False
     assert parse_check_date({entity: {"workday": "yes"}}, entity) is None
@@ -408,3 +417,54 @@ def test_weighted_quantile_lies_in_the_sample_range(values: list[float], q: floa
     result = weighted_quantile(values, [1.0] * len(values), q)
     assert min(values) - 1e-6 <= result <= max(values) + 1e-6
     assert not math.isnan(result)
+
+
+def test_temperature_term_learns_heating_and_cooling_together() -> None:
+    def temp_of(day: int) -> float:
+        return 4.0 + (day * 11) % 27  # 4..30 °C: heating and cooling days
+
+    def shape(moment: datetime) -> float:
+        hdd, cdd = degree_days(temp_of((moment - START) // timedelta(days=1)))
+        return 400.0 + 25.0 * hdd + 40.0 * cdd
+
+    model = fit_load_model(
+        history(56, shape),
+        now=START + timedelta(days=56),
+        tz=BERLIN,
+        day_types={},
+        temperature=temperatures(56, temp_of),
+        temperature_configured=True,
+    )
+    term = model.temperature
+    assert term.active
+    assert term.heating_w_per_k == pytest.approx(25, rel=0.15)
+    assert term.cooling_w_per_k == pytest.approx(40, rel=0.15)
+
+
+def test_a_negative_joint_coefficient_falls_back_to_one_regressor() -> None:
+    temps = [4.0 + (i * 11) % 27 for i in range(20)]
+    samples = [
+        (30.0 * degree_days(t)[0] - 20.0 * degree_days(t)[1], t, 1.0)  # cooling lowers the load
+        for t in temps
+    ]
+    term = fit_temperature(samples)
+    assert term.active
+    assert term.cooling_w_per_k == 0.0
+    assert term.heating_w_per_k > 0
+
+
+def test_the_forecast_follows_the_wall_clock_over_a_dst_day() -> None:
+    data = history(42, evening_peak, datetime(2026, 9, 12, tzinfo=BERLIN).astimezone(UTC))
+    now = datetime(2026, 10, 24, 12, 0, tzinfo=BERLIN).astimezone(UTC)  # day before fall-back
+    model = fit_load_model(data, now=now, tz=BERLIN, day_types={})
+    grid = planning_grid(now, timedelta(hours=48))
+    forecast = forecast_load(model, grid, BERLIN, {})
+    assert forecast is not None
+    assert len(forecast) == 48 * 4  # absolute time: the 25-hour day adds no slot
+    for begin, _, value in forecast.p50.slots():
+        local_hour = begin.astimezone(BERLIN).hour
+        assert value is not None
+        if 17 <= local_hour < 21:
+            assert value > 600  # the evening peak stays at local 17-21 h after the switch
+        elif 1 <= local_hour < 6:
+            assert value < 400

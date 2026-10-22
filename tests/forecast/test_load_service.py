@@ -14,7 +14,14 @@ from suncore.core.forecast import HorizonBucket
 from suncore.core.measurements import SITE_HOUSE_W, WEATHER_TEMPERATURE_C, device_power_key
 from suncore.core.series import SeriesUnit, TimeRange, TimeSeries
 from suncore.forecast.accuracy import load_accuracy
-from suncore.forecast.load import LOAD_SOURCE_ID, DayType, DayTypeSource, LoadQuality
+from suncore.forecast.load import (
+    LOAD_SOURCE_ID,
+    DayType,
+    DayTypeSource,
+    LoadQuality,
+    WorkdayState,
+    parse_workday_sensor,
+)
 from suncore.forecast.load_service import (
     MAX_CHECKS_PER_RUN,
     LoadForecastService,
@@ -40,6 +47,8 @@ class Clock:
 class FakeReader:
     def __init__(self) -> None:
         self.today: bool | None = None
+        self.offset = 0
+        self.workdays = ["mon", "tue", "wed", "thu", "fri"]
         self.answers: dict[date, bool] = {}
         self.fail_after: int | None = None
         self.checks: list[date] = []
@@ -47,9 +56,12 @@ class FakeReader:
         self.points: list[tuple[datetime, float]] = []
         self.weather_calls = 0
 
-    def workday_today(self, entity_id: str) -> bool | None:
+    def workday_state(self, entity_id: str) -> WorkdayState | None:
         assert entity_id == "binary_sensor.workday"
-        return self.today
+        if self.today is None:
+            return None
+        attributes = {"days_offset": self.offset, "workdays": self.workdays}
+        return parse_workday_sensor(entity_id, "on" if self.today else "off", attributes)
 
     async def check_workday(self, entity_id: str, day: date, *, min_interval_s: float) -> bool:
         assert entity_id == "binary_sensor.workday"
@@ -58,7 +70,8 @@ class FakeReader:
             msg = "rate limited"
             raise RuntimeError(msg)
         self.checks.append(day)
-        return self.answers.get(day, day.weekday() < 5)
+        asked = day + timedelta(days=self.offset)  # Home Assistant adds the sensor's offset
+        return self.answers.get(asked, asked.weekday() < 5)
 
     def outside_temperature(self, entity_id: str) -> float | None:
         assert entity_id == "weather.home"
@@ -231,6 +244,53 @@ async def test_a_failing_check_date_falls_back_to_the_weekday_rule(
     assert svc.day_info(today, today).source is DayTypeSource.WEEKDAY_RULE  # state unknown
 
 
+async def test_a_shifted_workday_sensor_is_compensated(
+    store: TimeseriesStore, learned: LearnedParamStore
+) -> None:
+    await fill_history(store)
+    reader = FakeReader()
+    reader.offset = 1  # the sensor describes tomorrow
+    reader.today = False  # so tomorrow (Tue 22 Sep) is a holiday
+    friday = date(2026, 9, 25)
+    reader.answers[friday] = False  # a holiday on Friday
+    svc = service(store, learned, Clock(NOW), reader, workday_entity="binary_sensor.workday")
+    await svc.refresh()
+    today, tomorrow = date(2026, 9, 21), date(2026, 9, 22)
+    info = svc.day_info(tomorrow, today)
+    assert (info.day_type, info.source) == (DayType.HOLIDAY, DayTypeSource.WORKDAY_SENSOR)
+    # today is asked as check_date(today - 1): Home Assistant answers for today
+    assert date(2026, 9, 20) in reader.checks
+    assert svc.day_info(today, today).day_type is DayType.WORKDAY
+    assert svc.day_info(today, today).source is DayTypeSource.CHECK_DATE
+    assert date(2026, 9, 24) in reader.checks or len(reader.checks) == MAX_CHECKS_PER_RUN
+    svc._cache.clear()
+    await svc._resolve([friday], today)
+    assert reader.checks[-1] == date(2026, 9, 24)  # Friday - 1
+    assert svc.day_info(friday, today).day_type is DayType.HOLIDAY
+
+
+async def test_a_changed_workday_configuration_drops_the_cache(
+    store: TimeseriesStore, learned: LearnedParamStore
+) -> None:
+    await fill_history(store)
+    reader = FakeReader()
+    reader.today = True
+    tomorrow, today = date(2026, 9, 22), date(2026, 9, 21)
+    reader.answers[tomorrow] = False
+    svc = service(store, learned, Clock(NOW), reader, workday_entity="binary_sensor.workday")
+    await svc.refresh()
+    assert svc.day_info(tomorrow, today).day_type is DayType.HOLIDAY
+    reader.workdays = ["mon", "tue", "wed", "thu", "fri", "sat"]  # reconfigured
+    reader.answers.clear()
+    assert svc.day_info(tomorrow, today).source is DayTypeSource.WEEKDAY_RULE  # stale answer
+    again = FakeReader()
+    again.today, again.workdays = True, reader.workdays
+    svc2 = service(store, learned, Clock(NOW), again, workday_entity="binary_sensor.workday")
+    await svc2.refresh()
+    assert tomorrow in again.checks  # asked again after the reset
+    assert svc2.day_info(tomorrow, today).day_type is DayType.WORKDAY
+
+
 async def test_temperature_is_recorded_and_the_forecast_days_get_a_mean(
     store: TimeseriesStore, learned: LearnedParamStore
 ) -> None:
@@ -245,7 +305,10 @@ async def test_temperature_is_recorded_and_the_forecast_days_get_a_mean(
     assert recorded == [(NOW, 12.5)]
     temps = svc.daily_temperatures(NOW)
     assert temps[date(2026, 9, 22)] == pytest.approx(8.0)
-    assert 8.0 < temps[date(2026, 9, 21)] < 12.5  # recorded and forecast hours of today
+    assert date(2026, 9, 21) not in temps  # 14 hours of today known: no offset for a partial day
+    reader.points = [(NOW - timedelta(hours=h), 12.0) for h in range(1, 11)] + reader.points
+    svc._weather_points = reader.points
+    assert date(2026, 9, 21) not in svc.daily_temperatures(NOW)  # past forecast hours ignored
     view = svc.view()
     assert view.temperature.reason == "too_few_days"
     assert view.days[1].temperature_c == pytest.approx(8.0)

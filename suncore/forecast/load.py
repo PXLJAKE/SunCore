@@ -47,11 +47,13 @@ profile usable from the first day.
 **Day types**: ``workday`` binary sensor ``on`` = workday; ``off`` on Monday-Friday = holiday,
 on Saturday/Sunday = weekend (the sensor cannot tell the two apart, research note "Workday");
 without the sensor the weekday rule applies (Mon-Fri workday, Sat/Sun weekend, never holiday).
-A sensor whose ``days_offset`` is not 0 describes another day and is ignored.
+A sensor with ``days_offset`` describes today + offset, and ``workday.check_date(d)`` answers for
+``d + offset``; the service compensates (:class:`WorkdayState`).
 """
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -106,7 +108,10 @@ TEMPERATURE_DAY_COVERAGE: Final = 0.5
 MAX_W_PER_K: Final = 300.0
 TEMPERATURE_MAX_SHARE: Final = 0.5
 MIN_TEMPERATURE_HOURS: Final = 6
-"""Hours with a temperature a day needs for its forecast daily mean."""
+"""Hours with a temperature a day needs for a daily mean (default of the helper)."""
+FORECAST_TEMPERATURE_HOURS: Final = 20
+"""Hours with a temperature (recorded or forecast) a *forecast* day needs before the temperature
+term shifts it: a partial day's mean (e.g. only the warm afternoon) would bias the offset."""
 
 
 @unique
@@ -692,21 +697,45 @@ def parse_check_date(response: Mapping[str, Any], entity_id: str) -> bool | None
     return value if isinstance(value, bool) else None
 
 
-def parse_workday_state(state: str, attributes: Mapping[str, Any]) -> bool | None:
-    """The workday sensor's state for *today* (``on`` = workday); ``None`` if unknown or the
-    sensor is shifted (``days_offset`` not 0: it describes another day)."""
+@dataclass(frozen=True, slots=True)
+class WorkdayState:
+    """The ``workday`` binary sensor as SunCore reads it.
+
+    ``workday`` is the state (``on`` = workday) of the date ``today + offset``: Home Assistant
+    evaluates the sensor and ``workday.check_date`` for the *adjusted* date (``days_offset``
+    added, ``homeassistant/components/workday/entity.py`` ``date_is_workday``), so the sensor
+    describes today + offset and ``check_date(d)`` describes ``d + offset``. ``fingerprint``
+    identifies the configuration the answers belong to (cache key).
+    """
+
+    workday: bool
+    offset: int
+    fingerprint: str
+
+
+def parse_workday_sensor(
+    entity_id: str, state: str, attributes: Mapping[str, Any]
+) -> WorkdayState | None:
+    """The sensor's state and configuration; ``None`` if the state is not ``on``/``off`` or
+    ``days_offset`` is not an integer (the offset could not be compensated)."""
     offset = attributes.get("days_offset", 0)
-    if isinstance(offset, bool) or not isinstance(offset, int) or offset != 0:
+    if isinstance(offset, bool) or not isinstance(offset, int):
         return None
-    if state == "on":
-        return True
-    if state == "off":
-        return False
-    return None
+    if state not in ("on", "off"):
+        return None
+    config = {
+        "entity_id": entity_id,
+        "workdays": attributes.get("workdays"),
+        "excludes": attributes.get("excludes"),
+        "days_offset": offset,
+    }
+    fingerprint = json.dumps(config, sort_keys=True, default=str)
+    return WorkdayState(workday=state == "on", offset=offset, fingerprint=fingerprint)
 
 
 __all__ = [
     "COLD_START_MIN_DAYS",
+    "FORECAST_TEMPERATURE_HOURS",
     "HALF_LIFE_DAYS",
     "HISTORY_DAYS",
     "LOAD_SOURCE_ID",
@@ -720,6 +749,7 @@ __all__ = [
     "SlotBlock",
     "TemperatureReason",
     "TemperatureTerm",
+    "WorkdayState",
     "base_load",
     "daily_mean_temperatures",
     "day_type_from_workday",
@@ -731,7 +761,7 @@ __all__ = [
     "local_slot",
     "parse_check_date",
     "parse_hourly_temperatures",
-    "parse_workday_state",
+    "parse_workday_sensor",
     "slot_block",
     "temperature_c",
     "weekday_rule",
