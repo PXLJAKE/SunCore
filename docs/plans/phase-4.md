@@ -410,6 +410,24 @@ shadow and assisted run is the acceptance test.
   Open-Meteo Solar Forecast, generic template).
 - `BatteryAction` is part of the 4-A contracts but rejected by the gate until WP10
   (ADR-0011 addendum); its semantics are proposed in ADR-0013.
+- PR 4-E (WP6, WP7):
+  - The optional `workday` binary sensor and `weather` entity of the load forecast live in
+    `forecast.load` (additive in `forecast` v2, no migration; the wizard carries them through,
+    the UI is 4-H). `workday.check_date` joined the read-only action allowlist (verified in
+    `research/ha-websocket-api.md` "Workday").
+  - Home Assistant keeps no long-term statistics of a weather entity, so the temperature term
+    learns from SunCore's own recording of the entity's `temperature` attribute (key
+    `weather.temperature_c`) and becomes active after 14 days with a temperature.
+  - The risk model has a fourth window `bridge` (night + next day, sunset to sunset): the
+    evening target takes **one** quantile of it instead of adding the night's and the next
+    day's quantiles (which would count caution twice, §0).
+  - Learnt errors are relative to the window's forecast energy (PV P50 + load P50), so a short
+    `rest_of_today` and a long one, a summer and a winter day share one distribution. Samples
+    are taken from the forecasts as they stood at 06:00 (`rest_of_today`) and 18:00 (`night`,
+    `next_day`, `bridge`) local and kept 365 days.
+  - Morning buffer rule: a surplus at the risk quantile of at least twice the energy from the
+    floor to the evening target lets consumers go first; one that does not cover it puts the
+    battery first up to the evening target; linear in between.
 
 ## 7. Out of scope for Phase 4
 
