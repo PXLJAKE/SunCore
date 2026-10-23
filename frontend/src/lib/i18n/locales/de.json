@@ -860,5 +860,9 @@
   "api.validation.import_formula_all_in": "Der Tarif {template_id} liefert bereits Endpreise inklusive Gebühren und Steuern; eine Preisformel würde sie doppelt zählen.",
   "tariff.import.tou_stored": "Ein Zeittarif (HT/NT) ist gespeichert. Er lässt sich in einer späteren Version hier bearbeiten; Speichern lässt ihn unverändert, solange du keine andere Art wählst.",
   "safety.battery_not_supported": "Batteriesteuerung ist noch nicht verfügbar; es wurde nichts geschrieben.",
-  "action.battery": "Batterie-Limits setzen"
+  "action.battery": "Batterie-Limits setzen",
+  "api.validation.forecast_workday_domain": "{entity_id} ist kein Binärsensor. Wähle den Binärsensor der Workday-Integration.",
+  "api.validation.forecast_weather_domain": "{entity_id} ist keine Wetter-Entität.",
+  "planner.battery.morning_buffer": "Akku zuerst bis {soc_pct, number, ::.0} %: {cause, select, prefer_full {du willst den Akku so voll wie möglich} forecast_poor {bei der Risikostufe {risk, select, cautious {vorsichtig} balanced {ausgewogen} other {mutig}} deckt die Solarprognose heute und die Nacht nicht mit Reserve} forecast_uncertain {die Solarprognose ist unsicher} manual_floor {dein Mindest-Morgenpuffer} other {die Solarprognose lässt reichlich Überschuss}} (übrig nach heute und der Nacht bei dieser Risikostufe: {surplus_kwh, number, ::.0} kWh).",
+  "planner.battery.evening_target": "Abendziel {soc_pct, number, ::.0} % (Risikostufe {risk, select, cautious {vorsichtig} balanced {ausgewogen} other {mutig}}): {cause, select, prefer_full {du willst den Akku so voll wie möglich} next_day_deficit {die Nacht ({night_kwh, number, ::.0} kWh) und ein schwacher nächster Tag ({deficit_kwh, number, ::.0} kWh mehr) brauchen es} user_target {dein Ziel-Ladestand} max_soc {begrenzt auf den maximalen Ladestand} other {die Nacht braucht {night_kwh, number, ::.0} kWh}}."
 }

@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from suncore.core.decisions import BatteryAction
 from suncore.core.devices import RoleName, TemplateId
-from suncore.core.site import EntityRef
+from suncore.core.site import BatteryConfig, EntityRef
 from suncore.core.tariff import WeeklySchedule
 from suncore.core.validation import invalid
 
@@ -106,6 +106,21 @@ class BatteryModel(_Frozen):
 
     def grid_charge_pays(self, charge_price: float, later_price: float) -> bool:
         return later_price > self.min_later_price(charge_price)
+
+
+def effective_reserve_pct(site_battery: BatteryConfig | None, model: BatteryModel) -> float:
+    """The one SoC floor of planner, controller and gate (ADR-0013 decision 3).
+
+    ``max(site.battery.min_soc_pct or 0, model.reserve_pct + model.bms_drift_margin_pct)``: the
+    planning floor of the model, raised to the minimum SoC configured for the site battery if
+    that is higher (the site value is what the user set in the wizard for the inverter).
+    """
+    site_min = (
+        0.0
+        if site_battery is None or site_battery.min_soc_pct is None
+        else site_battery.min_soc_pct
+    )
+    return max(site_min, model.min_soc_pct)
 
 
 @unique
@@ -290,4 +305,5 @@ __all__ = [
     "CalibrationCharge",
     "GridChargePolicy",
     "RiskLevel",
+    "effective_reserve_pct",
 ]

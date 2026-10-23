@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Final
 
 from suncore.sim.devices import (
@@ -86,6 +86,11 @@ FORECAST_TOMORROW_ID: Final = "sensor.sim_solcast_forecast_tomorrow"
 OPEN_METEO_TODAY_ID: Final = "sensor.sim_open_meteo_energy_production_today"
 OPEN_METEO_TOMORROW_ID: Final = "sensor.sim_open_meteo_energy_production_tomorrow"
 TEMPLATE_FORECAST_ID: Final = "sensor.sim_pv_forecast_template"
+WORKDAY_ID: Final = "binary_sensor.sim_workday_sensor"
+"""Workday-integration-like sensor (``on`` Mon-Fri, deterministic; no holidays)."""
+WEATHER_ID: Final = "weather.sim_home"
+"""Weather entity: ``temperature`` (°C) from the scenario's outdoor model; hourly forecast via
+the read-only action ``weather.get_forecasts``."""
 GRID_IMPORT_KWH_ID: Final = "sensor.sim_grid_energy_import"
 GRID_EXPORT_KWH_ID: Final = "sensor.sim_grid_energy_export"
 PV_KWH_ID: Final = "sensor.sim_pv_energy"
@@ -111,6 +116,8 @@ SIM_DEVICE_ENTITY_IDS: Final[tuple[str, ...]] = (
     OPEN_METEO_TODAY_ID,
     OPEN_METEO_TOMORROW_ID,
     TEMPLATE_FORECAST_ID,
+    WORKDAY_ID,
+    WEATHER_ID,
     GRID_IMPORT_KWH_ID,
     GRID_EXPORT_KWH_ID,
     PV_KWH_ID,
@@ -354,6 +361,8 @@ class DemoDevices:
                     },
                 ),
                 *forecasts,
+                self._workday(state.time),
+                self._weather(state.time),
                 self._kwh(GRID_IMPORT_KWH_ID, "Sim grid energy import", c.grid_import_kwh),
                 self._kwh(GRID_EXPORT_KWH_ID, "Sim grid energy export", c.grid_export_kwh),
                 self._kwh(PV_KWH_ID, "Sim PV energy", c.pv_kwh),
@@ -364,6 +373,46 @@ class DemoDevices:
         if self.is_default:
             entities.append(self._kwh(POOL_ENERGY_ID, "Sim pool pump energy", c.pool_kwh))
         return entities
+
+    @staticmethod
+    def is_workday(day: date) -> bool:
+        """The demo's workday calendar: Monday to Friday, no holidays."""
+        return day.weekday() < 5
+
+    def _workday(self, now: datetime) -> DemoEntity:
+        return DemoEntity(
+            WORKDAY_ID,
+            "on" if self.is_workday(now.astimezone(self.scenario.start.tzinfo).date()) else "off",
+            {
+                "friendly_name": "Sim workday sensor",
+                "workdays": ["mon", "tue", "wed", "thu", "fri"],
+                "excludes": ["sat", "sun", "holiday"],
+                "days_offset": 0,
+            },
+        )
+
+    def _weather(self, now: datetime) -> DemoEntity:
+        return DemoEntity(
+            WEATHER_ID,
+            "sunny" if self._cloud_at(now) >= 0.8 else "cloudy",
+            {
+                "friendly_name": "Sim home",
+                "temperature": round(self.outdoor_c(now), 1),
+                "temperature_unit": "°C",
+            },
+        )
+
+    def hourly_weather(self, now: datetime, hours: int = 48) -> list[dict[str, Any]]:
+        """``weather.get_forecasts`` items (type ``hourly``) from the next full hour on."""
+        first = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        return [
+            {
+                "datetime": (first + timedelta(hours=h)).isoformat(),
+                "temperature": round(self.outdoor_c(first + timedelta(hours=h)), 1),
+                "condition": "sunny",
+            }
+            for h in range(hours)
+        ]
 
     @staticmethod
     def _kwh(entity_id: str, name: str, value: float) -> DemoEntity:

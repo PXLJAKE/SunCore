@@ -22,7 +22,12 @@ from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
-from suncore.forecast.views import ForecastAccuracyView, PvForecastView
+from suncore.forecast.views import (
+    ForecastAccuracyView,
+    LoadForecastView,
+    PvForecastView,
+    RiskView,
+)
 from suncore.storage import HistoryEntry
 from suncore.templates import TemplateCatalog
 
@@ -174,7 +179,18 @@ class Services(Protocol):
 
     async def forecast_accuracy(self) -> ForecastAccuracyView:
         """MAE and bias (actual - forecast) per source and horizon bucket from the nightly job,
-        including the blended forecast (source id ``blended``)."""
+        including the blended forecast (source id ``blended``) and the load forecast (source id
+        ``load_profile``)."""
+        ...
+
+    async def load_forecast(self, hours: int) -> LoadForecastView:
+        """The base load forecast for the next ``hours`` (W, P10/P50/P90) with its day types,
+        temperature term and quality (Phase 4 WP6)."""
+        ...
+
+    async def forecast_risk(self) -> RiskView:
+        """The current morning buffer and evening target with their reasons, the windows of
+        the net energy and the source of the error distribution (Phase 4 WP7)."""
         ...
 
     # --- control (Phase 3 WP9) ---------------------------------------------------------

@@ -381,9 +381,34 @@ export interface paths {
          * @description MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14
          *     days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
          *     forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
-         *     clipped quarter hours are excluded; computed nightly.
+         *     clipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is
+         *     the base load forecast (scored on every quarter hour, not only in daylight).
          */
         get: operations["forecast_accuracy_api_v1_forecast_accuracy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/forecast/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Load
+         * @description The base load forecast (house consumption without the configured devices; W,
+         *     P10/P50/P90 on the 15-minute grid from the current quarter hour), learnt from the
+         *     history per day type (workday/weekend/holiday) with an optional temperature term; its
+         *     quality (``ok``, ``cold_start``, ``no_history``), the day type of every forecast date
+         *     and where it came from, and how many quarter hours lacked a device measurement.
+         */
+        get: operations["forecast_load_api_v1_forecast_load_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -408,6 +433,32 @@ export interface paths {
          *     calibration for comparison.
          */
         get: operations["forecast_pv_api_v1_forecast_pv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/forecast/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Risk
+         * @description The risk model now: the windows ``rest_of_today``, ``night``, ``next_day`` and
+         *     ``bridge`` (night + next day) with PV, base load and net energy (P50 and at the risk
+         *     level's quantile), the morning buffer ("battery first until X %") and the evening
+         *     target with their structured reasons, and whether the error distribution is
+         *     ``learned`` (from ``min_history_days`` days of measured net errors) or still taken from
+         *     the ``source_quantiles``. Targets are ``null`` until the ``battery`` section has a
+         *     model.
+         */
+        get: operations["forecast_risk_api_v1_forecast_risk_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1225,6 +1276,17 @@ export interface components {
             ts: string | null;
         };
         /**
+         * DayType
+         * @enum {string}
+         */
+        DayType: "workday" | "weekend" | "holiday";
+        /**
+         * DayTypeSource
+         * @description Where the day type of a date came from.
+         * @enum {string}
+         */
+        DayTypeSource: "workday_sensor" | "check_date" | "weekday_rule";
+        /**
          * Decision
          * @description The safety gate's verdict on an intent, as stored in the decision log.
          */
@@ -1558,6 +1620,18 @@ export interface components {
             suggestions: components["schemas"]["SuggestionOut"][];
         };
         /**
+         * EnergyView
+         * @description P10/P50/P90 energy (Wh) of a window (the slot quantiles summed).
+         */
+        EnergyView: {
+            /** P10 Wh */
+            p10_wh: number;
+            /** P50 Wh */
+            p50_wh: number;
+            /** P90 Wh */
+            p90_wh: number;
+        };
+        /**
          * EntityCandidateOut
          * @description An entity offered for a role.
          *
@@ -1768,7 +1842,9 @@ export interface components {
         };
         /**
          * ForecastConfig
-         * @description PV forecast sources (schema v2: several sources, blending, learning settings).
+         * @description PV forecast sources (schema v2: several sources, blending, learning settings) and the
+         *     optional inputs of the load forecast (``load``, added in Phase 4 WP6 without a version
+         *     bump: an absent ``load`` is the default, so every stored v2 document stays valid).
          *
          *     Independent of the tariff so that the wizard can store the choice without prices.
          *     Forecast uncertainty is handled by the learned risk model and the battery section's
@@ -1782,6 +1858,8 @@ export interface components {
              *     }
              */
             learning: components["schemas"]["LearningSettings"];
+            /** @default {} */
+            load: components["schemas"]["LoadForecastConfig"];
             /**
              * Schema Version
              * @default 2
@@ -2071,6 +2149,112 @@ export interface components {
             min_history_days: number;
         };
         LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"] | components["schemas"]["ControlMessage"];
+        /**
+         * LoadDayView
+         * @description The day type (and forecast mean temperature) of one local date of the forecast.
+         */
+        LoadDayView: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            day_type: components["schemas"]["DayType"];
+            source: components["schemas"]["DayTypeSource"];
+            /** Temperature C */
+            temperature_c: number | null;
+        };
+        /**
+         * LoadForecastConfig
+         * @description Optional inputs of the load forecast (Phase 4 WP6; additive in ``forecast`` v2).
+         *
+         *     ``workday``: a ``binary_sensor`` of the ``workday`` integration (``on`` = today is a
+         *     workday); with it the day types come from the user's own holiday calendar (today from the
+         *     state, other days through ``workday.check_date``), without it from the weekday (Mon-Fri
+         *     workday, Sat/Sun weekend, no holidays). ``weather``: a ``weather`` entity whose outside
+         *     temperature (state attribute ``temperature``) is recorded and whose hourly forecast
+         *     (``weather.get_forecasts``) drives the temperature term of the load profile.
+         */
+        LoadForecastConfig: {
+            weather?: components["schemas"]["EntityRef"] | null;
+            workday?: components["schemas"]["EntityRef"] | null;
+        };
+        /**
+         * LoadForecastView
+         * @description The base load forecast (W, P10/P50/P90 on the 15-minute grid from the current slot).
+         *
+         *     The base load is the house consumption without the configured (controllable) devices; their
+         *     draw is planned separately. ``quality``: ``ok`` (profiles from history), ``cold_start``
+         *     (fewer than 3 days: a flat line at the recent mean with a wide band) or ``no_history``
+         *     (nothing measured yet: no forecast).
+         */
+        LoadForecastView: {
+            /** Clamped Slots */
+            clamped_slots: number;
+            /** Controlled Devices */
+            controlled_devices: string[];
+            /** Days */
+            days: components["schemas"]["LoadDayView"][];
+            /** Days Of History */
+            days_of_history: number;
+            /** Devices Unmeasured */
+            devices_unmeasured: {
+                [key: string]: number;
+            };
+            /** Fitted At */
+            fitted_at: string | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Hours */
+            hours: number;
+            /** P10 W */
+            p10_w: (number | null)[];
+            /** P50 W */
+            p50_w: (number | null)[];
+            /** P90 W */
+            p90_w: (number | null)[];
+            quality: components["schemas"]["LoadQuality"];
+            /** Source Id */
+            source_id: string;
+            /** Start */
+            start: string | null;
+            /** Step S */
+            step_s: number;
+            temperature: components["schemas"]["LoadTemperatureView"];
+            /** Unmeasured In Profile */
+            unmeasured_in_profile: components["schemas"]["DayType"][];
+        };
+        /**
+         * LoadQuality
+         * @enum {string}
+         */
+        LoadQuality: "ok" | "cold_start" | "no_history";
+        /**
+         * LoadTemperatureView
+         * @description The temperature term of the load profile.
+         *
+         *     ``reason``: ``active``, ``not_configured`` (no weather entity), ``too_few_days`` (fewer
+         *     than 14 days with a recorded temperature) or ``no_spread`` (the temperatures varied too
+         *     little to learn anything).
+         */
+        LoadTemperatureView: {
+            /** Active */
+            active: boolean;
+            /** Cooling W Per K */
+            cooling_w_per_k: number;
+            /** Days */
+            days: number;
+            /** Heating W Per K */
+            heating_w_per_k: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "active" | "not_configured" | "too_few_days" | "no_spread";
+        };
         /**
          * Mode
          * @description One mode of a mode-controlled device and the power it draws.
@@ -2608,6 +2792,110 @@ export interface components {
          * @enum {string}
          */
         RiskLevel: "cautious" | "balanced" | "bold";
+        /**
+         * RiskTargetView
+         * @description A computed state of charge with its structured reason.
+         */
+        RiskTargetView: {
+            reason: components["schemas"]["Reason"];
+            /** Soc Pct */
+            soc_pct: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "learned" | "source_quantiles" | "default_band";
+        };
+        /**
+         * RiskView
+         * @description The current morning buffer and evening target and what they rest on (Phase 4 WP7).
+         *
+         *     ``status``: ``ok``; ``no_battery_model`` (the ``battery`` section has no model yet: the
+         *     windows are shown, the targets are ``null``); ``no_forecast`` (no load forecast yet).
+         *     ``distribution_source``: ``learned`` once ``min_history_days`` days of measured net errors
+         *     exist, else ``source_quantiles`` (the PV sources' P10/P90 and the load residuals).
+         */
+        RiskView: {
+            /** Bridge Next Day */
+            bridge_next_day: boolean;
+            /**
+             * Distribution Source
+             * @enum {string}
+             */
+            distribution_source: "learned" | "source_quantiles" | "default_band";
+            /** Evening At */
+            evening_at: string | null;
+            evening_target: components["schemas"]["RiskTargetView"] | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** History Days */
+            history_days: number;
+            /** Min History Days */
+            min_history_days: number;
+            morning_buffer: components["schemas"]["RiskTargetView"] | null;
+            /** Pv Forecast */
+            pv_forecast: boolean;
+            /** Quantile */
+            quantile: number;
+            risk: components["schemas"]["RiskLevel"];
+            /** Samples */
+            samples: {
+                [key: string]: number;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "no_battery_model" | "no_forecast";
+            strategy: components["schemas"]["BatteryStrategy"];
+            /** Windows */
+            windows: components["schemas"]["RiskWindowView"][];
+        };
+        /**
+         * RiskWindow
+         * @enum {string}
+         */
+        RiskWindow: "rest_of_night" | "rest_of_today" | "night" | "next_day" | "bridge" | "day_and_night";
+        /**
+         * RiskWindowView
+         * @description One window of the risk model and its net energy (PV - base load) at the risk quantile.
+         */
+        RiskWindowView: {
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            load: components["schemas"]["EnergyView"];
+            /** Net P50 Wh */
+            net_p50_wh: number;
+            /** Net Quantile Wh */
+            net_quantile_wh: number;
+            /** Pooled */
+            pooled: boolean;
+            pv: components["schemas"]["EnergyView"];
+            /** Samples */
+            samples: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "learned" | "source_quantiles" | "default_band";
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * Weather
+             * @enum {string}
+             */
+            weather: "overcast" | "mixed" | "clear" | "night";
+            window: components["schemas"]["RiskWindow"];
+        };
         /**
          * RoleSpec
          * @description One entity role of a template.
@@ -4044,6 +4332,37 @@ export interface operations {
             };
         };
     };
+    forecast_load_api_v1_forecast_load_get: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoadForecastView"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
     forecast_pv_api_v1_forecast_pv_get: {
         parameters: {
             query?: {
@@ -4071,6 +4390,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    forecast_risk_api_v1_forecast_risk_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskView"];
                 };
             };
         };

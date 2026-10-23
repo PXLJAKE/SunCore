@@ -158,3 +158,48 @@ async def test_rebuild_stores_derived_rows_and_reports_missing_ids(tmp_path) -> 
             SITE_HOUSE_W, TimeRange(start=T0, end=T0 + timedelta(hours=1))
         )
         assert house.total() == pytest.approx(900.0)
+
+
+async def test_rebuild_includes_the_devices_power_sensors(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from pathlib import Path  # noqa: PLC0415
+
+    from suncore.app.history import device_statistic_specs  # noqa: PLC0415
+    from suncore.core.measurements import device_power_key  # noqa: PLC0415
+    from suncore.ha.connection import HAConnection  # noqa: PLC0415
+    from suncore.sim.demo_config import demo_devices  # noqa: PLC0415
+    from suncore.templates import load_templates  # noqa: PLC0415
+
+    devices = demo_devices(load_templates(Path(__file__).parents[2] / "templates")).devices
+    specs = device_statistic_specs(devices)
+    assert {s.key: s.statistic_id for s in specs} == {
+        "device:living_room_ac": "sensor.sim_living_room_ac_energy_current",
+        "device:pool_pump": "sensor.sim_pool_pump_power",
+    }  # the heating rod has no power sensor (nominal model)
+    asked: list[str] = []
+
+    class Stats:
+        async def statistics_during_period(self, ids, *_args, **_kw):  # type: ignore[no-untyped-def]
+            asked.extend(ids)
+            hour = int(T0.timestamp() * 1000)
+            rows = {
+                "sensor.grid": [{"start": hour, "end": hour + 3_600_000, "mean": 400.0}],
+                "sensor.sim_pool_pump_power": [
+                    {"start": hour, "end": hour + 3_600_000, "mean": 750.0}
+                ],
+            }
+            return {i: rows[i] for i in ids if i in rows}
+
+    site = SiteConfig(grid=GridConfig(power=ref("grid")))
+    async with await open_timeseries(tmp_path / "t.db") as db:
+        store = TimeseriesStore(db)
+        connection: HAConnection = Stats()  # type: ignore[assignment]
+        result = await rebuild_history(
+            connection, store, site, T0 + timedelta(hours=1), days=1, devices=devices
+        )
+        assert "sensor.sim_pool_pump_power" in asked
+        assert result.stored[device_power_key("pool_pump")] == 4
+        assert "sensor.sim_living_room_ac_energy_current" in result.missing
+        pool = await store.read_series(
+            device_power_key("pool_pump"), TimeRange(start=T0, end=T0 + timedelta(hours=1))
+        )
+        assert pool.values == (750.0,) * 4

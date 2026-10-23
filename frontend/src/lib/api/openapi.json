@@ -1369,6 +1369,25 @@
         "title": "ControlState",
         "type": "object"
       },
+      "DayType": {
+        "enum": [
+          "workday",
+          "weekend",
+          "holiday"
+        ],
+        "title": "DayType",
+        "type": "string"
+      },
+      "DayTypeSource": {
+        "description": "Where the day type of a date came from.",
+        "enum": [
+          "workday_sensor",
+          "check_date",
+          "weekday_rule"
+        ],
+        "title": "DayTypeSource",
+        "type": "string"
+      },
       "Decision": {
         "additionalProperties": false,
         "description": "The safety gate's verdict on an intent, as stored in the decision log.",
@@ -2409,6 +2428,31 @@
         "title": "EnergyPrefsOut",
         "type": "object"
       },
+      "EnergyView": {
+        "additionalProperties": false,
+        "description": "P10/P50/P90 energy (Wh) of a window (the slot quantiles summed).",
+        "properties": {
+          "p10_wh": {
+            "title": "P10 Wh",
+            "type": "number"
+          },
+          "p50_wh": {
+            "title": "P50 Wh",
+            "type": "number"
+          },
+          "p90_wh": {
+            "title": "P90 Wh",
+            "type": "number"
+          }
+        },
+        "required": [
+          "p10_wh",
+          "p50_wh",
+          "p90_wh"
+        ],
+        "title": "EnergyView",
+        "type": "object"
+      },
       "EntityCandidateOut": {
         "additionalProperties": false,
         "description": "An entity offered for a role.\n\n``device_class`` and ``unit`` are empty strings when unknown. ``score`` is 0 and\n``criteria`` empty for the unranked Phase 1 list. ``value`` is the raw state in ``unit``\n(no conversion, no sign inversion).",
@@ -3000,7 +3044,7 @@
       },
       "ForecastConfig": {
         "additionalProperties": false,
-        "description": "PV forecast sources (schema v2: several sources, blending, learning settings).\n\nIndependent of the tariff so that the wizard can store the choice without prices.\nForecast uncertainty is handled by the learned risk model and the battery section's\n``risk`` level, not by a flat discount.",
+        "description": "PV forecast sources (schema v2: several sources, blending, learning settings) and the\noptional inputs of the load forecast (``load``, added in Phase 4 WP6 without a version\nbump: an absent ``load`` is the default, so every stored v2 document stays valid).\n\nIndependent of the tariff so that the wizard can store the choice without prices.\nForecast uncertainty is handled by the learned risk model and the battery section's\n``risk`` level, not by a flat discount.",
         "properties": {
           "learning": {
             "$ref": "#/components/schemas/LearningSettings",
@@ -3008,6 +3052,10 @@
               "load_ml_mode": "shadow",
               "min_history_days": 30
             }
+          },
+          "load": {
+            "$ref": "#/components/schemas/LoadForecastConfig",
+            "default": {}
           },
           "schema_version": {
             "default": 2,
@@ -3795,6 +3843,273 @@
             "$ref": "#/components/schemas/ControlMessage"
           }
         ]
+      },
+      "LoadDayView": {
+        "additionalProperties": false,
+        "description": "The day type (and forecast mean temperature) of one local date of the forecast.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "day_type": {
+            "$ref": "#/components/schemas/DayType"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DayTypeSource"
+          },
+          "temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature C"
+          }
+        },
+        "required": [
+          "date",
+          "day_type",
+          "source",
+          "temperature_c"
+        ],
+        "title": "LoadDayView",
+        "type": "object"
+      },
+      "LoadForecastConfig": {
+        "additionalProperties": false,
+        "description": "Optional inputs of the load forecast (Phase 4 WP6; additive in ``forecast`` v2).\n\n``workday``: a ``binary_sensor`` of the ``workday`` integration (``on`` = today is a\nworkday); with it the day types come from the user's own holiday calendar (today from the\nstate, other days through ``workday.check_date``), without it from the weekday (Mon-Fri\nworkday, Sat/Sun weekend, no holidays). ``weather``: a ``weather`` entity whose outside\ntemperature (state attribute ``temperature``) is recorded and whose hourly forecast\n(``weather.get_forecasts``) drives the temperature term of the load profile.",
+        "properties": {
+          "weather": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workday": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "LoadForecastConfig",
+        "type": "object"
+      },
+      "LoadForecastView": {
+        "additionalProperties": false,
+        "description": "The base load forecast (W, P10/P50/P90 on the 15-minute grid from the current slot).\n\nThe base load is the house consumption without the configured (controllable) devices; their\ndraw is planned separately. ``quality``: ``ok`` (profiles from history), ``cold_start``\n(fewer than 3 days: a flat line at the recent mean with a wide band) or ``no_history``\n(nothing measured yet: no forecast).",
+        "properties": {
+          "clamped_slots": {
+            "title": "Clamped Slots",
+            "type": "integer"
+          },
+          "controlled_devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Controlled Devices",
+            "type": "array"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/LoadDayView"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "days_of_history": {
+            "title": "Days Of History",
+            "type": "integer"
+          },
+          "devices_unmeasured": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Devices Unmeasured",
+            "type": "object"
+          },
+          "fitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fitted At"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "hours": {
+            "title": "Hours",
+            "type": "integer"
+          },
+          "p10_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P10 W",
+            "type": "array"
+          },
+          "p50_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P50 W",
+            "type": "array"
+          },
+          "p90_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "P90 W",
+            "type": "array"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/LoadQuality"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "step_s": {
+            "exclusiveMinimum": 0.0,
+            "title": "Step S",
+            "type": "integer"
+          },
+          "temperature": {
+            "$ref": "#/components/schemas/LoadTemperatureView"
+          },
+          "unmeasured_in_profile": {
+            "items": {
+              "$ref": "#/components/schemas/DayType"
+            },
+            "title": "Unmeasured In Profile",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generated_at",
+          "hours",
+          "source_id",
+          "quality",
+          "days_of_history",
+          "fitted_at",
+          "start",
+          "step_s",
+          "p10_w",
+          "p50_w",
+          "p90_w",
+          "days",
+          "temperature",
+          "controlled_devices",
+          "devices_unmeasured",
+          "clamped_slots",
+          "unmeasured_in_profile"
+        ],
+        "title": "LoadForecastView",
+        "type": "object"
+      },
+      "LoadQuality": {
+        "enum": [
+          "ok",
+          "cold_start",
+          "no_history"
+        ],
+        "title": "LoadQuality",
+        "type": "string"
+      },
+      "LoadTemperatureView": {
+        "additionalProperties": false,
+        "description": "The temperature term of the load profile.\n\n``reason``: ``active``, ``not_configured`` (no weather entity), ``too_few_days`` (fewer\nthan 14 days with a recorded temperature) or ``no_spread`` (the temperatures varied too\nlittle to learn anything).",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "cooling_w_per_k": {
+            "title": "Cooling W Per K",
+            "type": "number"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "heating_w_per_k": {
+            "title": "Heating W Per K",
+            "type": "number"
+          },
+          "reason": {
+            "enum": [
+              "active",
+              "not_configured",
+              "too_few_days",
+              "no_spread"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "reason",
+          "days",
+          "heating_w_per_k",
+          "cooling_w_per_k"
+        ],
+        "title": "LoadTemperatureView",
+        "type": "object"
       },
       "Mode": {
         "additionalProperties": false,
@@ -5069,6 +5384,242 @@
         ],
         "title": "RiskLevel",
         "type": "string"
+      },
+      "RiskTargetView": {
+        "additionalProperties": false,
+        "description": "A computed state of charge with its structured reason.",
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/Reason"
+          },
+          "soc_pct": {
+            "title": "Soc Pct",
+            "type": "number"
+          },
+          "source": {
+            "enum": [
+              "learned",
+              "source_quantiles",
+              "default_band"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "soc_pct",
+          "reason",
+          "source"
+        ],
+        "title": "RiskTargetView",
+        "type": "object"
+      },
+      "RiskView": {
+        "additionalProperties": false,
+        "description": "The current morning buffer and evening target and what they rest on (Phase 4 WP7).\n\n``status``: ``ok``; ``no_battery_model`` (the ``battery`` section has no model yet: the\nwindows are shown, the targets are ``null``); ``no_forecast`` (no load forecast yet).\n``distribution_source``: ``learned`` once ``min_history_days`` days of measured net errors\nexist, else ``source_quantiles`` (the PV sources' P10/P90 and the load residuals).",
+        "properties": {
+          "bridge_next_day": {
+            "title": "Bridge Next Day",
+            "type": "boolean"
+          },
+          "distribution_source": {
+            "enum": [
+              "learned",
+              "source_quantiles",
+              "default_band"
+            ],
+            "title": "Distribution Source",
+            "type": "string"
+          },
+          "evening_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evening At"
+          },
+          "evening_target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RiskTargetView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "history_days": {
+            "title": "History Days",
+            "type": "integer"
+          },
+          "min_history_days": {
+            "title": "Min History Days",
+            "type": "integer"
+          },
+          "morning_buffer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RiskTargetView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pv_forecast": {
+            "title": "Pv Forecast",
+            "type": "boolean"
+          },
+          "quantile": {
+            "title": "Quantile",
+            "type": "number"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/RiskLevel"
+          },
+          "samples": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Samples",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "no_battery_model",
+              "no_forecast"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "strategy": {
+            "$ref": "#/components/schemas/BatteryStrategy"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/RiskWindowView"
+            },
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generated_at",
+          "status",
+          "risk",
+          "quantile",
+          "strategy",
+          "bridge_next_day",
+          "pv_forecast",
+          "distribution_source",
+          "history_days",
+          "min_history_days",
+          "samples",
+          "evening_at",
+          "windows",
+          "morning_buffer",
+          "evening_target"
+        ],
+        "title": "RiskView",
+        "type": "object"
+      },
+      "RiskWindow": {
+        "enum": [
+          "rest_of_night",
+          "rest_of_today",
+          "night",
+          "next_day",
+          "bridge",
+          "day_and_night"
+        ],
+        "title": "RiskWindow",
+        "type": "string"
+      },
+      "RiskWindowView": {
+        "additionalProperties": false,
+        "description": "One window of the risk model and its net energy (PV - base load) at the risk quantile.",
+        "properties": {
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "load": {
+            "$ref": "#/components/schemas/EnergyView"
+          },
+          "net_p50_wh": {
+            "title": "Net P50 Wh",
+            "type": "number"
+          },
+          "net_quantile_wh": {
+            "title": "Net Quantile Wh",
+            "type": "number"
+          },
+          "pooled": {
+            "title": "Pooled",
+            "type": "boolean"
+          },
+          "pv": {
+            "$ref": "#/components/schemas/EnergyView"
+          },
+          "samples": {
+            "title": "Samples",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "learned",
+              "source_quantiles",
+              "default_band"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "weather": {
+            "enum": [
+              "overcast",
+              "mixed",
+              "clear",
+              "night"
+            ],
+            "title": "Weather",
+            "type": "string"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RiskWindow"
+          }
+        },
+        "required": [
+          "window",
+          "start",
+          "end",
+          "weather",
+          "pv",
+          "load",
+          "net_p50_wh",
+          "net_quantile_wh",
+          "source",
+          "samples",
+          "pooled"
+        ],
+        "title": "RiskWindowView",
+        "type": "object"
       },
       "RoleSpec": {
         "additionalProperties": false,
@@ -7484,7 +8035,7 @@
     },
     "/api/v1/forecast/accuracy": {
       "get": {
-        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -\nforecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;\nclipped quarter hours are excluded; computed nightly.",
+        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -\nforecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;\nclipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is\nthe base load forecast (scored on every quarter hour, not only in daylight).",
         "operationId": "forecast_accuracy_api_v1_forecast_accuracy_get",
         "responses": {
           "200": {
@@ -7499,6 +8050,49 @@
           }
         },
         "summary": "Forecast Accuracy"
+      }
+    },
+    "/api/v1/forecast/load": {
+      "get": {
+        "description": "The base load forecast (house consumption without the configured devices; W,\nP10/P50/P90 on the 15-minute grid from the current quarter hour), learnt from the\nhistory per day type (workday/weekend/holiday) with an optional temperature term; its\nquality (``ok``, ``cold_start``, ``no_history``), the day type of every forecast date\nand where it came from, and how many quarter hours lacked a device measurement.",
+        "operationId": "forecast_load_api_v1_forecast_load_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 48,
+              "maximum": 96,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoadForecastView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Forecast Load"
       }
     },
     "/api/v1/forecast/pv": {
@@ -7542,6 +8136,25 @@
           }
         },
         "summary": "Forecast Pv"
+      }
+    },
+    "/api/v1/forecast/risk": {
+      "get": {
+        "description": "The risk model now: the windows ``rest_of_today``, ``night``, ``next_day`` and\n``bridge`` (night + next day) with PV, base load and net energy (P50 and at the risk\nlevel's quantile), the morning buffer (\"battery first until X %\") and the evening\ntarget with their structured reasons, and whether the error distribution is\n``learned`` (from ``min_history_days`` days of measured net errors) or still taken from\nthe ``source_quantiles``. Targets are ``null`` until the ``battery`` section has a\nmodel.",
+        "operationId": "forecast_risk_api_v1_forecast_risk_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Forecast Risk"
       }
     },
     "/api/v1/info": {

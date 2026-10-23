@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Read models of the PV forecast and its accuracy (what the API serves; Phase 4 WP5).
+"""Read models of the PV and load forecasts and their accuracy (what the API serves; Phase 4
+WP5/WP6).
 
 Values are W; ``None`` is an unknown slot (never zero). ``status`` is a
 :class:`~suncore.forecast.pv.adapter.FetchStatus` value, rendered by the UI as
@@ -8,12 +9,17 @@ Values are W; ``None`` is an unknown slot (never zero). ``status`` is a
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from suncore.core.battery import BatteryStrategy, RiskLevel
+from suncore.core.decisions import Reason
 from suncore.core.forecast import AccuracyRecord, HorizonBucket
+from suncore.forecast.load import DayType, DayTypeSource, LoadQuality, TemperatureReason
 from suncore.forecast.pv.adapter import FetchStatus
+from suncore.forecast.risk import DistributionSource, RiskClass, RiskWindow
 
 MAX_VIEW_HOURS = 96
 """Largest ``hours`` the API serves."""
@@ -141,14 +147,150 @@ class ForecastAccuracyView(_View):
     sources: list[AccuracySourceView]
 
 
+class LoadDayView(_View):
+    """The day type (and forecast mean temperature) of one local date of the forecast."""
+
+    date: date
+    day_type: DayType
+    source: DayTypeSource
+    """``workday_sensor`` (the sensor's state, for today + its ``days_offset``), ``check_date``
+    (the Workday action) or ``weekday_rule`` (Mon-Fri workday, Sat/Sun weekend)."""
+    temperature_c: float | None
+    """Mean outside temperature of the day the temperature term used (``None``: none)."""
+
+
+class LoadTemperatureView(_View):
+    """The temperature term of the load profile.
+
+    ``reason``: ``active``, ``not_configured`` (no weather entity), ``too_few_days`` (fewer
+    than 14 days with a recorded temperature) or ``no_spread`` (the temperatures varied too
+    little to learn anything)."""
+
+    active: bool
+    reason: TemperatureReason
+    days: int
+    heating_w_per_k: float
+    """Extra base load (W) per kelvin of heating degrees (below 15 °C)."""
+    cooling_w_per_k: float
+    """Extra base load (W) per kelvin of cooling degrees (above 22 °C)."""
+
+
+class LoadForecastView(_View):
+    """The base load forecast (W, P10/P50/P90 on the 15-minute grid from the current slot).
+
+    The base load is the house consumption without the configured (controllable) devices; their
+    draw is planned separately. ``quality``: ``ok`` (profiles from history), ``cold_start``
+    (fewer than 3 days: a flat line at the recent mean with a wide band) or ``no_history``
+    (nothing measured yet: no forecast)."""
+
+    generated_at: AwareDatetime
+    hours: int
+    source_id: str
+    quality: LoadQuality
+    days_of_history: int
+    """Complete local days the profiles were learnt from."""
+    fitted_at: AwareDatetime | None
+    start: AwareDatetime | None
+    step_s: Annotated[int, Field(gt=0)]
+    p10_w: list[float | None]
+    p50_w: list[float | None]
+    p90_w: list[float | None]
+    days: list[LoadDayView]
+    temperature: LoadTemperatureView
+    controlled_devices: list[str]
+    """Devices subtracted from the house consumption (forecast by the planner, not here)."""
+    devices_unmeasured: dict[str, int]
+    """Per device the quarter hours of the fit window without a measurement (counted as 0 W:
+    the base load still contains its draw there, e.g. in the history rebuilt from Home
+    Assistant's statistics)."""
+    clamped_slots: int
+    """Quarter hours where the devices drew more than the house measured (clipped to 0 W)."""
+    unmeasured_in_profile: list[DayType]
+    """Day types whose profile still contains quarter hours with an unmeasured device (fewer
+    than 7 fully measured days of that type; elsewhere those quarter hours are left out)."""
+
+
+class EnergyView(_View):
+    """P10/P50/P90 energy (Wh) of a window (the slot quantiles summed)."""
+
+    p10_wh: float
+    p50_wh: float
+    p90_wh: float
+
+
+class RiskWindowView(_View):
+    """One window of the risk model and its net energy (PV - base load) at the risk quantile."""
+
+    window: RiskWindow
+    start: AwareDatetime
+    end: AwareDatetime
+    weather: RiskClass
+    pv: EnergyView
+    load: EnergyView
+    net_p50_wh: float
+    net_quantile_wh: float
+    """Net energy that is reached with the risk level's probability."""
+    source: DistributionSource
+    samples: int
+    """Learnt samples behind ``net_quantile_wh`` (0 for ``source_quantiles``)."""
+    pooled: bool
+    """Learnt over all weather classes of the window (its own class had too few samples)."""
+
+
+class RiskTargetView(_View):
+    """A computed state of charge with its structured reason."""
+
+    soc_pct: float
+    reason: Reason
+    source: DistributionSource
+
+
+class RiskView(_View):
+    """The current morning buffer and evening target and what they rest on (Phase 4 WP7).
+
+    ``status``: ``ok``; ``no_battery_model`` (the ``battery`` section has no model yet: the
+    windows are shown, the targets are ``null``); ``no_forecast`` (no load forecast yet).
+    ``distribution_source``: ``learned`` once ``min_history_days`` days of measured net errors
+    exist, else ``source_quantiles`` (the PV sources' P10/P90 and the load residuals).
+    """
+
+    generated_at: AwareDatetime
+    status: Literal["ok", "no_battery_model", "no_forecast"]
+    risk: RiskLevel
+    quantile: float
+    strategy: BatteryStrategy
+    bridge_next_day: bool
+    pv_forecast: bool
+    """A PV forecast was available (without one PV counts as 0 Wh: the cautious direction)."""
+    distribution_source: DistributionSource
+    history_days: int
+    """Days with learnt net-error samples."""
+    min_history_days: int
+    samples: dict[str, int]
+    """Learnt samples per ``window/weather`` cell."""
+    evening_at: AwareDatetime | None
+    """Start of the ``night`` window: today's sunset (the time the evening target refers to);
+    after sunset the current quarter hour (the evening has begun)."""
+    windows: list[RiskWindowView]
+    morning_buffer: RiskTargetView | None
+    evening_target: RiskTargetView | None
+
+
 __all__ = [
     "MAX_VIEW_HOURS",
     "AccuracySourceView",
     "BlendWeightsView",
     "BlendedView",
     "CalibrationView",
+    "EnergyView",
     "ForecastAccuracyView",
+    "LoadDayView",
+    "LoadForecastView",
+    "LoadTemperatureView",
     "PvForecastView",
     "PvSeriesView",
     "PvSourceView",
+    "RiskTargetView",
+    "RiskView",
+    "RiskWindowView",
 ]

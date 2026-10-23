@@ -86,7 +86,13 @@ from suncore.core.controlstate import (
 from suncore.core.decisions import Decision, DecisionKind
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import PreviewTooLargeError
-from suncore.forecast.views import MAX_VIEW_HOURS, ForecastAccuracyView, PvForecastView
+from suncore.forecast.views import (
+    MAX_VIEW_HOURS,
+    ForecastAccuracyView,
+    LoadForecastView,
+    PvForecastView,
+    RiskView,
+)
 from suncore.storage.errors import (
     ConfigCorruptError,
     HistoryEntryNotFoundError,
@@ -271,7 +277,8 @@ def _register_http(app: FastAPI, services: Services) -> None:
 
 
 def _register_forecast(app: FastAPI, services: Services) -> None:
-    """PV forecast and its measured accuracy (Phase 4 WP5; read only, no UI yet)."""
+    """PV and load forecasts and their measured accuracy (Phase 4 WP5/WP6; read only, no UI
+    yet)."""
 
     @app.get(f"{API_PREFIX}/forecast/pv", response_model=PvForecastView)
     async def forecast_pv(
@@ -289,8 +296,31 @@ def _register_forecast(app: FastAPI, services: Services) -> None:
         """MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14
         days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
         forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
-        clipped quarter hours are excluded; computed nightly."""
+        clipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is
+        the base load forecast (scored on every quarter hour, not only in daylight)."""
         return await services.forecast_accuracy()
+
+    @app.get(f"{API_PREFIX}/forecast/load", response_model=LoadForecastView)
+    async def forecast_load(
+        hours: int = Query(default=48, ge=1, le=MAX_VIEW_HOURS),
+    ) -> LoadForecastView:
+        """The base load forecast (house consumption without the configured devices; W,
+        P10/P50/P90 on the 15-minute grid from the current quarter hour), learnt from the
+        history per day type (workday/weekend/holiday) with an optional temperature term; its
+        quality (``ok``, ``cold_start``, ``no_history``), the day type of every forecast date
+        and where it came from, and how many quarter hours lacked a device measurement."""
+        return await services.load_forecast(hours)
+
+    @app.get(f"{API_PREFIX}/forecast/risk", response_model=RiskView)
+    async def forecast_risk() -> RiskView:
+        """The risk model now: the windows ``rest_of_today``, ``night``, ``next_day`` and
+        ``bridge`` (night + next day) with PV, base load and net energy (P50 and at the risk
+        level's quantile), the morning buffer ("battery first until X %") and the evening
+        target with their structured reasons, and whether the error distribution is
+        ``learned`` (from ``min_history_days`` days of measured net errors) or still taken from
+        the ``source_quantiles``. Targets are ``null`` until the ``battery`` section has a
+        model."""
+        return await services.forecast_risk()
 
 
 def _register_control(app: FastAPI, services: Services) -> None:
