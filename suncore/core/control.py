@@ -193,6 +193,17 @@ class BatteryBand(_Frozen):
     to consumers. Evaluated by the controller against the measured SoC every tick (robust
     against plan deviation); ``None`` = no such rule. Accepted and stored now, the
     controller wiring follows in Phase 4 WP10 (until then the controller ignores it)."""
+    grid_charge_max_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
+    """ADR-0013 decision 4: the most the battery may charge **from the grid** in this
+    interval (W); ``None`` = no grid charging planned. Set by the planner only where the
+    effective grid-charge policy (price level, schedule) and the spread rule allow it. The
+    gate bounds a ``grid_charge_w`` by it (invariant B2/B3, Phase 4 WP10); until then the
+    controller ignores it."""
+    discharge_lock: bool = False
+    """ADR-0013 decision 4: the plan holds the battery's energy in this interval although
+    the house draws from the grid (hold for the evening target or a later price peak).
+    Only a plan interval with this flag allows a discharge lock (invariant B4, WP10);
+    until then the controller ignores it."""
 
     @model_validator(mode="after")
     def _ordered(self) -> Self:
@@ -217,7 +228,11 @@ class IntervalFlows(_Frozen):
     and ``net_risk_w`` the net power PV - load at that quantile the target constraints
     used (may be negative; ``None`` = no target constraint in this interval).
     ``soc_pct`` is the planned state of charge at the *end* of the interval (``None`` = no
-    battery).
+    battery). ``devices_w`` is the planned draw of the controllable devices (not part of
+    ``load_w``, the base load) and ``curtail_w`` the PV the plan does not use (export limit
+    or negative export price; informational until the export-limit chain, Phase 6), so
+    ``pv_p50_w + import_w + max(-battery_w, 0) = load_w + devices_w + max(battery_w, 0) +
+    export_w + curtail_w`` (both additive in plan v2, default 0).
     """
 
     pv_p10_w: float | None = Field(default=None, ge=0, allow_inf_nan=False)
@@ -230,6 +245,8 @@ class IntervalFlows(_Frozen):
     soc_pct: Annotated[float, Field(ge=0, le=100)] | None = None
     net_risk_quantile: Annotated[float, Field(gt=0, lt=1)] | None = None
     net_risk_w: float | None = Field(default=None, allow_inf_nan=False)
+    devices_w: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    curtail_w: float = Field(default=0.0, ge=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def _quantiles(self) -> Self:

@@ -24,7 +24,9 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    yaml/pydantic, ADR-0012); ``suncore.controller`` imports only ``suncore.core``
    and itself (Phase 3 WP7: drivers, power models and the gate are injected);
    ``suncore.tariff`` imports only ``suncore.core``, ``suncore.templates`` and itself (Phase 4
-   WP4: Home Assistant reaches it through the injected action caller and entity reader).
+   WP4: Home Assistant reaches it through the injected action caller and entity reader);
+   ``suncore.planner`` imports only ``suncore.core`` and itself (Phase 4 WP8: the runtime
+   hands it the services' outputs).
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
 6. ``suncore.safety`` imports neither ``suncore.core.config`` nor ``suncore.storage`` and
@@ -62,6 +64,7 @@ CORE = "suncore.core"
 TEMPLATES = "suncore.templates"
 CONTROLLER = "suncore.controller"
 TARIFF = "suncore.tariff"
+PLANNER = "suncore.planner"
 ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
@@ -281,7 +284,7 @@ def test_api_does_not_import_write_side_packages(path: Path) -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_dependency_rule(path: Path) -> None:
-    """Rule 4: core imports no sibling; safety, templates, controller, tariff only what they may."""
+    """Rule 4: core imports no sibling; the other layered packages only what they may."""
     module = module_name(path)
     if in_package(module, CORE):
         allowed = (CORE,)
@@ -293,6 +296,8 @@ def test_dependency_rule(path: Path) -> None:
         allowed = (CORE, CONTROLLER)
     elif in_package(module, TARIFF):
         allowed = (CORE, TEMPLATES, TARIFF)
+    elif in_package(module, PLANNER):
+        allowed = (CORE, PLANNER)
     else:
         return
     offenders = fmt(
