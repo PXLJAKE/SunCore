@@ -23,10 +23,15 @@ from suncore.api.services import (
     HAUnavailableError,
     HealthReport,
     PeerPolicy,
+    TariffNotConfiguredError,
     UnknownRoleError,
     UnknownTemplateError,
 )
-from suncore.app.adapters import build_load_forecast_service, build_pv_forecast_service
+from suncore.app.adapters import (
+    build_load_forecast_service,
+    build_pv_forecast_service,
+    build_tariff_service,
+)
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import ControlStack
 from suncore.app.history import rebuild_history
@@ -41,6 +46,7 @@ from suncore.core.config import (
     GoalsConfig,
     OperationConfig,
     RegionConfig,
+    TariffConfig,
 )
 from suncore.core.control import ControlSettings
 from suncore.core.controlstate import (
@@ -59,7 +65,14 @@ from suncore.core.devices import DeviceConfig
 from suncore.core.identity import identity_token
 from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
-from suncore.core.wizard import CheckItem, PreviewItem, collect_refs, preview, run_system_check
+from suncore.core.wizard import (
+    CheckItem,
+    PreviewItem,
+    check_tariff,
+    collect_refs,
+    preview,
+    run_system_check,
+)
 from suncore.forecast.accuracy import accuracy_view, load_accuracy
 from suncore.forecast.load import LOAD_SOURCE_ID
 from suncore.forecast.load_service import LoadForecastService
@@ -104,7 +117,9 @@ from suncore.storage import (
     TimeseriesStore,
 )
 from suncore.storage.timeseries import META_HISTORY_REBUILT
-from suncore.templates import TemplateCatalog
+from suncore.tariff import ExportConfigError, TariffService
+from suncore.tariff.report import PriceReport
+from suncore.templates import TariffTemplate, TemplateCatalog
 
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
 
@@ -161,6 +176,9 @@ class Runtime:
     """Quarter hours the last PV nightly job flagged as clipped (risk learning skips them)."""
     risk_model: ErrorModel = field(default_factory=ErrorModel)
     """The learnt net energy errors (WP7), loaded at start and after the nightly job."""
+    tariff_config: TariffConfig | None = None
+    tariff: TariffService | None = None
+    """Keeps the prices fresh (``None``: no tariff, no region or an unusable template)."""
     timeseries_db: Database | None = None
     """``timeseries.db``; ``None`` = unavailable (too new, unopenable): control is unaffected."""
     timeseries: TimeseriesStore | None = None
@@ -196,6 +214,7 @@ class Runtime:
     _pv_task: asyncio.Task[None] | None = None
     _load_task: asyncio.Task[None] | None = None
     _accuracy_task: asyncio.Future[None] | None = None
+    _tariff_task: asyncio.Task[None] | None = None
     _history_done: bool = False
     """The statistics rebuild ran (or was not needed) in this process."""
     _stack_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -229,6 +248,7 @@ class Runtime:
         await self._load_pv_learning()
         self.load_service = self._new_load_service()
         await self._load_risk_model()
+        self._build_tariff()
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -252,6 +272,7 @@ class Runtime:
         self._prune_task = asyncio.create_task(self._prune_loop(), name="suncore-prune")
         self._start_pv_task()
         self._start_load_task()
+        self._start_tariff()
         if self.timeseries is not None:
             self._flush_task = asyncio.create_task(self._flush_loop(), name="suncore-ts-flush")
             self._maintenance_task = asyncio.create_task(
@@ -272,6 +293,9 @@ class Runtime:
         forecast = await self.config.get("forecast")
         assert forecast is None or isinstance(forecast, ForecastConfig)
         self.forecast = forecast
+        tariff = await self.config.get("tariff")
+        assert tariff is None or isinstance(tariff, TariffConfig)
+        self.tariff_config = tariff
         await self._load_modes()
 
     async def _load_modes(self) -> None:
@@ -290,6 +314,63 @@ class Runtime:
         else:
             log.warning("control.timezone_unknown_using_utc")
         return UTC
+
+    # --- tariff (prices) --------------------------------------------------------
+
+    def _build_tariff(self) -> None:
+        """(Re)build the price service from the stored tariff, region and site.
+
+        Without a tariff or a region there is nothing to build; an unusable tariff (missing
+        template, tiered export without the plant size) is logged and leaves the service off.
+        """
+        self.tariff = None
+        tariff, region = self.tariff_config, self.region
+        if tariff is None or region is None:
+            return
+        try:
+            self.tariff = build_tariff_service(
+                tariff,
+                region,
+                self.site,
+                self._timezone(),
+                self.template_catalog,
+                connection=self.connection,
+                cache=self.cache,
+                clock=self.clock,
+                store=self.timeseries,
+                refresh_interval_s=float(self.settings.tariff_refresh_interval_s),
+                tomorrow_after=self.settings.tariff_tomorrow_after,
+                tomorrow_poll_s=float(self.settings.tariff_tomorrow_poll_s),
+            )
+        except ExportConfigError as exc:
+            log.warning("tariff.export_unusable", error=exc.key, detail=exc.detail)
+        if self.tariff is None:
+            log.warning("tariff.service_not_built")
+
+    def _start_tariff(self) -> None:
+        if self.tariff is not None and self._started and self._tariff_task is None:
+            self._tariff_task = asyncio.create_task(
+                self.tariff.run(self.control_sleep), name="suncore-tariff"
+            )
+
+    async def _stop_tariff(self) -> None:
+        task, self._tariff_task = self._tariff_task, None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+
+    async def _rebuild_tariff(self) -> None:
+        """Replace the price service after a ``tariff``, ``region`` or ``site`` change."""
+        await self._stop_tariff()
+        self._build_tariff()
+        self._start_tariff()
+        self._notify()
+
+    async def prices(self, hours: int) -> PriceReport:
+        if self.tariff is None:
+            raise TariffNotConfiguredError
+        return self.tariff.report(hours=float(hours))
 
     def _new_stack(
         self, *, after_handover: bool = False, predecessor: SafetyGate | None = None
@@ -789,6 +870,7 @@ class Runtime:
             self._pv_task,
             self._load_task,
             self._accuracy_task,
+            self._tariff_task,
         )
         for task in (*control_tasks, *storage_tasks):
             if task is not None:
@@ -800,6 +882,7 @@ class Runtime:
         self._connect_task = self._prune_task = self._tz_task = None
         self._flush_task = self._maintenance_task = self._history_task = None
         self._pv_task = self._load_task = None
+        self._tariff_task = None
         # Hardware release comes first: a running downsample or retention statement keeps the
         # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
         # The storage tasks are awaited only after the devices are released.
@@ -848,11 +931,15 @@ class Runtime:
             self.pv_service.on_entities(update.changed)
         if self.stack is not None:
             self.stack.on_update(update)
+        if self.tariff is not None and not self.tariff.watched_entities_isdisjoint(update.changed):
+            self.tariff.notify_changed()
         self._notify()
 
     def _on_state(self, state: ConnectionState) -> None:
         if self.stack is not None:
             self.stack.on_state(state)
+        if state is ConnectionState.CONNECTED and self.tariff is not None:
+            self.tariff.reset_backoff()  # the failures were the missing connection
         if (
             state is ConnectionState.CONNECTED
             and self._started
@@ -875,6 +962,8 @@ class Runtime:
             refs.extend(self.devices.entity_refs())
         if self.forecast is not None:
             refs.extend(self.forecast.entity_refs())
+        if self.tariff_config is not None:
+            refs.extend(self.tariff_config.entity_refs())
         ids = list(dict.fromkeys(r.entity_id for r in refs))
         try:
             await self.connection.subscribe_entities(ids)
@@ -975,6 +1064,14 @@ class Runtime:
             await self._apply_stored(name, stored, before)
         return stored
 
+    def _store_planning_input(self, name: str, stored: BaseModel) -> None:
+        if name == "forecast":
+            assert isinstance(stored, ForecastConfig)
+            self.forecast = stored
+        elif name == "tariff":
+            assert isinstance(stored, TariffConfig)
+            self.tariff_config = stored
+
     async def _apply_stored(
         self,
         name: str,
@@ -996,11 +1093,12 @@ class Runtime:
             self.goals = stored
             if self.stack is not None:
                 self.stack.set_goals(stored)
-        elif name == "forecast":
-            assert isinstance(stored, ForecastConfig)
-            self.forecast = stored
-        if name in ("site", "devices", "forecast"):
+        else:
+            self._store_planning_input(name, stored)
+        if name in ("site", "devices", "forecast", "tariff"):
             await self._resubscribe()
+        if name == "tariff" or (self.site, self.region) != before[::2]:
+            await self._rebuild_tariff()
         if (self.site, self.devices, self.region) != before:
             await self._rebuild_stack()
         if name == "forecast":
@@ -1235,9 +1333,16 @@ class Runtime:
         ids = [r.entity_id for r in site.entity_refs()] if site is not None else []
         await self._browse_if_needed(ids)
         present = await self.config.stored_sections()
-        return run_system_check(
+        items = run_system_check(
             site, self._samples(ids), present, self.devices, self._unit_of_entity
         )
+        template = (
+            self.template_catalog.get(self.tariff_config.import_.template_id)
+            if self.tariff_config is not None and self.tariff_config.import_.template_id
+            else None
+        )
+        includes = template.price_includes if isinstance(template, TariffTemplate) else None
+        return [*items, *check_tariff(self.tariff_config, includes)]
 
     async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
         ids = list(dict.fromkeys(entity_id for _, entity_id, _ in collect_refs(fragment)))
@@ -1273,9 +1378,12 @@ class Runtime:
         before = (self.site, self.devices, self.region)
         forecast_before = self.forecast
         devices_before = self.devices
+        tariff_before = self.tariff_config
         await self._load_live_sections()
         if resubscribe:
             await self._resubscribe()
+        if self.tariff_config != tariff_before or (self.site, self.region) != before[::2]:
+            await self._rebuild_tariff()
         if (self.site, self.devices, self.region) != before:
             await self._rebuild_stack()
         elif self.stack is not None and self.goals is not None:

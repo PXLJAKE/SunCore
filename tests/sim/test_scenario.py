@@ -17,6 +17,7 @@ BUNDLED = [
     "ha_disconnect",
     "inverter_hang",
     "manual_override",
+    "negative_prices",
     "sensor_dropout",
     "summer_day",
     "water_heater_steps",
@@ -139,7 +140,7 @@ def test_outdoor_temperature_is_a_daily_cosine() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    [n for n in BUNDLED if n not in ("summer_day", "winter_fog")],
+    [n for n in BUNDLED if n not in ("summer_day", "winter_fog", "negative_prices")],
 )
 def test_closed_loop_scenarios_declare_devices(name: str) -> None:
     sc = load_scenario(name)

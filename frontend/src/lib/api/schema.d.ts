@@ -546,6 +546,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prices
+         * @description Import and export prices on the 15-minute grid from now to the end of the known
+         *     prices (at least 24 h where the tariff allows, at most ``hours``), with the source
+         *     and its freshness. A price is ``null`` where no source value covers the interval.
+         */
+        get: operations["get_prices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/proposals": {
         parameters: {
             query?: never;
@@ -740,10 +762,32 @@ export interface components {
             window_days: number | null;
         };
         /**
+         * ActionParam
+         * @description A field of the action's request that the user's tariff configuration supplies.
+         *
+         *     The value comes from ``tariff.import.action_params[name]`` (Phase 4 WP4), e.g. the
+         *     Nord Pool ``config_entry`` id or ``areas``. SunCore never invents such a value.
+         */
+        ActionParam: {
+            /** Description */
+            description: string;
+            /** Name */
+            name: string;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+        };
+        /**
          * ActionSeries
          * @description Series returned by a read-only action (``return_response`` is implied).
          */
         ActionSeries: {
+            /** Date Field */
+            date_field?: string | null;
+            /** Date Tz */
+            date_tz?: string | null;
             /** Domain */
             domain: string;
             /** End Field */
@@ -751,6 +795,11 @@ export interface components {
             fields: components["schemas"]["SeriesFields"];
             /** Max Horizon H */
             max_horizon_h: number;
+            /**
+             * Params
+             * @default []
+             */
+            params: components["schemas"]["ActionParam"][];
             /** Response Path */
             response_path: string;
             /** Service */
@@ -2076,6 +2125,10 @@ export interface components {
          *     * ``tou``: fixed time-of-use prices (HT/NT, seasonal) in ``tou`` (tariff v3).
          */
         ImportTariff: {
+            /** Action Params */
+            action_params?: {
+                [key: string]: string | string[];
+            };
             /** Fixed Price */
             fixed_price?: number | null;
             formula?: components["schemas"]["PriceFormula"] | null;
@@ -2085,6 +2138,14 @@ export interface components {
              */
             kind: "fixed" | "dynamic" | "tou";
             price_entity?: components["schemas"]["EntityRef"] | null;
+            /** Price Includes */
+            price_includes?: ("spot_only" | "all_in") | null;
+            /** Role Entities */
+            role_entities?: {
+                [key: string]: components["schemas"]["EntityRef"];
+            };
+            /** Series Key */
+            series_key?: string | null;
             /** Template Id */
             template_id?: string | null;
             tou?: components["schemas"]["TouTariff"] | null;
@@ -2549,6 +2610,18 @@ export interface components {
             items: components["schemas"]["PreviewItemOut"][];
         };
         /**
+         * PriceErrorOut
+         * @description Why the last refresh failed, as a catalogue key.
+         */
+        PriceErrorOut: {
+            /** Args */
+            args?: {
+                [key: string]: string | number | string[];
+            };
+            /** Key */
+            key: string;
+        };
+        /**
          * PriceFormula
          * @description Spot price -> end price (BRIEF §4.4).
          *
@@ -2590,6 +2663,121 @@ export interface components {
              * @default 0
              */
             vat_pct: number;
+        };
+        /** PriceFreshness */
+        PriceFreshness: {
+            /** Age S */
+            age_s: number | null;
+            /** Fetched At */
+            fetched_at: string | null;
+            /** Known Until */
+            known_until: string | null;
+            last_error: components["schemas"]["PriceErrorOut"] | null;
+            /** Next Refresh At */
+            next_refresh_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "fresh" | "stale" | "missing" | "static";
+        };
+        /** PriceQuality */
+        PriceQuality: {
+            /**
+             * Carried Slots
+             * @default 0
+             */
+            carried_slots: number;
+            /** Dropped Points */
+            dropped_points: number;
+            /** Has Tomorrow */
+            has_tomorrow: boolean;
+            /** Known Slots */
+            known_slots: number;
+            /** Slots */
+            slots: number;
+        };
+        /** PriceReport */
+        PriceReport: {
+            /** Formula Missing */
+            formula_missing: boolean;
+            freshness: components["schemas"]["PriceFreshness"];
+            /**
+             * Price Includes
+             * @enum {string}
+             */
+            price_includes: "spot_only" | "all_in";
+            quality: components["schemas"]["PriceQuality"];
+            /** Slots */
+            slots: components["schemas"]["PriceSlot"][];
+            source: components["schemas"]["PriceSourceInfo"];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * Step Min
+             * @default 15
+             * @constant
+             */
+            step_min: 15;
+            /**
+             * Unit
+             * @default currency/kWh
+             * @constant
+             */
+            unit: "currency/kWh";
+        };
+        /**
+         * PriceSlot
+         * @description One 15-minute interval; a price is ``null`` where no source value covers it.
+         */
+        PriceSlot: {
+            /** Export Price */
+            export_price: number | null;
+            /** Import Price */
+            import_price: number | null;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /** PriceSourceInfo */
+        PriceSourceInfo: {
+            /** Currency */
+            currency: string;
+            /**
+             * Export Kind
+             * @enum {string}
+             */
+            export_kind: "fixed" | "tiered" | "none";
+            /** Export Zeroed Slots */
+            export_zeroed_slots: number;
+            /** Formula Applied */
+            formula_applied: boolean;
+            /**
+             * Import Kind
+             * @enum {string}
+             */
+            import_kind: "dynamic" | "fixed" | "tou";
+            /** Import Source Id */
+            import_source_id: string;
+            /** Native Step Min */
+            native_step_min: number | null;
+            /** Negative Price Rule */
+            negative_price_rule: string;
+            /**
+             * Price Includes
+             * @enum {string}
+             */
+            price_includes: "spot_only" | "all_in";
+            /**
+             * Source Price Includes
+             * @enum {string}
+             */
+            source_price_includes: "spot_only" | "all_in";
         };
         /**
          * PvArray
@@ -2922,6 +3110,8 @@ export interface components {
          *     values are the values.
          */
         SeriesFields: {
+            /** End Field */
+            end_field?: string | null;
             /** P10 Field */
             p10_field?: string | null;
             /** P90 Field */
@@ -4560,6 +4750,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_prices: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceReport"];
+                };
+            };
+            /** @description No usable tariff is configured */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

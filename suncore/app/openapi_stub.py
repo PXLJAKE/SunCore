@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from suncore import __version__
-from suncore.api.services import EntityQuery, HealthReport, PeerPolicy
+from suncore.api.services import EntityQuery, HealthReport, PeerPolicy, TariffNotConfiguredError
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BatterySettings
 from suncore.core.config import OperationConfig
@@ -26,6 +26,7 @@ from suncore.forecast.risk import ErrorModel
 from suncore.forecast.risk_learning import risk_view
 from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView, RiskView
 from suncore.storage import HistoryEntry
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
 
 
@@ -149,6 +150,9 @@ class StubServices:
 
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
         return lambda: None
+
+    async def prices(self, hours: int) -> PriceReport:  # noqa: ARG002
+        raise TariffNotConfiguredError
 
     async def export_config(self) -> dict[str, Any]:
         return {}

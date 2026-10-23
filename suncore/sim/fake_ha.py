@@ -485,10 +485,7 @@ class FakeHAConnection:
             raise ActionRateLimitedError(key, self._action_limiter.retry_after(key))
         now = self._house_state.time if self._house_state is not None else self._clock()
         if (domain, service) == ("tibber", "get_prices"):
-            start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-            slots = [start + timedelta(minutes=15 * i) for i in range(96)]
-            prices = [{"start_time": t.isoformat(), "price": sim_price(t)} for t in slots]
-            return {"prices": {"Home": prices}}
+            return {"prices": {"Home": self._tibber_prices(now, data)}}
         if (domain, service) == ("solcast_solar", "query_forecast_data"):
             slots_data: list[Any] = []
             for entity_id in (FORECAST_TODAY_ID, FORECAST_TOMORROW_ID):
@@ -504,6 +501,37 @@ class FakeHAConnection:
             asked = date.fromisoformat(str((data or {}).get("check_date")))
             return {entity_id: {"workday": demo.is_workday(asked)}}
         raise CommandError("not_found", f"Service {domain}.{service} not found.")
+
+    def _tibber_prices(self, now: datetime, data: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+        """``tibber.get_prices`` like core's ``services.py`` (re-read 2026-10-16): 15-minute
+        slots ``start <= t < end``, ``start``/``end`` default to local today; tomorrow only
+        exists after ``scenario.prices.tomorrow_after_hour`` local time."""
+
+        def parse(name: str) -> datetime | None:
+            raw = (data or {}).get(name)
+            if not isinstance(raw, str):
+                return None
+            parsed = datetime.fromisoformat(raw)
+            return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=now.tzinfo)
+
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = parse("start") or midnight
+        end = parse("end") or start + timedelta(days=1)
+        if start >= end:
+            end = start + timedelta(days=1)
+        params = self._scenario.prices
+        published_until = midnight + timedelta(
+            days=2 if now.hour >= params.tomorrow_after_hour else 1
+        )
+        end = min(end, published_until)
+        slots: list[dict[str, Any]] = []
+        t = max(start, midnight)
+        t = t.replace(minute=(t.minute // 15) * 15, second=0, microsecond=0)
+        while t < end:
+            if t >= start:
+                slots.append({"start_time": t.isoformat(), "price": sim_price(t, params.profile)})
+            t += timedelta(minutes=15)
+        return slots
 
     def entity_metas(self) -> list[EntityMeta]:
         """Registry entries joined with the published states (what detection ranks)."""

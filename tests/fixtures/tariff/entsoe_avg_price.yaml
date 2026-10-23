@@ -1,0 +1,19 @@
+# Attributes of the ENTSO-E `avg_price` sensor:
+#   docs/research/integrations.md "ENTSO-E" (lines 277-305, Phase 4 verification 2026-10-16);
+#   JaccoR/hass-entso-e@v0.7.5 sensor.py:269-279 (attributes prices_today, prices_tomorrow,
+#   prices) and coordinator.py:250-256 (entry `{time, price}`, `time` = str() of a
+#   timezone-aware local datetime: a SPACE instead of `T`). Synthetic values.
+entities:
+  - entity_id: sensor.entsoe_average_electricity_price
+    state: "0.0834"
+    attributes:
+      unit_of_measurement: EUR/kWh
+      prices_today:
+        - {time: "2026-10-16 00:00:00+02:00", price: 0.0712}
+        - {time: "2026-10-16 01:00:00+02:00", price: 0.0690}
+        - {time: "2026-10-16 02:00:00+02:00", price: 0.0668}
+      prices_tomorrow: []
+      prices:
+        - {time: "2026-10-16 00:00:00+02:00", price: 0.0712}
+        - {time: "2026-10-16 01:00:00+02:00", price: 0.0690}
+        - {time: "2026-10-16 02:00:00+02:00", price: 0.0668}

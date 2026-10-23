@@ -29,6 +29,7 @@ from suncore.forecast.views import (
     RiskView,
 )
 from suncore.storage import HistoryEntry
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
 
 FATAL_HA_STATES: Final = frozenset({"auth_failed", "closed"})
@@ -240,6 +241,13 @@ class Services(Protocol):
         """Call ``listener`` whenever the control state may have changed (tick, decision, mode)."""
         ...
 
+    async def prices(self, hours: int) -> PriceReport:
+        """The planning prices (15-minute grid) with source and freshness.
+
+        Raises :class:`TariffNotConfiguredError` while no usable tariff exists.
+        """
+        ...
+
     async def export_config(self) -> dict[str, Any]: ...
 
     async def import_config(self, data: object) -> list[str]:
@@ -269,3 +277,7 @@ class UnknownRoleError(LookupError):
 
 class UnknownTemplateError(LookupError):
     """No template with the requested id is loaded."""
+
+
+class TariffNotConfiguredError(LookupError):
+    """No usable tariff (none stored, no region, or its template is missing)."""

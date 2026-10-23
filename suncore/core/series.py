@@ -465,8 +465,9 @@ def segments_from_points(
 
     * ``d == cur``: the segment continues;
     * ``d`` is an accepted step (expected or other) and either not a multiple of ``cur``
-      or the next distance is ``d`` again (or the point is the last but one): a
-      **resolution change** - a new segment with step ``d`` starts at this point;
+      or the next distance is ``d`` again: a **resolution change** - a new segment with step
+      ``d`` starts at this point. The next distance has to confirm the rhythm, so at the end of
+      the list a multiple of ``cur`` is a gap, not a change;
     * ``d`` is a multiple of ``cur``: a **gap** - the point lasts ``cur`` and the missing
       slots become ``None`` (a gap is never filled with a neighbour's value);
     * anything else raises ``ValueError`` (irregular timestamps; SunCore never guesses).
@@ -502,7 +503,7 @@ def segments_from_points(
         if d == cur:
             values.append(value)
             continue
-        steady = i + 1 >= len(distances) or distances[i + 1] == d
+        steady = i + 1 < len(distances) and distances[i + 1] == d
         if d in accepted and (d % cur != timedelta(0) or steady):
             close()
             cur, begin, values = d, stamps[i], [value]

@@ -1,0 +1,11 @@
+# Same sensor as `entsoe.price` set to the MWh scale: the fixture has no MWh variant, so only
+# the role resolution is checked here; the conversion and the unit guard are unit-tested.
+template: entsoe.price_mwh
+sim_scenario: summer_day
+extra_entities:
+  - {entity_id: sensor.entsoe_average_electricity_price, platform: entsoe, unit: EUR/MWh, state: "71.2"}
+roles:
+  price:
+    entity: sensor.entsoe_average_electricity_price
+    unit: EUR/MWh
+    criteria: [domain, platforms, unit_pattern]

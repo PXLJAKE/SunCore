@@ -88,10 +88,64 @@
         "title": "AccuracySourceView",
         "type": "object"
       },
+      "ActionParam": {
+        "additionalProperties": false,
+        "description": "A field of the action's request that the user's tariff configuration supplies.\n\nThe value comes from ``tariff.import.action_params[name]`` (Phase 4 WP4), e.g. the\nNord Pool ``config_entry`` id or ``areas``. SunCore never invents such a value.",
+        "properties": {
+          "description": {
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "ActionParam",
+        "type": "object"
+      },
       "ActionSeries": {
         "additionalProperties": false,
         "description": "Series returned by a read-only action (``return_response`` is implied).",
         "properties": {
+          "date_field": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Field"
+          },
+          "date_tz": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z_]+(/[A-Za-z_+\\-0-9]+){1,2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Tz"
+          },
           "domain": {
             "maxLength": 48,
             "pattern": "^[a-z][a-z0-9_]*$",
@@ -120,9 +174,18 @@
             "title": "Max Horizon H",
             "type": "integer"
           },
+          "params": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ActionParam"
+            },
+            "maxItems": 8,
+            "title": "Params",
+            "type": "array"
+          },
           "response_path": {
             "maxLength": 200,
-            "pattern": "^[A-Za-z0-9_]+(\\.([A-Za-z0-9_]+|\\*))*$",
+            "pattern": "^(\\*|[A-Za-z0-9_]+)(\\.([A-Za-z0-9_]+|\\*))*$",
             "title": "Response Path",
             "type": "string"
           },
@@ -3610,6 +3673,33 @@
         "additionalProperties": false,
         "description": "How the price of imported energy is obtained.\n\n* ``fixed``: one ``fixed_price``.\n* ``dynamic``: a price source (``template_id`` and/or ``price_entity``); ``formula``\n  turns a spot-only price into the end price (tariff v3; ``None`` = the source's price\n  is used as it is, e.g. Tibber's all-in price).\n* ``tou``: fixed time-of-use prices (HT/NT, seasonal) in ``tou`` (tariff v3).",
         "properties": {
+          "action_params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 16,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              ]
+            },
+            "propertyNames": {
+              "maxLength": 64,
+              "minLength": 1
+            },
+            "title": "Action Params",
+            "type": "object"
+          },
           "fixed_price": {
             "anyOf": [
               {
@@ -3651,6 +3741,43 @@
                 "type": "null"
               }
             ]
+          },
+          "price_includes": {
+            "anyOf": [
+              {
+                "enum": [
+                  "spot_only",
+                  "all_in"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Includes"
+          },
+          "role_entities": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]{0,31}$": {
+                "$ref": "#/components/schemas/EntityRef"
+              }
+            },
+            "title": "Role Entities",
+            "type": "object"
+          },
+          "series_key": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Key"
           },
           "template_id": {
             "anyOf": [
@@ -4782,6 +4909,44 @@
         "title": "PreviewOut",
         "type": "object"
       },
+      "PriceErrorOut": {
+        "additionalProperties": false,
+        "description": "Why the last refresh failed, as a catalogue key.",
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "title": "Args",
+            "type": "object"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "PriceErrorOut",
+        "type": "object"
+      },
       "PriceFormula": {
         "additionalProperties": false,
         "description": "Spot price -> end price (BRIEF §4.4).\n\n``end = (spot * spot_multiplier + grid_fee(at) + levies + margin) * (1 + vat_pct/100)``\n\n``grid_fee(at)`` is the fee of the first ``grid_fee_windows`` entry containing ``at``,\nelse ``grid_fee``. VAT is applied to the whole sum, as on a German bill; a negative\nspot price can make the end price negative. Only for ``price_includes = spot_only``\nsources - an all-in price never gets the formula on top.",
@@ -4832,6 +4997,312 @@
           }
         },
         "title": "PriceFormula",
+        "type": "object"
+      },
+      "PriceFreshness": {
+        "additionalProperties": false,
+        "properties": {
+          "age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age S"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "known_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Until"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_refresh_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Refresh At"
+          },
+          "status": {
+            "enum": [
+              "fresh",
+              "stale",
+              "missing",
+              "static"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "fetched_at",
+          "age_s",
+          "known_until",
+          "next_refresh_at",
+          "last_error"
+        ],
+        "title": "PriceFreshness",
+        "type": "object"
+      },
+      "PriceQuality": {
+        "additionalProperties": false,
+        "properties": {
+          "carried_slots": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Carried Slots",
+            "type": "integer"
+          },
+          "dropped_points": {
+            "minimum": 0.0,
+            "title": "Dropped Points",
+            "type": "integer"
+          },
+          "has_tomorrow": {
+            "title": "Has Tomorrow",
+            "type": "boolean"
+          },
+          "known_slots": {
+            "minimum": 0.0,
+            "title": "Known Slots",
+            "type": "integer"
+          },
+          "slots": {
+            "minimum": 0.0,
+            "title": "Slots",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "slots",
+          "known_slots",
+          "has_tomorrow",
+          "dropped_points"
+        ],
+        "title": "PriceQuality",
+        "type": "object"
+      },
+      "PriceReport": {
+        "additionalProperties": false,
+        "properties": {
+          "formula_missing": {
+            "title": "Formula Missing",
+            "type": "boolean"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/PriceFreshness"
+          },
+          "price_includes": {
+            "enum": [
+              "spot_only",
+              "all_in"
+            ],
+            "title": "Price Includes",
+            "type": "string"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/PriceQuality"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/PriceSlot"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/PriceSourceInfo"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "step_min": {
+            "const": 15,
+            "default": 15,
+            "title": "Step Min",
+            "type": "integer"
+          },
+          "unit": {
+            "const": "currency/kWh",
+            "default": "currency/kWh",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "price_includes",
+          "formula_missing",
+          "start",
+          "slots",
+          "source",
+          "freshness",
+          "quality"
+        ],
+        "title": "PriceReport",
+        "type": "object"
+      },
+      "PriceSlot": {
+        "additionalProperties": false,
+        "description": "One 15-minute interval; a price is ``null`` where no source value covers it.",
+        "properties": {
+          "export_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Price"
+          },
+          "import_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Price"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "import_price",
+          "export_price"
+        ],
+        "title": "PriceSlot",
+        "type": "object"
+      },
+      "PriceSourceInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "export_kind": {
+            "enum": [
+              "fixed",
+              "tiered",
+              "none"
+            ],
+            "title": "Export Kind",
+            "type": "string"
+          },
+          "export_zeroed_slots": {
+            "minimum": 0.0,
+            "title": "Export Zeroed Slots",
+            "type": "integer"
+          },
+          "formula_applied": {
+            "title": "Formula Applied",
+            "type": "boolean"
+          },
+          "import_kind": {
+            "enum": [
+              "dynamic",
+              "fixed",
+              "tou"
+            ],
+            "title": "Import Kind",
+            "type": "string"
+          },
+          "import_source_id": {
+            "title": "Import Source Id",
+            "type": "string"
+          },
+          "native_step_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Step Min"
+          },
+          "negative_price_rule": {
+            "title": "Negative Price Rule",
+            "type": "string"
+          },
+          "price_includes": {
+            "enum": [
+              "spot_only",
+              "all_in"
+            ],
+            "title": "Price Includes",
+            "type": "string"
+          },
+          "source_price_includes": {
+            "enum": [
+              "spot_only",
+              "all_in"
+            ],
+            "title": "Source Price Includes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "import_source_id",
+          "import_kind",
+          "source_price_includes",
+          "price_includes",
+          "formula_applied",
+          "export_kind",
+          "negative_price_rule",
+          "export_zeroed_slots",
+          "native_step_min",
+          "currency"
+        ],
+        "title": "PriceSourceInfo",
         "type": "object"
       },
       "PvArray": {
@@ -5663,6 +6134,19 @@
         "additionalProperties": false,
         "description": "Names of the fields of one series point and the unit of its values.\n\n``timestamp_field`` and ``value_field`` are required for a list of point objects\n(``action`` series, ``attribute`` series of shape ``list``) and absent for an\n``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose\nvalues are the values.",
         "properties": {
+          "end_field": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Field"
+          },
           "p10_field": {
             "anyOf": [
               {
@@ -8333,6 +8817,59 @@
           }
         },
         "summary": "Preview"
+      }
+    },
+    "/api/v1/prices": {
+      "get": {
+        "description": "Import and export prices on the 15-minute grid from now to the end of the known\nprices (at least 24 h where the tariff allows, at most ``hours``), with the source\nand its freshness. A price is ``null`` where no source value covers the interval.",
+        "operationId": "get_prices",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 48,
+              "maximum": 72,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No usable tariff is configured"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Prices"
       }
     },
     "/api/v1/proposals": {
