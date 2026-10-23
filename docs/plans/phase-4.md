@@ -484,6 +484,48 @@ shadow and assisted run is the acceptance test.
     sensors (`mean`, W); quarter hours with an unmeasured device are left out of a day type's
     profile once it has 7 fully measured days, before that they are kept and flagged.
   - The temperature term shifts a forecast day only with ≥ 20 hours of temperatures (m5).
+- PR 4-F, WP8 (planner):
+  - **Flows**: PV serves the base load first; devices draw only the PV surplus over the base
+    load and the battery discharges only for the base load (never for export, which ADR-0013
+    limits cannot express). "SunCore never imports for a device" therefore holds structurally in
+    the LP, not through a price cap; the automatic device value is the export price + 0.01, an
+    explicit value is capped at `max(import price, export price + 0.01)`.
+  - **No binaries** in Phase 4: with that flow split and free curtailment, simultaneous charge
+    and discharge cannot gain at negative prices; `SolverStats.n_binaries = 0`, the backend
+    accepts integer columns for Phase 6 device models.
+  - **Morning buffer**: a soft SoC target at the earliest time a battery-first day reaches it on
+    P50 (or, when PV cannot, the highest SoC such a day reaches before the coming sunset), plus
+    "battery first" before that time (surplus beyond the battery's charge limit may go elsewhere,
+    more costs the buffer penalty). It never makes the plan hold energy or buy it from the grid by
+    itself. `priority_until_soc_pct` = the buffer until the plan reaches it.
+  - **Device budget** (new, from a rolling replay with PV at P10 all day): before each
+    evening/user target the devices may only take what a battery-first day with PV at the risk
+    quantile (P10 cautious, P50 bold, linear in between) could spare above the target. This is
+    WP8's "PV at the risk quantile in the target constraints" applied to the consumers, not a P10
+    SoC constraint, so caution is not counted twice. It uses the PV forecast's own band, not yet
+    the learnt net-error distribution (follow-up).
+  - **Targets** are soft (penalty per kWh of shortfall: buffer `2m + 0.5`, evening/user `10m + 1`,
+    `m` = largest absolute price), so the model is always feasible and a shortfall is explained
+    (`planner.battery.target_shortfall`); "relaxed targets" in the fallback chain are therefore
+    built in. A live SoC below the reserve or above max SoC gets a penalised slack instead of an
+    infeasible model.
+  - **Terminal value** of stored energy: `median(import) × discharge efficiency − degradation/2`;
+    degradation is charged half on charge, half on discharge (= the configured cost per charged
+    kWh over a cycle).
+  - **Prices**: missing prices (tomorrow before publication) are filled with the median and
+    reported; grid charging needs a known price; `spot_only` without a formula and no prices at
+    all plan in `flat` mode (self-sufficiency only, nominal import price 1, export from the tariff
+    configuration). On a tariff whose price varies, grid charging needs the spread rule against the
+    best known later price; on a flat tariff the policy alone decides and the LP charges only when
+    a target needs it.
+  - **Inputs are frozen dataclasses**, not Pydantic models (ADR-0003 says "typed Pydantic
+    inputs"): built once per run by a pure function, validated in `__post_init__`; the outputs are
+    the Pydantic plan contracts.
+  - **Plan v2 additions** (additive): `BatteryBand.grid_charge_max_w` / `discharge_lock`
+    (ADR-0013, moved from 4-G to WP8; the controller ignores them until 4-G) and
+    `IntervalFlows.devices_w` / `curtail_w`.
+  - `charge_from_surplus = False` only where the plan gives devices the surplus while no battery
+    target binds; the Phase 3 controller already reads this flag once a plan is wired (WP9).
 - WP4: ENTSO-E and EPEX Spot get two templates each where the unit or the price content differs
   (`entsoe.price`/`_mwh`, `epex_spot.total_price`/`market_price`): a template holds one value unit
   and one `price_includes`. Octopus is included (its source was verified in 4-A).

@@ -3,8 +3,9 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-22 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
-tariffs, 4-D PV forecast, 4-E load forecast and risk model; Phase 3 (3-A
+**Last update:** 2026-10-23 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
+tariffs, 4-D PV forecast, 4-E load forecast and risk model, 4-F planner (WP8; runtime WP9 next);
+Phase 3 (3-A
 `phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
 maintainer's shadow test · **Branch:** `phase-4/f-planner` (stacked on `phase-4/e-load-risk`, merged
 with `phase-4/c-tariff`)
@@ -97,6 +98,41 @@ with `phase-4/c-tariff`)
     (grid ≈ 0 W also without curtailment); only the inverter-plateau rule applies.
   - Follow-ups: the weights come from the *uncalibrated* sources' MAE (a calibrated source is
     under-weighted until a calibrated accuracy is scored); no UI yet (4-H).
+
+- **Phase 4 – PR 4-F, part WP8 planner (branch `phase-4/f-planner`, on 4-E merged with 4-C)**:
+  - `suncore/planner/` (depends on `core` only; boundary test extended; `mypy --strict`):
+    `inputs.py` (`build_inputs`: pure snapshot on the 15-minute grid now → +48 h from the
+    tariff, PV and base-load forecasts, the risk model's morning buffer and evening target,
+    `goals.battery_target` as a timed goal on every day, devices with window masks; `spot_only`
+    prices without a formula are refused → `price_mode = flat` + `planner.fallback.spot_without_formula`;
+    missing prices filled with the median and reported), `model.py` (sparse LP for HiGHS behind
+    the `SolverBackend` protocol, `HighsBackend`; PV serves the base load first, devices draw only
+    PV surplus - "no import for devices" holds structurally; soft targets with penalties; no
+    binaries in Phase 4), `heuristic.py` (rule-based fallback on the same flows), `explain.py`
+    (reasons per interval from binding targets and price comparisons), `run.py` (`plan()`/`run()`:
+    heuristic first as fallback and yardstick, solver within the budget, warm start from the
+    previous plan, fallback chain timeout/infeasible/error/invalid/solver missing → heuristic).
+    `highspy` 1.15.1 (+ NumPy 2.5.4) are runtime dependencies now.
+  - Plan v2, additive: `BatteryBand.grid_charge_max_w` / `discharge_lock` (ADR-0013; set by the
+    planner, the controller still ignores them until 4-G - tested), `IntervalFlows.devices_w` /
+    `curtail_w` (so the expected flows balance).
+  - Device budget (deviation, plan §"Deviations"): before every evening/user target devices may
+    only take what a battery-first day with PV at the risk quantile could spare; found with a rolling
+    replay where PV came in at P10 all day (consumers had taken the target's energy).
+  - Tests: hypothesis properties (balance, SoC corridor, bounds, grid charging only inside the
+    policy, no export at a negative export price, devices ≤ PV surplus, objective LP ≤ heuristic
+    under one cost function, missed targets only when infeasible - checked by a max-SoC LP, every
+    interval has catalogued reasons), scenarios `sunny_day`, `mixed_clouds`, `two_poor_days`,
+    `forecast_too_optimistic` (rolling replay), `negative_prices`, `price_spike`,
+    `grid_charge_price_level`, `prefer_full`, `reference_house` (`suncore/sim/planner_scenarios.py`),
+    fallback chain with fake backends; planner coverage 95 %.
+  - Benchmark `scripts/bench_planner.py` (reference house: 17 kWp east-west, 29.6 kWh/10 kW,
+    13.5 kW export limit, Tibber-like 48 h, blended EEG, two climate devices; 193 slots, 2318
+    variables, 413 rows, 0 binaries): session container amd64 (CPython 3.13) median of 7 runs -
+    HiGHS solve 4 ms cold (244 simplex iterations) / 4 ms warm (141), heuristic 1 ms, whole
+    `run()` incl. explanations 29 ms, inputs incl. risk targets 14 ms. Slow test: < 3 s on CI.
+    aarch64 not measured yet (`UNVERIFIED`).
+  - Not wired yet: the runtime, scheduler and API are WP9 (next).
 
 - **Phase 4 – PR 4-E (WP6 load forecast, WP7 risk model; branch `phase-4/e-load-risk`, stacked on
   4-D)**:
@@ -425,9 +461,14 @@ with `phase-4/c-tariff`)
   (WP3) → 4-C tariffs (WP4) and 4-D PV forecast (WP5) → 4-E load + risk (WP6, WP7) → 4-F planner and
   runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
-- **ADR-0013 must be accepted before WP10** (4-G). Its contract changes (`BatteryAction` `None` =
-  baseline, `BatteryBand.grid_charge_max_w`/`discharge_lock`, `effective_reserve_pct`,
-  `battery_identity`) land at the start of 4-G, after the maintainer accepted it.
+- **ADR-0013 must be accepted before WP10** (4-G). Its contract changes `BatteryBand.grid_charge_max_w`
+  / `discharge_lock` landed with WP8 (additive, planner-only, the controller ignores them);
+  `BatteryAction` `None` = baseline and `battery_identity` land at the start of 4-G.
+- **WP9 (next, 4-F)**: wire `suncore.planner` into the runtime - `build_inputs(...)` from
+  `TariffService.prices()`, the blended PV forecast, the base-load forecast, `RiskView`
+  (`morning_buffer`, `evening_target`, `evening_at`), the battery section, the live SoC, the site's
+  import/export limits and the devices; `run()` in a worker thread every 15 min and on events,
+  `previous` = the last plan.
 - **PR 4-C (WP4, branch `phase-4/c-tariff`)**: `suncore/tariff/` - a template-driven price adapter
   (`engine.py`: action or attribute source, list or mapping shape, per-MWh conversion, native grid
   from `end - start` or the timestamp spacing, 15/60-minute mixes as segments, gaps `None`, DST
@@ -671,7 +712,8 @@ with `phase-4/c-tariff`)
 | Forecast.Solar `wh_hours`/`watt_hours_period` keys read as period *start* (vendor API unreachable) | `templates/forecast/forecast_solar.pv.yaml`, `suncore/forecast/pv/parsing.py` | live comparison with the integration's sensors |
 | Supervisor proxy forwards `energy/solar_forecast` | `suncore/ha/` (`fetch_solar_forecast`) | first run on HA OS |
 | PV calibration constants (classes kt 0.3/0.65, shrink k = 16, decay 0.98, factor 0.5–1.5) and the clipping thresholds (plateau ±0.3 % for ≥ 1 h on ≥ 2 days; export within max(3 %, 50 W)) are reasoned, not fitted to real data | `suncore/forecast/pv/` | 30+ days of the maintainer's data |
-| Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
+| Planner solve times on aarch64 (Raspberry Pi 4, HA Green); amd64: 4 ms solve, 29 ms whole run for the reference house | ADR-0003, `scripts/bench_planner.py` | run the benchmark on a Pi / the CI arm runner |
+| Planner weights and rules: target penalties (10 × max price + 1, buffer 2 × + 0.5), terminal value (median import × discharge efficiency − degradation/2), device budget on PV interpolated P10..P50 at the risk quantile (the learnt net-error distribution is not used there yet), automatic device value export + 0.01 | `suncore/planner/model.py`, `inputs.py` | shadow plans on the maintainer's system |
 | `weather.get_forecasts` `hourly` support of the maintainer's weather integration (the `temperature_unit` attribute and the conversion of the forecast to it are verified from source, `research/ha-websocket-api.md`) | `suncore/app/adapters.py` (`HaLoadReader`) | maintainer's HA |
 | `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (the `days_offset` handling is verified from source; a changed country/holiday list is not visible in the attributes, so the day-type cache only resets on a changed entity, `workdays`, `excludes` or offset) | `suncore/app/adapters.py`, `suncore/forecast/load_service.py` | maintainer maps a Workday sensor |
 | Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, 7 clean days, degree-day bases 15/22 °C, coverage 75 %/90 %, 20 h temperature days, anchors sunrise + 1 h / sunset − 1 h, sunrise threshold 2 %/20 W) and the default PV bands per weather class (clear 0.85/1.10, mixed 0.55/1.35, overcast 0.35/1.70) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |
