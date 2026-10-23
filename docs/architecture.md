@@ -145,7 +145,8 @@ The planner arrives in Phase 4; until then the controller consumes `Plan.default
 everything. Phase 4 WP8 added `suncore/planner` (`inputs.py` → `model.py` LP for HiGHS behind a
 `SolverBackend` protocol → `run.py` with the heuristic fallback and `explain.py` reasons); it
 depends on `core` only: the scheduler (WP9) collects prices, forecasts and the risk targets and
-hands them over through `build_inputs`, and runs `run()` in a worker thread. The control layer (Phase 3) is composed in one place, `suncore/app/control.py`
+hands them over through `build_inputs`, and runs `run()` in a worker thread.
+The control layer (Phase 3) is composed in one place, `suncore/app/control.py`
 (`ControlStack`): entity cache, one driver and one power model per device, the controller
 (`suncore/controller`), the safety gate with its watchdog (`suncore/safety`) and the connection
 life cycle. The runtime, the demo and the simulator all use this same stack; only the connection
