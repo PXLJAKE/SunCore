@@ -80,6 +80,10 @@ def slot_facts(inputs: PlannerInputs, econ: Economics, schedule: Schedule) -> li
     out: list[SlotFacts] = []
     buffer = inputs.morning_buffer_pct
     buffer_open = buffer is not None and battery is not None
+    used = {
+        slot: sum(schedule.device_total_w(t) for t in range(slot + 1)) * inputs.dt_h
+        for slot, _ in econ.device_budget
+    }
     for t in range(inputs.n):
         prev = battery.soc_wh if battery is not None and t == 0 else schedule.soc_wh[t - 1]
         pending = [
@@ -87,7 +91,10 @@ def slot_facts(inputs: PlannerInputs, econ: Economics, schedule: Schedule) -> li
             for goal, slot, b in zip(inputs.goals, econ.goal_slots, binding, strict=True)
             if slot is not None and slot >= t
         ]
-        tight = any(b for _, b in pending) and schedule.pv_charge_w[t] > EPS_W
+        budget_bound = any(
+            slot >= t and used[slot] >= budget - 1.0 for slot, budget in econ.device_budget
+        )
+        tight = (any(b for _, b in pending) or budget_bound) and schedule.pv_charge_w[t] > EPS_W
         deficit = econ.deficit_w[t]
         lock = False
         hold: SocGoal | None = None

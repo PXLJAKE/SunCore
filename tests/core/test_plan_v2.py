@@ -137,3 +137,26 @@ def test_plan_source_stats_and_band_validation() -> None:
     with pytest.raises(ValidationError):
         BatteryBand(priority_until_soc_pct=120)
     assert IntervalFlows(pv_p50_w=0, load_w=0, import_w=0, export_w=0).battery_w == 0
+
+
+def test_adr_0013_battery_band_fields_are_additive() -> None:
+    """``grid_charge_max_w`` and ``discharge_lock`` (ADR-0013 decision 4) default to "none"."""
+    band = BatteryBand()
+    assert band.grid_charge_max_w is None
+    assert band.discharge_lock is False
+    planned = BatteryBand(grid_charge_max_w=2500, discharge_lock=True, min_power_w=0)
+    assert BatteryBand.model_validate(planned.model_dump(mode="json")) == planned
+    with pytest.raises(ValidationError):
+        BatteryBand(grid_charge_max_w=-1)
+    old = {"min_soc_pct": 15, "charge_from_surplus": False}
+    assert BatteryBand.model_validate(old).discharge_lock is False
+
+
+def test_interval_flows_devices_and_curtailment_are_additive() -> None:
+    flows = IntervalFlows(pv_p50_w=5000, load_w=500, import_w=0, export_w=2000, battery_w=1000)
+    assert flows.devices_w == 0
+    assert flows.curtail_w == 0
+    full = flows.model_copy(update={"devices_w": 1000.0, "curtail_w": 500.0})
+    assert IntervalFlows.model_validate(full.model_dump(mode="json")) == full
+    with pytest.raises(ValidationError):
+        IntervalFlows(pv_p50_w=0, load_w=0, import_w=0, export_w=0, curtail_w=-1)

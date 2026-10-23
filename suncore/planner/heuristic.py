@@ -57,7 +57,7 @@ def _goals(inputs: PlannerInputs, econ: Economics) -> list[_Goal]:
     return out
 
 
-def _simulate(  # noqa: PLR0915 - one pass over the rules of the module doc
+def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module doc
     inputs: PlannerInputs, econ: Economics, extra_grid_w: list[float]
 ) -> Schedule:
     n, dt = inputs.n, inputs.dt_h
@@ -100,6 +100,7 @@ def _simulate(  # noqa: PLR0915 - one pass over the rules of the module doc
         min(econ.surplus_w[t], max_ch) * dt * eta_c - min(econ.deficit_w[t], max_dis) * dt / eta_d
         for t in range(n)
     ]
+    budget_left = dict(econ.device_budget)
     for t in range(n):
         s, d = econ.surplus_w[t], econ.deficit_w[t]
         pending = [g for g in goals if g.slot >= t]
@@ -123,6 +124,9 @@ def _simulate(  # noqa: PLR0915 - one pass over the rules of the module doc
             pc[t] = first
             rest -= first
         budget_w = float("inf") if margin == float("inf") else max(0.0, margin) / (dt * eta_c)
+        for slot, left in budget_left.items():
+            if slot >= t:
+                budget_w = min(budget_w, max(0.0, left) / dt)
         for j in order:
             device = inputs.devices[j]
             if not device.allowed[t] or rest <= EPS_W:
@@ -133,6 +137,9 @@ def _simulate(  # noqa: PLR0915 - one pass over the rules of the module doc
             dev[j][t] = take
             rest -= take
             budget_w -= take
+            for slot in budget_left:
+                if slot >= t:
+                    budget_left[slot] -= take * dt
         if battery is not None:
             room = max(0.0, ceiling - e) / (dt * eta_c) - pc[t]
             more = max(0.0, min(rest, max_ch - pc[t], room))

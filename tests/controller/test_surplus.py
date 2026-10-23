@@ -127,6 +127,16 @@ def test_a_plan_band_decides_over_the_goals() -> None:
     assert battery_share_available(GOALS, 90.0, BatteryBand()) == (False, None)
 
 
+def test_the_adr_0013_band_fields_do_not_change_the_controller_yet() -> None:
+    """Until WP10 (4-G) the controller ignores ``grid_charge_max_w`` and ``discharge_lock``."""
+    for plain in (BatteryBand(), BatteryBand(charge_from_surplus=False)):
+        planned = plain.model_copy(update={"grid_charge_max_w": 3000.0, "discharge_lock": True})
+        for soc in (None, 10.0, 90.0):
+            assert battery_share_available(GOALS, soc, planned) == battery_share_available(
+                GOALS, soc, plain
+            )
+
+
 # --- tracker -------------------------------------------------------------------------
 
 

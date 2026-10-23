@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Final
 from zoneinfo import ZoneInfo
 
@@ -288,8 +288,10 @@ def _rule_export(at: datetime) -> float:
 
 
 def _spike(at: datetime) -> float:
-    hour, day = _hours(at), at.astimezone(TZ).date()
-    return 1.5 if day == SUMMER and 19 <= hour < 20 else 0.3
+    """0.30/kWh, but 1.50/kWh from 01:00 to 02:00 the night after the summer day."""
+    local = at.astimezone(TZ)
+    after = local.date() == SUMMER + timedelta(days=1)
+    return 1.5 if after and 1 <= _hours(at) < 2 else 0.3
 
 
 def _night_cheap(at: datetime) -> float:
@@ -328,13 +330,7 @@ def situation(name: str) -> Situation:  # noqa: PLR0911 - one scenario per branc
             devices=DEVICES,
         )
     if name == "price_spike":
-        return Situation(
-            now=_at(SUMMER, 15),
-            kwp=2.0,
-            soc_pct=60.0,
-            import_price=_spike,
-            export_price=lambda _at: 0.08,
-        )
+        return Situation(now=_at(SUMMER, 22), soc_pct=20.0, import_price=_spike)
     if name == "grid_charge_price_level":
         return Situation(
             now=_at(WINTER, 22),

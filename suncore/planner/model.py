@@ -83,6 +83,7 @@ KW: Final = 1000.0
 INF: Final = math.inf
 BALANCE_TOL_W: Final = 1.0
 BUFFER_KINDS: Final = ("morning_buffer", "prefer_full")
+TARGET_KINDS: Final = ("evening_target", "user_target")
 SOC_TOL_WH: Final = 1.0
 
 
@@ -129,6 +130,11 @@ class Economics:
     terminal_value: float
     goal_slots: tuple[int | None, ...]
     goal_penalty: tuple[float, ...]
+    device_budget: tuple[tuple[int, float], ...]
+    """Per evening/user target ``(slot, Wh)``: the most device energy until that slot. It is
+    the SoC the battery would still have above the target at the slot if PV came in at the
+    risk quantile and every surplus went to the battery (battery-first simulation from the
+    live SoC), divided by the charge efficiency; 0 when even that misses the target."""
     first_until: int
     """Slots before this index are "battery first" (the morning buffer or ``prefer_full``
     goal is due at its end): surplus beyond what the battery can take
@@ -190,7 +196,37 @@ def economics(inputs: PlannerInputs) -> Economics:
         goal_slots=slots,
         goal_penalty=penalties,
         first_until=first_until,
+        device_budget=_device_budgets(inputs, slots),
     )
+
+
+def _device_budgets(
+    inputs: PlannerInputs, slots: tuple[int | None, ...]
+) -> tuple[tuple[int, float], ...]:
+    battery = inputs.battery
+    if battery is None or not inputs.devices:
+        return ()
+    model = battery.model
+    dt = inputs.dt_h
+    reach: list[float] = []
+    e = battery.soc_wh
+    floor = min(battery.reserve_wh, e)
+    ceiling = max(battery.max_wh, e)
+    for t in range(inputs.n):
+        net = inputs.pv_at_risk(t) - inputs.load_p50[t]
+        if net > 0:
+            e = min(ceiling, e + min(net, battery.max_charge_w) * dt * model.charge_efficiency)
+        else:
+            loss = min(-net, battery.max_discharge_w) * dt / model.discharge_efficiency
+            e = max(min(e, floor), e - loss)
+        reach.append(e)
+    out: list[tuple[int, float]] = []
+    for goal, slot in zip(inputs.goals, slots, strict=True):
+        if slot is None or goal.kind not in TARGET_KINDS:
+            continue
+        spare = reach[slot] - model.soc_to_wh(goal.soc_pct)
+        out.append((slot, max(0.0, spare) / model.charge_efficiency))
+    return tuple(out)
 
 
 def _goal_penalty(goal: SocGoal, buffer_p: float, target_p: float) -> float:
@@ -383,6 +419,9 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
             rows.add([(col(t, SOC), 1.0), (col(t, LOW), 1.0)], bat.reserve, INF)
         if bat.e0 > bat.max_:
             rows.add([(col(t, SOC), 1.0), (col(t, HIGH), -1.0)], -INF, bat.max_)
+    for until, budget_wh in econ.device_budget:
+        terms = [(layout.dev(t, j), dt) for t in range(until + 1) for j in range(layout.n_dev)]
+        rows.add(terms, -INF, budget_wh / KW)
     if bat is not None:
         cost[layout.var(n - 1, SOC)] -= econ.terminal_value
         for k, goal in enumerate(inputs.goals):
@@ -549,6 +588,10 @@ def violations(  # noqa: PLR0912 - one check per constraint family
         if e < floor - SOC_TOL_WH or e > ceiling + SOC_TOL_WH:
             found.append(f"soc bounds at {t}: {e:.0f} Wh")
         prev = e
+    for slot, budget_wh in econ.device_budget:
+        used = sum(schedule.device_total_w(t) for t in range(slot + 1)) * dt
+        if used > budget_wh + SOC_TOL_WH:
+            found.append(f"device budget before slot {slot}: {used:.0f} > {budget_wh:.0f} Wh")
     return found
 
 
@@ -685,6 +728,7 @@ __all__ = [
     "LOW",
     "PC",
     "SOC",
+    "TARGET_KINDS",
     "Economics",
     "HighsBackend",
     "Layout",

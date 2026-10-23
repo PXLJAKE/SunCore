@@ -14,8 +14,12 @@ runtime (WP9) collects the arguments:
   forecast (house minus controlled devices).
 * ``morning_buffer`` / ``evening_target``: the risk model's results (WP7; anything with
   ``soc_pct`` and ``reason``, e.g. ``SocTarget`` or ``RiskTargetView``) and ``evening_at``
-  (``RiskView.evening_at``). The planner takes the risk quantile only through these targets
-  (plan §0): no separate P10 constraints.
+  (``RiskView.evening_at``). The planner takes the risk quantile through these targets
+  (plan §0: no P10 SoC constraints) and through one more place, the **device budget** before
+  each evening/user target (``model.Economics.device_budget``): devices may only take the
+  surplus the battery can spare *if PV comes in at the risk quantile*
+  (``risk_quantile``; plan WP8 "PV at the risk quantile in the target constraints"), so a day
+  at the low end of the forecast does not lose the target to consumers.
 * ``goals.battery_target``: a timed soft target at every occurrence of its local time in the
   horizon (maintainer 2026-10-22: its time belongs to the planner).
 
@@ -205,6 +209,9 @@ class PlannerInputs:
     grid_charge_policy: GridChargePolicy = field(default_factory=GridChargePolicy)
     goals: tuple[SocGoal, ...] = ()
     morning_buffer_pct: float | None = None
+    risk_quantile: float = 0.1
+    """``BatterySettings.risk.quantile``: the PV quantile of the device budget (0.1 = P10,
+    0.5 = P50, linear in between)."""
     """"Battery first until X %" for the coming daytime (``priority_until_soc_pct``)."""
     import_limit_w: float | None = None
     export_limit_w: float | None = None
@@ -256,6 +263,11 @@ class PlannerInputs:
     @property
     def end(self) -> datetime:
         return self.starts[-1] + self.step
+
+    def pv_at_risk(self, t: int) -> float:
+        """PV (W) at :attr:`risk_quantile`: P10 at 0.1, P50 at 0.5, linear in between."""
+        share = min(1.0, max(0.0, (self.risk_quantile - 0.1) / 0.4))
+        return self.pv_p10[t] + share * (self.pv_p50[t] - self.pv_p10[t])
 
     def grid_charge_at(self, t: int) -> float:
         return self.grid_charge_w[t] if self.grid_charge_w else 0.0
@@ -744,6 +756,7 @@ def build_inputs(
         grid_charge_policy=policy,
         goals=tuple(soc_goals),
         morning_buffer_pct=buffer_pct,
+        risk_quantile=battery.risk.quantile,
         import_limit_w=import_limit_w,
         export_limit_w=export_limit_w,
         devices=tuple(planned),
