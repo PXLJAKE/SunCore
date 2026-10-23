@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from enum import StrEnum, unique
@@ -675,11 +675,23 @@ def forecast_load(
 # --- Home Assistant shapes (parsed here, called by the adapter) ----------------------------
 
 
-def temperature_c(value: object, unit: str | None) -> float | None:
-    """A temperature in °C from a Home Assistant value and its unit (``°C``/``°F``).
+_TO_CELSIUS: Final[dict[str | None, Callable[[float], float]]] = {
+    None: lambda t: t,
+    "°C": lambda t: t,
+    "C": lambda t: t,
+    "°F": lambda t: (t - 32.0) * 5.0 / 9.0,
+    "F": lambda t: (t - 32.0) * 5.0 / 9.0,
+    "K": lambda t: t - 273.15,
+}
 
-    ``None`` for a missing/non-numeric value or an unknown unit (never guessed). A missing
-    unit is read as °C (``UNVERIFIED``: the weather entity's ``temperature_unit`` attribute).
+
+def temperature_c(value: object, unit: str | None) -> float | None:
+    """A temperature in °C from a Home Assistant value and its unit (``°C``/``°F``/``K``).
+
+    ``None`` for a missing/non-numeric value or an unknown unit (never guessed). A weather
+    entity always reports ``temperature_unit`` (``homeassistant/components/weather/entity.py``
+    ``state_attributes``, core ``5cfe9aad``; values ``UnitOfTemperature``); a missing unit is
+    read as °C.
     """
     if isinstance(value, bool) or not isinstance(value, int | float | str):
         return None
@@ -689,11 +701,8 @@ def temperature_c(value: object, unit: str | None) -> float | None:
         return None
     if not math.isfinite(number):
         return None
-    if unit in (None, "°C", "C"):
-        return number
-    if unit in ("°F", "F"):
-        return (number - 32.0) * 5.0 / 9.0
-    return None
+    convert = _TO_CELSIUS.get(unit)
+    return None if convert is None else convert(number)
 
 
 def parse_hourly_temperatures(

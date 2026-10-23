@@ -153,8 +153,8 @@ class LoadDayView(_View):
     date: date
     day_type: DayType
     source: DayTypeSource
-    """``workday_sensor`` (today's state), ``check_date`` (the Workday action) or
-    ``weekday_rule`` (Mon-Fri workday, Sat/Sun weekend)."""
+    """``workday_sensor`` (the sensor's state, for today + its ``days_offset``), ``check_date``
+    (the Workday action) or ``weekday_rule`` (Mon-Fri workday, Sat/Sun weekend)."""
     temperature_c: float | None
     """Mean outside temperature of the day the temperature term used (``None``: none)."""
 

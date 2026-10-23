@@ -369,7 +369,9 @@ def test_parse_hourly_temperatures() -> None:
     points = parse_hourly_temperatures(response, entity, "°F")
     assert points == [(datetime(2026, 10, 21, 10, tzinfo=UTC), pytest.approx(10.0))]
     assert parse_hourly_temperatures({entity: {"forecast": "x"}}, entity, None) == []
-    assert parse_hourly_temperatures(response, entity, "K") == []
+    assert parse_hourly_temperatures(response, entity, "X") == []  # unknown unit: never guessed
+    kelvin = parse_hourly_temperatures(response, entity, "K")
+    assert kelvin[0][1] == pytest.approx(50.0 - 273.15)
 
 
 def test_temperature_units() -> None:

@@ -299,9 +299,18 @@ files `homeassistant/components/weather/{services.py,services.yaml,const.py,enti
   string in practice, `ATTR_FORECAST_TIME = "datetime"`). `temperature` is set
   to `null` when the entity delivered none. Keys the integration does not
   provide are simply absent: the adapter must treat every key but `datetime` as
-  optional. The temperature unit is **not** in the response; read
-  `unit_of_measurement`-like info from the entity's `temperature_unit` state
-  attribute (not read in this pass, `UNVERIFIED`).
+  optional. The temperature unit is **not** in the response; it is the
+  entity's `temperature_unit` state attribute. Verified 2026-10-23 at the same
+  commit: `weather/entity.py` `state_attributes` always sets
+  `temperature_unit = self._temperature_unit` (line 525, key `temperature_unit`
+  from `weather/const.py:86/104`) and `_convert_forecast` converts every
+  forecast temperature to the same `_temperature_unit` (lines 608–634); values
+  are `UnitOfTemperature` (`°C`, `°F`, `K`, `homeassistant/const.py:587`).
+- **Workday offset** (`workday/entity.py:103–115`, same commit): `check_date`
+  returns `date_is_workday(check_date)`, which evaluates
+  `adjusted_date = check_date + timedelta(days=days_offset)`; the sensor state
+  is the same function for today. SunCore asks `check_date(d - days_offset)`
+  for date `d` and places the state on `today + days_offset`.
 - Whether `hourly` is offered depends on the integration (`supported_features`
   bit `FORECAST_HOURLY = 2`); not every weather entity has it. Fall back to
   `daily` (a coarser temperature profile) or no temperature term.
@@ -921,8 +930,8 @@ native range, `select` still validates against `options`); `switch.turn_on/off/t
 take no fields.
 
 Still `UNVERIFIED`: the Supervisor proxy forwarding of `recorder/*` and
-`energy/*` commands; the temperature unit of a `weather.get_forecasts` response
-(taken from the entity's attributes, not read); the vendor meaning of the
+`energy/*` commands (the temperature unit of a `weather.get_forecasts` response
+was verified on 2026-10-23, see "Weather forecasts"); the vendor meaning of the
 Forecast.Solar `watt_hours_period` keys (start vs end of the period, API
 unreachable); the HA error for an unknown Modbus hub name; whether a plain Modbus
 hub can be added in the UI.

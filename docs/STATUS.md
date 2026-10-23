@@ -100,33 +100,47 @@ forecast, PR 4-E load forecast and risk model; Phase 3 (3-A `phase-3/a-safety`, 
 - **Phase 4 – PR 4-E (WP6 load forecast, WP7 risk model; branch `phase-4/e-load-risk`, stacked on
   4-D)**:
   - WP6 `suncore/forecast/load.py` + `load_service.py`: base load = `site.house_w` minus every
-    configured device's `device.<id>.power_w` (unmeasured quarter hours count 0 W and are reported
-    per device, negative rests clipped); profiles per day type (workday/weekend/holiday) × 96
-    wall-clock quarter hours, exponential smoothing (half-life 21 days, 56 days look-back),
-    clipped z-score (3 × max(MAD scale, ½ median)), shrinkage of thin day types (holiday → weekend
-    → all non-holiday days), kernel smoothing; optional temperature term (heating/cooling degrees
-    15/22 °C, bounded 0–300 W/K, active after 14 days with a recorded temperature, offset ≤ 50 %
-    of the day's mean); residual P10/P90 per time-of-day block; cold start (< 3 days: flat at the
-    7-day mean, P10 0.5×, P90 2×), `no_history` without data. Day types: `workday` sensor state
-    for today, `workday.check_date` for other dates (≤ 12 calls per refresh, answers cached in
-    `learned_param` `load_profile/day_types`), else the weekday rule; a sensor with `days_offset`
-    ≠ 0 is ignored. Refresh every 15 min, refit hourly/after the history rebuild/nightly, stored
-    hourly as kind `load` source `load_profile`, accuracy (all quarter hours) in the nightly job;
-    `GET /api/v1/forecast/load?hours=48`; the controlled devices' histories are kept for 4-F.
+    configured device's `device.<id>.power_w` (the history rebuild also fetches the devices' power
+    sensors; unmeasured quarter hours count 0 W, are reported per device and are left out of a day
+    type's profile once it has 7 fully measured days, else kept and flagged; negative rests
+    clipped); profiles per day type (workday/weekend/holiday) × 96 wall-clock quarter hours,
+    exponential smoothing (half-life 21 days, 56 days look-back), clipped z-score (3 × max(MAD
+    scale, ½ median)), shrinkage of thin day types (holiday → weekend → all non-holiday days),
+    kernel smoothing; optional temperature term (heating/cooling degrees 15/22 °C, bounded 0–300
+    W/K, active after 14 days with a recorded temperature, offset ≤ 50 % of the day's mean, only for
+    forecast days with ≥ 20 h of temperatures); residual P10/P90 per time-of-day block; cold start
+    (< 3 days: flat at the 7-day mean, P10 0.5×, P90 2×), `no_history` without data. Day types: the
+    `workday` sensor's state for today + `days_offset`, `workday.check_date(d − days_offset)` for
+    other dates (Home Assistant adds the offset; ≤ 12 calls per refresh, answers cached in
+    `learned_param` `load_profile/day_types` with a fingerprint of entity, `workdays`, `excludes`
+    and offset, dropped when it changes), else the weekday rule. Refresh every 15 min, refit
+    hourly/after the history rebuild/nightly, stored hourly as kind `load` source `load_profile`,
+    accuracy (all quarter hours) in the nightly job; `GET /api/v1/forecast/load?hours=48`; the
+    controlled devices' histories are kept for 4-F. Benchmark (n5): a refit (read 56 days of house,
+    3 devices and temperature from SQLite + fit) takes 118–163 ms on the session's amd64 container
+    (4 vCPU), the forecast itself about 1 ms; aarch64 not measured yet.
   - Config: `forecast.load.workday` / `forecast.load.weather` (additive in `forecast` v2, domain
     checked; the wizard form carries them through, UI in 4-H). `workday.check_date` joined
     `READ_ONLY_ACTIONS`. The weather entity's `temperature` is recorded as
     `weather.temperature_c` (HA keeps no statistics of weather entities).
-  - WP7 `suncore/forecast/risk.py` + `risk_learning.py`: windows `rest_of_today`, `night`,
-    `next_day` and `bridge` (night + next day, one quantile) anchored on the next sunset from the
-    PV forecast; weather class from the PV clear-sky index; net energy quantile `learned`
-    (relative errors per window × class, pooled per window when thin) from 30 days with samples,
-    else `source_quantiles` (two-piece normal, PV and load independent, slot quantiles summed);
-    `evening_target_pct`, `morning_buffer_pct` (comfort ratio 2), `prefer_full` = max SoC, manual
-    limits and max SoC always win, reasons `planner.battery.morning_buffer` /
-    `.evening_target` (en/de). Nightly samples from the 06:00/18:00 issues against measured PV
-    and base load, kept 365 days (`learned_param` `net_error`). `GET /api/v1/forecast/risk`.
-    Hypothesis tests (monotone in risk and uncertainty, limits) and the four scenarios.
+  - WP7 `suncore/forecast/risk.py` + `risk_learning.py`: windows `rest_of_night` (before
+    sunrise), `rest_of_today`, `night`, `next_day`, `bridge` (night + next day, one quantile) and
+    `day_and_night` (coming daytime + the night after it) anchored on today's sunset from the PV
+    forecast; weather class from the PV clear-sky index; net energy quantile `learned` (relative
+    errors per window × class, pooled per window when thin) from 30 days with samples, else
+    `source_quantiles` (two-piece normal, PV and load independent, slot quantiles summed) or
+    `default_band` (PV forecast without a band: default relative band per weather class);
+    `evening_target_pct`, `morning_buffer_pct` (one quantile over `day_and_night` against the
+    median night need), floor `core.battery.effective_reserve_pct` (ADR-0013), `prefer_full` =
+    max SoC, manual limits and max SoC always win; `goals.battery_target` is a floor of the
+    evening target, its time is ignored there (timed constraint in 4-F; maintainer 2026-10-22).
+    Reasons `planner.battery.morning_buffer` / `.evening_target` (en/de, naming the risk level).
+    Nightly samples from the issues at sunrise + 1 h and sunset − 1 h against measured PV and
+    base load, only for windows both forecasts cover, without clipped daytime quarter hours,
+    kept 365 days (`learned_param` `net_error`). `GET /api/v1/forecast/risk`. Hypothesis tests
+    (monotone in risk level, in PV and load uncertainty and on the learned path, limits incl.
+    the site min SoC) and the four scenarios.
+  - Review fixes (M1–M5, m2–m8, n1–n6) on 2026-10-22/23, see the plan's deviations.
   - Demo: deterministic workday sensor and weather entity (`binary_sensor.sim_workday_sensor`,
     `weather.sim_home`, both actions answered), battery model 10 kWh / 5 kW (still observe only).
   - Decisions and deviations: plan §"Deviations during implementation" (PR 4-E).
@@ -629,9 +643,10 @@ forecast, PR 4-E load forecast and risk model; Phase 3 (3-A `phase-3/a-safety`, 
 | Supervisor proxy forwards `energy/solar_forecast` | `suncore/ha/` (`fetch_solar_forecast`) | first run on HA OS |
 | PV calibration constants (classes kt 0.3/0.65, shrink k = 16, decay 0.98, factor 0.5–1.5) and the clipping thresholds (plateau ±0.3 % for ≥ 1 h on ≥ 2 days; export within max(3 %, 50 W)) are reasoned, not fitted to real data | `suncore/forecast/pv/` | 30+ days of the maintainer's data |
 | Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
-| Weather entity `temperature_unit` attribute (read for the unit of `temperature` and of the hourly forecast; missing = °C); `weather.get_forecasts` `hourly` support of the maintainer's weather integration | `suncore/app/adapters.py` (`HaLoadReader`), `research/ha-websocket-api.md` | maintainer's HA |
-| `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (Mon–Fri `workdays`; a `days_offset` ≠ 0 sensor is ignored) | `suncore/app/adapters.py`, `suncore/forecast/load.py` | maintainer maps a Workday sensor |
-| Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, degree-day bases 15/22 °C, coverage 75 %/90 %, comfort ratio 2, anchors 06:00/18:00, sunrise threshold 2 %/20 W) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |
+| `weather.get_forecasts` `hourly` support of the maintainer's weather integration (the `temperature_unit` attribute and the conversion of the forecast to it are verified from source, `research/ha-websocket-api.md`) | `suncore/app/adapters.py` (`HaLoadReader`) | maintainer's HA |
+| `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (the `days_offset` handling is verified from source; a changed country/holiday list is not visible in the attributes, so the day-type cache only resets on a changed entity, `workdays`, `excludes` or offset) | `suncore/app/adapters.py`, `suncore/forecast/load_service.py` | maintainer maps a Workday sensor |
+| Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, 7 clean days, degree-day bases 15/22 °C, coverage 75 %/90 %, 20 h temperature days, anchors sunrise + 1 h / sunset − 1 h, sunrise threshold 2 %/20 W) and the default PV bands per weather class (clear 0.85/1.10, mixed 0.55/1.35, overcast 0.35/1.70) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |
+| Known limitation (n6): the load history and the risk samples are not re-derived when the device list changes - a device added later is only subtracted from the base load from the day its power is recorded (or rebuilt), and older risk samples keep the old base load | `suncore/forecast/load_service.py`, `risk_learning.py` | accepted for Phase 4; revisit with 4-I |
 
 ## Environment notes
 

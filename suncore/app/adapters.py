@@ -103,9 +103,9 @@ def build_pv_forecast_service(
 class HaLoadReader:
     """The :class:`~suncore.forecast.load_service.LoadHaReader` backed by Home Assistant.
 
-    Shapes verified in ``docs/research/ha-websocket-api.md`` ("Workday", "Weather forecasts").
-    ``UNVERIFIED``: the weather entity's ``temperature_unit`` attribute (read for the unit of
-    ``temperature`` and of the forecast; a missing unit is taken as °C).
+    Shapes verified in ``docs/research/ha-websocket-api.md`` ("Workday", "Weather forecasts"):
+    the weather entity's ``temperature_unit`` attribute is the unit of its ``temperature`` and of
+    every ``weather.get_forecasts`` item (both converted to it by Home Assistant).
     """
 
     def __init__(self, connection: HAConnection, cache: EntityCache) -> None:
