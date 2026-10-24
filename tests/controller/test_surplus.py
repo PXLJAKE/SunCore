@@ -120,10 +120,13 @@ def test_battery_share_follows_the_goals(
     assert battery_share_available(goals, soc) == expected
 
 
-def test_a_plan_band_decides_over_the_goals() -> None:
+def test_a_plan_band_decides_over_the_goals_above_the_target() -> None:
     goals = GoalsConfig(battery_target=TARGET)
     band = BatteryBand(charge_from_surplus=False)
-    assert battery_share_available(goals, 10.0, band) == (True, None)
+    assert battery_share_available(goals, 90.0, band) == (True, None)
+    # The user's target stays a floor under a plan (review D1).
+    assert battery_share_available(goals, 10.0, band) == (False, 80)
+    assert battery_share_available(goals, None, band) == (False, 80)
     assert battery_share_available(GOALS, 90.0, BatteryBand()) == (False, None)
 
 
@@ -310,3 +313,9 @@ def test_below_its_priority_a_plan_never_gives_the_consumers_more(
         assert with_priority is False  # battery first, whatever else the band says
     # A priority only ever takes surplus away from the consumers.
     assert with_priority <= without_priority[0]
+    # Below max(priority, user target) a plan never gives the consumers more than Phase 3
+    # (no plan) would (review D1: the target is a floor under a plan as well).
+    target = 0.0 if goals.battery_target is None else goals.battery_target.soc_pct
+    if soc is None or soc < max(priority, target):
+        phase3, _ = battery_share_available(goals, soc)
+        assert with_priority <= phase3

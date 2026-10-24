@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -30,7 +31,7 @@ from suncore.core.control import (
     PowerEstimate,
 )
 from suncore.core.decisions import BatteryAction, Decision, DecisionKind, Intent, OperatingMode
-from tests.safety.helpers import T0, flows, steps_device
+from tests.safety.helpers import T0, flows, steps_device, switch_device
 
 GOALS = GoalsConfig(climate_before_export=True)
 HEATER = steps_device("heater")
@@ -232,3 +233,63 @@ def test_a_default_plan_is_the_phase_3_controller() -> None:
     no_plan, _ = run_heater(Plan.default(), grid_w=-6000.0)
     open_plan, _ = run_heater(plan_of(BatteryBand(), DeviceBand()), grid_w=-6000.0)
     assert no_plan == open_plan == 2
+
+
+# --- flapping plan bands (control-safety review m1) ----------------------------------------
+
+
+def _flapping(
+    *, min_run_s: int = 0, min_pause_s: int = 0, max_switches: int | None = None, hours: int = 3
+) -> list[tuple[float, bool]]:
+    """A switch under steady surplus while the plan alternates allowed/blocked every 15 min."""
+    device = switch_device(
+        "pool", min_run_s=min_run_s, min_pause_s=min_pause_s, max_switches_per_hour=max_switches
+    )
+    intervals = []
+    for k in range(hours * 4):
+        start = T0 + timedelta(minutes=15 * k)
+        band = DeviceBand() if k % 2 == 0 else DeviceBand(allowed=False, max_power_w=0.0)
+        intervals.append(
+            PlanInterval(start=start, end=start + timedelta(minutes=15), devices={"pool": band})
+        )
+    plan = Plan(intervals=tuple(intervals))
+    controller = Controller([device])
+    on = False
+    switches: list[tuple[float, bool]] = []
+    for k in range(hours * 3600 // 5):
+        now = at(5 * k)
+        result = controller.step(
+            now,
+            ControllerInputs(
+                flows=flows(grid_w=-4000.0 + (1000.0 if on else 0.0), battery_w=0.0, soc_pct=50.0),
+                states={"pool": DeviceState(on=on)},
+                estimates={"pool": PowerEstimate(value_w=1000.0 if on else 0.0, uncertainty_w=5.0)},
+                goals=GOALS,
+                plan=plan,
+            ),
+        )
+        for intent in result.intents:
+            controller.report(accepted(intent))
+            on = bool(getattr(intent.action, "on", on))
+            switches.append(((now - T0).total_seconds(), on))
+    return switches
+
+
+def _per_hour(switches: list[tuple[float, bool]]) -> list[int]:
+    hours = int(max((s for s, _ in switches), default=0) // 3600) + 1
+    return [sum(1 for s, _ in switches if h * 3600 <= s < (h + 1) * 3600) for h in range(hours)]
+
+
+def test_flapping_bands_respect_the_switch_limit() -> None:
+    default_limit = 6  # ControlSettings.default_max_switches_per_hour
+    assert all(n <= default_limit for n in _per_hour(_flapping()))
+    limited = _flapping(max_switches=2)
+    assert limited
+    assert all(n <= 2 for n in _per_hour(limited))
+
+
+def test_flapping_bands_respect_the_minimum_run_and_pause() -> None:
+    switches = _flapping(min_run_s=1200, min_pause_s=600)
+    assert switches
+    for (t0, on0), (t1, _) in itertools.pairwise(switches):
+        assert t1 - t0 >= (1200 if on0 else 600)

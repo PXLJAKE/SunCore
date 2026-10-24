@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
 from suncore.app.planning import LiveReading, PlanningService, PlanningSettings, PlanningSnapshot
-from suncore.core.control import Plan
+from suncore.core.control import BatteryBand, DeviceBand, Plan, PlanInterval
 from suncore.core.decisions import BatteryAction, DecisionKind, OperatingMode
 from suncore.sim.planner_scenarios import situation, situation_inputs
 from suncore.sim.runner import RunResult, ScenarioRunner
@@ -137,3 +138,59 @@ def test_the_gate_rejects_battery_limits_with_a_plan_present(
     assert not planning.active_plan(planning.plan.created_at).is_default  # type: ignore[union-attr]
     assert observed.battery_decision is DecisionKind.REJECTED
     assert observed.battery_reasons == ["safety.battery_not_supported"]
+
+
+def test_no_decision_of_the_run_carries_a_battery_action(
+    played: tuple[RunResult, ScenarioRunner, PlanningService, Observed],
+) -> None:
+    """The controller never proposes battery limits (control-safety review m4); the only
+    battery intent is the one this test submits to the gate itself (asset ``rod``)."""
+    result, _, _, _ = played
+    controller_made = [d for d in result.decisions if isinstance(d.intent.action, BatteryAction)]
+    assert all(d.kind is DecisionKind.REJECTED for d in controller_made)
+    assert all(d.intent.asset_id == "rod" for d in controller_made)
+    assert len(controller_made) <= 1
+
+
+async def _blocked_run() -> RunResult:
+    scenario = load_scenario("planner_in_shadow")
+    runner = ScenarioRunner(scenario, catalog(), global_mode=OperatingMode.SHADOW)
+    start = runner.vt.now
+    half = start + timedelta(hours=3)
+    consumers_first = BatteryBand(charge_from_surplus=False)
+    blocked = DeviceBand(allowed=False, max_power_w=0.0)
+    plan = Plan(
+        intervals=(
+            PlanInterval(start=start - timedelta(hours=1), end=half, battery=consumers_first),
+            PlanInterval(
+                start=half,
+                end=start + timedelta(hours=7),
+                battery=consumers_first,
+                devices={"rod": blocked, "pool": blocked},
+            ),
+        )
+    )
+    runner.plan_provider = lambda _now: plan
+    await runner.start()
+    for index in range(scenario.steps):
+        await runner.step(index)
+    result = await runner.finish()
+    await runner.close()
+    return result
+
+
+def test_a_blocking_device_band_takes_effect_in_shadow() -> None:
+    """``DeviceBand(allowed=False)``: the 'would have' level drops with ``plan_blocked``."""
+    result = asyncio.run(_blocked_run())
+    shadow = result.of_kind(DecisionKind.SHADOW)
+    assert shadow
+    blocked = [d for d in shadow if "controller.plan_blocked" in [r.key for r in d.intent.reasons]]
+    assert blocked
+    first_blocked = min(d.ts for d in blocked)
+    # After the block no shadow decision raises a device again.
+    assert all(
+        "controller.plan_blocked" in [r.key for r in d.intent.reasons]
+        for d in shadow
+        if d.ts >= first_blocked
+    )
+    assert result.of_kind(DecisionKind.ACCEPTED) == []
