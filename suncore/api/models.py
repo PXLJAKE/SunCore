@@ -20,6 +20,7 @@ from suncore.core.decisions import Decision, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, worst_severity
+from suncore.planner.views import PlanSummary
 from suncore.storage import HistoryEntry
 from suncore.templates import (
     DeviceTemplate,
@@ -425,8 +426,20 @@ class ControlMessage(_Model):
     control: ControlState
 
 
+class PlanMessage(_Model):
+    """A new plan was computed (summary only; fetch ``GET /api/v1/plan`` for the intervals)."""
+
+    type: Literal["plan"] = "plan"
+    plan: PlanSummary
+
+
 LiveMessage = Annotated[
-    SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage,
+    SnapshotMessage
+    | FlowsMessage
+    | HealthMessage
+    | DecisionsMessage
+    | ControlMessage
+    | PlanMessage,
     Field(discriminator="type"),
 ]
 """Everything the server sends on ``/api/v1/live`` (discriminated by ``type``)."""
@@ -453,6 +466,7 @@ __all__ = [
     "InfoOut",
     "LiveMessage",
     "ModeRequest",
+    "PlanMessage",
     "PreviewItemOut",
     "PreviewOut",
     "SnapshotMessage",

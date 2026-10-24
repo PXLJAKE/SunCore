@@ -31,6 +31,7 @@ INPUT_DEVICE_POWER_UNKNOWN: Final = "planner.input.device_power_unknown"
 
 # --- runtime level: why the planner runtime has no (fresh) plan (WP9) ---------------------
 STATUS_WAITING: Final = "planner.status.waiting_for_inputs"
+STATUS_WAITING_SOC: Final = "planner.status.waiting_for_soc"
 STATUS_NO_INPUTS: Final = "planner.status.no_inputs"
 STATUS_RUN_FAILED: Final = "planner.status.run_failed"
 STATUS_RUN_TIMEOUT: Final = "planner.status.run_timeout"

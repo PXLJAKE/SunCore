@@ -49,6 +49,7 @@ from suncore.api.models import (
     InfoOut,
     LiveMessage,
     ModeRequest,
+    PlanMessage,
     PreviewItemOut,
     PreviewOut,
     SnapshotMessage,
@@ -96,6 +97,7 @@ from suncore.forecast.views import (
     PvForecastView,
     RiskView,
 )
+from suncore.planner.views import PlanStatusView, PlanView, ReplanAck
 from suncore.storage.errors import (
     ConfigCorruptError,
     HistoryEntryNotFoundError,
@@ -111,6 +113,7 @@ log = logging.getLogger(__name__)
 API_PREFIX: Final = "/api/v1"
 DECISIONS_MAX: Final = 1000
 PRICES_MAX_HOURS: Final = 72
+PLAN_MAX_HOURS: Final = 48
 
 # Stable error keys for ``detail``; the SPA renders them through the message catalogue.
 ERR_HA_UNAVAILABLE: Final = "api.error.ha_unavailable"
@@ -132,6 +135,7 @@ ERR_UNKNOWN_PROPOSAL: Final = "api.error.unknown_proposal"
 ERR_DEVICE_IDENTITY_CHANGED: Final = "api.error.device_identity_changed"
 ERR_MODE_RAISE_REJECTED: Final = "api.error.mode_raise_rejected"
 ERR_TARIFF_NOT_CONFIGURED: Final = "api.error.tariff_not_configured"
+ERR_PLANNING_UNAVAILABLE: Final = "api.error.planning_unavailable"
 BODY_MAX_BYTES: Final = 64 * 1024
 """Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
 SECTION_MAX_BYTES: Final = 256 * 1024
@@ -162,6 +166,7 @@ def create_app(
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     _register_http(app, services)
     _register_prices(app, services)
+    _register_plan(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
     app.openapi = lambda: _openapi(app)  # type: ignore[method-assign]
@@ -347,6 +352,39 @@ def _register_prices(app: FastAPI, services: Services) -> None:
             return await services.prices(hours)
         except TariffNotConfiguredError as exc:
             raise HTTPException(status_code=404, detail=ERR_TARIFF_NOT_CONFIGURED) from exc
+
+
+def _register_plan(app: FastAPI, services: Services) -> None:
+    """The planner: current plan, scheduler status and a manual replan (Phase 4 WP9)."""
+
+    @app.get(f"{API_PREFIX}/plan", response_model=PlanView, operation_id="get_plan")
+    async def plan(hours: int = Query(default=PLAN_MAX_HOURS, ge=1, le=PLAN_MAX_HOURS)) -> PlanView:
+        """The current plan from now to ``hours`` ahead: per 15-minute interval the expected
+        flows, prices, battery and device bands and the reasons; who made it (``solver``,
+        ``heuristic`` or ``default`` = none yet), the solver statistics, ``stale`` and whether
+        the controller follows it (``in_use``; else ``fallback`` says why)."""
+        return await services.plan_view(hours)
+
+    @app.get(f"{API_PREFIX}/plan/status", response_model=PlanStatusView, operation_id="plan_status")
+    async def plan_status() -> PlanStatusView:
+        """Last run (time, duration, outcome and reason), pending events and the next run."""
+        return await services.plan_status()
+
+    @app.post(
+        f"{API_PREFIX}/plan/replan",
+        response_model=ReplanAck,
+        status_code=202,
+        operation_id="replan",
+        responses={409: {"model": ErrorOut, "description": "The planner is not running"}},
+    )
+    async def replan() -> ReplanAck:
+        """Ask for a new plan. Debounced (at most one event-triggered run per minute) and
+        answered at once with the earliest start; the new plan arrives as a ``plan`` message
+        on the live feed."""
+        try:
+            return await services.replan()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=ERR_PLANNING_UNAVAILABLE) from exc
 
 
 def _register_control(app: FastAPI, services: Services) -> None:
@@ -646,6 +684,7 @@ def _register_live(
             services.add_change_listener(wake.flows),
             services.add_health_listener(wake.health),
             services.add_control_listener(wake.control),
+            services.add_plan_listener(wake.plan),
         )
         pump = asyncio.create_task(
             _pump(ws, services, wake, live_min_interval_s, live_health_interval_s)
@@ -673,6 +712,7 @@ class _Wake:
         self.flows_changed = False
         self.health_changed = False
         self.control_changed = False
+        self.plan_changed = False
 
     def flows(self) -> None:
         self.flows_changed = True
@@ -686,9 +726,14 @@ class _Wake:
         self.control_changed = True
         self.event.set()
 
-    def take(self) -> tuple[bool, bool, bool]:
-        taken = (self.flows_changed, self.health_changed, self.control_changed)
+    def plan(self) -> None:
+        self.plan_changed = True
+        self.event.set()
+
+    def take(self) -> tuple[bool, bool, bool, bool]:
+        taken = (self.flows_changed, self.health_changed, self.control_changed, self.plan_changed)
         self.flows_changed = self.health_changed = self.control_changed = False
+        self.plan_changed = False
         self.event.clear()
         return taken
 
@@ -753,10 +798,13 @@ async def _pump(
                 await asyncio.wait_for(
                     wake.event.wait(), timeout=max(0.0, next_health - loop.time())
                 )
-            flows_changed, state_changed, control_changed = wake.take()
+            flows_changed, state_changed, control_changed, plan_changed = wake.take()
             if flows_changed:
                 msg = FlowsMessage(flows=_flows_out(services))
                 await ws.send_json(msg.model_dump(mode="json"))
+            if plan_changed:
+                pmsg = PlanMessage(plan=services.plan_summary())
+                await ws.send_json(pmsg.model_dump(mode="json"))
             if control_changed:
                 cmsg = ControlMessage(control=services.control_state())
                 await ws.send_json(cmsg.model_dump(mode="json"))

@@ -107,14 +107,16 @@ Change options on the app's **Configuration** tab and restart the app.
 
 ## Expert settings (environment variables)
 
-Three timing settings of the price service are not app options (keep the Configuration tab
-simple). Experts can set them as environment variables of the container:
+Some timing and budget settings of the price service and the planner are not app options
+(keep the Configuration tab simple). Experts can set them as environment variables of the container:
 
 | Variable | Default | Description |
 |---|---|---|
 | `SUNCORE_TARIFF_REFRESH_INTERVAL_S` | `3600` | Spacing of the regular price refresh in seconds (60–86400). |
 | `SUNCORE_TARIFF_TOMORROW_AFTER` | `13:00` | Local time from which tomorrow's day-ahead prices are expected. |
 | `SUNCORE_TARIFF_TOMORROW_POLL_S` | `900` | Spacing of the asks between that time and the arrival of tomorrow's prices. |
+| `SUNCORE_PLANNER_BUDGET_S` | `8` | Time budget of one planner run in seconds (0.5–120); the rule-based plan covers a miss. |
+| `SUNCORE_PLANNER_MIP_GAP` | `0.01` | Accepted distance from the optimum of the planner's solver (0–0.5). |
 
 ## Demo mode
 

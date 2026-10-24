@@ -36,6 +36,12 @@ from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import ControlStack
 from suncore.app.history import rebuild_history
 from suncore.app.modes import ConfigModes
+from suncore.app.planning import (
+    LiveReading,
+    PlanningService,
+    PlanningSettings,
+    PlanningSnapshot,
+)
 from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
@@ -48,7 +54,7 @@ from suncore.core.config import (
     RegionConfig,
     TariffConfig,
 )
-from suncore.core.control import ControlSettings
+from suncore.core.control import ControlSettings, Plan
 from suncore.core.controlstate import (
     ControlState,
     DeviceControlState,
@@ -59,11 +65,12 @@ from suncore.core.controlstate import (
     UnknownDeviceError,
     UnknownProposalError,
 )
-from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin
+from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import DeviceConfig
 from suncore.core.identity import identity_token
-from suncore.core.signals import Sample
+from suncore.core.series import QuantileSeries
+from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import (
     CheckItem,
@@ -104,6 +111,9 @@ from suncore.ha import (
     legacy_entities,
     suggest_from_prefs,
 )
+from suncore.planner import build_inputs
+from suncore.planner import reasons as planner_reasons
+from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck, Trigger
 from suncore.safety.gate import REASON_OVERRIDE_HELD, Clock, SafetyGate
 from suncore.storage import (
     ConfigStore,
@@ -121,6 +131,10 @@ from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
 from suncore.templates import TariffTemplate, TemplateCatalog
 
+PLANNING_SECTIONS = frozenset(
+    {"site", "region", "tariff", "forecast", "battery", "goals", "devices"}
+)
+"""Configuration sections whose change asks for a new plan."""
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
 
 log = structlog.get_logger(__name__)
@@ -215,6 +229,10 @@ class Runtime:
     _load_task: asyncio.Task[None] | None = None
     _accuracy_task: asyncio.Future[None] | None = None
     _tariff_task: asyncio.Task[None] | None = None
+    planning: PlanningService | None = None
+    """The planner runtime (built in :meth:`prepare`; the control stack reads its plan)."""
+    _planning_task: asyncio.Task[None] | None = None
+    _plan_unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _history_done: bool = False
     """The statistics rebuild ran (or was not needed) in this process."""
     _stack_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -243,6 +261,7 @@ class Runtime:
         Called by ``build_runtime`` so that the gate exists before :meth:`start`.
         """
         await self._load_live_sections()
+        self.planning = self._new_planning()
         self.stack = self._new_stack()
         self.pv_service = self._new_pv_service()
         await self._load_pv_learning()
@@ -273,6 +292,7 @@ class Runtime:
         self._start_pv_task()
         self._start_load_task()
         self._start_tariff()
+        self._start_planning()
         if self.timeseries is not None:
             self._flush_task = asyncio.create_task(self._flush_loop(), name="suncore-ts-flush")
             self._maintenance_task = asyncio.create_task(
@@ -315,6 +335,104 @@ class Runtime:
             log.warning("control.timezone_unknown_using_utc")
         return UTC
 
+    # --- planner runtime (Phase 4 WP9) ---------------------------------------------------------
+
+    def _new_planning(self) -> PlanningService:
+        return PlanningService(
+            self._collect_planning,
+            self._live_reading,
+            clock=self.clock,
+            sleep=self.control_sleep,
+            settings=PlanningSettings(
+                budget_s=self.settings.planner_budget_s, mip_gap=self.settings.planner_mip_gap
+            ),
+            store=self.plans,
+        )
+
+    def _start_planning(self) -> None:
+        if self.planning is not None and self._started and self._planning_task is None:
+            self._planning_task = asyncio.create_task(self.planning.run(), name="suncore-planner")
+
+    def _planning_event(self, trigger: Trigger) -> None:
+        if self.planning is not None:
+            self.planning.request(trigger)
+
+    def _live_reading(self) -> LiveReading:
+        flows = self.flows()
+        if flows is None:
+            return LiveReading()
+        soc, grid = flows.battery_soc_pct, flows.grid_w
+        return LiveReading(
+            soc_pct=soc.value if soc.quality is Quality.OK else None,
+            grid_w=grid.value if grid.quality is Quality.OK else None,
+        )
+
+    async def _collect_planning(self, now: datetime, previous: Plan | None) -> PlanningSnapshot:
+        """The planner's inputs from the services as they are now (``build_inputs``)."""
+        site = self.site
+        if site is None or self.connection.state is not ConnectionState.CONNECTED:
+            return PlanningSnapshot(None, reason=Reason(key=planner_reasons.STATUS_NO_INPUTS))
+        battery = await self._battery_settings()
+        soc = self._live_reading().soc_pct
+        if battery.model is not None and soc is None:
+            return PlanningSnapshot(None, reason=Reason(key=planner_reasons.STATUS_WAITING_SOC))
+        prices = None if self.tariff is None else self.tariff.prices(48.0, now)
+        blended = None if self.pv_service is None else self.pv_service.blended(now)
+        pv = None if blended is None else blended.series
+        load = None if self.load_service is None else self.load_service.forecast(now)
+        risk = self._risk(now, battery, pv, load)
+        devices = [] if self.devices is None else list(self.devices.devices)
+        inputs = build_inputs(
+            now,
+            tz=self._blend_tz(),
+            load=load,
+            pv=pv,
+            prices=prices,
+            battery=battery,
+            soc_pct=soc,
+            goals=self.goals,
+            site_battery=site.battery,
+            morning_buffer=risk.morning_buffer,
+            evening_target=risk.evening_target,
+            evening_at=risk.evening_at,
+            devices=devices,
+            import_limit_w=site.grid.import_limit_w,
+            export_limit_w=export_limit_w(site),
+            previous=previous,
+        )
+        complete = (
+            (prices is None or any(v is not None for v in prices.import_price.values))
+            and (self.pv_service is None or pv is not None)
+            and (self.load_service is None or load is not None)
+        )
+        return PlanningSnapshot(inputs, complete=complete)
+
+    async def plan_view(self, hours: int) -> PlanView:
+        if self.planning is None:
+            msg = "the planner runtime is not built"
+            raise RuntimeError(msg)
+        return self.planning.view(hours)
+
+    async def plan_status(self) -> PlanStatusView:
+        if self.planning is None:
+            msg = "the planner runtime is not built"
+            raise RuntimeError(msg)
+        return self.planning.status()
+
+    async def replan(self) -> ReplanAck:
+        if self.planning is None:
+            msg = "the planner runtime is not built"
+            raise RuntimeError(msg)
+        return self.planning.request("manual")
+
+    def plan_summary(self) -> PlanSummary:
+        assert self.planning is not None
+        return self.planning.summary()
+
+    def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        assert self.planning is not None
+        return self.planning.add_listener(listener)
+
     # --- tariff (prices) --------------------------------------------------------
 
     def _build_tariff(self) -> None:
@@ -344,6 +462,8 @@ class Runtime:
             )
         except ExportConfigError as exc:
             log.warning("tariff.export_unusable", error=exc.key, detail=exc.detail)
+        if self.tariff is not None:
+            self.tariff.add_listener(lambda: self._planning_event("prices"))
         if self.tariff is None:
             log.warning("tariff.service_not_built")
 
@@ -403,6 +523,7 @@ class Runtime:
             after_handover=after_handover,
             predecessor=predecessor,
             defer_recover=not self._time_zone_settled(),
+            plan_provider=None if self.planning is None else self.planning.active_plan,
         )
         stack.add_listener(self._notify_control)
         return stack
@@ -544,18 +665,23 @@ class Runtime:
         except Exception:
             log.exception("forecast.risk.load_failed")
 
-    async def forecast_risk(self) -> RiskView:
-        """Morning buffer, evening target and their windows as the planner would get them."""
-        now = self.clock()
+    async def _battery_settings(self) -> BatterySettings:
         stored = await self.config.get("battery")
-        settings = stored if isinstance(stored, BatterySettings) else BatterySettings()
+        return stored if isinstance(stored, BatterySettings) else BatterySettings()
+
+    def _risk(
+        self,
+        now: datetime,
+        settings: BatterySettings,
+        pv: QuantileSeries | None,
+        load: QuantileSeries | None,
+    ) -> RiskView:
         target = None if self.goals is None else self.goals.battery_target
-        blended = None if self.pv_service is None else self.pv_service.blended(now)
         context = self._blend_context()
         return risk_view(
             now,
-            pv=None if blended is None else blended.series,
-            load=None if self.load_service is None else self.load_service.forecast(now),
+            pv=pv,
+            load=load,
             settings=settings,
             user_target_pct=None if target is None else target.soc_pct,
             site_battery=None if self.site is None else self.site.battery,
@@ -565,6 +691,17 @@ class Runtime:
             ),
             tz=context.tz,
             plant=context.plant,
+        )
+
+    async def forecast_risk(self) -> RiskView:
+        """Morning buffer, evening target and their windows as the planner would get them."""
+        now = self.clock()
+        blended = None if self.pv_service is None else self.pv_service.blended(now)
+        return self._risk(
+            now,
+            await self._battery_settings(),
+            None if blended is None else blended.series,
+            None if self.load_service is None else self.load_service.forecast(now),
         )
 
     async def _update_pv_learning(self) -> None:
@@ -594,6 +731,12 @@ class Runtime:
     # --- PV forecast (Phase 4 WP5) ---------------------------------------------------
 
     def _new_pv_service(self) -> PvForecastService | None:
+        service = self._build_pv_service()
+        if service is not None:
+            service.add_listener(lambda: self._planning_event("forecast"))
+        return service
+
+    def _build_pv_service(self) -> PvForecastService | None:
         return build_pv_forecast_service(
             self.forecast,
             catalog=self.template_catalog,
@@ -653,6 +796,12 @@ class Runtime:
     # --- load forecast (Phase 4 WP6) ------------------------------------------------
 
     def _new_load_service(self) -> LoadForecastService | None:
+        service = self._build_load_service()
+        if service is not None:
+            service.add_listener(lambda: self._planning_event("forecast"))
+        return service
+
+    def _build_load_service(self) -> LoadForecastService | None:
         device_ids = () if self.devices is None else tuple(d.id for d in self.devices.devices)
         return build_load_forecast_service(
             self.forecast,
@@ -871,6 +1020,7 @@ class Runtime:
             self._load_task,
             self._accuracy_task,
             self._tariff_task,
+            self._planning_task,
         )
         for task in (*control_tasks, *storage_tasks):
             if task is not None:
@@ -883,6 +1033,7 @@ class Runtime:
         self._flush_task = self._maintenance_task = self._history_task = None
         self._pv_task = self._load_task = None
         self._tariff_task = None
+        self._planning_task = None
         # Hardware release comes first: a running downsample or retention statement keeps the
         # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
         # The storage tasks are awaited only after the devices are released.
@@ -1048,6 +1199,8 @@ class Runtime:
                 stored = await self._put_section(name, model)
         else:
             stored = await self._put_section(name, model)
+        if name in PLANNING_SECTIONS:
+            self._planning_event("config")
         self._notify()
         return stored
 
@@ -1223,6 +1376,7 @@ class Runtime:
                 )
         else:
             await stack.gate.resume(device_id)
+        self._planning_event("override")
         self._notify_control()
         state = stack.control_state()
         return next(d for d in state.devices if d.device_id == device_id)
@@ -1393,6 +1547,7 @@ class Runtime:
         if self.forecast != forecast_before or self.devices != devices_before:
             await self._rebuild_load_service()
         await self._sync_modes()
+        self._planning_event("config")
 
     def add_change_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(listener)

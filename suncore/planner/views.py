@@ -7,7 +7,7 @@ and the OpenAPI document is generated from them.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -21,7 +21,6 @@ Trigger = Literal[
 RunOutcome = Literal["ok", "failed", "skipped"]
 """``skipped``: nothing to plan with yet (or an earlier run still hangs); ``failed``: the run
 raised or timed out - the last good plan stays."""
-Pct = Annotated[float, Field(ge=0, le=100)]
 
 
 class _View(BaseModel):

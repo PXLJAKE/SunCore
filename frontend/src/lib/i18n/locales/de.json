@@ -945,5 +945,6 @@
   "planner.status.stale": "Der Plan ist älter als {age_h, number, ::.0} h: SunCore regelt ohne ihn (nur Überschussregeln), bis ein neuer Plan vorliegt.",
   "planner.status.expired": "Der Plan ist abgelaufen: SunCore regelt ohne ihn (nur Überschussregeln), bis ein neuer Plan vorliegt.",
   "planner.status.no_plan": "Es gibt noch keinen Plan: SunCore regelt nur nach den Überschussregeln.",
-  "api.error.planning_unavailable": "Der Planer läuft nicht (keine Anlage eingerichtet)."
+  "api.error.planning_unavailable": "Der Planer läuft nicht (keine Anlage eingerichtet).",
+  "planner.status.waiting_for_soc": "Warte auf den Ladestand der Batterie, bevor geplant wird."
 }

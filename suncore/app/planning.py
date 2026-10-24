@@ -46,7 +46,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Final, TypeVar
+from typing import Final
 
 import structlog
 
@@ -67,8 +67,6 @@ from suncore.planner.views import (
 from suncore.storage import PlanSnapshotStore
 
 log = structlog.get_logger(__name__)
-
-T = TypeVar("T")
 
 QUARTER: Final = timedelta(minutes=15)
 EVENT_PRIORITY: Final[tuple[Trigger, ...]] = (
@@ -135,9 +133,9 @@ class LiveReading:
 
 
 Collector = Callable[[datetime, Plan | None], Awaitable[PlanningSnapshot]]
-"""``(now, previous plan) -> snapshot``; the runtime reads its services and calls ``build_inputs``."""
+"""``(now, previous plan) -> snapshot``: the runtime reads its services, calls ``build_inputs``."""
 Solver = Callable[[PlannerInputs, float, float, Plan | None], PlannerRun]
-ThreadRunner = Callable[[Callable[[], T]], Awaitable[T]]
+type ThreadRunner[T] = Callable[[Callable[[], T]], Awaitable[T]]
 PlanListener = Callable[[], None]
 
 
@@ -147,7 +145,7 @@ def default_solver(
     return run_planner(inputs, budget_s=budget_s, mip_gap=mip_gap, warm_start=previous)
 
 
-async def run_in_daemon_thread(fn: Callable[[], T]) -> T:
+async def run_in_daemon_thread[T](fn: Callable[[], T]) -> T:
     """Run ``fn`` in a daemon thread and await its result without ever blocking the loop.
 
     Unlike ``asyncio.to_thread`` (default executor, joined at shutdown) an abandoned call cannot
@@ -401,7 +399,7 @@ class PlanningService:
         slot = floor_quarter(moment - offset)
         if self._last_slot is None or slot > self._last_slot:
             return moment
-        return slot + QUARTER + offset
+        return self._last_slot + QUARTER + offset
 
     def status(self, now: datetime | None = None) -> PlanStatusView:
         moment = self._clock() if now is None else now
@@ -507,7 +505,7 @@ class PlanningService:
             first is not None and (now - first).total_seconds() < self._settings.first_run_grace_s
         )
 
-    async def _run(self, now: datetime, trigger: Trigger) -> None:  # noqa: PLR0915
+    async def _run(self, now: datetime, trigger: Trigger) -> None:  # noqa: PLR0912, PLR0915
         s = self._settings
         self._running = True
         self._pending.clear()  # this run's inputs include everything requested so far
@@ -558,7 +556,7 @@ class PlanningService:
             self._failures = 0
             self._retry_at = None
             self._last_ok = finished
-            self._last_slot = floor_quarter(now - timedelta(seconds=s.offset_s))
+            self._last_slot = floor_quarter(now)
             self._plan = new_plan  # the atomic hand-over: the controller reads this reference
             self._plan_stamp = finished
             self._net_ema = None
@@ -572,7 +570,7 @@ class PlanningService:
             backoff = min(900.0, 60.0 * 2 ** (self._failures - 1))
             self._retry_at = finished + timedelta(seconds=backoff)
             # A failed cadence run is not retried before the back-off, but the quarter is spent.
-            self._last_slot = floor_quarter(now - timedelta(seconds=s.offset_s))
+            self._last_slot = floor_quarter(now)
 
     async def _solve_in_thread(self, inputs: PlannerInputs, warm: Plan | None) -> Plan:
         s = self._settings

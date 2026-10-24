@@ -945,5 +945,6 @@
   "planner.status.stale": "The plan is older than {age_h, number, ::.0} h: SunCore controls without it (surplus rules only) until a new plan arrives.",
   "planner.status.expired": "The plan has run out: SunCore controls without it (surplus rules only) until a new plan arrives.",
   "planner.status.no_plan": "There is no plan yet: SunCore controls on surplus rules only.",
-  "api.error.planning_unavailable": "The planner is not running (no site is set up)."
+  "api.error.planning_unavailable": "The planner is not running (no site is set up).",
+  "planner.status.waiting_for_soc": "Waiting for the battery's state of charge before planning."
 }

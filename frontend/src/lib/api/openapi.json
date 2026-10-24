@@ -285,6 +285,16 @@
         "title": "AttributeSeries",
         "type": "object"
       },
+      "BandPreference": {
+        "description": "What the plan would like the controller to do inside an allowed band.",
+        "enum": [
+          "neutral",
+          "prefer_on",
+          "prefer_off"
+        ],
+        "title": "BandPreference",
+        "type": "string"
+      },
       "BatteryAction": {
         "additionalProperties": false,
         "description": "Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).\n\nEvery field is optional, at least one must be set; a missing field leaves that limit\nas it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a\ncharging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the\ninverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at\nor above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the\ngrid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both are set (forced\ncharging cannot be above the charge cap, and a cap of 0 forbids it). Until the battery\npath exists the gate rejects this action (``safety.battery_not_supported``); nothing is\nwritten.",
@@ -349,6 +359,97 @@
           }
         },
         "title": "BatteryAction",
+        "type": "object"
+      },
+      "BatteryBand": {
+        "additionalProperties": false,
+        "description": "Battery corridor per interval (Phase 4 writes it; Phase 3 reads only ``reserve``).",
+        "properties": {
+          "charge_from_surplus": {
+            "default": true,
+            "title": "Charge From Surplus",
+            "type": "boolean"
+          },
+          "discharge_lock": {
+            "default": false,
+            "title": "Discharge Lock",
+            "type": "boolean"
+          },
+          "grid_charge_max_w": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Charge Max W"
+          },
+          "max_power_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Power W"
+          },
+          "max_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Soc Pct"
+          },
+          "min_power_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Power W"
+          },
+          "min_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Soc Pct"
+          },
+          "priority_until_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority Until Soc Pct"
+          }
+        },
+        "title": "BatteryBand",
         "type": "object"
       },
       "BatteryConfig": {
@@ -1596,6 +1697,35 @@
           "decisions"
         ],
         "title": "DecisionsMessage",
+        "type": "object"
+      },
+      "DeviceBand": {
+        "additionalProperties": false,
+        "description": "Per interval and device: what the controller may do and what the planner prefers.",
+        "properties": {
+          "allowed": {
+            "default": true,
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "max_power_w": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Power W"
+          },
+          "preference": {
+            "$ref": "#/components/schemas/BandPreference",
+            "default": "neutral"
+          }
+        },
+        "title": "DeviceBand",
         "type": "object"
       },
       "DeviceConfig": {
@@ -3917,6 +4047,138 @@
         "title": "Intent",
         "type": "object"
       },
+      "IntervalFlows": {
+        "additionalProperties": false,
+        "description": "Plan v2: the flows the planner expects in an interval (mean power, W).\n\nSigns per ``core/units.py``: import/export are magnitudes, battery + = charging.\n``pv_p10_w``/``pv_p50_w``/``pv_p90_w`` are the PV forecast's quantiles as forecast data\n(shown in the UI; ``None`` = the source has no quantiles); the objective uses P50.\nBattery targets are *not* planned on P10 PV (plan §0): they use the risk quantile of\nthe learnt **net** energy error distribution (PV minus load) per weather class.\n``net_risk_quantile`` is that quantile (``RiskLevel.quantile``, e.g. 0.1 = cautious)\nand ``net_risk_w`` the net power PV - load at that quantile the target constraints\nused (may be negative; ``None`` = no target constraint in this interval).\n``soc_pct`` is the planned state of charge at the *end* of the interval (``None`` = no\nbattery). ``devices_w`` is the planned draw of the controllable devices (not part of\n``load_w``, the base load) and ``curtail_w`` the PV the plan does not use (export limit\nor negative export price; informational until the export-limit chain, Phase 6), so\n``pv_p50_w + import_w + max(-battery_w, 0) = load_w + devices_w + max(battery_w, 0) +\nexport_w + curtail_w`` (both additive in plan v2, default 0).",
+        "properties": {
+          "battery_w": {
+            "default": 0.0,
+            "title": "Battery W",
+            "type": "number"
+          },
+          "curtail_w": {
+            "default": 0.0,
+            "minimum": 0.0,
+            "title": "Curtail W",
+            "type": "number"
+          },
+          "devices_w": {
+            "default": 0.0,
+            "minimum": 0.0,
+            "title": "Devices W",
+            "type": "number"
+          },
+          "export_w": {
+            "minimum": 0.0,
+            "title": "Export W",
+            "type": "number"
+          },
+          "import_w": {
+            "minimum": 0.0,
+            "title": "Import W",
+            "type": "number"
+          },
+          "load_w": {
+            "minimum": 0.0,
+            "title": "Load W",
+            "type": "number"
+          },
+          "net_risk_quantile": {
+            "anyOf": [
+              {
+                "exclusiveMaximum": 1.0,
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Risk Quantile"
+          },
+          "net_risk_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Risk W"
+          },
+          "pv_p10_w": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pv P10 W"
+          },
+          "pv_p50_w": {
+            "minimum": 0.0,
+            "title": "Pv P50 W",
+            "type": "number"
+          },
+          "pv_p90_w": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pv P90 W"
+          },
+          "soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soc Pct"
+          }
+        },
+        "required": [
+          "pv_p50_w",
+          "load_w",
+          "import_w",
+          "export_w"
+        ],
+        "title": "IntervalFlows",
+        "type": "object"
+      },
+      "IntervalPrices": {
+        "additionalProperties": false,
+        "description": "Plan v2: end prices (currency/kWh) the planner used; may be negative.",
+        "properties": {
+          "export_price": {
+            "title": "Export Price",
+            "type": "number"
+          },
+          "import_price": {
+            "title": "Import Price",
+            "type": "number"
+          }
+        },
+        "required": [
+          "import_price",
+          "export_price"
+        ],
+        "title": "IntervalPrices",
+        "type": "object"
+      },
       "LearningSettings": {
         "additionalProperties": false,
         "description": "What SunCore may learn from history (forecast calibration, load model).\n\nKept in the ``forecast`` section because it governs how forecasts are produced. Before\n``min_history_days`` of history exist, calibration and the ML load model only collect\nstatistics and change nothing. ``load_ml_mode``: ``off``; ``shadow`` (default) = the\noptional ML load model runs in parallel and is only scored and shown for comparison;\n``auto`` = it is used when it beats the profile forecast in the accuracy statistics -\nit never replaces the profiles otherwise.",
@@ -3949,6 +4211,7 @@
             "decisions": "#/components/schemas/DecisionsMessage",
             "flows": "#/components/schemas/FlowsMessage",
             "health": "#/components/schemas/HealthMessage",
+            "plan": "#/components/schemas/PlanMessage",
             "snapshot": "#/components/schemas/SnapshotMessage"
           },
           "propertyName": "type"
@@ -3968,6 +4231,9 @@
           },
           {
             "$ref": "#/components/schemas/ControlMessage"
+          },
+          {
+            "$ref": "#/components/schemas/PlanMessage"
           }
         ]
       },
@@ -4573,6 +4839,495 @@
           }
         },
         "title": "OverridePolicy",
+        "type": "object"
+      },
+      "Plan": {
+        "additionalProperties": false,
+        "description": "The planner's output as the controller consumes it (ADR-0011).\n\nPhase 3 only ever uses :meth:`Plan.default`, which has no intervals and therefore\nallows everything; the Phase 4 planner fills ``intervals`` without changing the\ncontroller. Intervals must not overlap and are kept in start order.\n\nSchema v2 (Phase 4 WP2, additive): ``source``, ``stats`` and per interval\n``expected``/``prices``/``reasons``. A v1 payload loads unchanged (it keeps\n``schema_version`` 1, ``source = \"default\"``); :func:`plan_from_payload` stamps v2.",
+        "properties": {
+          "assumptions": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Assumptions",
+            "type": "object"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "intervals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanInterval"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "reasons": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 2,
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source": {
+            "default": "default",
+            "enum": [
+              "solver",
+              "heuristic",
+              "default"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SolverStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "Plan",
+        "type": "object"
+      },
+      "PlanInterval": {
+        "additionalProperties": false,
+        "description": "One planning interval (15 min grid in Phase 4; any length is accepted).\n\n``expected``, ``prices`` and ``reasons`` are the plan v2 additions for the UI's\n\"Why?\"; the controller reads only the bands and the import limit.",
+        "properties": {
+          "battery": {
+            "$ref": "#/components/schemas/BatteryBand",
+            "default": {
+              "charge_from_surplus": true,
+              "discharge_lock": false
+            }
+          },
+          "devices": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DeviceBand"
+            },
+            "title": "Devices",
+            "type": "object"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntervalFlows"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grid_import_limit_w": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Import Limit W"
+          },
+          "prices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntervalPrices"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "PlanInterval",
+        "type": "object"
+      },
+      "PlanMessage": {
+        "additionalProperties": false,
+        "description": "A new plan was computed (summary only; fetch ``GET /api/v1/plan`` for the intervals).",
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/PlanSummary"
+          },
+          "type": {
+            "const": "plan",
+            "default": "plan",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "title": "PlanMessage",
+        "type": "object"
+      },
+      "PlanStatusView": {
+        "additionalProperties": false,
+        "description": "``GET /api/v1/plan/status``: the scheduler's bookkeeping.",
+        "properties": {
+          "consecutive_failures": {
+            "title": "Consecutive Failures",
+            "type": "integer"
+          },
+          "earliest_event_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Event Run At"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "last_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Duration S"
+          },
+          "last_finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Finished At"
+          },
+          "last_ok_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok At"
+          },
+          "last_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "failed",
+                  "skipped"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome"
+          },
+          "last_started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Started At"
+          },
+          "last_trigger": {
+            "anyOf": [
+              {
+                "enum": [
+                  "start",
+                  "schedule",
+                  "prices",
+                  "forecast",
+                  "deviation",
+                  "config",
+                  "override",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trigger"
+          },
+          "next_scheduled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Scheduled At"
+          },
+          "pending": {
+            "items": {
+              "enum": [
+                "start",
+                "schedule",
+                "prices",
+                "forecast",
+                "deviation",
+                "config",
+                "override",
+                "manual"
+              ],
+              "type": "string"
+            },
+            "title": "Pending",
+            "type": "array"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanSummary"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "generated_at",
+          "running",
+          "last_trigger",
+          "last_started_at",
+          "last_finished_at",
+          "last_duration_s",
+          "last_outcome",
+          "last_ok_at",
+          "consecutive_failures",
+          "next_scheduled_at",
+          "earliest_event_run_at",
+          "plan"
+        ],
+        "title": "PlanStatusView",
+        "type": "object"
+      },
+      "PlanSummary": {
+        "additionalProperties": false,
+        "description": "The live feed's ``plan`` message and the status' short form: no intervals.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "horizon_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horizon End"
+          },
+          "in_use": {
+            "title": "In Use",
+            "type": "boolean"
+          },
+          "intervals": {
+            "title": "Intervals",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "solve_time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Solve Time S"
+          },
+          "source": {
+            "enum": [
+              "solver",
+              "heuristic",
+              "default"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "created_at",
+          "source",
+          "status",
+          "solve_time_s",
+          "intervals",
+          "horizon_end",
+          "stale",
+          "in_use"
+        ],
+        "title": "PlanSummary",
+        "type": "object"
+      },
+      "PlanView": {
+        "additionalProperties": false,
+        "description": "``GET /api/v1/plan``: the current plan and whether the controller follows it.\n\n``plan`` is :meth:`Plan.default` (no intervals, ``source = \"default\"``) until the first\nplan exists. ``in_use`` is ``False`` when the plan is stale or has run out: the controller\nthen runs on Phase 3 rules only (``fallback`` says why, as a catalogue reason).",
+        "properties": {
+          "expired": {
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "fallback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "in_use": {
+            "title": "In Use",
+            "type": "boolean"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/Plan"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "generated_at",
+          "plan",
+          "stale",
+          "expired",
+          "in_use"
+        ],
+        "title": "PlanView",
         "type": "object"
       },
       "PowerEstimate": {
@@ -5846,6 +6601,27 @@
         "title": "ReleaseAction",
         "type": "object"
       },
+      "ReplanAck": {
+        "additionalProperties": false,
+        "description": "``POST /api/v1/plan/replan`` (202): the request is queued, not done.",
+        "properties": {
+          "accepted": {
+            "default": true,
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "earliest_start_at": {
+            "format": "date-time",
+            "title": "Earliest Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "earliest_start_at"
+        ],
+        "title": "ReplanAck",
+        "type": "object"
+      },
       "RiskLevel": {
         "description": "How sure the plan must be that a battery target is met (forecast/buffer concept).\n\nThe planner plans the target on a quantile of the net energy forecast (PV minus load):\n``cautious`` meets it with probability 0.9 (10 % quantile), ``balanced`` 0.75 (25 %),\n``bold`` 0.5 (median).",
         "enum": [
@@ -6465,6 +7241,64 @@
           "control"
         ],
         "title": "SnapshotMessage",
+        "type": "object"
+      },
+      "SolverStats": {
+        "additionalProperties": false,
+        "description": "Plan v2: how the plan was computed (the UI explains long solves with it).",
+        "properties": {
+          "mip_gap": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mip Gap"
+          },
+          "n_binaries": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "N Binaries",
+            "type": "integer"
+          },
+          "n_vars": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "N Vars",
+            "type": "integer"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "solve_time_s": {
+            "minimum": 0.0,
+            "title": "Solve Time S",
+            "type": "number"
+          },
+          "status": {
+            "maxLength": 48,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "solve_time_s",
+          "status"
+        ],
+        "title": "SolverStats",
         "type": "object"
       },
       "SourceRef": {
@@ -8766,6 +9600,97 @@
           }
         },
         "summary": "Set Global Mode"
+      }
+    },
+    "/api/v1/plan": {
+      "get": {
+        "description": "The current plan from now to ``hours`` ahead: per 15-minute interval the expected\nflows, prices, battery and device bands and the reasons; who made it (``solver``,\n``heuristic`` or ``default`` = none yet), the solver statistics, ``stale`` and whether\nthe controller follows it (``in_use``; else ``fallback`` says why).",
+        "operationId": "get_plan",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 48,
+              "maximum": 48,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Plan"
+      }
+    },
+    "/api/v1/plan/replan": {
+      "post": {
+        "description": "Ask for a new plan. Debounced (at most one event-triggered run per minute) and\nanswered at once with the earliest start; the new plan arrives as a ``plan`` message\non the live feed.",
+        "operationId": "replan",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplanAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The planner is not running"
+          }
+        },
+        "summary": "Replan"
+      }
+    },
+    "/api/v1/plan/status": {
+      "get": {
+        "description": "Last run (time, duration, outcome and reason), pending events and the next run.",
+        "operationId": "plan_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanStatusView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Plan Status"
       }
     },
     "/api/v1/preview": {

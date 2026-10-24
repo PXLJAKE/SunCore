@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from suncore import __version__
 from suncore.api.services import EntityQuery, HealthReport, PeerPolicy, TariffNotConfiguredError
+from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BatterySettings
 from suncore.core.config import OperationConfig
@@ -25,6 +26,7 @@ from suncore.forecast.load_service import LoadForecastService
 from suncore.forecast.risk import ErrorModel
 from suncore.forecast.risk_learning import risk_view
 from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView, RiskView
+from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import HistoryEntry
 from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
@@ -153,6 +155,27 @@ class StubServices:
 
     async def prices(self, hours: int) -> PriceReport:  # noqa: ARG002
         raise TariffNotConfiguredError
+
+    def _planning(self) -> PlanningService:
+        async def nothing(now: datetime, previous: object) -> PlanningSnapshot:  # noqa: ARG001
+            return PlanningSnapshot(None)
+
+        return PlanningService(nothing, LiveReading, clock=lambda: datetime.now(UTC))
+
+    async def plan_view(self, hours: int) -> PlanView:
+        return self._planning().view(hours)
+
+    async def plan_status(self) -> PlanStatusView:
+        return self._planning().status()
+
+    async def replan(self) -> ReplanAck:
+        return self._planning().request("manual")
+
+    def plan_summary(self) -> PlanSummary:
+        return self._planning().summary()
+
+    def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
+        return lambda: None
 
     async def export_config(self) -> dict[str, Any]:
         return {}

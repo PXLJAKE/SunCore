@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+name: planner_in_shadow
+description: A clear summer morning with a half-empty 10 kWh battery. The planner computes a plan from the simulated house every quarter hour and hands it to the controller, which follows its bands (battery first until the morning buffer, then the surplus may go to the consumers) while every device stays in shadow mode - nothing is written.
+start: "2026-06-21T06:00:00+02:00"
+duration_s: 21600
+step_s: 30
+house:
+  seed: 7
+  pv: {kwp: 8.0, latitude: 48.0, longitude: 11.0}
+  load:
+    noise_fraction: 0.05
+  battery: {capacity_wh: 10000, initial_soc_pct: 25}
+outdoor: {mean_c: 24.0, amplitude_c: 5.0}
+clouds:
+  - {at_s: 0, factor: 0.9}
+  - {at_s: 10800, factor: 1.0}
+devices:
+  - id: rod
+    template: generic.number_load
+    physics: {kind: number, max: 3000, step: 100, power_sensor: true}
+    control:
+      priority: 10
+      power_model: {kind: measured, power_role: power, nominal_w: 3000}
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 20
+      min_run_s: 300
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 750}

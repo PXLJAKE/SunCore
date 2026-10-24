@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Final
 
+from suncore.app.control import PlanProvider
 from suncore.core.config import GoalsConfig
 from suncore.core.control import ControlSettings
 from suncore.core.decisions import (
@@ -354,6 +355,8 @@ class ScenarioRunner:
         configs: device configurations to control instead of the scenario's own ``devices``
             (the demo: ``suncore.sim.demo_config.demo_devices(catalog).devices`` on the default
             demo devices); their modes come from ``device_modes`` (default: shadow).
+        plan_provider: ``now -> Plan`` the stack's controller reads once per tick (Phase 4 WP9;
+            default: no plan, ``Plan.default()``).
     """
 
     def __init__(
@@ -366,9 +369,11 @@ class ScenarioRunner:
         settings: Mapping[str, float | int] | None = None,
         store: RuntimeStore | None = None,
         configs: Sequence[DeviceConfig] | None = None,
+        plan_provider: PlanProvider | None = None,
     ) -> None:
         self.scenario = scenario
         self.catalog = catalog
+        self.plan_provider = plan_provider
         self.vt = VirtualTime(scenario.start)
         self.limiter = RateLimiter(clock=self.vt.monotonic, sleep=self.vt.sleep)
         self.conn = FakeHAConnection(
@@ -434,6 +439,7 @@ class ScenarioRunner:
             reserve_soc_pct=sc.control.reserve_soc_pct,
             cadences=cadences,
             decisions=self.decisions,
+            plan_provider=self.plan_provider,
         )
 
     async def start(self) -> None:
