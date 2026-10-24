@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
@@ -21,6 +22,7 @@ from suncore.app.planning import (
 from suncore.core.control import Plan
 from suncore.planner import reasons as rk
 from suncore.planner.run import PlannerRun, run
+from suncore.sim.planner_scenarios import situation, situation_inputs
 from tests.app.planning_helpers import START, World, broken_solver, service
 
 
@@ -320,9 +322,18 @@ async def test_a_hanging_planner_is_abandoned_and_stacks_no_threads() -> None:
     world = World()
     release = threading.Event()
 
+    # A canned result, computed before the clock-critical part: the run timeout below is
+    # 0.1 s, which a real solve under coverage on a busy runner can exceed (review B2).
+    canned = real_solver(
+        situation_inputs(replace(situation("sunny_day"), now=START)), 8, 0.01, None
+    )
+
     def hang(inputs: Any, budget: float, gap: float, previous: Plan | None) -> PlannerRun:
         release.wait(10)
-        return real_solver(inputs, budget, gap, previous)
+        return canned
+
+    def fast(*_a: object) -> PlannerRun:
+        return canned
 
     settings = PlanningSettings(budget_s=0.05, run_timeout_margin_s=0.05)
     svc = service(world, settings=settings, solve=hang)
@@ -339,7 +350,7 @@ async def test_a_hanging_planner_is_abandoned_and_stacks_no_threads() -> None:
     assert reason.key == rk.STATUS_RUN_STUCK
     release.set()
     await asyncio.sleep(0.3)
-    svc._solve = real_solver  # type: ignore[assignment]
+    svc._solve = fast  # type: ignore[assignment]
     world.clock.advance(QUARTER_S)
     assert await svc.tick()
     assert svc.status().last_outcome == "ok"
