@@ -529,6 +529,15 @@ shadow and assisted run is the acceptance test.
 - WP4: ENTSO-E and EPEX Spot get two templates each where the unit or the price content differs
   (`entsoe.price`/`_mwh`, `epex_spot.total_price`/`market_price`): a template holds one value unit
   and one `price_includes`. Octopus is included (its source was verified in 4-A).
+- WP9: the solve runs in a daemon thread (`run_in_daemon_thread`), not `asyncio.to_thread`: an
+  abandoned or hanging solver call must not keep the default executor (and with it the process
+  shutdown) waiting; a hung thread is never joined and blocks only further planner runs.
+- WP9: a plan older than 2 h is *stale* and the controller gets `Plan.default()` from then on
+  (instead of following it until its intervals run out after up to 48 h): stale or missing plan =
+  Phase 3 behaviour. The API still serves it, flagged. Deviation thresholds (10 %-points SoC,
+  1500 W for 30 min) are the documented first values, not tuned.
+- WP9: the controller applies a plan's battery band only while an interval covers `now`, and judges
+  `priority_until_soc_pct` against the live SoC.
 
 ## 7. Out of scope for Phase 4
 

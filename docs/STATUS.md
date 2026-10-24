@@ -3,9 +3,9 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-23 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
-tariffs, 4-D PV forecast, 4-E load forecast and risk model, 4-F planner (WP8; runtime WP9 next);
-Phase 3 (3-A
+**Last update:** 2026-10-24 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
+tariffs, 4-D PV forecast, 4-E load forecast and risk model, 4-F planner and runtime (WP8, WP9;
+battery control WP10 next); Phase 3 (3-A
 `phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
 maintainer's shadow test · **Branch:** `phase-4/f-planner` (stacked on `phase-4/e-load-risk`, merged
 with `phase-4/c-tariff`)
@@ -132,7 +132,51 @@ with `phase-4/c-tariff`)
     HiGHS solve 4 ms cold (244 simplex iterations) / 4 ms warm (141), heuristic 1 ms, whole
     `run()` incl. explanations 29 ms, inputs incl. risk targets 14 ms. Slow test: < 3 s on CI.
     aarch64 not measured yet (`UNVERIFIED`).
-  - Not wired yet: the runtime, scheduler and API are WP9 (next).
+  - The runtime, scheduler and API followed in WP9 (next entry).
+
+- **Phase 4 – PR 4-F, part WP9 planner runtime (branch `phase-4/f-planner`)**:
+  - `suncore/app/planning.py` `PlanningService` (time injected twice: `clock`, `sleep`; polled every
+    5 s): first run once prices and forecasts exist (or `first_run_grace_s` = 300 s after the first
+    connection, the gaps are plan reasons; without the battery SoC no plan at all), then every
+    quarter hour + 20 s, and on events - new prices (tariff listener), forecast update (new
+    listeners on the PV and load services), configuration change (`site`, `region`, `tariff`,
+    `forecast`, `battery`, `goals`, `devices`), user override, manual replan, **deviation**: live
+    SoC differs from the plan's SoC at `now` (linear inside the interval) by > 10 %-points, or the
+    grid power differs from the planned net power by > 1500 W for 30 min (10-minute exponential
+    average, so a cloud does not count; a new plan restarts the count). Event runs are debounced
+    (>= 60 s between starts, merged into one run), single flight, the solve runs in a **daemon
+    thread** with budget 8 s (`SUNCORE_PLANNER_BUDGET_S`, `SUNCORE_PLANNER_MIP_GAP`), warm start
+    from the previous plan, a run is abandoned after budget + 30 s (no second thread starts while
+    the first lives). Inputs: `Runtime._collect_planning` -> `build_inputs` (tariff prices, blended
+    PV, base-load forecast, `RiskView` buffer/target/`evening_at`, battery section, live SoC from
+    the flows, `export_limit_w(site)`, `grid.import_limit_w`, devices). A plan snapshot is stored
+    per run (`PlanSnapshotStore`).
+  - Hand-over: `ControlStack(plan_provider=planning.active_plan)` (`set_plan` for static use),
+    read once per tick; the provider survives stack rebuilds. A failed or skipped run keeps the last
+    good plan; **after 2 h it is stale** (flagged in the API) **and the controller gets
+    `Plan.default()`**, as it does when every interval is in the past.
+  - Controller (for the `control-safety` review): `battery_share_available` judges
+    `BatteryBand.priority_until_soc_pct` against the live SoC every tick (battery first while the
+    SoC is below it or unknown, before `charge_from_surplus`); a band applies only while a plan
+    interval covers `now` (before: a non-default plan outside its intervals used the empty default
+    band). Nothing else changed: device bands only restrict (`allowed`, `max_power_w`),
+    `preference` is ignored, no `BatteryAction` is ever proposed and the gate still rejects it.
+    Tests: `tests/controller/test_plan_handover.py` (hypothesis: bands never raise a device above
+    the plan-less controller, below the priority no more surplus for consumers),
+    `tests/sim/test_planner_shadow.py` (scenario `planner_in_shadow`: plan every quarter hour, bands
+    followed, nothing written, gate rejects `BatteryAction` with a plan present).
+  - API: `GET /api/v1/plan?hours=` (`PlanView`: plan, `stale`, `expired`, `in_use`, `fallback`),
+    `GET /api/v1/plan/status` (`PlanStatusView`), `POST /api/v1/plan/replan` (202, `ReplanAck`,
+    409 `api.error.planning_unavailable`), live message `{type: "plan"}` (summary only). New
+    catalogue keys `planner.status.*` and `api.error.planning_unavailable` (en/de); OpenAPI and
+    frontend types regenerated, no UI (4-H).
+  - Runtime: created in `prepare()`, started after the stack, cancelled with the storage tasks and
+    awaited **after** `stack.shutdown()` (a hanging planner never delays the release - tested).
+    Demo: the planner runs on the simulated Tibber prices, Solcast/Open-Meteo/Forecast.Solar and the
+    cold-start load profile (`/api/v1/plan` shows a real plan; the same inputs give the same plan).
+  - Not done / follow-ups: the stored snapshots are not read back at start (the first run after a
+    restart plans cold); device `max_w` comes from the configuration, not the learned power models;
+    `UNVERIFIED`: planner run time on aarch64 and under the full demo load.
 
 - **Phase 4 – PR 4-E (WP6 load forecast, WP7 risk model; branch `phase-4/e-load-risk`, stacked on
   4-D)**:
@@ -464,11 +508,7 @@ with `phase-4/c-tariff`)
 - **ADR-0013 must be accepted before WP10** (4-G). Its contract changes `BatteryBand.grid_charge_max_w`
   / `discharge_lock` landed with WP8 (additive, planner-only, the controller ignores them);
   `BatteryAction` `None` = baseline and `battery_identity` land at the start of 4-G.
-- **WP9 (next, 4-F)**: wire `suncore.planner` into the runtime - `build_inputs(...)` from
-  `TariffService.prices()`, the blended PV forecast, the base-load forecast, `RiskView`
-  (`morning_buffer`, `evening_target`, `evening_at`), the battery section, the live SoC, the site's
-  import/export limits and the devices; `run()` in a worker thread every 15 min and on events,
-  `previous` = the last plan.
+- **WP9 done** (4-F, see Done); next: 4-G battery control (WP10, ADR-0013 first).
 - **PR 4-C (WP4, branch `phase-4/c-tariff`)**: `suncore/tariff/` - a template-driven price adapter
   (`engine.py`: action or attribute source, list or mapping shape, per-MWh conversion, native grid
   from `end - start` or the timestamp spacing, 15/60-minute mixes as segments, gaps `None`, DST
