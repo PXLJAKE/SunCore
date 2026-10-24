@@ -1167,6 +1167,12 @@ export interface components {
             controls?: {
                 [key: string]: components["schemas"]["NumberLimitControl"] | components["schemas"]["ModeSelectControl"] | components["schemas"]["ForceChargeSwitchControl"];
             };
+            /**
+             * Driver
+             * @default generic
+             * @enum {string}
+             */
+            driver: "generic" | "kostal_plenticore" | "kostal_modbus";
             /** Id */
             id: string;
             /**
@@ -1176,6 +1182,7 @@ export interface components {
             kind: "battery";
             /** Min App Version */
             min_app_version?: string | null;
+            modbus?: components["schemas"]["ModbusRegisterMap"] | null;
             /** Name */
             name: string;
             /** Roles */
@@ -1315,7 +1322,7 @@ export interface components {
          * @description What a template provides.
          * @enum {string}
          */
-        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes";
+        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback";
         /** CheckItemOut */
         CheckItemOut: {
             reason: components["schemas"]["Reason"];
@@ -2551,6 +2558,36 @@ export interface components {
             hub: string;
             /** Slave */
             slave: number;
+        };
+        /**
+         * ModbusRegisterMap
+         * @description Registers of a limit-with-fallback battery interface (Kostal §3.5, ``kostal_modbus``).
+         *
+         *     Addresses as the vendor document gives them (the HA action writes them verbatim). Powers
+         *     are IEEE 754 float32 in two registers, the timeout an unsigned 32-bit value in two
+         *     registers; the word order comes from the battery configuration (``battery.modbus``).
+         *     ``external_control_value`` is what ``external_control_register`` must read before any
+         *     write (Kostal 1080 = ``0x02``: external battery management via Modbus).
+         */
+        ModbusRegisterMap: {
+            /** External Control Register */
+            external_control_register: number;
+            /** External Control Value */
+            external_control_value: number;
+            /** Fallback Max Charge */
+            fallback_max_charge: number;
+            /** Fallback Max Discharge */
+            fallback_max_discharge: number;
+            /** Fallback Timeout */
+            fallback_timeout: number;
+            /** Fallback Timeout Max S */
+            fallback_timeout_max_s: number;
+            /** Fallback Timeout Min S */
+            fallback_timeout_min_s: number;
+            /** Max Charge */
+            max_charge: number;
+            /** Max Discharge */
+            max_discharge: number;
         };
         /**
          * Mode
@@ -3856,7 +3893,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "device" | "tariff" | "forecast" | "region";
+            kind: "device" | "tariff" | "forecast" | "region" | "battery";
             /** Name */
             name: string;
             /**

@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=../schema/battery.schema.json
+# KOSTAL PLENTICORE through the Home Assistant core integration `kostal_plenticore` (REST API,
+# `pykoplenti`). The only battery limit it exposes is the inverter's minimum state of charge
+# (`Battery:MinSoc`): SunCore uses it as the reserve floor and as a discharge lock. There is no
+# charge or discharge power set-point over REST, so grid charging is planned and shown, never
+# executed through this adapter. The number entity is DISABLED BY DEFAULT in Home Assistant:
+# enable "Battery min SoC" on the inverter's device page first.
+id: kostal.plenticore
+kind: battery
+schema_version: 1
+name: template.kostal.plenticore.name
+source:
+  - title: "home-assistant/core 5cfe9aad kostal_plenticore/number.py (Battery:MinSoc, 5-100 step 5, disabled by default, live min/max)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/kostal_plenticore/number.py"
+    date: 2026-10-16
+  - title: "home-assistant/core 5cfe9aad kostal_plenticore/coordinator.py (a failed write is silent; settings poll 30 s)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/kostal_plenticore/coordinator.py"
+    date: 2026-10-16
+  - title: "home-assistant/core 5cfe9aad kostal_plenticore/select.py (battery usage mode, read-back lags one 30 s poll)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/kostal_plenticore/select.py"
+    date: 2026-10-16
+tested_with: []
+capabilities: [min_soc_limit]
+unverified:
+  - "Read from the integration source only; no write has been made on the maintainer's inverter yet."
+  - "The number has no translation key; it is matched by platform, domain and unit only (unique_id suffix devices:local_Battery:MinSoc is not visible to the matcher)."
+  - "A failed REST write is silent: SunCore believes a write only when the entity shows the value after settle_s (35 s, one settings poll plus margin)."
+  - "Whether the inverter clamps or rejects a value outside its live min/max."
+driver: kostal_plenticore
+settle_s: 35
+roles:
+  min_soc_number:
+    matcher:
+      domain: number
+      platforms: [kostal_plenticore]
+      units: ["%"]
+    description: template.kostal.plenticore.role.min_soc_number
+  charge_mode:
+    required: false
+    matcher:
+      domain: select
+      platforms: [kostal_plenticore]
+    description: template.kostal.plenticore.role.charge_mode
+controls:
+  min_soc_number: { kind: min_soc, unit: "%", min: 5, max: 100, step: 5 }

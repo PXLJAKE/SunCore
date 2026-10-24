@@ -66,7 +66,7 @@ class BatteryActuator(Actuator, Protocol):
     ``apply`` receives an intent whose ``BatteryAction`` the gate already resolved (``None`` =
     baseline) and quantised; ``read_back`` reports the adapter's readable limits as a
     ``BatteryAction`` (fields it cannot read are ``None``). Only the gate calls ``apply``,
-    ``release``, ``prepare`` and ``heartbeat`` (``tests/safety/test_boundary.py``).
+    ``release``, ``arm_fallback`` and ``keep_alive`` (``tests/safety/test_boundary.py``).
     """
 
     @property
@@ -98,12 +98,12 @@ class BatteryActuator(Actuator, Protocol):
         adapters without one)."""
         ...
 
-    async def prepare(self) -> None:
+    async def arm_fallback(self) -> None:
         """Write the hardware fallback (Kostal §3.5: 1284/1286 = own limits, 1288 = timeout)
         before the first limit; the gate reads back with :meth:`prepared`."""
         ...
 
-    async def heartbeat(self) -> None:
+    async def keep_alive(self) -> None:
         """Re-write the last applied state (idempotent; called only while the lease holds)."""
         ...
 

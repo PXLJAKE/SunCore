@@ -22,7 +22,8 @@
         "charge_limit",
         "discharge_limit",
         "grid_charge",
-        "battery_modes"
+        "battery_modes",
+        "hardware_fallback"
       ],
       "title": "Capability",
       "type": "string"

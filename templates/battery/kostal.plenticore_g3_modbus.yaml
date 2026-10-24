@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=../schema/battery.schema.json
+# KOSTAL PLENTICORE G3 (SW >= 03.05) battery limitation §3.5 over Modbus TCP, written through
+# Home Assistant's `modbus.write_register` and read back through `modbus:` YAML sensors.
+# Prerequisites (all done by the user, see the documentation):
+#   * a `modbus:` hub in configuration.yaml (port 1502, unit id of the inverter, default 71);
+#   * "External battery management via Modbus" enabled in the inverter (register 1080 = 2);
+#   * one float32 sensor per register 1280, 1282, 1284, 1286, 1076, 1078, one uint32 sensor for
+#     1288 and one for 1080, decoded with the inverter's byte order (register 5);
+#   * `battery.modbus` in SunCore: hub name, unit id, byte order.
+# Until the fallback timer was measured on the real inverter (`battery.fallback_measured`) the
+# battery is capped at assisted mode.
+id: kostal.plenticore_g3_modbus
+kind: battery
+schema_version: 1
+name: template.kostal.plenticore_g3_modbus.name
+source:
+  - title: "KOSTAL PLENTICORE Modbus TCP interface description rev. 2.9: §3.5 limits 1280-1288, 1080, 1076/1078 (research summary)"
+    url: "https://github.com/pxljake/SunCore/blob/main/docs/research/kostal-plenticore-modbus.md"
+    date: 2026-10-12
+  - title: "home-assistant/core 5cfe9aad modbus/services.py (write_register: hub, slave default 1, raw 16-bit words, no float32, failures only logged)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/modbus/services.py"
+    date: 2026-10-16
+tested_with: []
+capabilities: [charge_limit, discharge_limit, hardware_fallback]
+unverified:
+  - "External battery management via Modbus is not enabled on the maintainer's inverter: the adapter runs in the simulator only."
+  - "The fallback timer (register 1288) behaviour has not been measured on hardware; the battery stays capped at assisted until it is."
+  - "The word order of the U32 timeout is assumed to follow register 5 like the floats."
+  - "Whether a modbus hub can be created from the Home Assistant UI (YAML is assumed)."
+  - "settle_s depends on the scan_interval of the user's modbus sensors (15 s assumed)."
+driver: kostal_modbus
+settle_s: 15
+modbus:
+  max_charge: 1280
+  max_discharge: 1282
+  fallback_max_charge: 1284
+  fallback_max_discharge: 1286
+  fallback_timeout: 1288
+  fallback_timeout_min_s: 30
+  fallback_timeout_max_s: 10800
+  external_control_register: 1080
+  external_control_value: 2
+roles:
+  external_control:
+    matcher: { domain: sensor, platforms: [modbus] }
+    description: template.kostal.plenticore_g3_modbus.role.external_control
+  charge_limit:
+    matcher: { domain: sensor, platforms: [modbus], units: [W] }
+    description: template.kostal.plenticore_g3_modbus.role.charge_limit
+  discharge_limit:
+    matcher: { domain: sensor, platforms: [modbus], units: [W] }
+    description: template.kostal.plenticore_g3_modbus.role.discharge_limit
+  fallback_charge_limit:
+    matcher: { domain: sensor, platforms: [modbus], units: [W] }
+    description: template.kostal.plenticore_g3_modbus.role.fallback_charge_limit
+  fallback_discharge_limit:
+    matcher: { domain: sensor, platforms: [modbus], units: [W] }
+    description: template.kostal.plenticore_g3_modbus.role.fallback_discharge_limit
+  fallback_timeout:
+    matcher: { domain: sensor, platforms: [modbus], units: [s] }
+    description: template.kostal.plenticore_g3_modbus.role.fallback_timeout
+  own_charge_limit:
+    matcher: { domain: sensor, platforms: [modbus], units: [W] }
+    description: template.kostal.plenticore_g3_modbus.role.own_charge_limit
+  own_discharge_limit:
+    matcher: { domain: sensor, platforms: [modbus], units: [W] }
+    description: template.kostal.plenticore_g3_modbus.role.own_discharge_limit

@@ -4,9 +4,12 @@
 AST-based scan over ``suncore/``; no module is imported. The rules:
 
 1. Only ``suncore.safety.gate`` may call ``.apply(...)`` and ``.release(...)`` - the
-   actuator write and the hardware release (Phase 3: the only write paths).
+   actuator write and the hardware release (Phase 3: the only write paths) - and the battery
+   adapters' ``.arm_fallback(...)`` / ``.keep_alive(...)`` (Phase 4 WP10: the §3.5 fallback
+   registers and the heartbeat re-write).
 2. Only ``suncore.safety`` may import ``suncore.safety.actuator``; driver modules
-   (``suncore.devices.drivers``, Phase 3 WP6) may only be imported by ``suncore.safety``,
+   (``suncore.devices.drivers``, Phase 3 WP6, and the battery adapters
+   ``suncore.devices.battery``, Phase 4 WP10) may only be imported by ``suncore.safety``,
    the composition root ``suncore.app`` and the simulator's closed-loop composition
    ``suncore.sim`` (Phase 3 WP8; nothing in production imports ``suncore.sim`` but the demo).
 3. Only ``suncore.ha`` and ``suncore.safety`` (and the simulator, which *is* the fake
@@ -68,9 +71,10 @@ PLANNER = "suncore.planner"
 ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
+BATTERY_DRIVERS = "suncore.devices.battery"
 SIM = "suncore.sim"
 DRIVER_IMPORTERS = (SAFETY, "suncore.app", SIM)
-WRITE_CALLS = ("apply", "release")
+WRITE_CALLS = ("apply", "release", "arm_fallback", "keep_alive")
 API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
 WRITE_CAPABILITY_NAMES = frozenset({"ServiceCaller", "ServiceCallerProvider"})
@@ -183,11 +187,12 @@ def test_only_the_gate_calls_apply_and_release(path: Path) -> None:
 
 
 def test_the_gate_is_the_single_writer() -> None:
-    """The write path exists exactly once: ``gate.py`` calls ``apply`` and ``release``."""
+    """The write path exists exactly once: ``gate.py`` calls ``apply`` and ``release`` (and the
+    battery adapters' ``arm_fallback`` and ``keep_alive``)."""
     gate = PACKAGE / "safety" / "gate.py"
     tree = parse(gate)
-    assert list(attribute_calls(tree, "apply")), "gate.py must contain the apply() call"
-    assert list(attribute_calls(tree, "release")), "gate.py must contain the release() call"
+    for attr in ("apply", "release"):
+        assert list(attribute_calls(tree, attr)), f"gate.py must contain the {attr}() call"
     everywhere = [
         line
         for path in SOURCES
@@ -226,14 +231,18 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
     The drivers do not exist yet (WP6); the rule is in place before the first one lands.
     """
     module = module_name(path)
-    if in_package(module, DRIVERS) or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS):
+    if (
+        in_package(module, DRIVERS)
+        or in_package(module, BATTERY_DRIVERS)
+        or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS)
+    ):
         return
     offenders = fmt(
         path,
         (
             line
             for line, imported in imported_modules(path, parse(path))
-            if in_package(imported, DRIVERS)
+            if in_package(imported, DRIVERS) or in_package(imported, BATTERY_DRIVERS)
         ),
     )
     assert not offenders, f"driver module imported outside safety/app: {offenders}"

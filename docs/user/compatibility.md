@@ -26,6 +26,14 @@ a template only tested in the simulator has never run against real hardware.
 | `generic.water_heater_steps` | device | Water heater with power levels (select entity) | any | `power_measured`, `power_setpoint` | not tested on hardware | 7 |
 | `lg.thinq_climate` | device | LG ThinQ air conditioner | `lg_thinq` | `energy_counter`, `fan_modes`, `hvac_modes`, `power_measured`, `preset_modes`, `temperature_setpoint` | not tested on hardware | 7 |
 
+## Batteries
+
+| Id | Kind | Name | Integration / platforms | Capabilities | Tested with | Unverified |
+|---|---|---|---|---|---|---|
+| `generic.battery` | battery | Battery with number entities (generic) | any | `charge_limit`, `discharge_limit`, `grid_charge`, `min_soc_limit` | not tested on hardware | 3 |
+| `kostal.plenticore` | battery | KOSTAL PLENTICORE (Home Assistant integration, minimum SoC) | `kostal_plenticore` | `min_soc_limit` | not tested on hardware | 4 |
+| `kostal.plenticore_g3_modbus` | battery | KOSTAL PLENTICORE G3 battery limits over Modbus (§3.5) | `modbus` | `charge_limit`, `discharge_limit`, `hardware_fallback` | not tested on hardware | 5 |
+
 ## Tariffs
 
 | Id | Kind | Name | Integration / platforms | Capabilities | Tested with | Unverified |
