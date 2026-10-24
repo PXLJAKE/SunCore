@@ -40,7 +40,7 @@ from suncore.core.battery import (
     action_fields,
     round_up_to_step,
 )
-from suncore.core.control import BatteryBand, Plan
+from suncore.core.control import PLAN_FRESH_INTERVALS, BatteryBand, Plan, battery_band_now
 from suncore.core.decisions import Action, Reason
 from suncore.core.signals import Quality
 from suncore.safety.actuator import Actuator
@@ -48,9 +48,6 @@ from suncore.safety.actuator import Actuator
 POWER_TOLERANCE_W: Final = 1.0
 """Read-back and bound tolerance for battery powers (the adapters write whole watts)."""
 SOC_TOLERANCE_PCT: Final = 0.01
-PLAN_FRESH_INTERVALS: Final = 2
-"""A plan is fresh while it was created at most this many of its intervals ago (ADR-0013)."""
-DEFAULT_INTERVAL: Final = timedelta(minutes=15)
 
 REASON_BATTERY_MODEL_MISSING: Final = Reason(key="safety.battery_model_missing")
 REASON_BATTERY_NO_CHANGE: Final = Reason(key="safety.battery_write_no_change")
@@ -216,19 +213,9 @@ class BatteryContext:
 
 
 def plan_band(plan: Plan, now: datetime) -> tuple[BatteryBand | None, bool]:
-    """The band of the interval covering ``now`` and whether the plan is fresh.
-
-    Fresh = created at most :data:`PLAN_FRESH_INTERVALS` intervals (of the covering interval's
-    length) before ``now``. ``Plan.default()`` (no intervals, no ``created_at``) gives no band.
-    """
-    interval = plan.interval_at(now)
-    if interval is None or plan.created_at is None:
-        return None, False
-    length = interval.end - interval.start
-    if length <= timedelta(0):  # pragma: no cover - the plan validator forbids it
-        length = DEFAULT_INTERVAL
-    fresh = timedelta(0) <= now - plan.created_at <= PLAN_FRESH_INTERVALS * length
-    return interval.battery, fresh
+    """The band of the interval covering ``now`` and whether the plan is fresh
+    (``core.control.battery_band_now``)."""
+    return battery_band_now(plan, now)
 
 
 def quantise(action: BatteryAction, ranges: BatteryRanges) -> BatteryAction:
