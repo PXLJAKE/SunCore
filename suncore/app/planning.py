@@ -317,7 +317,11 @@ class PlanningService:
         plan = self._plan
         if plan is None or not plan.intervals:
             return Reason(key=rk.STATUS_NO_PLAN)
-        created = plan.created_at or moment
+        # Age from the hand-over (review n3); a restored plan without a stamp counts from its
+        # creation, and a plan with neither is stale.
+        created = self._plan_stamp or plan.created_at
+        if created is None:
+            return Reason(key=rk.STATUS_STALE, args={"age_h": 0.0})
         age_s = (moment - created).total_seconds()
         if age_s > self._settings.stale_after_s:
             return Reason(key=rk.STATUS_STALE, args={"age_h": round(age_s / 3600.0, 1)})

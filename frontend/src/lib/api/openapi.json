@@ -4163,6 +4163,11 @@
         "additionalProperties": false,
         "description": "Plan v2: end prices (currency/kWh) the planner used; may be negative.",
         "properties": {
+          "estimated": {
+            "default": false,
+            "title": "Estimated",
+            "type": "boolean"
+          },
           "export_price": {
             "title": "Export Price",
             "type": "number"
@@ -4929,7 +4934,14 @@
         "description": "One planning interval (15 min grid in Phase 4; any length is accepted).\n\n``expected``, ``prices`` and ``reasons`` are the plan v2 additions for the UI's\n\"Why?\"; the controller reads only the bands and the import limit.",
         "properties": {
           "battery": {
-            "$ref": "#/components/schemas/BatteryBand",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryBand"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": {
               "charge_from_surplus": true,
               "discharge_lock": false
@@ -9631,6 +9643,16 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The planner is not running"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -9688,6 +9710,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The planner is not running"
           }
         },
         "summary": "Plan Status"

@@ -114,6 +114,24 @@ async def test_replan_without_a_planner_is_a_catalogue_error(services: FakeServi
     assert r.json()["detail"] == "api.error.planning_unavailable"
 
 
+async def test_plan_and_status_without_a_planner_are_catalogue_errors(
+    services: FakeServices,
+) -> None:
+    """Review m8: like replan, not a 500."""
+
+    async def broken(*_a: object) -> object:
+        raise RuntimeError("not built")
+
+    services.plan_view = broken  # type: ignore[method-assign,assignment]
+    services.plan_status = broken  # type: ignore[method-assign,assignment]
+    async with client_for(create_app(services)) as client:
+        plan = await client.get("/api/v1/plan")
+        status = await client.get("/api/v1/plan/status")
+    for r in (plan, status):
+        assert r.status_code == 409
+        assert r.json()["detail"] == "api.error.planning_unavailable"
+
+
 async def test_the_live_feed_announces_a_new_plan_without_the_intervals(
     services: FakeServices,
 ) -> None:

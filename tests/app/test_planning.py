@@ -265,6 +265,22 @@ async def test_the_plan_is_stale_after_two_hours_and_the_controller_gets_the_def
     assert svc.summary().stale
 
 
+async def test_staleness_counts_from_the_hand_over() -> None:
+    """Review n3: the age runs from the hand-over, and a plan without any time is stale."""
+    world = World()
+    svc = service(world)
+    await svc.tick()
+    plan = svc.plan
+    assert plan is not None
+    svc._plan = plan.model_copy(update={"created_at": world.clock.now - timedelta(days=1)})
+    assert svc.fallback_reason() is None  # handed over just now
+    svc._plan = plan.model_copy(update={"created_at": None})
+    svc._plan_stamp = None
+    reason = svc.fallback_reason()
+    assert reason is not None
+    assert reason.key == rk.STATUS_STALE
+
+
 async def test_an_expired_plan_gives_the_default() -> None:
     world = World()
     svc = service(world, settings=PlanningSettings(stale_after_s=10 * 86400))

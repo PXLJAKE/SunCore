@@ -2358,6 +2358,11 @@ export interface components {
          * @description Plan v2: end prices (currency/kWh) the planner used; may be negative.
          */
         IntervalPrices: {
+            /**
+             * Estimated
+             * @default false
+             */
+            estimated: boolean;
             /** Export Price */
             export_price: number;
             /** Import Price */
@@ -2728,7 +2733,7 @@ export interface components {
              *       "discharge_lock": false
              *     }
              */
-            battery: components["schemas"]["BatteryBand"];
+            battery: components["schemas"]["BatteryBand"] | null;
             /** Devices */
             devices?: {
                 [key: string]: components["schemas"]["DeviceBand"];
@@ -5126,6 +5131,15 @@ export interface operations {
                     "application/json": components["schemas"]["PlanView"];
                 };
             };
+            /** @description The planner is not running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -5182,6 +5196,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlanStatusView"];
+                };
+            };
+            /** @description The planner is not running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
         };

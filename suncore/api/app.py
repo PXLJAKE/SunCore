@@ -357,18 +357,34 @@ def _register_prices(app: FastAPI, services: Services) -> None:
 def _register_plan(app: FastAPI, services: Services) -> None:
     """The planner: current plan, scheduler status and a manual replan (Phase 4 WP9)."""
 
-    @app.get(f"{API_PREFIX}/plan", response_model=PlanView, operation_id="get_plan")
+    @app.get(
+        f"{API_PREFIX}/plan",
+        response_model=PlanView,
+        operation_id="get_plan",
+        responses={409: {"model": ErrorOut, "description": "The planner is not running"}},
+    )
     async def plan(hours: int = Query(default=PLAN_MAX_HOURS, ge=1, le=PLAN_MAX_HOURS)) -> PlanView:
         """The current plan from now to ``hours`` ahead: per 15-minute interval the expected
         flows, prices, battery and device bands and the reasons; who made it (``solver``,
         ``heuristic`` or ``default`` = none yet), the solver statistics, ``stale`` and whether
         the controller follows it (``in_use``; else ``fallback`` says why)."""
-        return await services.plan_view(hours)
+        try:
+            return await services.plan_view(hours)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=ERR_PLANNING_UNAVAILABLE) from exc
 
-    @app.get(f"{API_PREFIX}/plan/status", response_model=PlanStatusView, operation_id="plan_status")
+    @app.get(
+        f"{API_PREFIX}/plan/status",
+        response_model=PlanStatusView,
+        operation_id="plan_status",
+        responses={409: {"model": ErrorOut, "description": "The planner is not running"}},
+    )
     async def plan_status() -> PlanStatusView:
         """Last run (time, duration, outcome and reason), pending events and the next run."""
-        return await services.plan_status()
+        try:
+            return await services.plan_status()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=ERR_PLANNING_UNAVAILABLE) from exc
 
     @app.post(
         f"{API_PREFIX}/plan/replan",
