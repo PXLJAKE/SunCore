@@ -497,13 +497,16 @@ shadow and assisted run is the acceptance test.
     P50 (or, when PV cannot, the highest SoC such a day reaches before the coming sunset), plus
     "battery first" before that time (surplus beyond the battery's charge limit may go elsewhere,
     more costs the buffer penalty). It never makes the plan hold energy or buy it from the grid by
-    itself. `priority_until_soc_pct` = the buffer until the plan reaches it.
-  - **Device budget** (new, from a rolling replay with PV at P10 all day): before each
-    evening/user target the devices may only take what a battery-first day with PV at the risk
-    quantile (P10 cautious, P50 bold, linear in between) could spare above the target. This is
-    WP8's "PV at the risk quantile in the target constraints" applied to the consumers, not a P10
-    SoC constraint, so caution is not counted twice. It uses the PV forecast's own band, not yet
-    the learnt net-error distribution (follow-up).
+    itself. `priority_until_soc_pct` = the buffer until the plan reaches it, at most until the
+    buffer's goal slot.
+  - **Device budget**: before each evening/user target the devices may only take what a
+    battery-first day **on P50** could spare above the target, plus the PV surplus such a day
+    cannot absorb (charge-power and SoC limits) up to the target. The first version used PV at
+    the risk quantile; the PR review replaced it (lead decision D4, plan §0: caution enters only
+    through the WP7 targets). Consequence, measured with a rolling hourly replay of
+    `forecast_too_optimistic` (P10 = 0.25 × P50): the evening target is met when PV comes in at
+    ≥ 0.5 × P50 all day; at 0.4 × P50 it is missed by about 5 %-points, because the WP7 morning
+    buffer's margin does not count the consumers (open question for WP7/the maintainer).
   - **Targets** are soft (penalty per kWh of shortfall: buffer `2m + 0.5`, evening/user `10m + 1`,
     `m` = largest absolute price), so the model is always feasible and a shortfall is explained
     (`planner.battery.target_shortfall`); "relaxed targets" in the fallback chain are therefore
@@ -526,6 +529,30 @@ shadow and assisted run is the acceptance test.
     `IntervalFlows.devices_w` / `curtail_w`.
   - `charge_from_surplus = False` only where the plan gives devices the surplus while no battery
     target binds; the Phase 3 controller already reads this flag once a plan is wired (WP9).
+- PR 4-F review (2026-10-24), lead decisions by the plan's defaults:
+  - **D1** `goals.battery_target` stays a floor in the controller under a plan:
+    `battery_share_available` keeps the battery first while the live SoC is unknown or below the
+    target, after the band's priority check (property: below `max(priority, target)` a plan never
+    gives consumers more than Phase 3).
+  - **D2** no grid charging without a known price: flat mode and unpublished prices give an
+    allowance of 0, also under a schedule-only policy.
+  - **D3** where the region's negative-price rule zeroed the export price (proxy: export price
+    ≤ 0 while the known import price is negative), export costs 0.001/kWh more than curtailment,
+    so the plan curtails (informational until Phase 6); `planner.export.negative_price_avoided`
+    only where export is ≈ 0 or at most half the surplus.
+  - **D4** device budget on P50 plus overflow (above).
+  - Further: an early-charge tie-breaker (0.0001/kWh falling over the horizon) removes the
+    late-charging degeneracy; an evening target at max SoC is due at the start of the evening
+    deficit; the morning-buffer reason names the reachable SoC and `priority_until_soc_pct` ends
+    with the buffer's goal slot; without a load forecast the plan uses a flat 500 W (or a recent
+    mean passed by the runtime) and plans no consumers; median-filled prices are flagged
+    (`IntervalPrices.estimated`, additive) and never cited as "later price"; `violations()`
+    checks the flow split and the import limit; a slot the previous plan throttled stays tight
+    within 3 %-points / 100 Wh (band hysteresis); without a planner battery
+    `PlanInterval.battery` is `None` (contract: now optional) and the goal rules stay in charge;
+    `GET /api/v1/plan` and `/plan/status` answer 409 without a planner; a plan's age counts from
+    its hand-over; HiGHS releases the GIL while solving (measured: the event loop's largest gap
+    stays far below the solve time, slow test), `UNVERIFIED` on aarch64.
 - WP4: ENTSO-E and EPEX Spot get two templates each where the unit or the price content differs
   (`entsoe.price`/`_mwh`, `epex_spot.total_price`/`market_price`): a template holds one value unit
   and one `price_includes`. Octopus is included (its source was verified in 4-A).

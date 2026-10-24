@@ -116,9 +116,8 @@ with `phase-4/c-tariff`)
   - Plan v2, additive: `BatteryBand.grid_charge_max_w` / `discharge_lock` (ADR-0013; set by the
     planner, the controller still ignores them until 4-G - tested), `IntervalFlows.devices_w` /
     `curtail_w` (so the expected flows balance).
-  - Device budget (deviation, plan §"Deviations"): before every evening/user target devices may
-    only take what a battery-first day with PV at the risk quantile could spare; found with a rolling
-    replay where PV came in at P10 all day (consumers had taken the target's energy).
+  - Device budget: before every evening/user target devices may only take what a battery-first
+    day on P50 could spare plus the PV overflow it cannot absorb (review D4).
   - Tests: hypothesis properties (balance, SoC corridor, bounds, grid charging only inside the
     policy, no export at a negative export price, devices ≤ PV surplus, objective LP ≤ heuristic
     under one cost function, missed targets only when infeasible - checked by a max-SoC LP, every
@@ -130,8 +129,17 @@ with `phase-4/c-tariff`)
     13.5 kW export limit, Tibber-like 48 h, blended EEG, two climate devices; 193 slots, 2318
     variables, 413 rows, 0 binaries): session container amd64 (CPython 3.13) median of 7 runs -
     HiGHS solve 4 ms cold (244 simplex iterations) / 4 ms warm (141), heuristic 1 ms, whole
-    `run()` incl. explanations 29 ms, inputs incl. risk targets 14 ms. Slow test: < 3 s on CI.
-    aarch64 not measured yet (`UNVERIFIED`).
+    `run()` incl. explanations 29 ms, inputs incl. risk targets 14 ms. After the review fixes
+    (2026-10-24): solve 3.8 ms cold (284 iterations) / 4.0 ms warm (207), heuristic 0.9 ms,
+    `run()` 24 ms, inputs 10 ms. Slow test: < 3 s on CI. aarch64 not measured yet (`UNVERIFIED`).
+  - Review fixes (2026-10-24, lead decisions D1-D4 and the reviewer/`control-safety` findings,
+    plan §"Deviations" "PR 4-F review"): target floor under a plan in the controller, no grid
+    charging without a known price, curtailment in negative-rule slots, device budget on P50 plus
+    overflow, early-charge tie-breaker, full evening target at the evening deficit, buffer reason
+    and priority bounded to the buffer's day, flat 500 W without a load forecast,
+    `IntervalPrices.estimated`, optional `PlanInterval.battery`, band hysteresis, 409 for
+    `GET /plan` and `/plan/status`, plan age from the hand-over, flapping-band and shadow tests,
+    GIL test, flaky 0.1 s timeout test fixed, NumPy declared.
   - The runtime, scheduler and API followed in WP9 (next entry).
 
 - **Phase 4 – PR 4-F, part WP9 planner runtime (branch `phase-4/f-planner`)**:
@@ -752,8 +760,9 @@ with `phase-4/c-tariff`)
 | Forecast.Solar `wh_hours`/`watt_hours_period` keys read as period *start* (vendor API unreachable) | `templates/forecast/forecast_solar.pv.yaml`, `suncore/forecast/pv/parsing.py` | live comparison with the integration's sensors |
 | Supervisor proxy forwards `energy/solar_forecast` | `suncore/ha/` (`fetch_solar_forecast`) | first run on HA OS |
 | PV calibration constants (classes kt 0.3/0.65, shrink k = 16, decay 0.98, factor 0.5–1.5) and the clipping thresholds (plateau ±0.3 % for ≥ 1 h on ≥ 2 days; export within max(3 %, 50 W)) are reasoned, not fitted to real data | `suncore/forecast/pv/` | 30+ days of the maintainer's data |
-| Planner solve times on aarch64 (Raspberry Pi 4, HA Green); amd64: 4 ms solve, 29 ms whole run for the reference house | ADR-0003, `scripts/bench_planner.py` | run the benchmark on a Pi / the CI arm runner |
-| Planner weights and rules: target penalties (10 × max price + 1, buffer 2 × + 0.5), terminal value (median import × discharge efficiency − degradation/2), device budget on PV interpolated P10..P50 at the risk quantile (the learnt net-error distribution is not used there yet), automatic device value export + 0.01 | `suncore/planner/model.py`, `inputs.py` | shadow plans on the maintainer's system |
+| Planner solve times on aarch64 (Raspberry Pi 4, HA Green); amd64: 4 ms solve, 24 ms whole run for the reference house; HiGHS releasing the GIL on aarch64 (measured on amd64) | ADR-0003, `scripts/bench_planner.py`, `tests/planner/test_gil.py` | run the benchmark and the slow tests on a Pi / the CI arm runner |
+| Negative-price rule slots in the planner use a proxy (export price ≤ 0 and import price < 0); a spot-only source with a formula whose end price stays positive is not detected | `suncore/planner/inputs.py` | tariff service exposes the rule's slots (Phase 5) |
+| Planner weights and rules: target penalties (10 × max price + 1, buffer 2 × + 0.5), terminal value (median import × discharge efficiency − degradation/2), device budget on P50 plus overflow (a day far below P50 can miss the evening target, review D4), flat 500 W base load without a load forecast, automatic device value export + 0.01 | `suncore/planner/model.py`, `inputs.py` | shadow plans on the maintainer's system |
 | `weather.get_forecasts` `hourly` support of the maintainer's weather integration (the `temperature_unit` attribute and the conversion of the forecast to it are verified from source, `research/ha-websocket-api.md`) | `suncore/app/adapters.py` (`HaLoadReader`) | maintainer's HA |
 | `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (the `days_offset` handling is verified from source; a changed country/holiday list is not visible in the attributes, so the day-type cache only resets on a changed entity, `workdays`, `excludes` or offset) | `suncore/app/adapters.py`, `suncore/forecast/load_service.py` | maintainer maps a Workday sensor |
 | Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, 7 clean days, degree-day bases 15/22 °C, coverage 75 %/90 %, 20 h temperature days, anchors sunrise + 1 h / sunset − 1 h, sunrise threshold 2 %/20 W) and the default PV bands per weather class (clear 0.85/1.10, mixed 0.55/1.35, overcast 0.35/1.70) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |
