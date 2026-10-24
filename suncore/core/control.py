@@ -267,6 +267,9 @@ class IntervalPrices(_Frozen):
 
     import_price: float = Field(allow_inf_nan=False)
     export_price: float = Field(allow_inf_nan=False)
+    estimated: bool = False
+    """The source had no price for this interval; the planner used a stand-in (the median of
+    the known prices). Additive in plan v2 (review m5)."""
 
 
 class PlanInterval(_Frozen):
@@ -280,7 +283,9 @@ class PlanInterval(_Frozen):
     end: AwareDatetime
     devices: dict[str, DeviceBand] = Field(default_factory=dict)
     """Device id -> band; a missing device gets :data:`DEFAULT_BAND`."""
-    battery: BatteryBand = BatteryBand()
+    battery: BatteryBand | None = BatteryBand()
+    """``None`` = the plan has no battery (no model or no live SoC): the controller keeps the
+    Phase 3 goal rules for the battery share (control-safety review m6)."""
     grid_import_limit_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
     expected: IntervalFlows | None = None
     prices: IntervalPrices | None = None
@@ -377,7 +382,9 @@ class Plan(_Frozen):
 
     def battery_band_at(self, at: datetime) -> BatteryBand:
         interval = self.interval_at(at)
-        return DEFAULT_BATTERY_BAND if interval is None else interval.battery
+        if interval is None or interval.battery is None:
+            return DEFAULT_BATTERY_BAND
+        return interval.battery
 
 
 def plan_from_payload(payload: Mapping[str, Any]) -> Plan:

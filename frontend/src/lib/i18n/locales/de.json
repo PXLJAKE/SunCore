@@ -917,7 +917,7 @@
   "planner.fallback.spot_without_formula": "{source} liefert reine Börsenpreise und es ist keine Preisformel eingerichtet: Planung ohne Preisoptimierung, bis die Formel gesetzt ist.",
   "planner.input.prices_partial": "Preise sind bis {known_until} bekannt; {filled_slots} spätere Viertelstunden werden mit dem Medianpreis geplant.",
   "planner.input.no_pv_forecast": "Keine Solarprognose: Der Plan rechnet ohne Solarstrom.",
-  "planner.input.no_load_forecast": "Noch keine Lastprognose: Der Plan rechnet ohne Grundlast.",
+  "planner.input.no_load_forecast": "Noch keine Lastprognose: Der Plan rechnet mit einer flachen Grundlast von {load_w, number, ::0} W und plant keine Verbraucher.",
   "planner.input.no_battery_soc": "Der Ladestand des Akkus ist unbekannt: Der Akku bleibt aus dem Plan.",
   "planner.input.device_power_unknown": "Die Leistung von {device} ist unbekannt: Das Gerät bleibt aus dem Plan.",
   "planner.battery.grid_charge": "Aus dem Netz laden von {from, number, ::.0} % auf {to, number, ::.0} % zu {price, number, ::.000}/kWh: später steigt der Preis auf {later_price, number, ::.000}/kWh ({later_time}).",

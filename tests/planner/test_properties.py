@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pytest
 from hypothesis import HealthCheck, given, settings
 
 from suncore.planner.heuristic import heuristic_schedule
@@ -61,9 +62,13 @@ def _common(inputs: PlannerInputs, schedule: Schedule) -> None:
             if inputs.import_limit_w is not None:
                 cap = max(inputs.import_limit_w, inputs.load_p50[t])
                 assert schedule.import_w(t) <= cap + TOL_W
-        # A negative export price is never paid when curtailing is possible.
-        if inputs.export_price[t] < 0:
+        # A negative export price is never paid when curtailing is possible, and where the
+        # region rule zeroed the export price nothing is exported either (review D3).
+        if inputs.export_price[t] < 0 or inputs.discouraged(t):
             assert schedule.export_w[t] <= TOL_W
+        # Review D2: no grid charging without a known price (flat mode included).
+        if inputs.import_known[t] is None:
+            assert schedule.grid_charge_w[t] <= TOL_W
         if battery is not None:
             low = min(battery.reserve_wh, battery.soc_wh) - TOL_WH
             high = max(battery.max_wh, battery.soc_wh) + TOL_WH
@@ -95,6 +100,30 @@ def test_solver_plan_keeps_every_rule(situation) -> None:  # type: ignore[no-unt
             right = e.load_w + e.devices_w + max(e.battery_w, 0.0) + e.export_w + e.curtail_w
             assert abs(left - right) <= 2.0
     assert all(r.key in CATALOGUE for r in plan.reasons)
+    _no_export_while_a_device_could_use_it(inputs, result.schedule)
+
+
+def _no_export_while_a_device_could_use_it(inputs: PlannerInputs, schedule: Schedule) -> None:
+    """Review D4: no export in a slot where an allowed device worth more than the export price
+    has headroom while no target binds (its device budget is not used up)."""
+    econ = economics(inputs)
+    for t in range(inputs.n):
+        if schedule.export_w[t] <= TOL_W:
+            continue
+        budget_left = min(
+            (
+                b - sum(schedule.device_total_w(x) for x in range(s + 1)) * inputs.dt_h
+                for s, b in econ.device_budget
+                if s >= t
+            ),
+            default=float("inf"),
+        )
+        if budget_left <= 1.0:
+            continue
+        for j, device in enumerate(inputs.devices):
+            headroom = device.allowed[t] and schedule.devices_w[j][t] < device.max_w - TOL_W
+            if headroom and econ.device_value[j][t] > inputs.export_price[t] + 1e-9:
+                pytest.fail(f"export at {t} while device {device.device_id} could take it")
 
 
 @PROPS

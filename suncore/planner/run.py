@@ -256,7 +256,7 @@ def follow(
             soc[t] = e
         if rest > 0:
             cap_e = rest if inputs.export_limit_w is None else min(rest, inputs.export_limit_w)
-            if inputs.export_price[t] < 0:
+            if inputs.export_price[t] < 0 or inputs.discouraged(t):
                 cap_e = 0.0
             ex[t] = cap_e
             cu[t] = rest - cap_e
@@ -313,10 +313,11 @@ def _device_band(power_w: float, cap_w: float, fact: SlotFacts) -> DeviceBand:
 
 def _battery_band(
     inputs: PlannerInputs, schedule: Schedule, fact: SlotFacts, t: int
-) -> BatteryBand:
+) -> BatteryBand | None:
     battery = inputs.battery
     if battery is None:
-        return BatteryBand()
+        # No planner battery: no band, the controller keeps the goal rules (cs review m6).
+        return None
     grid = schedule.grid_charge_w[t]
     devices = schedule.device_total_w(t)
     return BatteryBand(
@@ -378,6 +379,7 @@ def to_plan(
                 prices=IntervalPrices(
                     import_price=round(inputs.import_price[t], 6),
                     export_price=round(inputs.export_price[t], 6),
+                    estimated=inputs.price_estimated(t),
                 ),
                 reasons=interval_reasons(inputs, econ, schedule, facts, t),
             )

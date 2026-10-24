@@ -917,7 +917,7 @@
   "planner.fallback.spot_without_formula": "{source} delivers bare spot prices and no price formula is configured: planning without price optimisation until the formula is set.",
   "planner.input.prices_partial": "Prices are known until {known_until}; {filled_slots} later quarter hours are planned with the median price.",
   "planner.input.no_pv_forecast": "No solar forecast: the plan assumes no solar power.",
-  "planner.input.no_load_forecast": "No load forecast yet: the plan assumes no base load.",
+  "planner.input.no_load_forecast": "No load forecast yet: the plan assumes a flat base load of {load_w, number, ::0} W and plans no consumers.",
   "planner.input.no_battery_soc": "The battery's state of charge is unknown: the battery is left out of the plan.",
   "planner.input.device_power_unknown": "The power of {device} is unknown: it is left out of the plan.",
   "planner.battery.grid_charge": "Charge from the grid from {from, number, ::.0} % to {to, number, ::.0} % at {price, number, ::.000}/kWh: later the price reaches {later_price, number, ::.000}/kWh ({later_time}).",

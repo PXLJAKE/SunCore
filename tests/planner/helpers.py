@@ -126,6 +126,9 @@ def situations(draw: st.DrawFn) -> Situation:
         goals=GoalsConfig(battery_target=target),
         devices=devices,
         export_limit_w=draw(st.one_of(st.none(), st.floats(0, 15_000))),
+        # Review D2: flat mode (no prices, or spot prices without a formula) is generated too.
+        with_prices=draw(st.sampled_from([True, True, True, False])),
+        price_includes=draw(st.sampled_from(["all_in", "all_in", "all_in", "spot_only"])),
         import_limit_w=draw(st.one_of(st.none(), st.floats(2_000, 30_000))),
     )
     return replace(situation)

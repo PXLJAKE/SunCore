@@ -100,16 +100,20 @@ def test_two_poor_days_raise_the_evening_target_to_max_and_hold_the_battery() ->
 
 
 def test_forecast_too_optimistic_still_reaches_the_evening_target() -> None:
-    """PV comes in at the forecast's P10 all day; the plan is redone every hour.
+    """PV comes in at half the forecast's P50 all day (P10 is a quarter); hourly replanning.
 
-    The evening target (cautious) is met as far as a battery-first day could meet it: the
-    device budget on PV at the risk quantile keeps consumers from taking the target's energy.
+    Review D4 (lead decision, plan §0): caution enters only through the WP7 targets, the device
+    budget is planned on P50 plus the overflow a battery-first day cannot absorb. At half the
+    P50 the evening target is still met; a whole day at P10 is the WP7 morning buffer's job
+    (``docs/plans/phase-4.md`` deviations: with PV at 0.4 x P50 all day the target is missed by
+    ~5 %, because the buffer's margin does not count the consumers).
     """
     s = situation("forecast_too_optimistic")
-    result = replay(s, hours=16, actual_share=s.p10_share)
+    share = 0.5
+    result = replay(s, hours=16, actual_share=share)
     evening = min(result.targets)
     target = result.targets[evening]
-    best = battery_first_soc(s, until=evening, actual_share=s.p10_share)
+    best = battery_first_soc(s, until=evening, actual_share=share)
     assert result.soc_pct[evening] >= min(target, best) - 1.0
 
 
@@ -257,3 +261,98 @@ def test_the_plan_covers_48_hours_on_the_quarter_hour_grid() -> None:
     assert plan.intervals[-1].end - plan.intervals[0].start == timedelta(hours=48)
     assert plan.source == "solver"
     assert plan.created_at == inputs.now
+
+
+# --- review fixes (PR 4-F) --------------------------------------------------------------------
+
+
+def _day_one(inputs, t: int) -> bool:  # type: ignore[no-untyped-def]
+    return inputs.starts[t].astimezone(TZ).date() == inputs.now.astimezone(TZ).date()
+
+
+@pytest.mark.parametrize("name", ["reference_house", "prefer_full"])
+def test_consumers_get_energy_on_day_one_once_the_battery_is_full(name: str) -> None:
+    """Review B1/D4: the device budget includes the overflow a full battery cannot take."""
+    inputs = scenario_inputs(name)
+    result = run(inputs)
+    assert inputs.battery is not None
+    full = [
+        t
+        for t in range(inputs.n)
+        if _day_one(inputs, t) and result.schedule.soc_wh[t] >= inputs.battery.max_wh - 1
+    ]
+    assert full
+    assert sum(result.schedule.device_total_w(t) for t in full) > 1_000
+
+
+def test_the_morning_priority_ends_with_the_buffers_day() -> None:
+    """Review m3: ``priority_until_soc_pct`` only until the buffer's goal slot, not 48 h."""
+    inputs = scenario_inputs("prefer_full")
+    result = run(inputs)
+    econ = economics(inputs)
+    assert econ.first_until >= 0
+    for t, interval in enumerate(result.plan.intervals):
+        if t > econ.first_until:
+            assert interval.battery is not None
+            assert interval.battery.priority_until_soc_pct is None
+
+
+def test_filled_prices_are_flagged_and_never_cited() -> None:
+    """Review m5: median stand-ins are marked and not used as 'later price' in a hold."""
+    s = situation("price_spike")
+    known_until = s.now + timedelta(hours=10)
+    inputs = situation_inputs(
+        replace(s, import_price=lambda at: s.import_price(at) if at < known_until else None)
+    )
+    result = run(inputs)
+    holds: list[int] | None = []
+    for t, interval in enumerate(result.plan.intervals):
+        assert interval.prices is not None
+        assert interval.prices.estimated is (inputs.import_known[t] is None)
+        for reason in interval.reasons:
+            if reason.key != rk.HOLD_FOR_PRICE:
+                continue
+            later = [
+                tau
+                for tau in range(t + 1, inputs.n)
+                if inputs.starts[tau].astimezone(TZ).strftime("%H:%M") == reason.args["later_time"]
+            ]
+            assert any(inputs.import_known[tau] is not None for tau in later)
+            assert holds is not None
+            holds.append(t)
+    assert holds, "the spike is inside the known prices: the plan holds for it"
+
+
+def test_without_a_planner_battery_no_band_is_attached() -> None:
+    """Control-safety review m6: no battery in the plan -> the goal rules stay in charge."""
+    s = situation("sunny_day")
+    inputs = situation_inputs(s)
+    inputs = replace(inputs, battery=None, goals=(), morning_buffer_pct=None, grid_charge_w=())
+    plan = run(inputs).plan
+    assert all(interval.battery is None for interval in plan.intervals)
+
+
+def test_negative_rule_slots_are_curtailed_not_exported() -> None:
+    """Review D3 under the de rule: where the rule zeroed the export price, no export."""
+    inputs = scenario_inputs("negative_prices")
+    result = run(inputs)
+    flagged = [t for t in range(inputs.n) if inputs.discouraged(t)]
+    assert flagged
+    for t in flagged:
+        assert result.schedule.export_w[t] <= EPS
+        if econ_surplus(inputs, t) > EPS:
+            assert rk.EXPORT_NEGATIVE_PRICE_AVOIDED in _keys(result, t)
+
+
+def econ_surplus(inputs, t: int) -> float:  # type: ignore[no-untyped-def]
+    return max(0.0, inputs.pv_p50[t] - inputs.load_p50[t])
+
+
+def test_pv_charging_is_not_postponed_without_a_reason() -> None:
+    """Review M3: among equal-cost plans the battery charges early (tie-breaker)."""
+    s = situation("sunny_day")
+    inputs = situation_inputs(replace(s, devices=(), soc_pct=60.0))
+    result = run(inputs)
+    first_surplus = next(t for t in range(inputs.n) if econ_surplus(inputs, t) > 100)
+    first_charge = next(t for t in range(inputs.n) if result.schedule.pv_charge_w[t] > EPS)
+    assert first_charge == first_surplus

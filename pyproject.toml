@@ -24,6 +24,7 @@ dependencies = [
   "aiosqlite>=0.22.1",
   "fastapi>=0.143.0",
   "highspy>=1.11",
+  "numpy>=2.3",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.15.0",
   "pyyaml>=6.0.3",

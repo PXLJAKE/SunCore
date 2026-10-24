@@ -15,6 +15,7 @@ from datetime import timedelta
 import pytest
 
 from suncore.app.planning import LiveReading, PlanningService, PlanningSettings, PlanningSnapshot
+from suncore.core.battery import BatteryStrategy
 from suncore.core.control import BatteryBand, DeviceBand, Plan, PlanInterval
 from suncore.core.decisions import BatteryAction, DecisionKind, OperatingMode
 from suncore.sim.planner_scenarios import situation, situation_inputs
@@ -52,7 +53,10 @@ async def play() -> tuple[RunResult, ScenarioRunner, PlanningService, Observed]:
 
     async def collect(now, previous):  # type: ignore[no-untyped-def]
         soc = live().soc_pct or 25.0
-        inputs = situation_inputs(replace(situation("sunny_day"), now=now, soc_pct=soc))
+        # ``prefer_full`` carries a morning priority (battery first until full) the controller
+        # must keep; since review m3 a buffer already reached carries none.
+        base = replace(situation("sunny_day"), strategy=BatteryStrategy.PREFER_FULL)
+        inputs = situation_inputs(replace(base, now=now, soc_pct=soc))
         return PlanningSnapshot(replace(inputs, previous=previous))
 
     planning = PlanningService(collect, live, clock=runner.vt.clock, settings=PlanningSettings())

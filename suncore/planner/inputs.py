@@ -14,12 +14,11 @@ runtime (WP9) collects the arguments:
   forecast (house minus controlled devices).
 * ``morning_buffer`` / ``evening_target``: the risk model's results (WP7; anything with
   ``soc_pct`` and ``reason``, e.g. ``SocTarget`` or ``RiskTargetView``) and ``evening_at``
-  (``RiskView.evening_at``). The planner takes the risk quantile through these targets
-  (plan §0: no P10 SoC constraints) and through one more place, the **device budget** before
-  each evening/user target (``model.Economics.device_budget``): devices may only take the
-  surplus the battery can spare *if PV comes in at the risk quantile*
-  (``risk_quantile``; plan WP8 "PV at the risk quantile in the target constraints"), so a day
-  at the low end of the forecast does not lose the target to consumers.
+  (``RiskView.evening_at``). Caution enters **only** through these targets (plan §0: no P10
+  constraints; the device budget before each target, ``model.Economics.device_budget``, is
+  computed on P50, review D4). An evening target at max SoC is placed at the start of the
+  evening's deficit, so the plan never holds a full battery while the house imports (review
+  m2).
 * ``goals.battery_target``: a timed soft target at every occurrence of its local time in the
   horizon (maintainer 2026-10-22: its time belongs to the planner).
 
@@ -75,6 +74,10 @@ PLANNER_HORIZON: Final = timedelta(hours=48)
 DEFAULT_BUDGET_S: Final = 8.0
 """ADR-0003: solver time budget."""
 DEFAULT_MIP_GAP: Final = 0.01
+DEFAULT_BASE_LOAD_W: Final = 500.0
+"""Base load assumed without a load forecast (review m4): a little above a typical
+household's night load, so the battery is not planned as if the house used nothing."""
+MIN_BASE_LOAD_W: Final = 100.0
 FLAT_IMPORT_PRICE: Final = 1.0
 """Nominal import price of :attr:`PriceMode.FLAT` (no price optimisation): every imported kWh
 counts the same, so the plan maximises self-sufficiency; the objective is then not money."""
@@ -209,10 +212,11 @@ class PlannerInputs:
     grid_charge_policy: GridChargePolicy = field(default_factory=GridChargePolicy)
     goals: tuple[SocGoal, ...] = ()
     morning_buffer_pct: float | None = None
-    risk_quantile: float = 0.1
-    """``BatterySettings.risk.quantile``: the PV quantile of the device budget (0.1 = P10,
-    0.5 = P50, linear in between)."""
     """"Battery first until X %" for the coming daytime (``priority_until_soc_pct``)."""
+    export_discouraged: tuple[bool, ...] = ()
+    """Slots where the region's negative-price rule zeroed the export price (proxy: export
+    price <= 0 while the known import price is negative): exporting there costs a small
+    penalty above curtailment (review D3; curtailment is informational until Phase 6)."""
     import_limit_w: float | None = None
     export_limit_w: float | None = None
     devices: tuple[PlannerDevice, ...] = ()
@@ -241,6 +245,9 @@ class PlannerInputs:
         if any(len(s) != n for s in series):
             msg = "planner inputs: every series needs one value per slot"
             raise ValueError(msg)
+        if self.export_discouraged and len(self.export_discouraged) != n:
+            msg = "planner inputs: export_discouraged needs one value per slot"
+            raise ValueError(msg)
         if self.grid_charge_w and len(self.grid_charge_w) != n:
             msg = "planner inputs: grid_charge_w needs one value per slot"
             raise ValueError(msg)
@@ -264,10 +271,12 @@ class PlannerInputs:
     def end(self) -> datetime:
         return self.starts[-1] + self.step
 
-    def pv_at_risk(self, t: int) -> float:
-        """PV (W) at :attr:`risk_quantile`: P10 at 0.1, P50 at 0.5, linear in between."""
-        share = min(1.0, max(0.0, (self.risk_quantile - 0.1) / 0.4))
-        return self.pv_p10[t] + share * (self.pv_p50[t] - self.pv_p10[t])
+    def discouraged(self, t: int) -> bool:
+        return bool(self.export_discouraged) and self.export_discouraged[t]
+
+    def price_estimated(self, t: int) -> bool:
+        """The import price of slot ``t`` is a stand-in (median fill or flat mode)."""
+        return self.import_known[t] is None
 
     def grid_charge_at(self, t: int) -> float:
         return self.grid_charge_w[t] if self.grid_charge_w else 0.0
@@ -443,7 +452,8 @@ def grid_charge_allowance(
     tariff whose price varies, the spread rule pays against the best known later price
     (:meth:`BatteryModel.grid_charge_pays`). The power is bounded by the battery's charge
     limit and by the import headroom ``import_limit - base load`` (ADR-0013: the site import
-    limit always holds).
+    limit always holds). A slot without a known price (flat mode, unpublished prices) never
+    allows grid charging, even under a schedule-only policy.
     """
     n = len(starts)
     if battery is None or not policy.enabled:
@@ -460,7 +470,8 @@ def grid_charge_allowance(
     out: list[float] = []
     for t in range(n):
         price = known[t]
-        if not policy.allows(starts[t], price, tz):
+        if price is None or not policy.allows(starts[t], price, tz):
+            # No grid charging without a known price, whatever the policy (review D2).
             out.append(0.0)
             continue
         if dynamic:
@@ -601,14 +612,11 @@ def _soc_goals(
     coming = [at for at in sunsets(starts, step, pv, tz) if at > begin + step]
     evening = evening_at if evening_at is not None else (coming[0] if coming else end)
     if evening_target is not None and begin + step < evening <= end:
-        out.append(
-            SocGoal(
-                "evening_target",
-                min(cap, evening_target.soc_pct),
-                evening,
-                evening_target.reason,
-            )
-        )
+        soc = min(cap, evening_target.soc_pct)
+        at = evening
+        if soc >= cap - 1e-6:
+            at = _deficit_start(starts, step, pv, load, evening)
+        out.append(SocGoal("evening_target", soc, at, evening_target.reason))
     buffer_pct: float | None = None
     buffer_reason: Reason | None = None
     if morning_buffer is not None:
@@ -625,6 +633,11 @@ def _soc_goals(
         )
         if reach is not None:
             kind: GoalKind = "morning_buffer" if morning_buffer is not None else "prefer_full"
+            if reach[1] < buffer_pct - 0.05:
+                # PV cannot get there today: the reason names what the plan aims at (m3).
+                args = dict(buffer_reason.args)
+                args["soc_pct"] = round(reach[1], 1)
+                buffer_reason = Reason(key=buffer_reason.key, args=args)
             out.append(SocGoal(kind, reach[1], reach[0], buffer_reason))
     target = goals.battery_target
     if target is not None:
@@ -644,6 +657,30 @@ def _soc_goals(
             )
     out.sort(key=lambda g: g.at)
     return out, buffer_pct
+
+
+def _deficit_start(
+    starts: Sequence[datetime],
+    step: timedelta,
+    pv: Sequence[float],
+    load: Sequence[float],
+    evening: datetime,
+) -> datetime:
+    """Start of the deficit run (load above PV) that ends at ``evening``; ``evening`` if the
+    slot before it has surplus. A full battery is due there, not later (review m2)."""
+    last = None
+    for t, begin in enumerate(starts):
+        if begin + step >= evening:
+            last = t
+            break
+    if last is None:
+        return evening
+    first = last
+    while first > 0 and load[first - 1] >= pv[first - 1]:
+        first -= 1
+    if first == last and load[last] < pv[last]:
+        return evening
+    return starts[first] if first > 0 else evening
 
 
 def build_inputs(
@@ -667,6 +704,7 @@ def build_inputs(
     previous: Plan | None = None,
     weights: PlannerWeights | None = None,
     horizon: timedelta = PLANNER_HORIZON,
+    load_fallback_w: float | None = None,
 ) -> PlannerInputs:
     """The planner's snapshot (module doc); pure."""
     goals = goals or GoalsConfig()
@@ -677,8 +715,14 @@ def build_inputs(
     if pv is None:
         found.append(Reason(key=rk.INPUT_NO_PV_FORECAST))
     l10, l50, l90, load_missing = _quantiles(load, grid, None)
-    if load is None or load_missing == grid.count:
-        found.append(Reason(key=rk.INPUT_NO_LOAD_FORECAST))
+    no_load = load is None or load_missing == grid.count
+    if no_load:
+        # Never plan on 0 W base load (review m4): a flat, conservative profile - the recent
+        # mean the runtime passes, else DEFAULT_BASE_LOAD_W - and no device planning.
+        flat = load_fallback_w if load_fallback_w is not None else DEFAULT_BASE_LOAD_W
+        flat = max(flat, MIN_BASE_LOAD_W)
+        l10, l50, l90 = [flat * 0.5] * grid.count, [flat] * grid.count, [flat * 2] * grid.count
+        found.append(Reason(key=rk.INPUT_NO_LOAD_FORECAST, args={"load_w": round(flat)}))
     price_data = _prices(prices, grid, tz)
     found = price_data.reasons + found
     planner_battery = _battery(battery, soc_pct, site_battery)
@@ -707,7 +751,7 @@ def build_inputs(
         evening_at=evening_at,
     )
     planned: list[PlannerDevice] = []
-    for device in devices:
+    for device in [] if no_load else devices:
         override = None if device_max_w is None else device_max_w.get(device.id)
         max_w = override if override is not None else device_max_power_w(device)
         if max_w is None or max_w <= 0:
@@ -756,7 +800,10 @@ def build_inputs(
         grid_charge_policy=policy,
         goals=tuple(soc_goals),
         morning_buffer_pct=buffer_pct,
-        risk_quantile=battery.risk.quantile,
+        export_discouraged=tuple(
+            e <= 0 and (e < 0 or (k is not None and k < 0))
+            for e, k in zip(price_data.export_price, price_data.known, strict=True)
+        ),
         import_limit_w=import_limit_w,
         export_limit_w=export_limit_w,
         devices=tuple(planned),
@@ -768,6 +815,7 @@ def build_inputs(
 
 
 __all__ = [
+    "DEFAULT_BASE_LOAD_W",
     "DEFAULT_BUDGET_S",
     "DEFAULT_MIP_GAP",
     "DEVICE_VALUE_MARGIN",

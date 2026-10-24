@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 
 import pytest
@@ -13,7 +13,6 @@ from suncore.core.battery import (
     BatterySettings,
     BatteryStrategy,
     GridChargePolicy,
-    RiskLevel,
 )
 from suncore.core.config import BatteryTarget, GoalsConfig
 from suncore.core.decisions import Reason
@@ -32,6 +31,7 @@ from suncore.core.site import BatteryConfig, EntityRef
 from suncore.core.tariff import WeeklySchedule
 from suncore.planner import reasons as rk
 from suncore.planner.inputs import (
+    DEFAULT_BASE_LOAD_W,
     PlannerBattery,
     PlannerInputs,
     PriceMode,
@@ -382,17 +382,78 @@ def test_inputs_are_validated() -> None:
         PlannerInputs(**{**base, "grid_charge_w": (1.0, 2.0)})  # type: ignore[arg-type]
 
 
-def test_risk_quantile_interpolates_the_pv_band(series) -> None:  # type: ignore[no-untyped-def]
-    for risk, share in (
-        (RiskLevel.CAUTIOUS, 0.0),
-        (RiskLevel.BALANCED, 0.375),
-        (RiskLevel.BOLD, 1.0),
-    ):
-        settings = SETTINGS.model_copy(update={"risk": risk})
-        inputs = _build(series, battery=settings)
-        t = max(range(inputs.n), key=lambda i: inputs.pv_p50[i])
-        expected = inputs.pv_p10[t] + share * (inputs.pv_p50[t] - inputs.pv_p10[t])
-        assert inputs.pv_at_risk(t) == pytest.approx(expected)
+def test_no_grid_charging_without_a_known_price(series) -> None:  # type: ignore[no-untyped-def]
+    """Review D2: flat mode or an unknown price never allows grid charging, not even under a
+    schedule-only policy."""
+    night = GridChargePolicy(enabled=True, schedule=WeeklySchedule.daily("00:00", "23:59"))
+    settings = SETTINGS.model_copy(update={"grid_charge": night})
+    assert not any(_build(series, battery=settings, prices=None).grid_charge_w)
+    starts = series[0]
+    spot = prices(starts, [0.1] * len(starts), [0.08] * len(starts), includes="spot_only")
+    assert not any(_build(series, battery=settings, prices=spot).grid_charge_w)
+    half = [0.3] * 60 + [None] * (len(starts) - 60)
+    partial = _build(series, battery=settings, prices=prices(starts, half, [0.08] * len(starts)))
+    assert all(
+        w == 0
+        for w, k in zip(partial.grid_charge_w, partial.import_known, strict=True)
+        if k is None
+    )
+    assert any(w > 0 for w in partial.grid_charge_w)
+
+
+def test_negative_rule_slots_discourage_export(series) -> None:  # type: ignore[no-untyped-def]
+    starts = series[0]
+    imp = [-0.05 if 30 <= i < 40 else 0.3 for i in range(len(starts))]
+    exp = [0.0 if 30 <= i < 40 else 0.08 for i in range(len(starts))]
+    inputs = _build(series, prices=prices(starts, imp, exp))
+    assert [inputs.discouraged(t) for t in range(28, 42)] == [False] * 2 + [True] * 10 + [False] * 2
+    # Export "none" (price 0 everywhere) with positive import prices is not discouraged.
+    plain = _build(series, prices=prices(starts, [0.3] * len(starts), [0.0] * len(starts)))
+    assert not any(plain.export_discouraged)
+
+
+def test_without_a_load_forecast_a_flat_load_and_no_devices(series) -> None:  # type: ignore[no-untyped-def]
+    inputs = _build(series, load=None, devices=[climate("ac", 800.0)])
+    assert set(inputs.load_p50) == {DEFAULT_BASE_LOAD_W}
+    assert inputs.devices == ()
+    reason = next(r for r in inputs.reasons if r.key == rk.INPUT_NO_LOAD_FORECAST)
+    assert reason.args["load_w"] == DEFAULT_BASE_LOAD_W
+    recent = _build(series, load=None, load_fallback_w=730.0)
+    assert set(recent.load_p50) == {730.0}
+
+
+@dataclass(frozen=True)
+class _Target:
+    soc_pct: float
+    reason: Reason
+
+
+def test_a_full_evening_target_is_due_when_the_evening_deficit_starts(series) -> None:  # type: ignore[no-untyped-def]
+    """Review m2: at 100 % the target sits before the evening deficit, so a full battery is
+    never held while the house imports."""
+    evening = datetime(2026, 6, 20, 21, 15, tzinfo=TZ)
+    full = _Target(100.0, Reason(key=rk.EVENING_TARGET, args={"soc_pct": 100.0}))
+    inputs = _build(series, evening_target=full, evening_at=evening)
+    goal = next(g for g in inputs.goals if g.kind == "evening_target")
+    assert goal.at < evening
+    slot = inputs.slot_of(goal.at)
+    assert slot is not None
+    assert inputs.load_p50[slot + 1] >= inputs.pv_p50[slot + 1]
+    assert inputs.load_p50[slot] < inputs.pv_p50[slot]
+    half = _Target(60.0, Reason(key=rk.EVENING_TARGET, args={"soc_pct": 60.0}))
+    plain = _build(series, evening_target=half, evening_at=evening)
+    assert next(g for g in plain.goals if g.kind == "evening_target").at == evening
+
+
+def test_an_unreachable_buffer_names_the_reachable_soc(series) -> None:  # type: ignore[no-untyped-def]
+    pv = series[1]
+    scaled = tuple(None if v is None else v * 0.2 for v in pv.p50.values)
+    weak = type(pv).deterministic(pv.p50.model_copy(update={"values": scaled}))
+    buffer = _Target(90.0, Reason(key=rk.MORNING_BUFFER, args={"soc_pct": 90.0}))
+    inputs = _build(series, pv=weak, morning_buffer=buffer, soc_pct=20.0)
+    goal = next(g for g in inputs.goals if g.kind == "morning_buffer")
+    assert goal.soc_pct < 90.0
+    assert goal.reason.args["soc_pct"] == pytest.approx(round(goal.soc_pct, 1))
 
 
 def test_soc_goal_is_plain_data() -> None:

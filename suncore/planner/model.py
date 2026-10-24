@@ -82,6 +82,12 @@ SLOT_VARS: Final = 10
 KW: Final = 1000.0
 INF: Final = math.inf
 BALANCE_TOL_W: Final = 1.0
+EARLY_CHARGE_PER_KWH: Final = 1e-4
+"""Tie-breaker (review M3): charging PV earlier is worth up to this much more per kWh, falling
+linearly over the horizon, so equal-cost plans charge early instead of at the last moment."""
+DISCOURAGED_EXPORT_PER_KWH: Final = 1e-3
+"""Penalty on export where the negative-price rule zeroed the export price (review D3); ten
+times the curtailment tie-breaker, so curtailing (informational until Phase 6) wins."""
 BUFFER_KINDS: Final = ("morning_buffer", "prefer_full")
 TARGET_KINDS: Final = ("evening_target", "user_target")
 SOC_TOL_WH: Final = 1.0
@@ -131,10 +137,10 @@ class Economics:
     goal_slots: tuple[int | None, ...]
     goal_penalty: tuple[float, ...]
     device_budget: tuple[tuple[int, float], ...]
-    """Per evening/user target ``(slot, Wh)``: the most device energy until that slot. It is
-    the SoC the battery would still have above the target at the slot if PV came in at the
-    risk quantile and every surplus went to the battery (battery-first simulation from the
-    live SoC), divided by the charge efficiency; 0 when even that misses the target."""
+    """Per evening/user target ``(slot, Wh)``: the most device energy until that slot - the
+    SoC a battery-first day on P50 would have above the target at the slot, divided by the
+    charge efficiency, plus the PV surplus such a day cannot absorb (charge-power and SoC
+    limits) up to the slot (review D4: caution enters only through the WP7 targets)."""
     first_until: int
     """Slots before this index are "battery first" (the morning buffer or ``prefer_full``
     goal is due at its end): surplus beyond what the battery can take
@@ -212,20 +218,26 @@ def _device_budgets(
     e = battery.soc_wh
     floor = min(battery.reserve_wh, e)
     ceiling = max(battery.max_wh, e)
+    overflow: list[float] = []
+    spilled = 0.0
     for t in range(inputs.n):
-        net = inputs.pv_at_risk(t) - inputs.load_p50[t]
+        net = inputs.pv_p50[t] - inputs.load_p50[t]
         if net > 0:
-            e = min(ceiling, e + min(net, battery.max_charge_w) * dt * model.charge_efficiency)
+            room_w = max(0.0, ceiling - e) / (dt * model.charge_efficiency)
+            taken = min(net, battery.max_charge_w, room_w)
+            e = min(ceiling, e + taken * dt * model.charge_efficiency)
+            spilled += (net - taken) * dt
         else:
             loss = min(-net, battery.max_discharge_w) * dt / model.discharge_efficiency
             e = max(min(e, floor), e - loss)
         reach.append(e)
+        overflow.append(spilled)
     out: list[tuple[int, float]] = []
     for goal, slot in zip(inputs.goals, slots, strict=True):
         if slot is None or goal.kind not in TARGET_KINDS:
             continue
         spare = reach[slot] - model.soc_to_wh(goal.soc_pct)
-        out.append((slot, max(0.0, spare) / model.charge_efficiency))
+        out.append((slot, max(0.0, spare) / model.charge_efficiency + overflow[slot]))
     return tuple(out)
 
 
@@ -368,7 +380,9 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
         upper[col(t, EX)] = min(s, export_cap)
         upper[col(t, CU)] = s
         cost[col(t, GL)] = dt * (pi + aut)
-        cost[col(t, EX)] = -dt * pe
+        cost[col(t, EX)] = -dt * pe + (
+            dt * DISCOURAGED_EXPORT_PER_KWH if inputs.discouraged(t) else 0.0
+        )
         cost[col(t, CU)] = dt * cur
         for j, device in enumerate(inputs.devices):
             upper[layout.dev(t, j)] = min(device.max_w / KW, s) if device.allowed[t] else 0.0
@@ -379,7 +393,7 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
             upper[col(t, GC)] = min(inputs.grid_charge_at(t) / KW, bat.max_charge)
             half = dt * bat.deg / 2
             cost[col(t, BL)] = half
-            cost[col(t, PC)] = half
+            cost[col(t, PC)] = half - dt * EARLY_CHARGE_PER_KWH * (n - t) / n
             cost[col(t, GC)] = dt * (pi + aut) + half
             # SoC bounds: inside [reserve, max]; a live SoC outside gets a penalised slack.
             lower[col(t, SOC)] = bat.reserve if bat.e0 >= bat.reserve else 0.0
@@ -523,7 +537,7 @@ def objective(inputs: PlannerInputs, schedule: Schedule, econ: Economics | None 
     return float(problem.cost @ vector_from_schedule(inputs, layout, econ, schedule))
 
 
-def violations(  # noqa: PLR0912 - one check per constraint family
+def violations(  # noqa: PLR0912, PLR0915 - one check per constraint family
     inputs: PlannerInputs, schedule: Schedule, econ: Economics | None = None
 ) -> list[str]:
     """Constraint violations of a schedule beyond rounding (empty = feasible)."""
@@ -556,6 +570,24 @@ def violations(  # noqa: PLR0912 - one check per constraint family
             found.append(f"balance at {t}: {left:.1f} != {right:.1f}")
         if schedule.device_total_w(t) > econ.surplus_w[t] + BALANCE_TOL_W:
             found.append(f"devices above the PV surplus at {t}")
+        # The flow split (review m6): grid and battery serve only the deficit, the surplus
+        # side takes only PV.
+        surplus_side = (
+            schedule.pv_charge_w[t]
+            + schedule.export_w[t]
+            + schedule.curtail_w[t]
+            + schedule.device_total_w(t)
+        )
+        if abs(surplus_side - econ.surplus_w[t]) > BALANCE_TOL_W:
+            found.append(f"surplus split at {t}")
+        deficit_side = schedule.grid_load_w[t] + schedule.battery_load_w[t]
+        if abs(deficit_side - econ.deficit_w[t]) > BALANCE_TOL_W:
+            found.append(f"deficit split at {t}")
+        if (
+            inputs.import_limit_w is not None
+            and schedule.import_w(t) > max(inputs.import_limit_w, econ.deficit_w[t]) + BALANCE_TOL_W
+        ):
+            found.append(f"import limit at {t}")
         if schedule.grid_charge_w[t] > inputs.grid_charge_at(t) + BALANCE_TOL_W:
             found.append(f"grid charging not allowed at {t}")
         if (

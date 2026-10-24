@@ -27,7 +27,6 @@ from typing import Final
 
 from suncore.planner.inputs import PlannerInputs
 from suncore.planner.model import (
-    BUFFER_KINDS,
     Economics,
     Schedule,
     economics,
@@ -87,14 +86,6 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
         if battery is not None and inputs.morning_buffer_pct is not None
         else None
     )
-    buffer_until = max(
-        (
-            s
-            for g, s in zip(inputs.goals, econ.goal_slots, strict=True)
-            if g.kind in BUFFER_KINDS and s is not None
-        ),
-        default=-1,
-    )
     # Net battery energy each slot would add if all surplus went to it and deficits drew from it.
     gain = [
         min(econ.surplus_w[t], max_ch) * dt * eta_c - min(econ.deficit_w[t], max_dis) * dt / eta_d
@@ -118,7 +109,8 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
             default=float("inf"),
         )
         rest = s
-        battery_first = buffer_wh is not None and e < buffer_wh - 1e-6 and t <= max(buffer_until, 0)
+        # Same rule as the LP's FIRST slack (review n2): strictly before the buffer's slot.
+        battery_first = buffer_wh is not None and e < buffer_wh - 1e-6 and t < econ.first_until
         if battery is not None and battery_first:
             first = min(rest, max_ch, max(0.0, ceiling - e) / (dt * eta_c))
             pc[t] = first
@@ -148,7 +140,7 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
             room -= more
             gc[t] = max(0.0, min(extra_grid_w[t], inputs.grid_charge_at(t), max_ch - pc[t], room))
         if rest > EPS_W:
-            if inputs.export_price[t] < 0:
+            if inputs.export_price[t] < 0 or inputs.discouraged(t):
                 cu[t] = rest
             else:
                 cap = rest if inputs.export_limit_w is None else min(rest, inputs.export_limit_w)
