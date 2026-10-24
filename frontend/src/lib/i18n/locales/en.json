@@ -936,5 +936,14 @@
   "planner.export.limit": "The export limit ({limit_w, number, ::0} W) is reached: the rest of the solar power would be curtailed.",
   "planner.export.surplus": "Export {power_w, number, ::0} W at {price, number, ::.000}/kWh.",
   "planner.grid.import": "The house draws {power_w, number, ::0} W from the grid at {price, number, ::.000}/kWh.",
-  "planner.interval.balanced": "Nothing to plan: solar power and consumption balance."
+  "planner.interval.balanced": "Nothing to plan: solar power and consumption balance.",
+  "planner.status.waiting_for_inputs": "Waiting for prices and forecasts before the first plan; the plan starts at the latest {grace_s, number, ::0} s after the first connection.",
+  "planner.status.no_inputs": "Nothing to plan yet: the site is not set up or Home Assistant is not connected.",
+  "planner.status.run_failed": "The last planning run failed ({error}); the previous plan stays in use.",
+  "planner.status.run_timeout": "The planning run did not finish within {limit_s, number, ::0} s; the previous plan stays in use.",
+  "planner.status.run_stuck": "An earlier planning run is still running; no new run was started.",
+  "planner.status.stale": "The plan is older than {age_h, number, ::.0} h: SunCore controls without it (surplus rules only) until a new plan arrives.",
+  "planner.status.expired": "The plan has run out: SunCore controls without it (surplus rules only) until a new plan arrives.",
+  "planner.status.no_plan": "There is no plan yet: SunCore controls on surplus rules only.",
+  "api.error.planning_unavailable": "The planner is not running (no site is set up)."
 }

@@ -20,7 +20,10 @@ must follow it, ``tests/controller/sim.py`` is the reference):
    * ``blocked``: every device the gate holds (override), has a release pending for, or
      whose scope the watchdog paused - id -> the gate's reason;
    * ``reserve_soc_pct``, ``import_limit_w`` from the site/battery config, ``goals``,
-     ``plan`` (``Plan.default()`` in Phase 3);
+     ``plan`` (``Plan.default()`` until the planner's first plan, afterwards the current plan
+     read **once** for the tick - ``ControlStack.tick``; a plan can only restrict the devices
+     and move the surplus between battery and consumers, ``BatteryBand`` limits are not
+     acted on before WP10);
 
 3. ``result = await loop.tick(now, ControllerInputs(...))``. Inside, in this order:
    ``controller.step`` (surplus, allocation, back-off) -> ``loop.gate_inputs`` is the
@@ -155,7 +158,10 @@ class Controller:
         if now.tzinfo is None or now.utcoffset() is None:
             msg = "Controller.step needs a timezone-aware now"
             raise ValueError(msg)
-        band = None if inputs.plan.is_default else inputs.plan.battery_band_at(now)
+        # A band applies only while a plan interval covers ``now``: a plan that ran out (or a
+        # default plan) leaves the Phase 3 goal rules in charge, never the empty default band.
+        interval = inputs.plan.interval_at(now)
+        band = None if interval is None else interval.battery
         allocation = AllocationInputs(
             states=inputs.states,
             estimates=inputs.estimates,

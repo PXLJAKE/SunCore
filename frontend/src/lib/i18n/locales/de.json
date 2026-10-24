@@ -936,5 +936,14 @@
   "planner.export.limit": "Die Einspeisegrenze ({limit_w, number, ::0} W) ist erreicht: Der restliche Solarstrom würde abgeregelt.",
   "planner.export.surplus": "{power_w, number, ::0} W einspeisen zu {price, number, ::.000}/kWh.",
   "planner.grid.import": "Das Haus bezieht {power_w, number, ::0} W aus dem Netz zu {price, number, ::.000}/kWh.",
-  "planner.interval.balanced": "Nichts zu planen: Solarstrom und Verbrauch gleichen sich aus."
+  "planner.interval.balanced": "Nichts zu planen: Solarstrom und Verbrauch gleichen sich aus.",
+  "planner.status.waiting_for_inputs": "Warte auf Preise und Prognosen für den ersten Plan; der Plan startet spätestens {grace_s, number, ::0} s nach der ersten Verbindung.",
+  "planner.status.no_inputs": "Noch nichts zu planen: Die Anlage ist nicht eingerichtet oder Home Assistant ist nicht verbunden.",
+  "planner.status.run_failed": "Der letzte Planungslauf ist fehlgeschlagen ({error}); der bisherige Plan bleibt in Gebrauch.",
+  "planner.status.run_timeout": "Der Planungslauf wurde in {limit_s, number, ::0} s nicht fertig; der bisherige Plan bleibt in Gebrauch.",
+  "planner.status.run_stuck": "Ein früherer Planungslauf läuft noch; es wurde kein neuer gestartet.",
+  "planner.status.stale": "Der Plan ist älter als {age_h, number, ::.0} h: SunCore regelt ohne ihn (nur Überschussregeln), bis ein neuer Plan vorliegt.",
+  "planner.status.expired": "Der Plan ist abgelaufen: SunCore regelt ohne ihn (nur Überschussregeln), bis ein neuer Plan vorliegt.",
+  "planner.status.no_plan": "Es gibt noch keinen Plan: SunCore regelt nur nach den Überschussregeln.",
+  "api.error.planning_unavailable": "Der Planer läuft nicht (keine Anlage eingerichtet)."
 }

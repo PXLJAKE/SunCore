@@ -29,6 +29,16 @@ INPUT_NO_LOAD_FORECAST: Final = "planner.input.no_load_forecast"
 INPUT_NO_BATTERY_SOC: Final = "planner.input.no_battery_soc"
 INPUT_DEVICE_POWER_UNKNOWN: Final = "planner.input.device_power_unknown"
 
+# --- runtime level: why the planner runtime has no (fresh) plan (WP9) ---------------------
+STATUS_WAITING: Final = "planner.status.waiting_for_inputs"
+STATUS_NO_INPUTS: Final = "planner.status.no_inputs"
+STATUS_RUN_FAILED: Final = "planner.status.run_failed"
+STATUS_RUN_TIMEOUT: Final = "planner.status.run_timeout"
+STATUS_RUN_STUCK: Final = "planner.status.run_stuck"
+STATUS_STALE: Final = "planner.status.stale"
+STATUS_EXPIRED: Final = "planner.status.expired"
+STATUS_NO_PLAN: Final = "planner.status.no_plan"
+
 # --- interval level -------------------------------------------------------------------
 GRID_CHARGE: Final = "planner.battery.grid_charge"
 CHARGE_SURPLUS: Final = "planner.battery.charge_surplus"

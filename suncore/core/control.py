@@ -191,8 +191,8 @@ class BatteryBand(_Frozen):
     priority_until_soc_pct: Annotated[float, Field(ge=0, le=100)] | None = None
     """Plan v2: battery first until the *live* SoC reaches this value, then surplus may go
     to consumers. Evaluated by the controller against the measured SoC every tick (robust
-    against plan deviation); ``None`` = no such rule. Accepted and stored now, the
-    controller wiring follows in Phase 4 WP10 (until then the controller ignores it)."""
+    against plan deviation; an unknown SoC counts as not reached); ``None`` = no such rule.
+    It only takes surplus away from the consumers (``controller.surplus``)."""
     grid_charge_max_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
     """ADR-0013 decision 4: the most the battery may charge **from the grid** in this
     interval (W); ``None`` = no grid charging planned. Set by the planner only where the
