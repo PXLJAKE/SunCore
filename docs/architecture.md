@@ -68,9 +68,7 @@ flowchart TB
     api --> storage
     ha --> core
     forecast --> ha
-    tariff --> ha
-    planner --> forecast
-    planner --> tariff
+    tariff --> templates
     planner --> core
     controller --> core
     controller --> devices
@@ -87,6 +85,7 @@ flowchart TB
     sched --> planner
     sched --> controller
     sched --> forecast
+    sched --> tariff
 ```
 
 Dependency rule: arrows point inward to `core/`; `core/` imports nothing
@@ -101,7 +100,7 @@ Package map (ADR-0001):
 | `suncore/core` | Domain model: `Site`, `Asset` (grid, pv, battery, device), `Signal` (typed time series with unit and quality), `Capability`, `Plan`, `Intent`, `Decision`, `Reason`, units and sign conventions | stdlib, pydantic |
 | `suncore/ha` | `HAConnection` (Supervisor or Direct transport), entity subscription with staleness tracking, service calls with read-back, write rate limiter, registry queries, MQTT discovery publisher | core, aiohttp |
 | `suncore/forecast` | Adapter protocol + Solcast, Forecast.Solar, Open-Meteo, generic-attribute, built-in model; blending by measured skill; bias calibration; load profiles | core, ha, templates |
-| `suncore/tariff` | Import/export price sources (Tibber, Nord Pool, ENTSO-E/EPEX via HACS, fixed, HT/NT), price formula, region profiles, negative-price rules | core, ha, templates |
+| `suncore/tariff` | Import/export price sources (Tibber, Nord Pool, ENTSO-E/EPEX via HACS, fixed, HT/NT), price formula, region profiles, negative-price rules (Home Assistant reaches it through an injected action caller and entity reader wired in `suncore/app/adapters.py`) | core, templates |
 | `suncore/planner` | Model builder, HiGHS solver worker, heuristic fallback, plan explanation, what-if | core, highspy, numpy |
 | `suncore/controller` | Surplus computation, priority allocation, hysteresis state machines, peak shaving, export limiting, §14a limit | core |
 | `suncore/safety` | Invariant checks, operating modes, override detection, watchdogs, fail-safe transitions; the only caller of actuators | core, devices |
@@ -143,7 +142,11 @@ convert at the boundary (e.g. Kostal reports battery positive = discharging).
 ## 4. Planner, controller, safety in time
 
 The planner arrives in Phase 4; until then the controller consumes `Plan.default()`, which allows
-everything. The control layer (Phase 3) is composed in one place, `suncore/app/control.py`
+everything. Phase 4 WP8 added `suncore/planner` (`inputs.py` → `model.py` LP for HiGHS behind a
+`SolverBackend` protocol → `run.py` with the heuristic fallback and `explain.py` reasons); it
+depends on `core` only: the scheduler (WP9) collects prices, forecasts and the risk targets and
+hands them over through `build_inputs`, and runs `run()` in a worker thread.
+The control layer (Phase 3) is composed in one place, `suncore/app/control.py`
 (`ControlStack`): entity cache, one driver and one power model per device, the controller
 (`suncore/controller`), the safety gate with its watchdog (`suncore/safety`) and the connection
 life cycle. The runtime, the demo and the simulator all use this same stack; only the connection

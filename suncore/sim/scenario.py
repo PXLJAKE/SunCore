@@ -155,6 +155,20 @@ class ControlParams(BaseModel):
     """Overrides of ``ControlSettings`` (``smoothing_s``, ``min_write_interval_s`` ...)."""
 
 
+PriceProfile = Literal["default", "negative_midday"]
+"""``negative_midday``: the spot price turns negative around 13:00 (sunny weekends in DE)."""
+
+
+class PriceParams(BaseModel):
+    """The simulated dynamic price (what the fake ``tibber.get_prices`` answers)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile: PriceProfile = "default"
+    tomorrow_after_hour: int = Field(default=13, ge=0, le=23)
+    """Local hour from which tomorrow's prices are published (the real market: afternoon)."""
+
+
 class Scenario(BaseModel):
     """A complete simulator scenario."""
 
@@ -172,6 +186,7 @@ class Scenario(BaseModel):
     devices: tuple[SimDeviceSpec, ...] = ()
     manual: tuple[ManualEvent, ...] = ()
     control: ControlParams = ControlParams()
+    prices: PriceParams = PriceParams()
 
     @model_validator(mode="after")
     def _check(self) -> Scenario:

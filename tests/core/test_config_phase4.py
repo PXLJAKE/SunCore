@@ -237,3 +237,87 @@ def test_forecast_load_entities_are_checked_and_listed() -> None:
         ForecastConfig.model_validate({"load": {"workday": {"entity_id": "sensor.x"}}})
     with pytest.raises(ValidationError, match="forecast_weather_domain"):
         ForecastConfig.model_validate({"load": {"weather": {"entity_id": "sensor.x"}}})
+
+
+# --- tariff source settings (WP4, additive) ----------------------------------------------
+
+
+def test_dynamic_import_takes_source_settings_and_lists_their_entities() -> None:
+    from suncore.core.site import EntityRef  # noqa: PLC0415
+
+    body = {
+        "import": {
+            "kind": "dynamic",
+            "template_id": "octopus_energy.rates",
+            "price_entity": {"entity_id": "sensor.rate"},
+            "role_entities": {
+                "current_day_rates": {"entity_id": "event.today"},
+                "next_day_rates": {"entity_id": "event.tomorrow"},
+            },
+            "action_params": {"config_entry": "01H", "areas": ["SE3", "SE4"]},
+            "series_key": "SE3",
+            "price_includes": "all_in",
+        },
+        "export": {"kind": "none"},
+    }
+    tariff = TariffConfig.model_validate(body)
+    assert [r.entity_id for r in tariff.entity_refs()] == [
+        "sensor.rate",
+        "event.today",
+        "event.tomorrow",
+    ]
+    assert tariff.import_.action_params["areas"] == ["SE3", "SE4"]
+    assert EntityRef(entity_id="sensor.rate") in tariff.entity_refs()
+    again = TariffConfig.model_validate(tariff.model_dump(mode="json", by_alias=True))
+    assert again == tariff
+
+
+def test_older_tariff_documents_load_without_the_new_fields() -> None:
+    tariff = TariffConfig.model_validate(
+        {"import": {"kind": "dynamic", "template_id": "tibber.price"}, "export": {"kind": "none"}}
+    )
+    assert tariff.import_.role_entities == {}
+    assert tariff.import_.action_params == {}
+    assert tariff.import_.series_key is None
+    assert tariff.import_.price_includes is None
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"role_entities": {"x": {"entity_id": "sensor.x"}}},
+        {"action_params": {"a": "b"}},
+        {"series_key": "SE3"},
+        {"price_includes": "all_in"},
+    ],
+)
+def test_source_settings_need_a_dynamic_tariff(extra: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError) as err:
+        TariffConfig.model_validate(
+            {"import": {"kind": "fixed", "fixed_price": 0.3, **extra}, "export": {"kind": "none"}}
+        )
+    assert "suncore.import_source_dynamic_only" in str(err.value)
+
+
+def test_the_price_role_is_the_price_entity() -> None:
+    with pytest.raises(ValidationError) as err:
+        TariffConfig.model_validate(
+            {
+                "import": {
+                    "kind": "dynamic",
+                    "template_id": "tibber.price",
+                    "role_entities": {"price": {"entity_id": "sensor.x"}},
+                },
+                "export": {"kind": "none"},
+            }
+        )
+    assert "suncore.import_role_price" in str(err.value)
+
+
+def test_action_params_reject_empty_and_oversized_values() -> None:
+    base = {"kind": "dynamic", "template_id": "nordpool.price"}
+    for params in ({"": "x"}, {"a": ""}, {"a": "x" * 201}, {"a": []}, {"a": [""]}, {"a": 5}):
+        with pytest.raises(ValidationError):
+            TariffConfig.model_validate(
+                {"import": {**base, "action_params": params}, "export": {"kind": "none"}}
+            )

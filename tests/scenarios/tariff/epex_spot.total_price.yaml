@@ -1,0 +1,21 @@
+# The unit is the currency SYMBOL (research "EPEX Spot": const.py:57): `€/kWh` resolves to EUR
+# through suncore.tariff.units.normalise_price_unit.
+template: epex_spot.total_price
+sim_scenario: summer_day
+fixture: epex_spot_total_price
+user_input:
+  now: "2026-10-16T10:07:00+02:00"
+  window_start: "2026-10-16T00:00:00+02:00"
+  window_hours: 24
+extra_entities:
+  - {entity_id: sensor.epex_spot_total_price, platform: epex_spot, unit: "€/kWh"}
+  - {entity_id: sensor.epex_spot_market_price, platform: epex_spot, unit: "€/kWh", state: "0.0712"}
+roles:
+  price:
+    tied: [sensor.epex_spot_total_price, sensor.epex_spot_market_price]
+    pick: sensor.epex_spot_total_price
+    unit: "€/kWh"
+expect:
+  segments: [{step_min: 60, points: 2}, {step_min: 15, points: 2}]
+  first_price: 0.2631
+  includes: all_in

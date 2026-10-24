@@ -28,7 +28,9 @@ from suncore.forecast.views import (
     PvForecastView,
     RiskView,
 )
+from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import HistoryEntry
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
 
 FATAL_HA_STATES: Final = frozenset({"auth_failed", "closed"})
@@ -240,6 +242,36 @@ class Services(Protocol):
         """Call ``listener`` whenever the control state may have changed (tick, decision, mode)."""
         ...
 
+    async def prices(self, hours: int) -> PriceReport:
+        """The planning prices (15-minute grid) with source and freshness.
+
+        Raises :class:`TariffNotConfiguredError` while no usable tariff exists.
+        """
+        ...
+
+    # --- planner (Phase 4 WP9) -----------------------------------------------------------
+
+    async def plan_view(self, hours: int) -> PlanView:
+        """The current plan (intervals from now to ``hours`` ahead) and whether the controller
+        follows it; ``Plan.default()`` before the first plan."""
+        ...
+
+    async def plan_status(self) -> PlanStatusView:
+        """Last run (time, duration, outcome), pending events and the next scheduled run."""
+        ...
+
+    async def replan(self) -> ReplanAck:
+        """Queue a planner run (debounced); returns at once."""
+        ...
+
+    def plan_summary(self) -> PlanSummary:
+        """The short form of the current plan for the live feed."""
+        ...
+
+    def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` whenever a new plan was handed over."""
+        ...
+
     async def export_config(self) -> dict[str, Any]: ...
 
     async def import_config(self, data: object) -> list[str]:
@@ -269,3 +301,7 @@ class UnknownRoleError(LookupError):
 
 class UnknownTemplateError(LookupError):
     """No template with the requested id is loaded."""
+
+
+class TariffNotConfiguredError(LookupError):
+    """No usable tariff (none stored, no region, or its template is missing)."""

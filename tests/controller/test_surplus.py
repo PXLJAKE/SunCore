@@ -120,11 +120,24 @@ def test_battery_share_follows_the_goals(
     assert battery_share_available(goals, soc) == expected
 
 
-def test_a_plan_band_decides_over_the_goals() -> None:
+def test_a_plan_band_decides_over_the_goals_above_the_target() -> None:
     goals = GoalsConfig(battery_target=TARGET)
     band = BatteryBand(charge_from_surplus=False)
-    assert battery_share_available(goals, 10.0, band) == (True, None)
+    assert battery_share_available(goals, 90.0, band) == (True, None)
+    # The user's target stays a floor under a plan (review D1).
+    assert battery_share_available(goals, 10.0, band) == (False, 80)
+    assert battery_share_available(goals, None, band) == (False, 80)
     assert battery_share_available(GOALS, 90.0, BatteryBand()) == (False, None)
+
+
+def test_the_adr_0013_band_fields_do_not_change_the_controller_yet() -> None:
+    """Until WP10 (4-G) the controller ignores ``grid_charge_max_w`` and ``discharge_lock``."""
+    for plain in (BatteryBand(), BatteryBand(charge_from_surplus=False)):
+        planned = plain.model_copy(update={"grid_charge_max_w": 3000.0, "discharge_lock": True})
+        for soc in (None, 10.0, 90.0):
+            assert battery_share_available(GOALS, soc, planned) == battery_share_available(
+                GOALS, soc, plain
+            )
 
 
 # --- tracker -------------------------------------------------------------------------
@@ -253,3 +266,56 @@ def test_reset_forgets_window_and_members() -> None:
     tracker.reset()
     site = tracker.update(at(5), flows(grid_w=-200.0), GOALS, controlled_draw={"p": 500.0})
     assert site.available_w == 700.0
+
+
+# --- priority_until_soc_pct against the live SoC (Phase 4 WP9) ---------------------------
+
+PRIORITY_GOALS = st.sampled_from(
+    [
+        GoalsConfig(),
+        GoalsConfig(climate_before_export=True),
+        GoalsConfig(battery_target=TARGET),
+        GoalsConfig(battery_target=TARGET, climate_before_export=True),
+    ]
+)
+SOC = st.one_of(st.none(), st.floats(min_value=0.0, max_value=100.0))
+
+
+def test_priority_keeps_the_battery_first_until_the_live_soc_reaches_it() -> None:
+    band = BatteryBand(charge_from_surplus=False, priority_until_soc_pct=60.0)
+    assert battery_share_available(GOALS, 59.9, band) == (False, 60.0)
+    assert battery_share_available(GOALS, None, band) == (False, 60.0)  # unknown = not reached
+    # Reached: the band's own rule applies again (devices before the battery here).
+    assert battery_share_available(GOALS, 60.0, band) == (True, None)
+    assert battery_share_available(
+        GOALS, 60.0, band.model_copy(update={"charge_from_surplus": True})
+    ) == (
+        False,
+        None,
+    )
+
+
+@given(
+    goals=PRIORITY_GOALS,
+    soc=SOC,
+    priority=st.floats(min_value=0.0, max_value=100.0),
+    from_surplus=st.booleans(),
+)
+def test_below_its_priority_a_plan_never_gives_the_consumers_more(
+    goals: GoalsConfig, soc: float | None, priority: float, from_surplus: bool
+) -> None:
+    band = BatteryBand(charge_from_surplus=from_surplus, priority_until_soc_pct=priority)
+    without_priority = battery_share_available(
+        goals, soc, band.model_copy(update={"priority_until_soc_pct": None})
+    )
+    with_priority, _ = battery_share_available(goals, soc, band)
+    if soc is None or soc < priority:
+        assert with_priority is False  # battery first, whatever else the band says
+    # A priority only ever takes surplus away from the consumers.
+    assert with_priority <= without_priority[0]
+    # Below max(priority, user target) a plan never gives the consumers more than Phase 3
+    # (no plan) would (review D1: the target is a floor under a plan as well).
+    target = 0.0 if goals.battery_target is None else goals.battery_target.soc_pct
+    if soc is None or soc < max(priority, target):
+        phase3, _ = battery_share_available(goals, soc)
+        assert with_priority <= phase3

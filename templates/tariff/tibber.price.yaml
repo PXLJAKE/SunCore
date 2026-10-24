@@ -1,27 +1,31 @@
 # yaml-language-server: $schema=../schema/tariff.schema.json
 # Tibber (core integration `tibber`, cloud polling). The price sensor only holds the current
-# slot; the curve of today and tomorrow comes from the read-only action `tibber.get_prices`.
+# slot; the curve of today and tomorrow comes from the read-only action `tibber.get_prices`
+# (response `{"prices": {"<home name>": [{"start_time", "price"}]}}`, `price` = energy plus
+# taxes). Several homes: set `series_key` in the tariff configuration to the home name.
 id: tibber.price
 kind: tariff
 schema_version: 1
 name: template.tibber.price.name
 source:
   - title: "home-assistant/core tibber sensor.py (electricity_price, unit, state)"
-    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/tibber/sensor.py"
-    date: 2026-10-13
-  - title: "home-assistant/core tibber services.py (get_prices, response shape)"
-    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/tibber/services.py"
-    date: 2026-10-13
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad/homeassistant/components/tibber/sensor.py"
+    date: 2026-10-16
+  - title: "home-assistant/core tibber services.py (get_prices, response shape, price_total)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad/homeassistant/components/tibber/services.py"
+    date: 2026-10-16
   - title: "home-assistant/core tibber services.yaml (start, end fields)"
-    url: "https://github.com/home-assistant/core/blob/14f093e/homeassistant/components/tibber/services.yaml"
-    date: 2026-10-13
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad/homeassistant/components/tibber/services.yaml"
+    date: 2026-10-16
 tested_with: []
 capabilities: [price_now, price_curve]
 unverified:
-  - "Whether grid fees (network charges) are included in Tibber's `total` price is country dependent; SunCore treats the value as all-in (`price_includes: all_in`) without checking."
-  - "Read from the integration source (core 14f093e, pyTibber 0.37.6) only; not observed on a running Home Assistant."
-  - "Exact entity id (derived from the home nickname) and the time Tibber publishes tomorrow's prices."
-  - "Slot length is not part of the response: 15 min with pyTibber 0.37, hourly with older libraries (resolution derived from the timestamps)."
+  - Read from the integration source (core 5cfe9aad, pyTibber 0.37.6) only; not observed on a running Home Assistant.
+  - '`price` is the library''s `total` (energy plus tax). Grid fees are country dependent; SunCore treats it as all-in (plan answer 9). A supplier contract with extra fees stays the user''s call.'
+  - Exact entity id (derived from the home nickname) and the time Tibber publishes tomorrow's prices (about 13:00 local).
+  - 'Slot length is not in the response: 15 min with pyTibber 0.37, hourly with older libraries; derived from the timestamps, a mix of both is accepted.'
+  - '`start`/`end` are sent as local ISO 8601 with offset; the source documents `YYYY-MM-DD HH:MM:SS` or ISO 8601 (parse_datetime), the offset form was not run against a live system.'
+  - The home name is the key of the response (two homes with the same name collide in the integration); with several homes set `series_key`.
 direction: import
 tariff_type: dynamic
 roles:

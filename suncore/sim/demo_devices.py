@@ -140,10 +140,16 @@ def _gauss(x: float, centre: float, sigma: float) -> float:
     return math.exp(-0.5 * ((x - centre) / sigma) ** 2)
 
 
-def sim_price(when: datetime) -> float:
-    """Synthetic dynamic price in EUR/kWh for the 15 min slot containing ``when``."""
+def sim_price(when: datetime, profile: str = "default") -> float:
+    """Synthetic dynamic price in EUR/kWh for the 15 min slot containing ``when``.
+
+    ``profile`` ``negative_midday`` deepens the midday dip so that the price is negative
+    between about 11:30 and 14:30 (the minimum is -0.08 EUR/kWh at 13:00).
+    """
     hour = when.hour + (when.minute // 15) * 0.25
-    price = 0.30 + 0.12 * _gauss(hour, 19.0, 2.0) - 0.10 * _gauss(hour, 13.0, 2.5)
+    dip = 0.38 if profile == "negative_midday" else 0.10
+    sigma = 2.0 if profile == "negative_midday" else 2.5
+    price = 0.30 + 0.12 * _gauss(hour, 19.0, 2.0) - dip * _gauss(hour, 13.0, sigma)
     if hour < 5:
         price -= 0.04
     return round(price, 3)
@@ -353,7 +359,7 @@ class DemoDevices:
             [
                 DemoEntity(
                     PRICE_ID,
-                    f"{sim_price(state.time):.3f}",
+                    f"{sim_price(state.time, self.scenario.prices.profile):.3f}",
                     {
                         "friendly_name": "Sim electricity price",
                         "unit_of_measurement": f"{PRICE_CURRENCY}/kWh",

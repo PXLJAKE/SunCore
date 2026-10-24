@@ -1,0 +1,21 @@
+template: epex_spot.market_price
+sim_scenario: summer_day
+fixture: epex_spot_total_price
+user_input:
+  now: "2026-10-16T10:07:00+02:00"
+  window_start: "2026-10-16T00:00:00+02:00"
+  window_hours: 24
+extra_entities:
+  - {entity_id: sensor.epex_spot_total_price, platform: epex_spot, unit: "€/kWh"}
+  - {entity_id: sensor.epex_spot_market_price, platform: epex_spot, unit: "€/kWh", state: "0.0712"}
+roles:
+  price:
+    tied: [sensor.epex_spot_total_price, sensor.epex_spot_market_price]
+    pick: sensor.epex_spot_total_price
+    unit: "€/kWh"
+# The fixture is the total-price sensor's attribute; the market-price template reads the same
+# attribute name from the chosen entity.
+expect:
+  segments: [{step_min: 60, points: 2}, {step_min: 15, points: 2}]
+  first_price: 0.2631
+  includes: spot_only

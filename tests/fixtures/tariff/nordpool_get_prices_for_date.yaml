@@ -1,0 +1,12 @@
+# Shape of the response of `nordpool.get_prices_for_date`:
+#   docs/research/integrations.md "Nord Pool (Core)" (lines 235-275, Phase 4 verification
+#   2026-10-16); home-assistant/core@5cfe9aad components/nordpool/services.py:140-150 and
+#   pynordpool 0.4.0. `{AREA: [{start, end, price}]}`, `start`/`end` are datetime.isoformat() of
+#   UTC datetimes (`+00:00`), `price` is the raw day-ahead value in currency per MWh.
+# Synthetic values, not a recording. Local date 2026-10-16 in Europe/Berlin starts at
+# 2026-10-15T22:00:00+00:00.
+response:
+  SE3:
+    - {start: "2026-10-15T22:00:00+00:00", end: "2026-10-15T23:00:00+00:00", price: 45.5}
+    - {start: "2026-10-15T23:00:00+00:00", end: "2026-10-16T00:00:00+00:00", price: 41.25}
+    - {start: "2026-10-16T00:00:00+00:00", end: "2026-10-16T01:00:00+00:00", price: -3.5}

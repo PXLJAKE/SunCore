@@ -1,0 +1,15 @@
+# Shape of the response of `tibber.get_prices`:
+#   docs/research/integrations.md "Tibber (Core)" (lines 212-233, Phase 4 verification
+#   2026-10-16) and docs/research/device-integrations.md "Action tibber.get_prices"
+#   (lines 286-317); home-assistant/core@5cfe9aad components/tibber/services.py.
+# `start_time` is the string Tibber delivers (ISO 8601 with UTC offset, slot start); `price`
+# is the total (energy plus tax) per kWh. Synthetic values, not a recording.
+response:
+  prices:
+    Home:
+      - {start_time: "2026-10-16T00:00:00.000+02:00", price: 0.2812}
+      - {start_time: "2026-10-16T00:15:00.000+02:00", price: 0.2790}
+      - {start_time: "2026-10-16T00:30:00.000+02:00", price: 0.2755}
+      - {start_time: "2026-10-16T00:45:00.000+02:00", price: 0.2701}
+      - {start_time: "2026-10-16T01:00:00.000+02:00", price: 0.2688}
+      - {start_time: "2026-10-16T01:15:00.000+02:00", price: 0.2650}
