@@ -946,5 +946,7 @@
   "planner.status.expired": "Der Plan ist abgelaufen: SunCore regelt ohne ihn (nur Überschussregeln), bis ein neuer Plan vorliegt.",
   "planner.status.no_plan": "Es gibt noch keinen Plan: SunCore regelt nur nach den Überschussregeln.",
   "api.error.planning_unavailable": "Der Planer läuft nicht (keine Anlage eingerichtet).",
-  "planner.status.waiting_for_soc": "Warte auf den Ladestand der Batterie, bevor geplant wird."
+  "planner.status.waiting_for_soc": "Warte auf den Ladestand der Batterie, bevor geplant wird.",
+  "api.validation.battery_modbus_needs_adapter": "Eine Modbus-Verbindung braucht einen Batterie-Adapter; „nur beobachten“ hat keinen.",
+  "api.validation.modbus_heartbeat_too_slow": "Der Heartbeat ({heartbeat_s} s) darf höchstens ein Drittel der Rückfallzeit ({timeout_s} s) sein."
 }

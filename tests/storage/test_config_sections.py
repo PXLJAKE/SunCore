@@ -42,7 +42,7 @@ from suncore.core.devices import (
     PowerModel,
     PowerModelKind,
 )
-from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
+from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.tariff import NIGHT_WINDOW
 from suncore.storage import (
     ConfigCorruptError,
@@ -704,3 +704,115 @@ async def test_put_operation_is_stored_as_given(db: Database) -> None:
     assert isinstance(op, OperationConfig)
     assert op.mode is AUTO
     assert op.device_modes == {"a": AUTO}
+
+
+# --- battery identity rule (ADR-0013 decision 6) ---------------------------------------
+
+
+def _battery_settings(entity: str = "number.min_soc") -> BatterySettings:
+    return BatterySettings(
+        adapter_template_id="kostal.plenticore_rest",
+        entities={"min_soc_number": EntityRef(entity_id=entity)},
+    )
+
+
+async def _battery_assisted(store: ConfigStore) -> None:
+    await store.put("site", make_site())
+    await store.put("battery", _battery_settings())
+    await store.put("operation", OperationConfig(battery_mode=OperatingMode.ASSISTED))
+
+
+async def _battery_mode(store: ConfigStore) -> OperatingMode:
+    op = await store.get("operation")
+    assert isinstance(op, OperationConfig)
+    return op.battery_mode
+
+
+async def test_battery_setting_change_keeps_the_battery_mode(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put(
+        "battery", _battery_settings().model_copy(update={"strategy": BatteryStrategy.PREFER_FULL})
+    )
+    assert await _battery_mode(store) is OperatingMode.ASSISTED
+
+
+async def test_battery_remapped_falls_back_to_shadow(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("battery", _battery_settings("number.other"))
+    assert await _battery_mode(store) is OperatingMode.SHADOW
+
+
+async def test_site_battery_entities_are_part_of_the_identity(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("site", make_site("sensor.other_grid"))  # grid only: same battery
+    assert await _battery_mode(store) is OperatingMode.ASSISTED
+    moved = make_site().model_copy(
+        update={
+            "battery": BatteryConfig(
+                power=EntityRef(entity_id="sensor.bat_power_2"),
+                soc=EntityRef(entity_id="sensor.bat_soc"),
+            )
+        }
+    )
+    await store.put("site", moved)
+    assert await _battery_mode(store) is OperatingMode.SHADOW
+
+
+async def test_import_always_resets_the_battery_to_shadow(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    exported = await store.export_json()
+    await store.import_json(exported)
+    assert await _battery_mode(store) is OperatingMode.SHADOW
+
+
+async def test_restore_operation_keeps_the_battery_mode_only_for_the_same_battery(
+    db: Database,
+) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("operation", OperationConfig())  # history: battery assisted
+    (entry,) = [h for h in await store.history("operation") if h.body["battery_mode"] != "shadow"]
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.battery_mode is OperatingMode.ASSISTED
+    # Re-mapped meanwhile: the old grant does not apply to the new battery.
+    await store.put("operation", OperationConfig())
+    await store.put("battery", _battery_settings("number.other"))
+    (entry,) = [
+        h for h in await store.history("operation") if h.body.get("battery_mode") == "assisted"
+    ][:1]
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.battery_mode is OperatingMode.SHADOW
+
+
+async def test_restore_operation_without_a_battery_record_is_conservative(db: Database) -> None:
+    store = ConfigStore(db)
+    await store.put("site", make_site())
+    await store.put("battery", _battery_settings())
+    await db.execute(
+        "INSERT INTO config_history (section, schema_version, body, replaced_at) "
+        "VALUES ('operation', 1, ?, 't')",
+        (OperationConfig(battery_mode=OperatingMode.AUTOMATIC).model_dump_json(),),
+    )
+    (entry,) = await store.history("operation")
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.battery_mode is OperatingMode.SHADOW
+
+
+async def test_restore_operation_for_an_observe_only_battery_is_shadow(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("operation", OperationConfig())
+    await store.put("battery", BatterySettings())  # observe only now
+    (entry,) = [
+        h for h in await store.history("operation") if h.body.get("battery_mode") == "assisted"
+    ]
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.battery_mode is OperatingMode.SHADOW

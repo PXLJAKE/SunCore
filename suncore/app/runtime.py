@@ -1270,6 +1270,8 @@ class Runtime:
         for device_id, mode in new.device_modes.items():
             if mode.rank > current.device_modes.get(device_id, OperatingMode.SHADOW).rank:
                 raise ModeRaiseRejectedError(device_id)
+        if new.battery_mode.rank > current.battery_mode.rank:
+            raise ModeRaiseRejectedError("battery")
 
     async def _sync_modes(self) -> None:
         if self.stack is not None:

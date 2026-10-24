@@ -921,17 +921,25 @@ export interface components {
         BandPreference: "neutral" | "prefer_on" | "prefer_off";
         /**
          * BatteryAction
-         * @description Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).
+         * @description Battery limits for the gate (Phase 4 WP2; semantics ADR-0013, decisions 1 and 2).
          *
-         *     Every field is optional, at least one must be set; a missing field leaves that limit
-         *     as it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a
-         *     charging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the
-         *     inverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at
-         *     or above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the
-         *     grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both are set (forced
-         *     charging cannot be above the charge cap, and a cap of 0 forbids it). Until the battery
-         *     path exists the gate rejects this action (``safety.battery_not_supported``); nothing is
-         *     written.
+         *     **Full desired state, not a delta.** An accepted ``BatteryAction`` is the complete state
+         *     SunCore wants the battery adapter to hold; a field that is ``None`` means "no SunCore
+         *     restriction on this limit", i.e. the adapter's **baseline** value of that field (what the
+         *     gate read back when it took the battery over). The gate resolves the ``None`` fields from
+         *     the baseline before it judges, writes and reads back (``suncore.core.battery.
+         *     resolve_battery_action``); the heartbeat re-sends the resolved state idempotently. At least
+         *     one field must be set: "everything at baseline" is a :class:`ReleaseAction`, never an empty
+         *     ``BatteryAction``.
+         *
+         *     Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a charging power
+         *     drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the inverter's own
+         *     self-consumption control (they never command a power), ``min_soc_pct`` is the discharge
+         *     floor (a discharge lock when at or above the current SoC), ``grid_charge_w > 0`` asks for
+         *     forced charging from the grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both
+         *     are set (forced charging cannot be above the charge cap, and a cap of 0 forbids it). Every
+         *     field needs the matching adapter capability (``BatteryCapability``); the gate rejects a
+         *     field the adapter cannot execute (``safety.battery_capability_missing``).
          */
         BatteryAction: {
             /** Grid Charge W */
@@ -1103,11 +1111,17 @@ export interface components {
                 [key: string]: components["schemas"]["EntityRef"];
             };
             /**
+             * Fallback Measured
+             * @default false
+             */
+            fallback_measured: boolean;
+            /**
              * @default {
              *       "enabled": false
              *     }
              */
             grid_charge: components["schemas"]["GridChargePolicy"];
+            modbus?: components["schemas"]["ModbusLink"] | null;
             model?: components["schemas"]["BatteryModel"] | null;
             /** Morning Buffer Pct */
             morning_buffer_pct?: number | null;
@@ -2500,6 +2514,45 @@ export interface components {
             reason: "active" | "not_configured" | "too_few_days" | "no_spread";
         };
         /**
+         * ModbusByteOrder
+         * @description Word order of 32-bit values (Kostal register 5: ``0x00`` little, ``0x01`` big).
+         * @enum {string}
+         */
+        ModbusByteOrder: "little" | "big";
+        /**
+         * ModbusLink
+         * @description How the ``kostal_modbus`` adapter reaches the inverter through ``modbus.write_register``.
+         *
+         *     ``hub`` is the ``name`` of the user's ``modbus:`` YAML hub (HA's default ``modbus_hub``),
+         *     ``slave`` the inverter's unit id (Kostal default 71; the action itself would default to 1,
+         *     so it is mandatory here), ``byte_order`` what register 5 reports (the adapter never guesses
+         *     it). ``fallback_timeout_s`` is written to register 1288 (30-10800 s) and ``heartbeat_s`` is
+         *     the re-write period of 1280/1282; it must be at most a third of the timeout. Research:
+         *     ``docs/research/kostal-plenticore-modbus.md`` §3.5, ``ha-websocket-api.md`` "Modbus write
+         *     action". ``UNVERIFIED`` on hardware (external battery management is not enabled on the
+         *     maintainer's inverter yet).
+         */
+        ModbusLink: {
+            byte_order: components["schemas"]["ModbusByteOrder"];
+            /**
+             * Fallback Timeout S
+             * @default 60
+             */
+            fallback_timeout_s: number;
+            /**
+             * Heartbeat S
+             * @default 20
+             */
+            heartbeat_s: number;
+            /**
+             * Hub
+             * @default modbus_hub
+             */
+            hub: string;
+            /** Slave */
+            slave: number;
+        };
+        /**
          * Mode
          * @description One mode of a mode-controlled device and the power it draws.
          */
@@ -2616,6 +2669,8 @@ export interface components {
          *     Devices that are new at ``devices`` put/import time lose any entry here (shadow).
          */
         OperationConfig: {
+            /** @default shadow */
+            battery_mode: components["schemas"]["OperatingMode"];
             /** Device Modes */
             device_modes?: {
                 [key: string]: components["schemas"]["OperatingMode"];

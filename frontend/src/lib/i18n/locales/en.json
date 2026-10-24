@@ -946,5 +946,7 @@
   "planner.status.expired": "The plan has run out: SunCore controls without it (surplus rules only) until a new plan arrives.",
   "planner.status.no_plan": "There is no plan yet: SunCore controls on surplus rules only.",
   "api.error.planning_unavailable": "The planner is not running (no site is set up).",
-  "planner.status.waiting_for_soc": "Waiting for the battery's state of charge before planning."
+  "planner.status.waiting_for_soc": "Waiting for the battery's state of charge before planning.",
+  "api.validation.battery_modbus_needs_adapter": "A modbus link needs a battery adapter; \"observe only\" has none.",
+  "api.validation.modbus_heartbeat_too_slow": "The heartbeat ({heartbeat_s} s) must be at most a third of the fallback time ({timeout_s} s)."
 }

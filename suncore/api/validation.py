@@ -112,6 +112,8 @@ VALIDATION_KEYS: Final[dict[str, str]] = {
     "suncore.battery_action_empty": "api.validation.battery_action_empty",
     "suncore.battery_corridor": "api.validation.battery_corridor",
     "suncore.battery_entities_need_adapter": "api.validation.battery_entities_need_adapter",
+    "suncore.battery_modbus_needs_adapter": "api.validation.battery_modbus_needs_adapter",
+    "suncore.modbus_heartbeat_too_slow": "api.validation.modbus_heartbeat_too_slow",
     "suncore.forecast_auto_weight": "api.validation.forecast_auto_weight",
     "suncore.forecast_manual_weight": "api.validation.forecast_manual_weight",
     "suncore.forecast_weather_domain": "api.validation.forecast_weather_domain",

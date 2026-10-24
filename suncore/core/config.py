@@ -529,6 +529,10 @@ class OperationConfig(_Frozen):
     mode: OperatingMode = OperatingMode.SHADOW
     device_modes: dict[DeviceId, OperatingMode] = Field(default_factory=dict)
     """Missing entry = shadow. Single store for per-device modes (ADR-0012)."""
+    battery_mode: OperatingMode = OperatingMode.SHADOW
+    """Mode of the battery asset (ADR-0013 decision 6; additive in v1, Phase 4 WP10). The
+    same rules as a device's: raising it needs the battery's identity token, a changed battery
+    identity or an import drops it to shadow."""
 
     def without_modes_of(self, device_ids: frozenset[str]) -> Self:
         """Drop the non-shadow entries of ``device_ids`` (they fall back to shadow)."""
@@ -540,6 +544,12 @@ class OperationConfig(_Frozen):
         if len(kept) == len(self.device_modes):
             return self
         return self.model_copy(update={"device_modes": kept})
+
+    def without_battery_mode(self) -> Self:
+        """The battery back in shadow (identity changed, import)."""
+        if self.battery_mode is OperatingMode.SHADOW:
+            return self
+        return self.model_copy(update={"battery_mode": OperatingMode.SHADOW})
 
 
 # --- wizard -------------------------------------------------------------------
