@@ -23,7 +23,7 @@ Signs and units per ``core/units.py``: grid + = import, battery + = charging, W 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, tzinfo
 from typing import Final, Protocol, runtime_checkable
@@ -41,7 +41,7 @@ from suncore.core.battery import (
     round_up_to_step,
 )
 from suncore.core.control import BatteryBand, Plan
-from suncore.core.decisions import Reason
+from suncore.core.decisions import Action, Reason
 from suncore.core.signals import Quality
 from suncore.safety.actuator import Actuator
 
@@ -106,6 +106,44 @@ class BatteryActuator(Actuator, Protocol):
     async def keep_alive(self) -> None:
         """Re-write the last applied state (idempotent; called only while the lease holds)."""
         ...
+
+
+# --- configuration -----------------------------------------------------------------------------
+
+
+PlanSource = Callable[[datetime], Plan]
+"""``now -> Plan``: the plan the controller uses this tick (``ControlStack.current_plan``)."""
+PriceSource = Callable[[datetime], float | None]
+"""``now -> live import price`` (currency/kWh, ``None`` = unknown)."""
+
+
+def _no_price(_: datetime) -> float | None:
+    return None
+
+
+def _default_plan(_: datetime) -> Plan:
+    return Plan.default()
+
+
+@dataclass(frozen=True, slots=True)
+class BatteryGateConfig:
+    """What the gate needs to judge battery intents (built by the composition root).
+
+    ``identity`` is ``core.identity.battery_identity_token`` of the configured battery: a runtime
+    taken over under another identity belongs to another battery (released, never written).
+    ``reserve_pct`` is ``core.battery.effective_reserve_pct``; ``policy`` the effective grid-charge
+    policy; ``fallback_verified`` the user's ``battery.fallback_measured`` (until it is set the
+    gate caps an adapter with a hardware fallback at assisted, ADR-0013 decision 6).
+    """
+
+    identity: str
+    model: BatteryModel | None
+    reserve_pct: float | None
+    policy: GridChargePolicy = field(default_factory=GridChargePolicy)
+    fallback_verified: bool = False
+    plan: PlanSource = _default_plan
+    import_price: PriceSource = _no_price
+    watch: BatteryWatch | None = None
 
 
 # --- context ---------------------------------------------------------------------------------
@@ -453,13 +491,13 @@ def lease_violations(ctx: BatteryContext) -> tuple[Reason, ...]:
     return evaluate_battery(ctx)
 
 
-def same_state(a: BatteryAction | None, b: BatteryAction | None, fields: Sequence[str]) -> bool:
+def same_state(a: Action | None, b: Action | None, fields: Sequence[str]) -> bool:
     """Read-back comparison on ``fields`` (powers within 1 W, SoC within 0.01 %).
 
     A field the expected action sets must be read back with the same value; an unreadable
     (``None``) observed value is a mismatch.
     """
-    if a is None or b is None:
+    if not isinstance(a, BatteryAction) or not isinstance(b, BatteryAction):
         return False
     for name in fields:
         want, got = getattr(a, name), getattr(b, name)
@@ -562,6 +600,7 @@ __all__ = [
     "STATE_CHECKS",
     "BatteryActuator",
     "BatteryContext",
+    "BatteryGateConfig",
     "BatteryLive",
     "BatteryWatch",
     "can_cause_import",

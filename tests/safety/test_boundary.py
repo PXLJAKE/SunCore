@@ -191,7 +191,7 @@ def test_the_gate_is_the_single_writer() -> None:
     battery adapters' ``arm_fallback`` and ``keep_alive``)."""
     gate = PACKAGE / "safety" / "gate.py"
     tree = parse(gate)
-    for attr in ("apply", "release"):
+    for attr in WRITE_CALLS:
         assert list(attribute_calls(tree, attr)), f"gate.py must contain the {attr}() call"
     everywhere = [
         line
