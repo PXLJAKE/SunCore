@@ -566,6 +566,32 @@ shadow and assisted run is the acceptance test.
 - WP9: the controller applies a plan's battery band only while an interval covers `now`, and judges
   `priority_until_soc_pct` against the live SoC.
 
+- PR 4-G (WP10, battery control; `control-safety`):
+  - **Battery mode** lives in `operation.battery_mode` (additive) instead of a `device_modes`
+    entry under the reserved id: a device may already be called `battery`, and the gate learns it
+    through `ModeProvider.battery_mode()`. The identity record is a separate `safety_state` key.
+    A configured device with the id `battery` keeps the battery observe-only (logged).
+  - **Heartbeat** is driven by the gate's `poll()` (every tick, timed from the write) and executed
+    by the adapter's `keep_alive()`, not by a timer task inside the adapter: a hung control loop
+    stops the heartbeat, so the inverter's own fallback takes over (ADR-0013 5B intent).
+  - **Discharge lock** is judged by B4 against the deficit *now*; the lease re-judges it every
+    tick, so a cap that becomes a lock in the evening needs the plan's `discharge_lock` then.
+  - **Reserve**: SunCore never holds a permanent min-SoC floor; the effective reserve is the floor
+    of every min SoC it writes, and B1 also forbids writing below the user's own inverter floor.
+    The devices' reserve guard (`GateInputs.reserve_soc_pct`) is `effective_reserve_pct` when a
+    battery model exists.
+  - **Grid charging needs an import limit** (B2: an unknown bound means no grid charging).
+  - Power caps are never written above the baseline (B6), so SunCore only ever restricts.
+  - A manual change of the held limits is an override: SunCore lets go without writing and holds
+    off until the default override time (next day 04:00).
+  - After a release of an adapter without hardware fallback the gate reads back once after the
+    settle time; a mismatch pauses battery control (`safety.battery_release_unconfirmed`).
+  - Templates gained `driver` (`generic`, `kostal_plenticore`, `kostal_modbus`), a Modbus
+    register map and the capability `hardware_fallback` (additive in schema v1); the adapters read
+    a core `BatteryAdapterSpec` (`suncore.devices` imports only `core`).
+  - Kostal Modbus §3.5 runs in the simulator only (external battery management is not enabled on
+    the maintainer's inverter); it is capped at assisted until `battery.fallback_measured`.
+
 ## 7. Out of scope for Phase 4
 
 Full plan chart with device Gantt, zoom/pan, history, savings vs baselines, what-if and

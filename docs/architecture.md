@@ -223,6 +223,24 @@ applies, settles, reads back and logs `accepted` or `failed`. The write path re-
 stop, mode, watchdog and hold right before `apply()` under a per-device lock. The free surplus is
 claimed per `GateInputs` snapshot, so several intents of one tick cannot together exceed it.
 
+**The battery** (Phase 4 WP10, ADR-0013) is the asset `battery` with its own path through the
+same gate. The controller turns the band of a *fresh* plan interval into a `BatteryAction`
+(limits, not set-points; `None` = the adapter's baseline found at takeover): `grid_charge_max_w`
+-> `grid_charge_w` where the adapter can force charging, `discharge_lock` -> `max_discharge_w`
+= 0 or a min-SoC floor at the live SoC (never below `effective_reserve_pct`), nothing planned ->
+`ReleaseAction`. The gate judges it with the battery invariants B1-B9 (`safety/battery.py`):
+floor never below the reserve or the user's own floor, grid charging only from a fresh planned
+interval inside the grid-charge policy at the **live** price and within battery, adapter, band
+and import-headroom bounds, a discharge lock only when planned, the import limit for every
+action that can cause import, live ranges and capabilities, write only on change, mandatory
+read-back. An adapter with a hardware fallback (Kostal §3.5) gets it armed and read back before
+the first limit and is capped at assisted until `battery.fallback_measured`. An accepted state is
+a **lease**: `gate.poll()` re-judges it every tick and restores the baseline when the mode, the
+watchdog (site or battery scope, `gate.check_battery`: frozen battery power or SoC), stale inputs
+or any invariant says so; the adapter's heartbeat re-writes only while it holds. Devices keep the
+Phase 3 rule "no SunCore-caused import" unchanged, and the charging power of a forced grid charge
+is never surplus for them.
+
 Deviation events: the controller reports when actual SoC, PV or load leave the plan's assumption
 corridor; the scheduler then re-plans early (rate limited to once per 5 minutes) from Phase 4 on.
 
