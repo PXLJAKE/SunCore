@@ -851,6 +851,9 @@ class SafetyGate:
                     intent, DecisionKind.REJECTED, now, (REASON_RATE_LIMITED,), mode
                 )
             if not runtime.under_control:
+                # A new takeover supersedes the check of the previous release (it reads its own
+                # baseline now and the battery will show the new state, not the old baseline).
+                self._battery_verify = None
                 baseline = await actuator.read_back()
                 if baseline is None:
                     self._limiter.release_slot(BATTERY_ASSET_ID, previous_slot)
@@ -953,7 +956,9 @@ class SafetyGate:
                         "pending_ts": None,
                     }
                 )
-                self._battery_beat = after  # the write itself was the first beat of the lease
+                # The write itself was the first beat: the next one is due ``heartbeat_s`` after the
+                # write, not after the read-back (the inverter's timer started at the write).
+                self._battery_beat = now
             await self._save(runtime)
         if mismatch:
             await self._count_failure(BATTERY_ASSET_ID, after)

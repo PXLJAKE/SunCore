@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+name: kostal_rest_reserve
+description: kostal_plenticore with a REST write that fails silently (the integration swallows the ApiException) - the min-SoC number keeps its old value. The plan asks for grid charging (not executable over REST - shown only) and later for a discharge lock. SunCore must never write a charge set-point, notice every silent failure by the read-back after the 35 s settle time, trip after three and give the battery back.
+start: "2026-12-08T00:30:00+01:00"
+duration_s: 7200
+step_s: 10
+house:
+  seed: 13
+  battery: {capacity_wh: 10000, max_charge_w: 5000, max_discharge_w: 5000, initial_soc_pct: 40}
+  inverter:
+    adapter: kostal_plenticore
+    min_soc_pct: 10
+    rest_write_fails: true
+control:
+  import_limit_w: 12000
+  settings: {min_write_interval_s: 30}
+battery:
+  mode: automatic
+  grid_charge: {enabled: true, max_price: 0.30}

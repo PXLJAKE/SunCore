@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+name: battery_reserve_drift
+description: A winter night on the core kostal_plenticore integration (min-SoC number only). The plan holds the battery from 22:00 to 02:00 (discharge lock) to keep energy for the morning. The BMS-reported SoC sags up to 4 %-points below the true SoC during the night. SunCore's floor is never below the effective reserve (reserve 10 % + drift margin 5 %), never lowered because of the sagging reading, read back after the REST refresh, and given back (the inverter's own 10 %) when the plan stops asking.
+start: "2026-12-07T21:30:00+01:00"
+duration_s: 18000
+step_s: 10
+house:
+  seed: 11
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 10000, max_charge_w: 5000, max_discharge_w: 5000, initial_soc_pct: 32}
+  inverter:
+    adapter: kostal_plenticore
+    min_soc_pct: 10
+    bms_cutoff_pct: 5
+    max_drift_pct: 4
+    drift_per_h: 1.5
+    rest_refresh_s: 2
+control:
+  import_limit_w: 12000
+battery:
+  mode: automatic
+  reserve_pct: 10
+  bms_drift_margin_pct: 5

@@ -562,3 +562,17 @@ async def test_a_device_never_sees_the_battery_path() -> None:
         make_intent(SwitchAction(on=True), asset_id="pool", ts=r.clock.now)
     )
     assert keys(decision) == ["safety.shadow_mode"]  # no mode for the device: shadow
+
+
+async def test_a_new_takeover_supersedes_the_release_check() -> None:
+    r = rig()
+    await r.submit(BatteryAction(max_discharge_w=0))
+    r.clock.advance(60)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    await r.submit(ReleaseAction())
+    r.clock.advance(6)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    again = await r.submit(BatteryAction(max_discharge_w=0))
+    assert again.kind is DecisionKind.ACCEPTED
+    decisions = [d for _ in range(4) for d in await r.tick(5)]
+    assert not [d for d in decisions if "safety.battery_release_unconfirmed" in keys(d)]

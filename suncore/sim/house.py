@@ -21,6 +21,8 @@ from typing import Annotated
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from suncore.sim.inverter import InverterParams, SimInverter
+
 _DEFAULT_LOAD_PROFILE_W: tuple[float, ...] = (
     250, 220, 210, 210, 220, 300, 550, 700, 500, 400, 380, 450,
     600, 500, 380, 380, 450, 700, 1000, 1100, 900, 650, 450, 320,
@@ -89,6 +91,9 @@ class HouseParams(BaseModel):
     load: LoadParams = LoadParams()
     battery: BatteryParams = BatteryParams()
     seed: int = 0
+    inverter: InverterParams | None = None
+    """Phase 4 WP10: a controllable hybrid inverter (limits, fallback timer, BMS drift) instead
+    of the plain self-consumption battery; ``None`` = the plain battery."""
 
 
 class HouseState(BaseModel):
@@ -106,6 +111,8 @@ class HouseState(BaseModel):
     cloud_factor: Annotated[float, Field(ge=0, le=1)]
     devices_w: float = 0.0
     """Draw of the simulated devices (already part of ``load_w``)."""
+    true_soc_pct: float | None = None
+    """The battery's true SoC when it differs from the reported one (BMS drift, WP10)."""
 
 
 def sin_elevation(when: datetime, latitude: float, longitude: float) -> float:
@@ -167,6 +174,21 @@ class House:
         self._rng = random.Random(params.seed)
         self._index = 0
         self._soc_pct = params.battery.initial_soc_pct
+        b = params.battery
+        self.inverter: SimInverter | None = (
+            None
+            if params.inverter is None or b.capacity_wh <= 0
+            else SimInverter(
+                params.inverter,
+                capacity_wh=b.capacity_wh,
+                max_charge_w=b.max_charge_w,
+                max_discharge_w=b.max_discharge_w,
+                round_trip_efficiency=b.round_trip_efficiency,
+                soc_max_pct=b.soc_max_pct,
+                initial_soc_pct=b.initial_soc_pct,
+                start=start,
+            )
+        )
 
     @property
     def index(self) -> int:
@@ -223,7 +245,13 @@ class House:
         cloud = self._cloud_at(self._index)
         pv_w = clear_sky_w(when, self.params.pv) * cloud
         load_w = self._load_w(when) + extra_load_w
-        battery_w = self._dispatch(pv_w - load_w)
+        true_soc: float | None = None
+        if self.inverter is not None:
+            battery_w = self.inverter.dispatch(when, pv_w - load_w, self.step_s)
+            self._soc_pct = self.inverter.reported_soc_pct
+            true_soc = self.inverter.soc_pct
+        else:
+            battery_w = self._dispatch(pv_w - load_w)
         state = HouseState(
             time=when,
             pv_w=pv_w,
@@ -233,6 +261,7 @@ class House:
             grid_w=load_w + battery_w - pv_w,
             cloud_factor=cloud,
             devices_w=extra_load_w,
+            true_soc_pct=true_soc,
         )
         self._index += 1
         return state
