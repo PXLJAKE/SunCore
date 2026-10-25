@@ -168,5 +168,11 @@ class BatteryDriver:
     async def read_back(self) -> Action | None:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    async def apply(self, intent: Intent) -> str | None:  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    async def release(self, baseline: Action | None) -> None:  # pragma: no cover - overridden
+        raise NotImplementedError
+
 
 __all__ = ["DEFAULT_SETTLE_S", "BatteryDriver"]

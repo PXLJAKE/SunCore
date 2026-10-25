@@ -23,6 +23,7 @@
   "activity.importing": "Bezug",
   "activity.producing": "Erzeugt",
   "api.error.body_too_large": "Die Anfrage ist zu groß.",
+  "api.error.battery_not_controllable": "Kein Akku-Adapter konfiguriert: der Akku wird nur beobachtet.",
   "api.error.device_identity_changed": "Das Gerät hat sich inzwischen geändert. Lade neu und prüfe es, bevor du seinen Modus änderst.",
   "api.error.mode_raise_rejected": "Ein gespeichertes Dokument kann keinen Betriebsmodus anheben. Ändere den Modus eines Geräts einzeln.",
   "api.error.unknown_device": "Dieses Gerät existiert nicht.",

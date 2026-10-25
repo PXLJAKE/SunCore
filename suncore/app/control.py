@@ -36,6 +36,7 @@ import asyncio
 import contextlib
 from collections import deque
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, tzinfo
 from typing import Final, cast
 
@@ -48,8 +49,16 @@ from suncore.controller import (
     ControllerLoop,
     DeviationEvent,
 )
+from suncore.controller.battery import BatteryControlInputs
 from suncore.controller.loop import TickResult
 from suncore.core.balance import FlowSnapshot, compute_flows
+from suncore.core.battery import (
+    BATTERY_ASSET_ID,
+    BatteryAction,
+    BatterySettings,
+    GridChargePolicy,
+)
+from suncore.core.battery_adapter import BatteryAdapterSpec
 from suncore.core.config import GoalsConfig
 from suncore.core.control import (
     TEMPERATURE_ROLE,
@@ -59,7 +68,12 @@ from suncore.core.control import (
     PowerEstimate,
     has_heat_limit,
 )
-from suncore.core.controlstate import ControlState, DeviceControlState, SiteControlState
+from suncore.core.controlstate import (
+    BatteryControlState,
+    ControlState,
+    DeviceControlState,
+    SiteControlState,
+)
 from suncore.core.decisions import Action, Decision, Reason
 from suncore.core.devices import DeviceConfig, control_roles
 from suncore.core.identity import identity_token
@@ -73,6 +87,7 @@ from suncore.core.measurements import (
 )
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
+from suncore.devices.battery import BatteryDriver, create_battery_driver
 from suncore.devices.drivers import ClimateDriver, NumberDriver, create_driver
 from suncore.devices.power import create_power_model, restore_power_model
 from suncore.devices.power.common import PowerEstimator
@@ -84,6 +99,7 @@ from suncore.ha.connection import (
     HAConnection,
     Unsubscribe,
 )
+from suncore.safety.battery import BatteryGateConfig, BatteryWatch
 from suncore.safety.gate import (
     REASON_EMERGENCY_STOP,
     REASON_ORPHANED,
@@ -95,7 +111,7 @@ from suncore.safety.gate import (
 from suncore.safety.modes import ModeProvider
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
 from suncore.safety.watchdog import Watchdog
-from suncore.safety.wiring import StatefulActuator, WriterFn, build_actuators
+from suncore.safety.wiring import StatefulActuator, WriterFn, build_actuator, build_actuators
 from suncore.storage import PowerModelStateStore
 
 log = structlog.get_logger(__name__)
@@ -133,6 +149,31 @@ def probe_temperature_c(cache: EntityCache, device: DeviceConfig) -> float | Non
     if entry.state.attributes.get("unit_of_measurement") != CELSIUS:
         return None
     return sample.value
+
+
+PriceProvider = Callable[[datetime], float | None]
+"""``now -> live import price`` (currency/kWh) for the battery's grid-charge policy."""
+
+
+def _no_price(_: datetime) -> float | None:
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class BatteryWiring:
+    """The battery as a controlled asset (Phase 4 WP10): what the runtime hands the stack.
+
+    ``identity`` is ``core.identity.battery_identity_token``, ``reserve_pct``
+    ``core.battery.effective_reserve_pct`` and ``policy`` ``core.config.
+    effective_grid_charge_policy`` - all computed by the runtime from the configuration.
+    """
+
+    settings: BatterySettings
+    spec: BatteryAdapterSpec
+    identity: str
+    reserve_pct: float | None
+    policy: GridChargePolicy = field(default_factory=GridChargePolicy)
+    import_price: PriceProvider = _no_price
 
 
 def grid_heartbeats(site: SiteConfig | None) -> tuple[tuple[str, ...], ...]:
@@ -220,6 +261,7 @@ class ControlStack:
         defer_recover: bool = False,
         plan_provider: PlanProvider | None = None,
         on_measurements: MeasurementSink | None = None,
+        battery: BatteryWiring | None = None,
     ) -> None:
         self._connection = connection
         self._plan_provider = plan_provider
@@ -233,6 +275,7 @@ class ControlStack:
         self._sleep = sleep
         self._settings = settings
         self._goals = goals if goals is not None else GoalsConfig(climate_before_export=True)
+        self._modes = modes
         self._import_limit_w = import_limit_w
         self._reserve_soc_pct = reserve_soc_pct
         self._cadences = dict(cadences or {})
@@ -263,6 +306,24 @@ class ControlStack:
         self.drivers: dict[str, DeviceActuator] = build_actuators(
             connection, devices, self._make_driver
         )
+        self.battery_wiring = battery
+        self.battery_driver: BatteryDriver | None = self._make_battery(connection, battery)
+        self.battery_limits: BatteryAction | None = None
+        """What the battery adapter's entities showed at the latest tick."""
+        actuators: dict[str, StatefulActuator | BatteryDriver] = dict(self.drivers)
+        gate_battery: BatteryGateConfig | None = None
+        if battery is not None and self.battery_driver is not None:
+            actuators[BATTERY_ASSET_ID] = self.battery_driver
+            gate_battery = BatteryGateConfig(
+                identity=battery.identity,
+                model=battery.settings.model,
+                reserve_pct=battery.reserve_pct,
+                policy=battery.policy,
+                fallback_verified=battery.settings.fallback_measured,
+                plan=self.current_plan,
+                import_price=battery.import_price,
+                watch=BatteryWatch(),
+            )
         self.models: dict[str, PowerEstimator] = {
             d.id: create_power_model(d, power_cadence_s=self._power_cadence(d)) for d in devices
         }
@@ -281,7 +342,7 @@ class ControlStack:
         self.gate = SafetyGate(
             clock=clock,
             sink=self._sink,
-            actuators=self.drivers,
+            actuators=actuators,
             modes=modes,
             devices=self._devices.get,
             states=self._device_state,
@@ -292,6 +353,7 @@ class ControlStack:
             tz=tz,
             sleep=sleep,
             predecessor=predecessor,
+            battery=gate_battery,
         )
         self.deviations: deque[DeviationEvent] = deque(maxlen=DEVIATION_HISTORY)
         self.loop = ControllerLoop(
@@ -327,6 +389,26 @@ class ControlStack:
 
     def _make_driver(self, device: DeviceConfig, write: WriterFn) -> DeviceActuator:
         return cast("DeviceActuator", create_driver(device, write=write, states=self._lookup))
+
+    def _make_battery(
+        self, connection: HAConnection, battery: BatteryWiring | None
+    ) -> BatteryDriver | None:
+        """The battery adapter, or ``None`` (observe-only) when it cannot be built."""
+        if battery is None:
+            return None
+        if BATTERY_ASSET_ID in self._devices:
+            log.error("control.battery_id_conflict", device_id=BATTERY_ASSET_ID)
+            return None
+        spec, settings = battery.spec, battery.settings
+
+        def make(write: WriterFn) -> BatteryDriver:
+            return create_battery_driver(spec, settings, write=write, states=self._lookup)
+
+        try:
+            return build_actuator(connection, make)
+        except ValueError as exc:
+            log.warning("control.battery_adapter_unusable", error=str(exc)[:200])
+            return None
 
     def _lookup(self, entity_id: str) -> EntityState | None:
         entry = self.cache.get(entity_id)
@@ -366,6 +448,10 @@ class ControlStack:
             ids.update(dict.fromkeys(r.entity_id for r in self._site.entity_refs()))
         for device in self._devices.values():
             ids.update(dict.fromkeys(r.entity_id for r in device.entity_refs()))
+        if self.battery_wiring is not None:
+            ids.update(
+                dict.fromkeys(r.entity_id for r in self.battery_wiring.settings.entity_refs())
+            )
         return list(ids)
 
     @property
@@ -704,6 +790,7 @@ class ControlStack:
         if self._site is not None:
             await self.gate.check_site(self._site, samples)
             flows = compute_flows(self._site, samples)
+            await self.gate.check_battery(flows)
         states: dict[str, DeviceState] = {}
         estimates: dict[str, PowerEstimate] = {}
         for device_id, device in self._devices.items():
@@ -728,6 +815,7 @@ class ControlStack:
             reserve_soc_pct=self._reserve_soc_pct,
             goals=self._goals,
             plan=self.current_plan(now),
+            battery=await self._battery_inputs(now),
         )
         self.estimates = estimates
         self.states = states
@@ -736,6 +824,40 @@ class ControlStack:
         self._maybe_save_models(now)
         self._notify()
         return self.last
+
+    def _battery_blocked(self, now: datetime) -> Reason | None:
+        runtime = self.gate.runtime_of(BATTERY_ASSET_ID)
+        if self.gate.emergency_stopped:
+            return REASON_EMERGENCY_STOP
+        if (pause := self.watchdog.pause_reason(BATTERY_ASSET_ID, now)) is not None:
+            return pause
+        if self.gate.is_orphaned(BATTERY_ASSET_ID):
+            return REASON_ORPHANED
+        if runtime is not None and runtime.release_pending:
+            return REASON_RELEASE_PENDING
+        if runtime is not None and runtime.is_held(now):
+            return REASON_OVERRIDE_HELD
+        return None
+
+    async def _battery_inputs(self, now: datetime) -> BatteryControlInputs | None:
+        """The battery adapter as the controller sees it this tick (reads the cache only)."""
+        driver, wiring = self.battery_driver, self.battery_wiring
+        if driver is None or wiring is None or wiring.settings.model is None:
+            return None
+        observed = await driver.read_back()
+        self.battery_limits = observed if isinstance(observed, BatteryAction) else None
+        runtime = self.gate.runtime_of(BATTERY_ASSET_ID)
+        under = runtime is not None and runtime.under_control
+        held = runtime.last_written if under and runtime is not None else None
+        return BatteryControlInputs(
+            capabilities=driver.capabilities,
+            ranges=driver.ranges(),
+            model=wiring.settings.model,
+            reserve_pct=wiring.reserve_pct if wiring.reserve_pct is not None else 100.0,
+            held=held if isinstance(held, BatteryAction) else None,
+            under_control=under,
+            blocked=self._battery_blocked(now),
+        )
 
     def _record_measurements(
         self,
@@ -801,6 +923,35 @@ class ControlStack:
             site=site,
             devices=devices,
             proposals=list(self.gate.proposals()),
+            battery=self._battery_control_state(now),
+        )
+
+    def _battery_control_state(self, now: datetime) -> BatteryControlState | None:
+        driver, wiring = self.battery_driver, self.battery_wiring
+        if driver is None or wiring is None:
+            return None
+        modes = self.gate.modes_of(BATTERY_ASSET_ID)
+        runtime = self.gate.runtime_of(BATTERY_ASSET_ID)
+        under = runtime is not None and runtime.under_control
+        view = None if self.last is None else self.last.battery
+        held = runtime.last_written if under and runtime is not None else None
+        baseline = runtime.baseline if under and runtime is not None else None
+        return BatteryControlState(
+            identity=wiring.identity,
+            adapter_template_id=wiring.spec.template_id,
+            capabilities=sorted(c.value for c in driver.capabilities),
+            global_mode=modes.global_mode,
+            battery_mode=self._modes.battery_mode(),
+            effective_mode=modes.effective,
+            mode_capped=self.gate.battery_mode_capped,
+            limits=self.battery_limits,
+            held=held if isinstance(held, BatteryAction) else None,
+            baseline=baseline if isinstance(baseline, BatteryAction) else None,
+            under_control=under,
+            wanted=None if view is None else view.wanted,
+            reasons=[] if view is None else list(view.reasons),
+            paused=self._battery_blocked(now),
+            last_decision=self.last_decisions.get(BATTERY_ASSET_ID),
         )
 
     def _device_control_state(self, device: DeviceConfig, now: datetime) -> DeviceControlState:
@@ -843,6 +994,7 @@ class ControlStack:
 
 __all__ = [
     "DEFAULT_POWER_SAVE_INTERVAL_S",
+    "BatteryWiring",
     "ControlStack",
     "DeviceActuator",
     "probe_temperature_c",

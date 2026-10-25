@@ -484,6 +484,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operation/battery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Battery Mode
+         * @description Set the battery's mode (ADR-0013). Anything above shadow needs the battery's
+         *     ``identity`` token from the control state; shadow never does. An adapter whose hardware
+         *     fallback is not measured runs at most assisted whatever is stored.
+         */
+        put: operations["set_battery_mode_api_v1_operation_battery_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operation/devices/{device_id}": {
         parameters: {
             query?: never;
@@ -1012,6 +1034,33 @@ export interface components {
             soc: components["schemas"]["EntityRef"];
         };
         /**
+         * BatteryControlState
+         * @description The battery as a controlled asset (Phase 4 WP10, ADR-0013).
+         */
+        BatteryControlState: {
+            /** Adapter Template Id */
+            adapter_template_id: string;
+            baseline: components["schemas"]["BatteryAction"] | null;
+            battery_mode: components["schemas"]["OperatingMode"];
+            /** Capabilities */
+            capabilities: string[];
+            effective_mode: components["schemas"]["OperatingMode"];
+            global_mode: components["schemas"]["OperatingMode"];
+            held: components["schemas"]["BatteryAction"] | null;
+            /** Identity */
+            identity: string;
+            last_decision: components["schemas"]["Decision"] | null;
+            limits: components["schemas"]["BatteryAction"] | null;
+            /** Mode Capped */
+            mode_capped: boolean;
+            paused: components["schemas"]["Reason"] | null;
+            /** Reasons */
+            reasons: components["schemas"]["Reason"][];
+            /** Under Control */
+            under_control: boolean;
+            wanted: components["schemas"]["BatteryAction"] | null;
+        };
+        /**
          * BatteryModeMeaning
          * @description What selecting a battery mode option does.
          * @enum {string}
@@ -1022,6 +1071,18 @@ export interface components {
             meaning: components["schemas"]["BatteryModeMeaning"];
             /** Value */
             value: string;
+        };
+        /**
+         * BatteryModeRequest
+         * @description ``PUT /api/v1/operation/battery``: the battery's operating mode (ADR-0013).
+         *
+         *     Like a device: raising the mode above shadow needs ``identity``, the token from
+         *     ``GET /api/v1/control/state`` (``battery.identity``); a re-mapped battery answers 409.
+         */
+        BatteryModeRequest: {
+            /** Identity */
+            identity?: string | null;
+            mode: components["schemas"]["OperatingMode"];
         };
         /**
          * BatteryModel
@@ -1433,6 +1494,7 @@ export interface components {
         ControlState: {
             /** Active */
             active: boolean;
+            battery?: components["schemas"]["BatteryControlState"] | null;
             /** Devices */
             devices: components["schemas"]["DeviceControlState"][];
             /** Emergency Stop */
@@ -5113,6 +5175,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InfoOut"];
+                };
+            };
+        };
+    };
+    set_battery_mode_api_v1_operation_battery_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatteryModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description No battery adapter (observe-only) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The battery changed since its identity was read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

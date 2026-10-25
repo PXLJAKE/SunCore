@@ -23,6 +23,7 @@
   "activity.importing": "Importing",
   "activity.producing": "Producing",
   "api.error.body_too_large": "The request is too large.",
+  "api.error.battery_not_controllable": "No battery adapter is configured: the battery is only observed.",
   "api.error.device_identity_changed": "This device changed in the meantime. Reload and check it before changing its mode.",
   "api.error.mode_raise_rejected": "A stored document cannot raise an operating mode. Change the mode of a device on its own.",
   "api.error.unknown_device": "This device does not exist.",
