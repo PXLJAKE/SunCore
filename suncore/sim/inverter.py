@@ -42,6 +42,7 @@ MAX_CHARGE_ID: Final = "number.sim_battery_max_charge"
 MAX_DISCHARGE_ID: Final = "number.sim_battery_max_discharge"
 GRID_CHARGE_ID: Final = "number.sim_battery_grid_charge"
 MODBUS_IDS: Final = {
+    5: "sensor.sim_modbus_5",
     1080: "sensor.sim_modbus_1080",
     1280: "sensor.sim_modbus_1280",
     1282: "sensor.sim_modbus_1282",
@@ -52,6 +53,7 @@ MODBUS_IDS: Final = {
     1078: "sensor.sim_modbus_1078",
 }
 MODBUS_ROLES: Final = {
+    "byte_order": MODBUS_IDS[5],
     "external_control": MODBUS_IDS[1080],
     "charge_limit": MODBUS_IDS[1280],
     "discharge_limit": MODBUS_IDS[1282],
@@ -263,13 +265,14 @@ class SimInverter:
             number(GRID_CHARGE_ID, self.grid_charge_w, "W", self.own_charge_w, 1)
         if self.params.adapter == "kostal_modbus":
             values = {
+                5: 1.0 if self.params.byte_order is ModbusByteOrder.BIG else 0.0,
                 1080: float(self.params.external_control),
                 1076: self.own_charge_w,
                 1078: self.own_discharge_w,
                 **self.registers,
             }
             for register, entity_id in MODBUS_IDS.items():
-                unit = "s" if register == 1288 else (None if register == 1080 else "W")
+                unit = "s" if register == 1288 else (None if register in (5, 1080) else "W")
                 attributes: dict[str, Any] = {"friendly_name": f"Kostal register {register}"}
                 if unit is not None:
                     attributes["unit_of_measurement"] = unit

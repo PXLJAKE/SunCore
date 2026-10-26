@@ -184,6 +184,8 @@ BATTERY_RELEASE_BACKOFF_S: Final = 30.0
 BATTERY_RELEASE_BACKOFF_MAX_S: Final = 600.0
 REASON_BATTERY_OVERRIDE: Final = Reason(key="safety.battery_override")
 """The battery's limits changed outside SunCore while it held them: given back to the user."""
+REASON_BATTERY_PLAN_ENDED: Final = Reason(key="safety.battery_plan_ended")
+"""No fresh plan interval covers the held battery state any more: given back."""
 REASON_BATTERY_INPUTS_STALE: Final = Reason(key="safety.battery_inputs_stale")
 """The controller's inputs are too old to renew the battery's lease."""
 BATTERY_SCOPE: Final = BATTERY_ASSET_ID
@@ -718,8 +720,11 @@ class SafetyGate:
         if mode is OperatingMode.SHADOW:
             reasons: tuple[Reason, ...] = (REASON_SHADOW_MODE,)
             if isinstance(action, BatteryAction):
-                observed = await actuator.read_back()
-                baseline = runtime.baseline if runtime.under_control else observed
+                baseline = (
+                    runtime.baseline
+                    if runtime.under_control
+                    else await actuator.takeover_baseline()
+                )
                 reasons += evaluate_battery(self._battery_context(action, actuator, baseline, now))
             return await self._decide(intent, DecisionKind.SHADOW, now, reasons, mode)
         pause = self._watchdog.pause_reason(BATTERY_SCOPE, now)
@@ -753,7 +758,7 @@ class SafetyGate:
             return await self._decide(
                 intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
             )
-        baseline = runtime.baseline if runtime.under_control else observed
+        baseline = runtime.baseline if runtime.under_control else await actuator.takeover_baseline()
         ctx = self._battery_context(action, actuator, baseline, now)
         violations = evaluate_battery(ctx)
         if violations:
@@ -827,7 +832,7 @@ class SafetyGate:
             baseline=base,
         )
 
-    async def _battery_write(  # noqa: PLR0912 - one branch per verdict
+    async def _battery_write(  # noqa: PLR0911, PLR0912, PLR0915 - one return per verdict
         self,
         intent: Intent,
         requested: BatteryAction,
@@ -835,11 +840,18 @@ class SafetyGate:
         now: datetime,
         mode: OperatingMode,
     ) -> Decision:
-        """Takeover (baseline, hardware fallback first), write, settle, read back."""
+        """Takeover (hardware fallback first, then the baseline), judge again, write, read back.
+
+        The settle wait after arming the hardware fallback runs **outside** the gate lock, so an
+        emergency stop or release is never delayed by it; everything that may have changed in
+        that wait (mode, emergency stop, watchdog, the invariants) is judged again under the
+        lock right before ``apply()`` (review 4-G, minor 3).
+        """
         config = self._battery
         assert config is not None
         failed: Reason | None = None
         context_id: str | None = None
+        armed = False
         async with self._lock(BATTERY_ASSET_ID):
             runtime = self._runtimes.get(BATTERY_ASSET_ID) or DeviceRuntime(
                 device_id=BATTERY_ASSET_ID
@@ -852,35 +864,41 @@ class SafetyGate:
                 return await self._decide(
                     intent, DecisionKind.REJECTED, now, (REASON_RATE_LIMITED,), mode
                 )
-            if not runtime.under_control:
-                baseline = await actuator.read_back()
-                if baseline is None:
-                    self._limiter.release_slot(BATTERY_ASSET_ID, previous_slot)
-                    return await self._decide(
-                        intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
-                    )
-                if not actuator.prepared():
-                    # Kostal §3.5: the fallback registers are written and read back before the
-                    # first limit; otherwise nothing else is written (ADR-0013 decision 5).
-                    try:
-                        await actuator.arm_fallback()
-                    except Exception as exc:
-                        log.warning("safety.battery_fallback_failed", error=str(exc)[:200])
-                        failed = REASON_WRITE_FAILED
-                    if failed is None:
-                        await self._sleep(actuator.settle_s)
-                        if not actuator.prepared():
-                            failed = REASON_BATTERY_FALLBACK_UNCONFIRMED
-                    if failed is not None:
-                        await self._save(runtime.model_copy(update={"last_write_ts": now}))
-                if failed is None:
-                    blocked = self._blocked(
-                        intent, self._runtimes.get(BATTERY_ASSET_ID, runtime), now
-                    )
-                    if blocked is not None:
+            if not runtime.under_control and not actuator.prepared():
+                # Kostal §3.5: the fallback registers are written and read back before the
+                # first limit; otherwise nothing else is written (ADR-0013 decision 5).
+                armed = True
+                try:
+                    await actuator.arm_fallback()
+                except Exception as exc:
+                    log.warning("safety.battery_fallback_failed", error=str(exc)[:200])
+                    failed = REASON_WRITE_FAILED
+                await self._save(runtime.model_copy(update={"last_write_ts": now}))
+        if failed is None and armed:
+            await self._sleep(actuator.settle_s)
+        async with self._lock(BATTERY_ASSET_ID):
+            runtime = self._runtimes.get(BATTERY_ASSET_ID) or DeviceRuntime(
+                device_id=BATTERY_ASSET_ID
+            )
+            took_over = False
+            if failed is None:
+                blocked = self._blocked(intent, runtime, now)
+                if blocked is None:
+                    blocked = actuator.refusal()
+                if blocked is not None:
+                    if not armed:
                         self._limiter.release_slot(BATTERY_ASSET_ID, previous_slot)
+                    return await self._decide(intent, DecisionKind.REJECTED, now, (blocked,), mode)
+            if failed is None and not runtime.under_control:
+                if not actuator.prepared():
+                    failed = REASON_BATTERY_FALLBACK_UNCONFIRMED
+                else:
+                    baseline = await actuator.takeover_baseline()
+                    if baseline is None:
+                        if not armed:
+                            self._limiter.release_slot(BATTERY_ASSET_ID, previous_slot)
                         return await self._decide(
-                            intent, DecisionKind.REJECTED, now, (blocked,), mode
+                            intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
                         )
                     runtime = runtime.model_copy(
                         update={
@@ -889,9 +907,17 @@ class SafetyGate:
                             "identity": config.identity,
                         }
                     )
-                    await self._save(runtime)
+                    took_over = True
             if failed is None:
                 ctx = self._battery_context(requested, actuator, runtime.baseline, now)
+                violations = evaluate_battery(ctx)
+                if violations:
+                    # Judged again right before the write: something changed meanwhile.
+                    if not armed:
+                        self._limiter.release_slot(BATTERY_ASSET_ID, previous_slot)
+                    return await self._decide(intent, DecisionKind.REJECTED, now, violations, mode)
+                if took_over:
+                    await self._save(runtime)
                 written = intent.model_copy(update={"action": ctx.target})
                 try:
                     context_id = await actuator.apply(written)
@@ -978,7 +1004,7 @@ class SafetyGate:
             intent, DecisionKind.ACCEPTED, after, intent.reasons, mode, observed=observed
         )
 
-    async def _battery_lease(self, now: datetime) -> Decision | None:
+    async def _battery_lease(self, now: datetime) -> Decision | None:  # noqa: PLR0912
         """Every tick while SunCore holds battery limits (ADR-0013 decision 5, B7).
 
         The lease ends - and the baseline is restored - when the mode fell to shadow, the
@@ -1012,10 +1038,18 @@ class SafetyGate:
         if reason is None and (inputs is None or inputs.ts is None or now - inputs.ts > max_age):
             reason = REASON_BATTERY_INPUTS_STALE
         if reason is None:
-            violations = lease_violations(
-                self._battery_context(held, actuator, runtime.baseline, now)
-            )
-            reason = violations[0] if violations else None
+            # The adapter's precondition went away (Kostal 1080, register 5): no heartbeat into
+            # a refusing inverter - the lease ends with that reason (review 4-G, minor 2).
+            reason = actuator.refusal()
+        if reason is None:
+            ctx = self._battery_context(held, actuator, runtime.baseline, now)
+            if ctx.band is None or not ctx.plan_fresh:
+                # ADR-0013 5B: every held state - also one that cannot cause import - is held
+                # only while a fresh plan interval covers it (review 4-G, minor 8).
+                reason = REASON_BATTERY_PLAN_ENDED
+            else:
+                violations = lease_violations(ctx)
+                reason = violations[0] if violations else None
         if reason is not None:
             return await self.release_device(BATTERY_ASSET_ID, reason, origin=Origin.SAFETY)
         if runtime.pending_action is None and runtime.last_written is not None:

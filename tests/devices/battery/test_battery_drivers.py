@@ -321,6 +321,7 @@ def test_kostal_rest_template_must_have_only_a_min_soc_control() -> None:
 # --- kostal_modbus ----------------------------------------------------------------------------
 
 MODBUS_ENTITIES = {
+    "byte_order": "sensor.k_5",
     "external_control": "sensor.k_1080",
     "charge_limit": "sensor.k_1280",
     "discharge_limit": "sensor.k_1282",
@@ -334,6 +335,7 @@ LINK = ModbusLink(hub="kostal", slave=71, byte_order=ModbusByteOrder.LITTLE)
 
 
 def modbus(ha: FakeHA, *, external: str = "2", prepared: bool = False) -> KostalModbusDriver:
+    ha.set("sensor.k_5", "0")
     ha.set("sensor.k_1080", external)
     ha.set("sensor.k_1280", "0")
     ha.set("sensor.k_1282", "0")
@@ -392,20 +394,26 @@ async def test_modbus_arms_the_fallback_first_and_refuses_limits_until_confirmed
         await driver.apply(battery_intent(max_discharge_w=0))
     await driver.arm_fallback()
     order = ModbusByteOrder.LITTLE
+    # The larger of the model's (5000/6000) and the battery's own limits (4800/5500).
     assert register_writes(ha) == [
-        (1284, float32_words(4800, order)),
-        (1286, float32_words(5500, order)),
+        (1284, float32_words(5000, order)),
+        (1286, float32_words(6000, order)),
         (1288, uint32_words(60, order)),
     ]
-    ha.set("sensor.k_1284", "4800")
-    ha.set("sensor.k_1286", "5500")
+    ha.set("sensor.k_1284", "5000")
+    ha.set("sensor.k_1286", "6000")
     ha.set("sensor.k_1288", "60")
     assert driver.prepared()
 
 
 async def test_modbus_limits_heartbeat_and_release() -> None:
     ha = FakeHA()
-    driver = modbus(ha, prepared=True)
+    driver = modbus(ha)
+    await driver.arm_fallback()
+    ha.set("sensor.k_1284", "5000")
+    ha.set("sensor.k_1286", "6000")
+    ha.set("sensor.k_1288", "60")
+    ha.calls.clear()
     assert driver.heartbeat_s == 20
     assert driver.ranges().max_discharge_w == FieldRange(0, 5500)
     await driver.apply(battery_intent(max_charge_w=4800, max_discharge_w=0))
@@ -415,8 +423,8 @@ async def test_modbus_limits_heartbeat_and_release() -> None:
     await driver.keep_alive()
     assert register_writes(ha) == lock + lock
     await driver.release(BatteryAction(max_charge_w=0, max_discharge_w=0))
-    own = [(1280, float32_words(4800, order)), (1282, float32_words(5500, order))]
-    assert register_writes(ha) == lock + lock + own  # own limits, not the takeover read-back
+    own = [(1280, float32_words(5000, order)), (1282, float32_words(6000, order))]
+    assert register_writes(ha) == lock + lock + own  # the fallback values, not a read-back
     await driver.keep_alive()  # the heartbeat stopped with the release
     assert len(ha.calls) == 6
 
@@ -538,3 +546,37 @@ async def test_release_restores_the_users_own_select_option_and_switch_state() -
     ha2.set("switch.force", "off")
     await driver2.release(None)
     assert ha2.sent[-1] == ("switch", "turn_on", {"entity_id": "switch.force"}, None)
+
+
+async def test_modbus_fallback_gets_the_written_values_and_register_5_must_match() -> None:
+    """Review M2 and minor 1."""
+    ha = FakeHA()
+    driver = modbus(ha)
+    ha.set("sensor.k_1076", "4800")  # the BMS limits may move; the model says 5000/6000
+    await driver.arm_fallback()
+    order = ModbusByteOrder.LITTLE
+    assert register_writes(ha)[:2] == [
+        (1284, float32_words(5000, order)),
+        (1286, float32_words(6000, order)),
+    ]
+    ha.set("sensor.k_1284", "5000")
+    ha.set("sensor.k_1286", "6000")
+    ha.set("sensor.k_1288", "60")
+    assert driver.prepared()
+    ha.set("sensor.k_1076", "3000")  # the live limit moves: still prepared (written values)
+    assert driver.prepared()
+    assert await driver.takeover_baseline() == BatteryAction(
+        max_charge_w=3000, max_discharge_w=5500
+    )
+    ha.set("sensor.k_5", "1")  # the inverter now says big-endian
+    refusal = driver.refusal()
+    assert refusal is not None
+    assert refusal.key == "safety.battery_byte_order_mismatch"
+    with pytest.raises(WriteRefusedError):
+        await driver.arm_fallback()
+
+
+def test_a_fresh_modbus_adapter_is_never_prepared_by_foreign_registers() -> None:
+    ha = FakeHA()
+    driver = modbus(ha, prepared=True)  # the registers happen to show the own limits
+    assert not driver.prepared()  # nothing written by this adapter yet

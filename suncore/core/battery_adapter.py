@@ -37,6 +37,7 @@ class BatteryModeMeaning(StrEnum):
 
 
 KOSTAL_MODBUS_ROLES: Final = (
+    "byte_order",
     "external_control",
     "charge_limit",
     "discharge_limit",
@@ -47,7 +48,8 @@ KOSTAL_MODBUS_ROLES: Final = (
     "own_discharge_limit",
 )
 """Read-back roles the ``kostal_modbus`` driver needs: modbus sensors of the registers of the
-register map (1080, 1280, 1282, 1284, 1286, 1288) and of the battery's own limits (1076, 1078)."""
+register map (5 byte order, 1080, 1280, 1282, 1284, 1286, 1288) and of the battery's own limits
+(1076, 1078)."""
 
 
 @dataclass(frozen=True, slots=True)

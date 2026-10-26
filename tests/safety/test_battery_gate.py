@@ -59,6 +59,8 @@ class FakeBattery:
     released: list[Action | None] = field(default_factory=list)
     beats: int = 0
     held: BatteryAction | None = None
+    own: BatteryAction | None = None
+    """``takeover_baseline`` when it differs from the read-back (Kostal §3.5 own limits)."""
 
     @property
     def asset_id(self) -> str:
@@ -98,6 +100,9 @@ class FakeBattery:
 
     async def read_back(self) -> Action | None:
         return self.state
+
+    async def takeover_baseline(self) -> Action | None:
+        return self.state if self.own is None else self.own
 
     async def apply(self, intent: Intent) -> str | None:
         assert isinstance(intent.action, BatteryAction)
@@ -416,7 +421,7 @@ async def test_a_stale_plan_ends_the_lease() -> None:
     )
     decisions = await r.tick(5)
     assert decisions
-    assert "safety.battery_plan_stale" in keys(decisions[0])
+    assert "safety.battery_plan_ended" in keys(decisions[0])
     assert r.battery.state == BASE
 
 
@@ -662,3 +667,97 @@ async def test_no_new_takeover_until_the_release_is_confirmed() -> None:
     runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
     assert runtime is not None
     assert runtime.baseline == BASE
+
+
+# --- review 4-G regressions ------------------------------------------------------------------
+
+
+async def test_an_inherited_stale_discharge_lock_counts_as_a_lock() -> None:
+    """Review M1 (probe): a baseline max_discharge_w = 0 is written with any action, so it is a
+    discharge lock that needs the plan's ``discharge_lock``."""
+    stale = BatteryAction(max_charge_w=5000, max_discharge_w=0, min_soc_pct=10, grid_charge_w=0)
+    r = rig(FakeBattery(state=stale))
+    r.plans["now"] = plan()  # no discharge lock, no grid charging
+    r.at(grid_w=1500, battery_w=0, soc_pct=60)  # the house needs 1.5 kW
+    decision = await r.submit(BatteryAction(max_charge_w=2000))
+    assert decision.kind is DecisionKind.REJECTED
+    assert "safety.battery_unplanned_import" in keys(decision)
+    assert r.battery.applied == []
+
+
+async def test_the_takeover_baseline_comes_from_the_adapter_not_the_limit_registers() -> None:
+    """Review M1: Kostal §3.5 - the None fields mean the battery's own limits, not a stale 1282."""
+    stale = BatteryAction(max_charge_w=5000, max_discharge_w=0)
+    own = BatteryAction(max_charge_w=5000, max_discharge_w=5000)
+    r = rig(
+        FakeBattery(
+            caps=frozenset({BatteryCapability.CHARGE_LIMIT, BatteryCapability.DISCHARGE_LIMIT}),
+            state=stale,
+            own=own,
+        )
+    )
+    r.plans["now"] = plan()
+    r.at(grid_w=-2000, battery_w=0, soc_pct=60)  # export: a charge cap cannot cause import
+    decision = await r.submit(BatteryAction(max_charge_w=2000))
+    assert decision.kind is DecisionKind.ACCEPTED, keys(decision)
+    assert r.battery.applied == [BatteryAction(max_charge_w=2000, max_discharge_w=5000)]
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert runtime.baseline == own
+
+
+async def test_a_refusing_adapter_ends_the_lease_and_its_heartbeat() -> None:
+    """Review minor 2: no heartbeat into a refusing inverter; the lease ends with the reason."""
+    from suncore.core.decisions import Reason  # noqa: PLC0415
+
+    battery = FakeBattery(caps=ALL | {BatteryCapability.HARDWARE_FALLBACK}, beat=20)
+    r = rig(battery, fallback_verified=True)
+    await r.submit(BatteryAction(max_discharge_w=0))
+    battery.refuse = Reason(key="safety.battery_external_control_off", args={"value": "0"})
+    decisions = await r.tick(5)
+    assert decisions
+    assert "safety.battery_external_control_off" in keys(decisions[0])
+    beats = battery.beats
+    for _ in range(10):
+        await r.tick(5)
+    assert battery.beats == beats
+
+
+async def test_the_lease_needs_a_fresh_plan_also_for_states_without_import() -> None:
+    """Review minor 8 (ADR-0013 5B): a charge cap is held only while a plan interval covers it."""
+    r = rig()
+    r.at(grid_w=-2000, battery_w=0, soc_pct=60)
+    r.plans["now"] = plan(now=r.clock.now)
+    decision = await r.submit(BatteryAction(max_charge_w=2000))
+    assert decision.kind is DecisionKind.ACCEPTED, keys(decision)
+    r.plans["now"] = Plan.default()
+    decisions = await r.tick(5)
+    assert decisions
+    assert "safety.battery_plan_ended" in keys(decisions[0])
+
+
+async def test_an_emergency_stop_is_not_delayed_by_the_fallback_settle_wait() -> None:
+    """Review minor 3: the settle wait after arming runs outside the lock; the stop wins and
+    nothing is written after it."""
+    import asyncio  # noqa: PLC0415
+
+    battery = FakeBattery(caps=ALL | {BatteryCapability.HARDWARE_FALLBACK}, settle=15)
+    r = rig(battery, fallback_verified=True)
+    waiting = asyncio.Event()
+    proceed = asyncio.Event()
+
+    async def slow_sleep(seconds: float) -> None:
+        r.clock.advance(seconds)
+        waiting.set()
+        await proceed.wait()
+
+    r.gate._sleep = slow_sleep
+    write = asyncio.ensure_future(r.submit(BatteryAction(max_discharge_w=0)))
+    await waiting.wait()
+    stop = asyncio.ensure_future(r.gate.emergency_stop())
+    await asyncio.wait_for(asyncio.shield(stop), timeout=1.0)  # not blocked by the wait
+    proceed.set()
+    decision = await write
+    assert decision.kind is DecisionKind.REJECTED
+    assert keys(decision) == ["safety.emergency_stop"]
+    assert battery.applied == []

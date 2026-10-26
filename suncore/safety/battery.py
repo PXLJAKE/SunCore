@@ -104,6 +104,14 @@ class BatteryActuator(Actuator, Protocol):
         """Re-write the last applied state (idempotent; called only while the lease holds)."""
         ...
 
+    async def takeover_baseline(self) -> Action | None:
+        """The values a ``None`` field means and a release restores, read at takeover.
+
+        Usually :meth:`read_back`; the Kostal §3.5 adapter answers the battery's own limits
+        (1076/1078), because its limit registers may hold a stale value (review 4-G, M1).
+        """
+        ...
+
 
 # --- configuration -----------------------------------------------------------------------------
 
@@ -244,19 +252,27 @@ def grid_charge_w(ctx: BatteryContext) -> float:
 
 
 def is_discharge_lock(ctx: BatteryContext) -> bool:
-    """The requested limits keep the battery from covering the house (ADR-0013 decision 4).
+    """The state that would be **written** keeps the battery from covering the house
+    (ADR-0013 decision 4).
 
+    Judged on ``ctx.target`` - the resolved full state that is written and re-sent by the
+    heartbeat - not on the request: a discharge cap or floor inherited from the baseline (for
+    example a stale ``max_discharge_w = 0``) is written too and counts (review 4-G, M1).
     ``max_discharge_w`` below the current house deficit, or ``min_soc_pct`` at or above the
-    live SoC. Unknown live values count as a lock (the conservative direction).
+    live SoC. While the target forces grid charging the battery charges anyway, so it is no
+    lock (its import is bounded by B2/B5). Unknown live values count as a lock (the conservative
+    direction).
     """
-    requested = ctx.requested
-    if requested.max_discharge_w is not None:
+    target = ctx.target
+    if (target.grid_charge_w or 0.0) > 0:
+        return False
+    if target.max_discharge_w is not None:
         deficit = ctx.live.deficit_w
-        if deficit is None or requested.max_discharge_w + POWER_TOLERANCE_W < deficit:
+        if deficit is None or target.max_discharge_w + POWER_TOLERANCE_W < deficit:
             return True
-    if requested.min_soc_pct is not None:
+    if target.min_soc_pct is not None:
         soc = ctx.live.soc_pct
-        if soc is None or requested.min_soc_pct >= soc - SOC_TOLERANCE_PCT:
+        if soc is None or target.min_soc_pct >= soc - SOC_TOLERANCE_PCT:
             return True
     return False
 

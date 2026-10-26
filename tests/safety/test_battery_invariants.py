@@ -115,7 +115,7 @@ def bands(draw: st.DrawFn) -> BatteryBand | None:
 
 
 @st.composite
-def contexts(draw: st.DrawFn, *, grid: bool = False) -> BatteryContext:
+def contexts(draw: st.DrawFn, *, grid: bool = False, baseline: bool = False) -> BatteryContext:
     model = BatteryModel(
         capacity_wh=10_000,
         max_charge_w=draw(st.floats(1000, 12_000)),
@@ -126,9 +126,9 @@ def contexts(draw: st.DrawFn, *, grid: bool = False) -> BatteryContext:
     )
     reserve = model.min_soc_pct + draw(st.sampled_from([0.0, 5.0]))
     requested = draw(actions(grid=grid))
-    baseline = rarely(draw, actions(), st.none())
+    base_action = draw(actions()) if baseline else rarely(draw, actions(), st.none())
     rng = draw(ranges())
-    target = quantise(resolve_battery_action(requested, baseline), rng)
+    target = quantise(resolve_battery_action(requested, base_action), rng)
     policy = rarely(
         draw,
         st.sampled_from(
@@ -166,7 +166,7 @@ def contexts(draw: st.DrawFn, *, grid: bool = False) -> BatteryContext:
         ),
         reserve_w=100.0,
         now=NOW + timedelta(hours=draw(st.integers(0, 23))),
-        baseline=baseline,
+        baseline=base_action,
     )
 
 
@@ -264,6 +264,27 @@ def test_b3_grid_charging_only_planned_fresh_in_policy_and_below_max(ctx: Batter
 def test_b4_a_discharge_lock_only_from_a_fresh_planned_lock(ctx: BatteryContext) -> None:
     assume(accepted(ctx))
     if is_discharge_lock(ctx):
+        assert ctx.band is not None
+        assert ctx.band.discharge_lock
+        assert ctx.plan_fresh
+
+
+@PROPERTY
+@given(contexts(baseline=True))
+def test_b4_judges_the_written_state_with_arbitrary_baselines(ctx: BatteryContext) -> None:
+    """Review M1: an inherited cap or floor is written too - the lock is judged on the target."""
+    assume(accepted(ctx))
+    target = ctx.target
+    if (target.grid_charge_w or 0) > 0:
+        return
+    deficit, soc = ctx.live.deficit_w, ctx.live.soc_pct
+    inherited_cap = target.max_discharge_w is not None and (
+        deficit is None or target.max_discharge_w + 1.0 < deficit
+    )
+    inherited_floor = target.min_soc_pct is not None and (
+        soc is None or target.min_soc_pct >= soc - 0.01
+    )
+    if inherited_cap or inherited_floor:
         assert ctx.band is not None
         assert ctx.band.discharge_lock
         assert ctx.plan_fresh

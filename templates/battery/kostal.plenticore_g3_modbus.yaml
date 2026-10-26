@@ -5,7 +5,7 @@
 #   * a `modbus:` hub in configuration.yaml (port 1502, unit id of the inverter, default 71);
 #   * "External battery management via Modbus" enabled in the inverter (register 1080 = 2);
 #   * one float32 sensor per register 1280, 1282, 1284, 1286, 1076, 1078, one uint32 sensor for
-#     1288 and one for 1080, decoded with the inverter's byte order (register 5);
+#     1288, one for 1080 and one for register 5 (byte order), decoded with that byte order;
 #   * `battery.modbus` in SunCore: hub name, unit id, byte order.
 # Until the fallback timer was measured on the real inverter (`battery.fallback_measured`) the
 # battery is capped at assisted mode.
@@ -41,6 +41,9 @@ modbus:
   external_control_register: 1080
   external_control_value: 2
 roles:
+  byte_order:
+    matcher: { domain: sensor, platforms: [modbus] }
+    description: template.kostal.plenticore_g3_modbus.role.byte_order
   external_control:
     matcher: { domain: sensor, platforms: [modbus] }
     description: template.kostal.plenticore_g3_modbus.role.external_control

@@ -41,6 +41,7 @@ from suncore.core.battery import (
     BatteryRanges,
     BatterySettings,
     FieldRange,
+    ModbusByteOrder,
     ModbusLink,
 )
 from suncore.core.battery_adapter import KOSTAL_MODBUS_ROLES, BatteryAdapterSpec, ModbusRegisterSpec
@@ -56,6 +57,9 @@ DEFAULT_MODBUS_SETTLE_S: Final = 15.0
 """Until a modbus sensor polled the register again (the user's ``scan_interval``; UNVERIFIED)."""
 
 REASON_EXTERNAL_CONTROL_OFF: Final = "safety.battery_external_control_off"
+REASON_BYTE_ORDER_MISMATCH: Final = "safety.battery_byte_order_mismatch"
+_BYTE_ORDER: Final = {0: ModbusByteOrder.LITTLE, 1: ModbusByteOrder.BIG}
+"""Register 5: ``0x00`` little-endian (CDAB), ``0x01`` big-endian (ABCD)."""
 
 
 class KostalModbusDriver(BatteryDriver):
@@ -83,6 +87,7 @@ class KostalModbusDriver(BatteryDriver):
         super().__init__(settings, write=write, states=states, settle_s=settle)
         self._registers: ModbusRegisterSpec = spec.modbus
         self._link: ModbusLink = settings.modbus
+        self._fallback_written: tuple[float, float] | None = None
         timeout = self._link.fallback_timeout_s
         if not (
             self._registers.fallback_timeout_min_s
@@ -131,31 +136,59 @@ class KostalModbusDriver(BatteryDriver):
                     "expected": expected,
                 },
             )
-        if self.own_limits() is None:
-            return Reason(key="safety.battery_range_unknown", args={"field": "own_limits"})
+        reported = self.value_of("byte_order")
+        order = None if reported is None else _BYTE_ORDER.get(round(reported))
+        if order is not self._link.byte_order:
+            # Register 5 decides how the floats are encoded: never write with a guessed order.
+            return Reason(
+                key=REASON_BYTE_ORDER_MISMATCH,
+                args={
+                    "configured": self._link.byte_order.value,
+                    "reported": "unknown" if order is None else order.value,
+                },
+            )
         return None
+
+    def fallback_limits(self) -> tuple[float, float]:
+        """What 1284/1286 get: the larger of the battery model's and the battery's own limits
+        (1076/1078 when known; their dynamics over temperature and SoC are ``UNVERIFIED``)."""
+        own = self.own_limits()
+        charge, discharge = self._model.max_charge_w, self._model.max_discharge_w
+        if own is not None:
+            charge, discharge = max(charge, own[0]), max(discharge, own[1])
+        return charge, discharge
 
     def ranges(self) -> BatteryRanges:
         own = self.own_limits()
-        if own is None:
-            return BatteryRanges()
+        charge, discharge = self._model.max_charge_w, self._model.max_discharge_w
+        if own is not None:
+            charge, discharge = min(own[0], charge), min(own[1], discharge)
         return BatteryRanges(
-            max_charge_w=FieldRange(0.0, min(own[0], self._model.max_charge_w)),
-            max_discharge_w=FieldRange(0.0, min(own[1], self._model.max_discharge_w)),
+            max_charge_w=FieldRange(0.0, charge), max_discharge_w=FieldRange(0.0, discharge)
         )
 
     def prepared(self) -> bool:
-        own = self.own_limits()
+        """The fallback registers show what this adapter **wrote** to them (review 4-G, M2):
+        not the live battery limits, which may move. Nothing written yet = not prepared."""
+        written = self._fallback_written
         charge = self.value_of("fallback_charge_limit")
         discharge = self.value_of("fallback_discharge_limit")
         timeout = self.value_of("fallback_timeout")
-        if own is None or charge is None or discharge is None or timeout is None:
+        if written is None or charge is None or discharge is None or timeout is None:
             return False
         return (
-            abs(charge - own[0]) <= FALLBACK_TOLERANCE_W
-            and abs(discharge - own[1]) <= FALLBACK_TOLERANCE_W
+            abs(charge - written[0]) <= FALLBACK_TOLERANCE_W
+            and abs(discharge - written[1]) <= FALLBACK_TOLERANCE_W
             and round(timeout) == self._link.fallback_timeout_s
         )
+
+    async def takeover_baseline(self) -> Action | None:
+        """The battery's own limits (1076/1078): what a ``None`` field means and what a release
+        restores. The limit registers 1280/1282 may hold a stale foreign value (review M1)."""
+        own = self.own_limits()
+        if own is None:
+            return None
+        return BatteryAction(max_charge_w=own[0], max_discharge_w=own[1])
 
     async def read_back(self) -> Action | None:
         charge = self.value_of("charge_limit")
@@ -182,22 +215,21 @@ class KostalModbusDriver(BatteryDriver):
         await self._register(address, float32_words(float(value), self._link.byte_order))
 
     async def arm_fallback(self) -> None:
-        """Fallback registers first: own limits to 1284 / 1286, the timeout to 1288."""
+        """Fallback registers first: 1284/1286 = :meth:`fallback_limits`, 1288 = the timeout."""
         if self.refusal() is not None:
-            raise WriteRefusedError("external battery management is not enabled (1080)")
-        own = self.own_limits()
-        assert own is not None
+            raise WriteRefusedError("the Modbus preconditions do not hold (1080, register 5)")
+        charge, discharge = self.fallback_limits()
         self.begin()
-        await self._float(self._registers.fallback_max_charge, own[0])
-        await self._float(self._registers.fallback_max_discharge, own[1])
+        self._fallback_written = (charge, discharge)
+        await self._float(self._registers.fallback_max_charge, charge)
+        await self._float(self._registers.fallback_max_discharge, discharge)
         await self._register(
             self._registers.fallback_timeout,
             uint32_words(self._link.fallback_timeout_s, self._link.byte_order),
         )
 
     async def _write_limits(self, action: BatteryAction) -> None:
-        own = self.own_limits()
-        assert own is not None
+        own = self.fallback_limits()
         charge = own[0] if action.max_charge_w is None else action.max_charge_w
         discharge = own[1] if action.max_discharge_w is None else action.max_discharge_w
         # Both registers every time: the pair is the state the inverter holds (and re-writing
@@ -234,9 +266,9 @@ class KostalModbusDriver(BatteryDriver):
         """
         self._applied = None
         self.begin()
-        own = self.own_limits()
-        if own is None or self.refusal() is not None:
-            return
+        if self.refusal() is not None:
+            return  # nothing can be written; the stopped heartbeat lets the inverter fall back
+        own = self.fallback_limits()
         await self._float(self._registers.max_charge, own[0])
         await self._float(self._registers.max_discharge, own[1])
 

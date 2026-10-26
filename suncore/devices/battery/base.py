@@ -168,6 +168,10 @@ class BatteryDriver:
     async def read_back(self) -> Action | None:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    async def takeover_baseline(self) -> Action | None:
+        """What ``None`` fields mean and a release restores: the state found at takeover."""
+        return await self.read_back()
+
     async def apply(self, intent: Intent) -> str | None:  # pragma: no cover - overridden
         raise NotImplementedError
 
