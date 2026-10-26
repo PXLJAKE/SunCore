@@ -591,6 +591,17 @@ shadow and assisted run is the acceptance test.
     a core `BatteryAdapterSpec` (`suncore.devices` imports only `core`).
   - Kostal Modbus §3.5 runs in the simulator only (external battery management is not enabled on
     the maintainer's inverter); it is capped at assisted until `battery.fallback_measured`.
+  - Review fixes (2026-10-26): a battery release completes only on a read-back of the original
+    baseline (retried with back-off, latched, never adopted as a new baseline; an adapter release
+    to an unavailable entity fails instead of succeeding silently); B4/B5 judge the written
+    state; `kostal_modbus` baseline = own limits, fallback = max(model, own) confirmed against the
+    written values, register 5 checked; the lease ends on an adapter refusal and when no fresh
+    plan interval covers the held state; the settle wait after arming runs outside the gate lock
+    and the invariants are judged again before `apply()`; the generic release restores the user's
+    own select option / switch state; `fallback_measured` is identity; the controller uses only an
+    OK SoC; a §3.5 takeover is never skipped because the registers merely show the value.
+  - **Answered (maintainer default):** SunCore enforces the effective reserve in plan and gate
+    only, it holds no permanent min-SoC floor on the inverter.
 
 ## 7. Out of scope for Phase 4
 

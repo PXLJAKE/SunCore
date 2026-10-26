@@ -237,7 +237,10 @@ read-back. An adapter with a hardware fallback (Kostal §3.5) gets it armed and 
 the first limit and is capped at assisted until `battery.fallback_measured`. An accepted state is
 a **lease**: `gate.poll()` re-judges it every tick and restores the baseline when the mode, the
 watchdog (site or battery scope, `gate.check_battery`: frozen battery power or SoC), stale inputs
-or any invariant says so; the adapter's heartbeat re-writes only while it holds. Devices keep the
+or any invariant says so (also when no fresh plan interval covers the held state, or the adapter
+refuses); the adapter's heartbeat re-writes only while it holds. A battery release is complete
+only when the read-back shows the original baseline; until then the release is retried with
+back-off (also during an emergency stop) and nothing else is written. Devices keep the
 Phase 3 rule "no SunCore-caused import" unchanged, and the charging power of a forced grid charge
 is never surplus for them.
 
