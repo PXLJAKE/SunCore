@@ -70,7 +70,8 @@ class BatteryIdentity:
     The reserved asset id, the adapter template, the mapped role entities, the site's SoC and
     battery power entities (what the gate judges the battery by) and, for the ``kostal_modbus``
     adapter, the modbus hub and unit id (another unit id writes to another inverter). Settings
-    (model, strategy, policy, byte order, timers) are not identity.
+    (model, strategy, policy, byte order, timers) are not identity; ``fallback_measured`` is (it
+    lifts the cap at assisted).
     """
 
     asset_id: str
@@ -79,6 +80,9 @@ class BatteryIdentity:
     soc_entity: str | None
     power_entity: str | None
     modbus: tuple[str, int] | None
+    fallback_measured: bool = False
+    """Review 4-G minor 5: marking the hardware fallback as measured lifts the gate's cap at
+    assisted, so it is identity too - changing it drops the battery to shadow."""
 
 
 def battery_identity(
@@ -95,6 +99,7 @@ def battery_identity(
         soc_entity=None if site_battery is None else site_battery.soc.entity_id,
         power_entity=None if site_battery is None else site_battery.power.entity_id,
         modbus=None if settings.modbus is None else (settings.modbus.hub, settings.modbus.slave),
+        fallback_measured=settings.fallback_measured,
     )
 
 
@@ -115,6 +120,7 @@ def battery_identity_token(settings: BatterySettings | None, site: SiteConfig | 
             identity.soc_entity,
             identity.power_entity,
             list(identity.modbus) if identity.modbus is not None else None,
+            identity.fallback_measured,
         ],
         separators=(",", ":"),
     )

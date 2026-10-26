@@ -76,6 +76,7 @@ from suncore.core.config import GoalsConfig
 from suncore.core.control import ControlSettings, DeviceState, GateInputs, Plan, PowerEstimate
 from suncore.core.decisions import Decision, Intent, Reason
 from suncore.core.devices import DeviceConfig
+from suncore.core.signals import Quality
 
 log = structlog.get_logger(__name__)
 
@@ -198,7 +199,9 @@ class Controller:
         # (each intent's own added demand is the gate's ``delta``).
         surplus = site.gate_estimate(self._settings.reserve_w, outcome.committed_w)
         outcome = self._allocator.run(now, site, allocation, outcome)
-        soc = None if inputs.flows is None else inputs.flows.battery_soc_pct.value
+        soc_flow = None if inputs.flows is None else inputs.flows.battery_soc_pct
+        # Only an OK reading counts (review 4-G minor 7): a stale SoC never sets a floor.
+        soc = soc_flow.value if soc_flow is not None and soc_flow.quality is Quality.OK else None
         battery_intent = self._battery.step(now, inputs.plan, inputs.battery, soc)
         intents = (*outcome.intents, battery_intent) if battery_intent else tuple(outcome.intents)
         gate_inputs = GateInputs(

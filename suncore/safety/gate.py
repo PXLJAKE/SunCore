@@ -765,8 +765,17 @@ class SafetyGate:
             return await self._decide(intent, DecisionKind.REJECTED, now, violations, mode)
         fields = readable_fields(actuator.capabilities)
         held = runtime.last_written if runtime.under_control else None
-        if same_state(ctx.target, observed, fields) and (
-            not runtime.under_control or held == action
+        # A §3.5-style limit is in force only while SunCore keeps writing it: registers that
+        # merely *show* the value (left by an earlier controller) are no reason to skip the
+        # takeover (review 4-G, minor 6).
+        foreign = (
+            not runtime.under_control
+            and BatteryCapability.HARDWARE_FALLBACK in actuator.capabilities
+        )
+        if (
+            same_state(ctx.target, observed, fields)
+            and not foreign
+            and (not runtime.under_control or held == action)
         ):
             # Write only on change (B7): the battery already holds this state.
             return await self._decide(

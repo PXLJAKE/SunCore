@@ -88,6 +88,12 @@ class InverterParams(BaseModel):
     """Register 1288 before SunCore writes it (0 = never written)."""
     hang_from_s: int | None = None
     hang_to_s: int | None = None
+    modbus_scan_s: float = Field(default=0.0, ge=0, le=300)
+    """The ``scan_interval`` of the user's modbus sensors: they show a register's value only at
+    the next poll (0 = at once)."""
+    stale_limits: dict[int, float] = Field(default_factory=dict)
+    """Values left in the limit registers (1280/1282) by an earlier controller; not active
+    until written again in this session, but what the sensors show (review minor 6)."""
 
 
 @dataclass(slots=True)
@@ -134,7 +140,10 @@ class SimInverter:
             1286: 0.0,
             1288: float(params.fallback_timeout_s),
         }
+        self.registers.update({k: float(v) for k, v in params.stale_limits.items()})
         self.limits_written_at: datetime | None = None
+        self._scanned: dict[int, float] = {}
+        self._scanned_at: datetime | None = None
         self.battery_w = 0.0
         self.log = InverterLog()
         self._shown_min_soc = params.min_soc_pct
@@ -264,13 +273,7 @@ class SimInverter:
             number(MAX_DISCHARGE_ID, self.max_discharge_w, "W", self.own_discharge_w, 1)
             number(GRID_CHARGE_ID, self.grid_charge_w, "W", self.own_charge_w, 1)
         if self.params.adapter == "kostal_modbus":
-            values = {
-                5: 1.0 if self.params.byte_order is ModbusByteOrder.BIG else 0.0,
-                1080: float(self.params.external_control),
-                1076: self.own_charge_w,
-                1078: self.own_discharge_w,
-                **self.registers,
-            }
+            values = self._scan(now)
             for register, entity_id in MODBUS_IDS.items():
                 unit = "s" if register == 1288 else (None if register in (5, 1080) else "W")
                 attributes: dict[str, Any] = {"friendly_name": f"Kostal register {register}"}
@@ -278,6 +281,28 @@ class SimInverter:
                     attributes["unit_of_measurement"] = unit
                 rows.append((entity_id, _text(values[register]), attributes))
         return rows
+
+    def _registers_now(self) -> dict[int, float]:
+        return {
+            5: 1.0 if self.params.byte_order is ModbusByteOrder.BIG else 0.0,
+            1080: float(self.params.external_control),
+            1076: self.own_charge_w,
+            1078: self.own_discharge_w,
+            **self.registers,
+        }
+
+    def _scan(self, now: datetime) -> dict[int, float]:
+        """What the modbus sensors show: the registers as of their last poll."""
+        scan = self.params.modbus_scan_s
+        if (
+            not self._scanned
+            or scan <= 0
+            or self._scanned_at is None
+            or (now - self._scanned_at).total_seconds() >= scan
+        ):
+            self._scanned = self._registers_now()
+            self._scanned_at = now
+        return self._scanned
 
     def _min_soc_shown(self, now: datetime) -> float:
         """The REST integration shows a written floor only after its refresh."""

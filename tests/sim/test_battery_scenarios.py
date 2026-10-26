@@ -92,9 +92,16 @@ def test_modbus_arms_the_fallback_then_locks_with_a_heartbeat(
     writes = [w for w in inverter.log.writes if w[1] == "modbus"]
     addresses = [w[2]["address"] for w in writes]
     assert addresses[:3] == [1284, 1286, 1288]  # the fallback first
+    start = runner.scenario.start
     assert inverter.registers[1284] == inverter.own_charge_w
     assert inverter.registers[1286] == inverter.own_discharge_w
     assert inverter.registers[1288] == 60
+    # The stale lock in 1282 (an earlier controller) never became the baseline (review M1).
+    takeover = next(d for d in runner.battery_decisions() if d.kind is DecisionKind.ACCEPTED)
+    assert takeover.intent.action == BatteryAction(max_discharge_w=0)
+    stored = asyncio.run(runner.store.load_runtime("battery"))
+    assert stored is not None
+    assert stored.baseline == BatteryAction(max_charge_w=5000, max_discharge_w=5000)
     # The heartbeat re-writes 1280/1282 every 20 s while the lease holds (first hour).
     start = runner.scenario.start
     limit_writes = [
@@ -315,7 +322,9 @@ def test_cloud_flicker_does_not_make_the_battery_oscillate(
 PLAN_EVERY_STEPS = 30  # 15 minutes at 30 s per step
 
 
-async def _grid_charge_run() -> tuple[RunResult, ScenarioRunner, SimInverter, list[Plan]]:
+async def _grid_charge_run(
+    live_price: Callable[[datetime], float | None] | None = None,
+) -> tuple[RunResult, ScenarioRunner, SimInverter, list[Plan]]:
     from dataclasses import replace  # noqa: PLC0415
 
     from suncore.app.planning import (  # noqa: PLC0415
@@ -328,7 +337,7 @@ async def _grid_charge_run() -> tuple[RunResult, ScenarioRunner, SimInverter, li
 
     scenario = load_scenario("grid_charge_price_level")
     base = replace(situation("grid_charge_price_level"), import_limit_w=8000.0)
-    runner = ScenarioRunner(scenario, catalog(), import_price=base.import_price)
+    runner = ScenarioRunner(scenario, catalog(), import_price=live_price or base.import_price)
     plans: list[Plan] = []
 
     def live() -> LiveReading:
@@ -417,3 +426,31 @@ def test_the_battery_gets_its_own_settings_back_after_the_window(
     assert all(s.battery_w <= 50 for s in late)
     hours = runner.scenario.duration_s / 3600
     assert len(battery_actions(runner, DecisionKind.ACCEPTED)) <= 4 * hours  # no oscillation
+
+
+def _price_jump(at: datetime) -> float | None:
+    """The cheap night price, but at 03:30 the live price jumps above the policy's level."""
+    hour = at.hour + at.minute / 60
+    if 3.5 <= hour < 5:
+        return 0.35
+    return 0.15 if 1 <= hour < 5 else 0.35
+
+
+def test_a_price_jump_inside_the_window_ends_grid_charging() -> None:
+    """Review minor 6: the plan still says "charge" (it planned on older prices), the live price
+    left the policy - the lease ends and nothing is forced any more."""
+    result, runner, inverter, _ = asyncio.run(_grid_charge_run(_price_jump))
+    ended = [
+        d
+        for d in runner.battery_decisions()
+        if "safety.battery_grid_charge_policy" in keys(d) and _local_hour(d.ts) >= 3.5
+    ]
+    assert ended
+    forced = [
+        w for w in inverter.log.writes if w[1] == "number.sim_battery_grid_charge" and w[2] > 0
+    ]
+    assert forced
+    assert all(_local_hour(t) < 3.5 for t, _, _ in forced)
+    after = [s for s in result.steps if 3.55 <= _local_hour(s.t) < 5 and s.pv_w < 1]
+    assert after
+    assert all(s.battery_w <= 50 for s in after)

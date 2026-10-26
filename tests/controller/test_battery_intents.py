@@ -265,3 +265,27 @@ def test_grid_charging_power_is_never_surplus_for_consumers() -> None:
     assert charging.latest_site_w == -3000  # the import, not the battery's charge
     plain = SurplusTracker(60).update(T0, snapshot, goals)
     assert plain.charging_available
+
+
+def test_a_stale_soc_never_sets_a_floor() -> None:
+    """Review 4-G minor 7: only an OK SoC reading counts."""
+    from suncore.core.balance import Flow, FlowSnapshot  # noqa: PLC0415
+    from suncore.core.signals import Quality  # noqa: PLC0415
+
+    ok = Flow(500.0, Quality.OK)
+    snapshot = FlowSnapshot(
+        grid_w=ok,
+        pv_w=Flow(0.0, Quality.OK),
+        battery_w=Flow(0.0, Quality.OK),
+        house_w=Flow(None, Quality.UNAVAILABLE),
+        battery_soc_pct=Flow(42.0, Quality.STALE),
+    )
+    rest = inputs(capabilities=REST_CAPS, ranges=REST_RANGES)
+    result = Controller([]).step(
+        T0, ControllerInputs(flows=snapshot, plan=plan(discharge_lock=True), battery=rest)
+    )
+    assert result.intents == ()
+    assert result.battery is not None
+    assert [r.key for r in result.battery.reasons] == [
+        "controller.battery.discharge_lock_unsupported"
+    ]

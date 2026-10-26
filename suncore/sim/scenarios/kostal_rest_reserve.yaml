@@ -11,6 +11,7 @@ house:
     adapter: kostal_plenticore
     min_soc_pct: 10
     rest_write_fails: true
+    rest_refresh_s: 30
 control:
   import_limit_w: 12000
   settings: {min_write_interval_s: 30}

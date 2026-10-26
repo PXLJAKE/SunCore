@@ -816,3 +816,11 @@ async def test_restore_operation_for_an_observe_only_battery_is_shadow(db: Datab
     restored = await store.restore("operation", entry.id)
     assert isinstance(restored, OperationConfig)
     assert restored.battery_mode is OperatingMode.SHADOW
+
+
+async def test_marking_the_fallback_measured_drops_the_battery_to_shadow(db: Database) -> None:
+    """Review 4-G minor 5: it lifts the assisted cap - re-confirm with the new identity token."""
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("battery", _battery_settings().model_copy(update={"fallback_measured": True}))
+    assert await _battery_mode(store) is OperatingMode.SHADOW

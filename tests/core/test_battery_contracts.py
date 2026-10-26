@@ -154,13 +154,11 @@ def test_settings_are_not_identity() -> None:
     link = ModbusLink(slave=71, byte_order=ModbusByteOrder.LITTLE)
     a = battery_identity_token(_battery(modbus=link, fallback_measured=False), _site())
     b = battery_identity_token(
-        _battery(
-            modbus=link.model_copy(update={"byte_order": ModbusByteOrder.BIG}),
-            fallback_measured=True,
-        ),
-        _site(),
+        _battery(modbus=link.model_copy(update={"byte_order": ModbusByteOrder.BIG})), _site()
     )
     assert a == b
+    measured = battery_identity_token(_battery(modbus=link, fallback_measured=True), _site())
+    assert measured != a  # lifts the assisted cap: identity (review minor 5)
     assert base != a
     inverted = _site().model_copy(
         update={

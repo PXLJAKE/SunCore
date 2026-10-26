@@ -14,7 +14,7 @@ house:
     bms_cutoff_pct: 5
     max_drift_pct: 4
     drift_per_h: 1.5
-    rest_refresh_s: 2
+    rest_refresh_s: 30
 control:
   import_limit_w: 12000
 battery:
