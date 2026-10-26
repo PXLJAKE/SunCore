@@ -174,13 +174,18 @@ ADR-0013 invariants instead (``control-safety`` sign-off of the ADR-0011 addendu
 REASON_BATTERY_FALLBACK_UNCONFIRMED: Final = Reason(key="safety.battery_fallback_unconfirmed")
 """The hardware fallback (Kostal 1284/1286/1288) did not read back: no limit is written."""
 REASON_BATTERY_RELEASE_UNCONFIRMED: Final = Reason(key="safety.battery_release_unconfirmed")
-"""After a release the battery does not show its baseline: control paused, check it by hand."""
+"""After a release the battery does not show its baseline: retried with back-off, battery control
+stays blocked (latched in the runtime) until it does or the user changes the limits."""
+REASON_BATTERY_RELEASE_CHECK: Final = Reason(key="safety.battery_release_check")
+"""The deferred read-back of a battery release (an adapter without hardware fallback)."""
+REASON_BATTERY_RELEASE_CONFIRMED: Final = Reason(key="safety.battery_release_confirmed")
+"""The battery shows its own settings again: control of it has ended."""
+BATTERY_RELEASE_BACKOFF_S: Final = 30.0
+BATTERY_RELEASE_BACKOFF_MAX_S: Final = 600.0
 REASON_BATTERY_OVERRIDE: Final = Reason(key="safety.battery_override")
 """The battery's limits changed outside SunCore while it held them: given back to the user."""
 REASON_BATTERY_INPUTS_STALE: Final = Reason(key="safety.battery_inputs_stale")
 """The controller's inputs are too old to renew the battery's lease."""
-REASON_BATTERY_FALLBACK_UNVERIFIED: Final = Reason(key="safety.battery_fallback_unverified")
-"""Shown with the mode: the adapter's hardware fallback is not measured, at most assisted."""
 BATTERY_SCOPE: Final = BATTERY_ASSET_ID
 """The watchdog scope of the battery (its own faults; site faults pause it too)."""
 
@@ -233,7 +238,7 @@ class SafetyGate:
             battery.watch if battery is not None and battery.watch is not None else BatteryWatch()
         )
         self._battery_beat: datetime | None = None
-        self._battery_verify: tuple[datetime, Action] | None = None
+        self._release_attempts: dict[str, int] = {}
         self._sink = sink
         self._actuators: Mapping[str, Actuator] = MappingProxyType(dict(actuators or {}))
         self._modes: ModeProvider = modes if modes is not None else AllShadow()
@@ -437,9 +442,6 @@ class SafetyGate:
             lease = await self._battery_lease(now)
             if lease is not None:
                 decisions.append(lease)
-        check = await self._battery_release_check(now)
-        if check is not None:
-            decisions.append(check)
         return tuple(decisions)
 
     # --- watchdog feed -------------------------------------------------------------------
@@ -851,9 +853,6 @@ class SafetyGate:
                     intent, DecisionKind.REJECTED, now, (REASON_RATE_LIMITED,), mode
                 )
             if not runtime.under_control:
-                # A new takeover supersedes the check of the previous release (it reads its own
-                # baseline now and the battery will show the new state, not the old baseline).
-                self._battery_verify = None
                 baseline = await actuator.read_back()
                 if baseline is None:
                     self._limiter.release_slot(BATTERY_ASSET_ID, previous_slot)
@@ -899,7 +898,12 @@ class SafetyGate:
                 except Exception as exc:
                     log.warning("safety.battery_write_failed", error=str(exc)[:200])
                     failed = REASON_WRITE_FAILED
-                runtime = runtime.model_copy(update={"last_write_ts": now})
+                # A failed write may have reached part of the entities: it is pending, so a
+                # release never mistakes SunCore's partial state for the user's (review B1).
+                update: dict[str, object] = {"last_write_ts": now}
+                if failed is not None:
+                    update.update({"pending_action": requested, "pending_ts": now})
+                runtime = runtime.model_copy(update=update)
                 await self._save(runtime)
         if failed is not None:
             await self._count_failure(BATTERY_ASSET_ID, now)
@@ -1077,41 +1081,6 @@ class SafetyGate:
             (REASON_BATTERY_OVERRIDE,),
             self.modes_of(BATTERY_ASSET_ID).effective,
             held_until=until,
-            observed=observed,
-        )
-
-    async def _battery_release_check(self, now: datetime) -> Decision | None:
-        """After a release of an adapter without hardware fallback: does the battery show its
-        baseline? Otherwise the battery scope trips (control paused) and the user is told."""
-        due = self._battery_verify
-        actuator = self._battery_actuator()
-        if due is None or now < due[0]:
-            return None
-        self._battery_verify = None
-        if actuator is None:
-            return None
-        expected = due[1]
-        observed = await actuator.read_back()
-        if same_state(
-            expected if isinstance(expected, BatteryAction) else None,
-            observed,
-            readable_fields(actuator.capabilities),
-        ):
-            return None
-        self._watchdog.trip(BATTERY_SCOPE, REASON_BATTERY_RELEASE_UNCONFIRMED, now)
-        return await self._decide(
-            Intent(
-                id=f"release-check:{BATTERY_ASSET_ID}:{now.isoformat()}",
-                ts=now,
-                asset_id=BATTERY_ASSET_ID,
-                action=ReleaseAction(),
-                reasons=(REASON_BATTERY_RELEASE_UNCONFIRMED,),
-                origin=Origin.SAFETY,
-            ),
-            DecisionKind.FAILED,
-            now,
-            (REASON_BATTERY_RELEASE_UNCONFIRMED,),
-            self.modes_of(BATTERY_ASSET_ID).effective,
             observed=observed,
         )
 
@@ -1367,6 +1336,8 @@ class SafetyGate:
                     intent, DecisionKind.REJECTED, now, (REASON_NO_ACTUATOR,), mode
                 )
             orphan = self._is_orphan(device_id, runtime)
+            if device_id == BATTERY_ASSET_ID and not orphan:
+                return await self._release_battery(intent, runtime, actuator, reason, now, mode)
             observed = await actuator.read_back()
             runtime = await self._adopt_user_state(device, runtime, observed, now)
             if not urgent and not orphan:
@@ -1422,24 +1393,141 @@ class SafetyGate:
             self._proposals = {
                 k: v for k, v in self._proposals.items() if v.intent.asset_id != device_id
             }
-            if device_id == BATTERY_ASSET_ID:
-                self._after_battery_release(actuator, runtime.baseline, now)
             return await self._decide(
                 intent, DecisionKind.ACCEPTED, now, (REASON_RELEASED, reason), mode
             )
 
-    def _after_battery_release(
-        self, actuator: Actuator, baseline: Action | None, now: datetime
-    ) -> None:
-        """The heartbeat stops with the release; an adapter without hardware fallback is read
-        back once after its settle time (``_battery_release_check``)."""
+    async def _release_battery(  # noqa: PLR0917
+        self,
+        intent: Intent,
+        runtime: DeviceRuntime,
+        actuator: Actuator,
+        reason: Reason,
+        now: datetime,
+        mode: OperatingMode,
+    ) -> Decision:
+        """The battery's release: restore the **original** baseline and prove it (lock held).
+
+        A release is complete only when the battery shows its baseline again (read-back), or
+        the user changed the limits to a third value (then theirs is kept, nothing is written).
+        Until then the runtime stays under control with the original baseline and a pending
+        release: no takeover, no write, no heartbeat - only the release is retried, with
+        back-off, also during an emergency stop (``poll`` executes it). A failed release
+        write, an unavailable entity or a read-back that still shows SunCore's state are never
+        taken for a baseline (review 4-G, B1). An adapter with a hardware fallback (Kostal §3.5)
+        is complete once its heartbeat stopped and the write went through.
+        """
         self._battery_beat = None
+        baseline = runtime.baseline
+        caps = actuator.capabilities if isinstance(actuator, BatteryActuator) else frozenset()
+        fields = readable_fields(caps)
+        fallback = BatteryCapability.HARDWARE_FALLBACK in caps
+        observed = await actuator.read_back()
+        held = runtime.last_written or runtime.pending_action
+        held_target: Action | None = None
+        if isinstance(held, BatteryAction) and isinstance(actuator, BatteryActuator):
+            base = baseline if isinstance(baseline, BatteryAction) else None
+            held_target = quantise(resolve_battery_action(held, base), actuator.ranges())
+        checking = runtime.release_due_reason == REASON_BATTERY_RELEASE_CHECK.key
+        if observed is not None and same_state(baseline, observed, fields):
+            return await self._battery_released(
+                intent,
+                runtime,
+                now,
+                mode,
+                (REASON_RELEASED, REASON_BATTERY_RELEASE_CONFIRMED if checking else reason),
+            )
         if (
-            isinstance(actuator, BatteryActuator)
-            and BatteryCapability.HARDWARE_FALLBACK not in actuator.capabilities
-            and isinstance(baseline, BatteryAction)
+            observed is not None
+            and not fallback
+            and (held_target is None or not same_state(held_target, observed, fields))
         ):
-            self._battery_verify = (now + timedelta(seconds=actuator.settle_s), baseline)
+            # Neither the baseline nor SunCore's state: the user set the limits meanwhile.
+            return await self._battery_released(
+                intent, runtime, now, mode, (REASON_RELEASED, REASON_BATTERY_OVERRIDE)
+            )
+        attempt = self._release_attempts.get(BATTERY_ASSET_ID, 0)
+        try:
+            await actuator.release(baseline)
+        except Exception as exc:
+            log.warning("safety.battery_release_failed", error=str(exc)[:200])
+            await self._retry_battery_release(runtime, now, reason.key, attempt + 1)
+            return await self._decide(
+                intent, DecisionKind.FAILED, now, (REASON_RELEASE_FAILED, reason), mode
+            )
+        if fallback:
+            return await self._battery_released(
+                intent, runtime, now, mode, (REASON_RELEASED, reason)
+            )
+        settle = actuator.settle_s if isinstance(actuator, BatteryActuator) else 0.0
+        due = now + timedelta(seconds=max(settle, self._release_backoff_s(attempt)))
+        await self._save(
+            runtime.model_copy(
+                update={
+                    "release_due_ts": due,
+                    "release_due_reason": REASON_BATTERY_RELEASE_CHECK.key,
+                    "last_write_ts": now,
+                }
+            )
+        )
+        self._release_attempts[BATTERY_ASSET_ID] = attempt + 1
+        if checking:
+            return await self._decide(
+                intent,
+                DecisionKind.FAILED,
+                now,
+                (REASON_BATTERY_RELEASE_UNCONFIRMED,),
+                mode,
+                observed=observed,
+            )
+        return await self._decide(
+            intent, DecisionKind.ACCEPTED, now, (REASON_RELEASED, reason), mode, observed=observed
+        )
+
+    @staticmethod
+    def _release_backoff_s(attempt: int) -> float:
+        if attempt <= 0:
+            return 0.0
+        return float(
+            min(BATTERY_RELEASE_BACKOFF_MAX_S, BATTERY_RELEASE_BACKOFF_S * 2.0 ** (attempt - 1))
+        )
+
+    async def _retry_battery_release(
+        self, runtime: DeviceRuntime, now: datetime, reason_key: str, attempt: int
+    ) -> None:
+        self._release_attempts[BATTERY_ASSET_ID] = attempt
+        due = now + timedelta(seconds=self._release_backoff_s(attempt))
+        await self._save(
+            runtime.model_copy(update={"release_due_ts": due, "release_due_reason": reason_key})
+        )
+
+    async def _battery_released(
+        self,
+        intent: Intent,
+        runtime: DeviceRuntime,
+        now: datetime,
+        mode: OperatingMode,
+        reasons: tuple[Reason, ...],
+    ) -> Decision:
+        self._release_attempts.pop(BATTERY_ASSET_ID, None)
+        released = runtime.model_copy(
+            update={
+                "baseline": None,
+                "baseline_ts": None,
+                "last_written": None,
+                "last_write_context_id": None,
+                "last_write_ts": now,
+                "pending_action": None,
+                "pending_ts": None,
+                "release_due_ts": None,
+                "release_due_reason": None,
+            }
+        )
+        await self._save(released)
+        self._proposals = {
+            k: v for k, v in self._proposals.items() if v.intent.asset_id != BATTERY_ASSET_ID
+        }
+        return await self._decide(intent, DecisionKind.ACCEPTED, now, reasons, mode)
 
     def _identity_of(self, asset_id: str) -> str | None:
         """The configured identity token of an asset (``None`` = not configured)."""

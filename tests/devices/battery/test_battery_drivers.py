@@ -482,3 +482,59 @@ def test_write_register_is_a_write_of_the_modbus_adapter_only() -> None:
     assert [u for u in users if not u.startswith("suncore/sim/")] == [
         "suncore/devices/battery/kostal_modbus.py"
     ]
+
+
+async def test_a_release_with_an_unavailable_entity_fails_loudly() -> None:
+    """Review 4-G B1 (probe): a REST release to an unavailable number must not report success."""
+    ha = FakeHA()
+    driver = kostal_rest(ha)
+    ha.set("number.scb_battery_min_soc", "unavailable")
+    with pytest.raises(WriteRefusedError):
+        await driver.release(BatteryAction(min_soc_pct=10))
+    assert ha.calls == []
+    gone = FakeHA()
+    generic_driver = generic(gone)
+    gone.set("number.max_discharge", "unavailable")
+    with pytest.raises(WriteRefusedError):
+        await generic_driver.release(BatteryAction(max_discharge_w=6000))
+
+
+async def test_release_restores_the_users_own_select_option_and_switch_state() -> None:
+    role = {"matcher": {"domain": "select"}, "description": "template.acme.battery.role.mode"}
+    tpl = _with_controls(
+        {
+            "mode": {
+                "kind": "mode",
+                "options": [
+                    {"value": "Auto", "meaning": "auto"},
+                    {"value": "Hold", "meaning": "no_discharge"},
+                    {"value": "Eco", "meaning": "other"},
+                ],
+            }
+        },
+        {"mode": role},
+    )
+    ha = FakeHA()
+    ha.set("select.mode", "Eco")
+    driver = GenericBatteryDriver(
+        tpl, settings("acme.battery", {"mode": "select.mode"}), write=ha.write, states=ha.lookup
+    )
+    await driver.apply(battery_intent(max_discharge_w=0))
+    ha.set("select.mode", "Hold")
+    await driver.release(None)
+    assert ha.sent[-1][3] == {"option": "Eco"}
+
+    switch_role = {"matcher": {"domain": "switch"}, "description": "template.acme.battery.role.f"}
+    tpl2 = _with_controls({"force": {"kind": "force_charge"}}, {"force": switch_role})
+    ha2 = FakeHA()
+    ha2.set("switch.force", "on")  # the user force-charges on their own
+    driver2 = GenericBatteryDriver(
+        tpl2,
+        settings("acme.battery", {"force": "switch.force"}),
+        write=ha2.write,
+        states=ha2.lookup,
+    )
+    await driver2.apply(battery_intent(grid_charge_w=5000))
+    ha2.set("switch.force", "off")
+    await driver2.release(None)
+    assert ha2.sent[-1] == ("switch", "turn_on", {"entity_id": "switch.force"}, None)

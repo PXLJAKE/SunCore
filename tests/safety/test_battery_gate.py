@@ -291,7 +291,9 @@ async def test_a_silent_write_failure_is_a_failed_read_back_and_three_trip() -> 
         r.clock.advance(2)
         r.at(grid_w=600, battery_w=0, soc_pct=40)
     assert r.gate.watchdog.pause_reason(BATTERY_ASSET_ID, r.clock.now) is not None
-    assert r.battery.released == [BASE]  # the trip released it at once
+    # The trip released it at once: the battery still shows its baseline (every write failed
+    # silently), so there is nothing to write back.
+    assert r.battery.released == []
     runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
     assert runtime is not None
     assert not runtime.under_control
@@ -513,27 +515,105 @@ async def test_a_controller_release_restores_the_baseline_and_is_verified() -> N
     r = rig()
     await r.submit(BatteryAction(max_discharge_w=0))
     r.clock.advance(60)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
     decision = await r.submit(ReleaseAction())
     assert decision.kind is DecisionKind.ACCEPTED
     assert r.battery.state == BASE
-    for _ in range(3):
-        assert await r.tick(5) == ()  # the read-back after the settle time confirms it
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert runtime.under_control  # until the read-back proves the baseline
+    assert runtime.baseline == BASE
+    decisions = [d for _ in range(3) for d in await r.tick(5)]
+    assert [keys(d) for d in decisions] == [["safety.released", "safety.battery_release_confirmed"]]
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert not runtime.under_control
 
 
-async def test_an_unconfirmed_release_pauses_battery_control() -> None:
-    r = rig()
-    await r.submit(BatteryAction(max_discharge_w=0))
-    r.battery.silent_fail = True
+def _stuck_release(r: Rig) -> list[Action | None]:
+    """The adapter accepts the release call, but the battery keeps SunCore's state."""
+    calls: list[Action | None] = []
 
-    async def ignore(_: Action | None) -> None:
-        return None
+    async def ignore(baseline: Action | None) -> None:
+        calls.append(baseline)
 
     r.battery.release = ignore  # type: ignore[method-assign]
+    return calls
+
+
+async def test_an_unconfirmed_release_is_latched_and_retried_with_back_off() -> None:
+    """Review 4-G B1: the pause must hold across many healthy watchdog ticks, the stuck lock is
+    never adopted as a new baseline, and the release is retried with back-off."""
+    r = rig()
+    await r.submit(BatteryAction(max_discharge_w=0))
+    calls = _stuck_release(r)
     await r.gate.emergency_stop()
     await r.gate.clear_emergency_stop()
-    decisions = [d for _ in range(3) for d in await r.tick(5)]
-    assert [keys(d) for d in decisions] == [["safety.battery_release_unconfirmed"]]
-    assert r.gate.watchdog.pause_reason(BATTERY_ASSET_ID, r.clock.now) is not None
+    rows: list[Decision] = []
+    for _ in range(240):  # 20 minutes of ticks with healthy flows
+        r.clock.advance(5)
+        r.at(grid_w=600, battery_w=0, soc_pct=40)
+        await r.gate.check_battery(flows(grid_w=600, battery_w=0, soc_pct=40))
+        rows.extend(await r.gate.poll())
+    unconfirmed = [d for d in rows if keys(d) == ["safety.battery_release_unconfirmed"]]
+    assert 3 <= len(unconfirmed) <= 8  # back-off: not one row per tick
+    assert len(calls) == len(unconfirmed) + 1
+    assert all(c == BASE for c in calls)  # always the ORIGINAL baseline
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert runtime.under_control
+    assert runtime.release_pending
+    assert runtime.baseline == BASE
+    # No new takeover while the release is unconfirmed - the stuck lock is never a baseline.
+    r.plans["now"] = plan(now=r.clock.now)
+    blocked = await r.submit(BatteryAction(max_charge_w=4000))
+    assert keys(blocked) == ["safety.release_pending"]
+    assert r.battery.applied == [
+        BatteryAction(max_charge_w=5000, max_discharge_w=0, min_soc_pct=10, grid_charge_w=0)
+    ]
+    # The battery comes back: the next check confirms and control ends.
+    r.battery.state = BASE
+    r.clock.advance(700)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    done = await r.gate.poll()
+    assert [keys(d) for d in done] == [["safety.released", "safety.battery_release_confirmed"]]
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert not runtime.under_control
+
+
+async def test_a_failed_release_write_keeps_the_original_baseline_and_retries() -> None:
+    r = rig()
+    await r.submit(BatteryAction(max_discharge_w=0))
+
+    async def unavailable(_: Action | None) -> None:
+        msg = "number.max_discharge is unavailable"
+        raise RuntimeError(msg)
+
+    r.battery.release = unavailable  # type: ignore[method-assign]
+    await r.gate.emergency_stop()  # the retry runs during the emergency stop too
+    rows: list[Decision] = []
+    for _ in range(60):
+        r.clock.advance(5)
+        rows.extend(await r.gate.poll())
+    failed = [d for d in rows if d.kind is DecisionKind.FAILED]
+    assert 2 <= len(failed) <= 5
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert runtime.under_control
+    assert runtime.baseline == BASE
+
+
+async def test_a_user_change_during_the_release_is_kept() -> None:
+    r = rig()
+    await r.submit(BatteryAction(max_discharge_w=0))
+    _stuck_release(r)
+    await r.gate.emergency_stop()
+    user = BatteryAction(max_charge_w=5000, max_discharge_w=3000, min_soc_pct=30, grid_charge_w=0)
+    r.battery.state = user
+    done = [d for _ in range(4) for d in await r.tick(5)]
+    assert [keys(d) for d in done] == [["safety.released", "safety.battery_override"]]
+    assert r.battery.state == user
 
 
 # --- watchdog (B8) ------------------------------------------------------------------------------
@@ -564,7 +644,7 @@ async def test_a_device_never_sees_the_battery_path() -> None:
     assert keys(decision) == ["safety.shadow_mode"]  # no mode for the device: shadow
 
 
-async def test_a_new_takeover_supersedes_the_release_check() -> None:
+async def test_no_new_takeover_until_the_release_is_confirmed() -> None:
     r = rig()
     await r.submit(BatteryAction(max_discharge_w=0))
     r.clock.advance(60)
@@ -572,7 +652,13 @@ async def test_a_new_takeover_supersedes_the_release_check() -> None:
     await r.submit(ReleaseAction())
     r.clock.advance(6)
     r.at(grid_w=600, battery_w=0, soc_pct=40)
+    early = await r.submit(BatteryAction(max_discharge_w=0))
+    assert keys(early) == ["safety.release_pending"]
+    await r.tick(5)  # settle time over: confirmed
+    r.clock.advance(60)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
     again = await r.submit(BatteryAction(max_discharge_w=0))
     assert again.kind is DecisionKind.ACCEPTED
-    decisions = [d for _ in range(4) for d in await r.tick(5)]
-    assert not [d for d in decisions if "safety.battery_release_unconfirmed" in keys(d)]
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert runtime.baseline == BASE

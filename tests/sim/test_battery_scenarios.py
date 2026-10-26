@@ -272,9 +272,14 @@ def test_a_hung_inverter_is_noticed_released_and_left_alone(
     assert frozen, [keys(d) for d in runner.battery_decisions()]
     noticed = frozen[0].ts
     assert hang_from < noticed < hang_from + timedelta(minutes=25)
-    # Stop writing: at most the release attempt reaches the hung inverter until it is back.
+    # Stop writing: only the release of the original baseline is retried (with back-off) until
+    # the inverter is back; never a new limit.
     during = [w for w in inverter.log.writes if noticed <= w[0] < hang_to]
-    assert len(during) <= 1
+    assert during
+    assert all(w[1] == "number.sim_battery_max_discharge" and w[2] == 5000 for w in during)
+    gaps = [(b[0] - a[0]).total_seconds() for a, b in itertools.pairwise(during)]
+    assert gaps == sorted(gaps)  # back-off: the retries thin out ...
+    assert max(gaps) <= 600  # ... up to one every 10 minutes
     assert not [
         d
         for d in battery_actions(runner, DecisionKind.ACCEPTED)
@@ -284,6 +289,13 @@ def test_a_hung_inverter_is_noticed_released_and_left_alone(
         d for d in runner.battery_decisions() if "safety.battery_release_unconfirmed" in keys(d)
     ]
     assert unconfirmed
+    # The latch holds until the inverter is back, then the read-back confirms the release.
+    assert all(d.ts < hang_to + timedelta(minutes=11) for d in unconfirmed)
+    confirmed = [
+        d for d in runner.battery_decisions() if "safety.battery_release_confirmed" in keys(d)
+    ]
+    assert confirmed
+    assert confirmed[0].ts >= hang_to
 
 
 def test_cloud_flicker_does_not_make_the_battery_oscillate(
@@ -293,7 +305,8 @@ def test_cloud_flicker_does_not_make_the_battery_oscillate(
     hours = runner.scenario.duration_s / 3600
     accepted = battery_actions(runner, DecisionKind.ACCEPTED)
     assert len(accepted) <= 2 * hours  # a lock and its release per hour at most
-    assert len(inverter.log.writes) <= 3 * hours
+    locks = [w for w in inverter.log.writes if w[2] == 0]
+    assert len(locks) <= hours
 
 
 # --- grid_charge_price_level (planner + controller + gate, automatic) ---

@@ -99,6 +99,8 @@ class GenericBatteryDriver(BatteryDriver):
         if spec.force_switch_role is not None:
             self._switch = self.entity_id(spec.force_switch_role)
         self._capabilities = self._derive_capabilities()
+        self._user_option: str | None = None
+        self._user_switch_on: bool | None = None
 
     # --- capabilities and ranges -------------------------------------------------------------
 
@@ -235,9 +237,24 @@ class GenericBatteryDriver(BatteryDriver):
     async def apply(self, intent: Intent) -> str | None:
         action = self.battery_action(intent)
         self.begin()
+        if self._applied is None:
+            self._remember_user_options()
         await self._write_state(action)
         self._applied = action
         return self.last_context_id()
+
+    def _remember_user_options(self) -> None:
+        """At takeover: the user's own select option and switch state, restored by ``release``
+        (a ``BatteryAction`` baseline cannot hold them; not persisted - after a restart the
+        release falls back to ``auto`` / off, the template's release baseline)."""
+        if self._mode is not None:
+            view = self.lookup(self._mode[0])
+            if view is not None and any(o.value == view.state for o in self._mode[1].options):
+                self._user_option = view.state
+        if self._switch is not None:
+            view = self.lookup(self._switch)
+            if view is not None and view.state in ("on", "off"):
+                self._user_switch_on = view.state == "on"
 
     async def _write_state(self, action: BatteryAction) -> None:
         for field, number in self._numbers.items():
@@ -315,29 +332,41 @@ class GenericBatteryDriver(BatteryDriver):
         await self.service("switch", "turn_on" if on else "turn_off", entity_id=self._switch)
 
     async def release(self, baseline: Action | None) -> None:
-        """Back to the baseline: the numbers SunCore holds, ``auto`` / off for select / switch."""
+        """Back to the baseline: the numbers SunCore holds, the user's own select option and
+        switch state (else ``auto`` / off).
+
+        Raises :class:`WriteRefusedError` when an entity that must be restored is unavailable:
+        a release that cannot be written is a failed release (the gate keeps the original
+        baseline and retries), never a silent success (review 4-G, B1).
+        """
         self.begin()
         self._applied = None
         if isinstance(baseline, BatteryAction):
             for field, number in self._numbers.items():
                 value = getattr(baseline, field)
-                if value is not None and self.lookup(number.entity_id) is not None:
-                    await self._write_number(number, value)
-        if self._mode is not None and self.lookup(self._mode[0]) is not None:
-            auto = next(
-                o.value for o in self._mode[1].options if o.meaning is BatteryModeMeaning.AUTO
+                if value is None:
+                    continue
+                if self.lookup(number.entity_id) is None:
+                    raise WriteRefusedError(f"{number.entity_id} is unavailable")
+                await self._write_number(number, value)
+        if self._mode is not None:
+            entity, control = self._mode
+            view = self.lookup(entity)
+            if view is None:
+                raise WriteRefusedError(f"{entity} is unavailable")
+            option = self._user_option or next(
+                o.value for o in control.options if o.meaning is BatteryModeMeaning.AUTO
             )
-            view = self.lookup(self._mode[0])
-            if view is not None and view.state != auto:
+            if view.state != option:
                 await self.service(
-                    "select", "select_option", data={"option": auto}, entity_id=self._mode[0]
+                    "select", "select_option", data={"option": option}, entity_id=entity
                 )
-        if (
-            self._switch is not None
-            and "grid_charge_w" not in self._numbers
-            and self.lookup(self._switch) is not None
-        ):
-            await self._write_switch(on=False)
+        if self._switch is not None and "grid_charge_w" not in self._numbers:
+            if self.lookup(self._switch) is None:
+                raise WriteRefusedError(f"{self._switch} is unavailable")
+            await self._write_switch(on=bool(self._user_switch_on))
+        self._user_option = None
+        self._user_switch_on = None
 
 
 __all__ = ["GenericBatteryDriver"]
