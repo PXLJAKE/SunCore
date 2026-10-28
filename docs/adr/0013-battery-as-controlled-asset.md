@@ -242,6 +242,10 @@ Additive, no decision above changes:
 - A release is complete only when the read-back shows the original baseline (or the user set a
   third value). Until then the runtime keeps the original baseline, nothing else is written and
   the release is retried with back-off, also during an emergency stop.
+- A field is the user's third value only if it differs from the baseline **and** from every
+  target SunCore wrote or attempted while under control (`DeviceRuntime.attempted`); a late or
+  partly applied SunCore write is restored, the user's fields are kept (restore = baseline with
+  those fields), proven by read-back and held like any override (next 04:00).
 - `kostal_modbus`: the baseline (`None` fields, release) is the battery's own limits (1076/1078);
   the fallback registers get the larger of the model's and the own limits and are confirmed
   against the values written; register 5 must match the configured word order.

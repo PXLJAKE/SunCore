@@ -139,7 +139,10 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
     the written values, register 5 role, lease ends on refusal / plan end, arming outside the
     lock, user's select/switch restored, `fallback_measured` is identity, OK-only SoC, a more
     realistic simulator (REST 30 s, modbus scan lag, stale registers, price jump). ADR-0013 got
-    an implementation addendum.
+    an implementation addendum. Re-check fixes (2026-10-28): own late/partial writes are never
+    taken for user values (`DeviceRuntime.attempted`, per-field rule), user values found during a
+    release get the override hold, the generic adapter remembers user options only before its
+    first write attempt.
 
 - **Phase 4 – PR 4-F, part WP8 planner (branch `phase-4/f-planner`, on 4-E merged with 4-C)**:
   - `suncore/planner/` (depends on `core` only; boundary test extended; `mypy --strict`):

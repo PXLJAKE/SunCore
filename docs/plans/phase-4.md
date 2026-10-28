@@ -600,6 +600,12 @@ shadow and assisted run is the acceptance test.
     and the invariants are judged again before `apply()`; the generic release restores the user's
     own select option / switch state; `fallback_measured` is identity; the controller uses only an
     OK SoC; a §3.5 takeover is never skipped because the registers merely show the value.
+  - Re-check fixes (2026-10-28): a field counts as the user's during a release (and for the
+    lease's override check) only if it differs from the baseline and from every target SunCore
+    wrote or attempted while under control (`DeviceRuntime.attempted`); SunCore's own late or
+    partial values go back to the baseline and are proven by read-back, the user's fields stay
+    and get the override hold (next 04:00). The generic adapter remembers the user's select /
+    switch state only before its first write attempt.
   - **Answered (maintainer default):** SunCore enforces the effective reserve in plan and gate
     only, it holds no permanent min-SoC floor on the inverter.
 
