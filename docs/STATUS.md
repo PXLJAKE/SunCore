@@ -5,7 +5,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 **Last update:** 2026-10-25 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
 tariffs, 4-D PV forecast, 4-E load forecast and risk model, 4-F planner and runtime (WP8, WP9),
-4-G battery control (WP10; UI and docs 4-H next); Phase 3 (3-A
+4-G battery control (WP10), 4-H UI (WP11; docs WP13 next); Phase 3 (3-A
 `phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
 maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4/f-planner`)
 
@@ -148,6 +148,43 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
     releases if that is refused. For the 4-H user docs: a user value that happens to equal a
     value SunCore wrote or attempted while in control is taken for SunCore's and reset to the
     baseline at release (accepted by the reviewer).
+
+- **Phase 4 – PR 4-H, part WP11 UI (branch `phase-4/h-ui-docs`, on 4-G; `frontend-engineer`)**:
+  - Plan view `#/plan` (own lazy chunk; ECharts 5.6 tree-shaken to line and bar series, grid,
+    tooltip, legend, markLine, inside zoom and the canvas renderer, its own `echarts` chunk that
+    is not reachable from `index.html`): three panels (power with the PV P10-P90 band and P50,
+    house load, battery power and grid import/export bars; planned SoC with morning-buffer and
+    evening-target lines; import/export price steps), 24/48 h toggle, tooltip with the reasons of
+    the interval, solver/heuristic/default and stale badges, "Replan" (debounced, server answer
+    `accepted`/earliest start shown), planner status (last run, trigger, next run, failures), a
+    text alternative (planned actions with "Why?", hourly table). "Now" is the server's
+    hand-over time (the demo runs on a simulated clock).
+  - Forecast panel: sources and their freshness, MAE/bias/n per source and horizon (collecting
+    chip below `min_samples`), blend weights with their basis, calibration state per source, "ML
+    load model: not available yet", Open-Meteo CC BY 4.0 attribution with links when an Open-Meteo
+    source is configured.
+  - Now view: battery card (mode switch with confirmation for assisted and automatic, identity
+    token like a device, SoC/power, held or current limits, paused reason, last decision, the
+    assisted cap note while the adapter's hardware fallback is not measured) and "next planned
+    actions" with "Why?"; battery proposals read like device proposals (limit parts).
+  - Wizard: step 4 several sources with weight mode and share, Forecast.Solar config entry
+    (choices from `energy/get_prefs`, additive field `solar_forecast_entries` of the
+    energy-prefs answer; manual id when none), workday and weather inputs (new site roles
+    `workday`, `weather`); step 5 adapter or observe only, adapter entities, Kostal REST and
+    Modbus hints, modbus link, model parameters, strategy, risk level, morning buffer, bridge;
+    step 6 HT/NT editor (`tou`, periods with weekdays, midnight windows and months), price
+    contents and price formula with time-variable grid fees; step 8 grid-charge policy (price
+    level and weekly schedule, off by default) and the self-sufficiency weight; step 10 first plan
+    preview. Settings overview shows sources and battery control and offers the battery section's
+    history. The tariff and forecast forms no longer drop `role_entities`, `action_params`,
+    `series_key`, `price_includes` and `config_entry_id` (round-trip tests).
+  - Demo: `SUNCORE_DEMO_BATTERY_CONTROL=1` gives the simulated house a controllable inverter and
+    stores a `generic.battery` adapter (used by Playwright and the screenshots); off by default.
+  - Not done: the "too-new `timeseries.db`" hint (the API exposes no such state), editing of
+    `action_params`/`series_key`, `learning` settings and the periodic calibration charge (carried
+    through unchanged), a mini chart in the summary beyond a sparkline.
+  - Bundle: first paint 119 kB gzip (was about 100 kB: the two catalogues grew by about 170
+    keys), everything but ECharts 182 kB (budget 250 kB), ECharts chunk 177 kB on demand.
 
 - **Phase 4 – PR 4-F, part WP8 planner (branch `phase-4/f-planner`, on 4-E merged with 4-C)**:
   - `suncore/planner/` (depends on `core` only; boundary test extended; `mypy --strict`):

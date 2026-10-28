@@ -139,6 +139,7 @@ describe('forecast form', () => {
           entities: { forecast_today: ref('sensor.today') },
           weight_mode: 'manual',
           weight: 0.5,
+          config_entry_id: null,
         },
       ],
       learning: { min_history_days: 14, load_ml_mode: 'off' },
@@ -243,6 +244,10 @@ describe('tariff form', () => {
       fixed_price: null,
       formula: null,
       tou: null,
+      role_entities: {},
+      action_params: {},
+      series_key: null,
+      price_includes: null,
     });
     expect(isTariffComplete(form)).toBe(true);
   });
@@ -280,6 +285,10 @@ describe('tariff form', () => {
         template_id: 'tibber.price',
         price_entity: ref('sensor.t'),
         fixed_price: null,
+        role_entities: {},
+        action_params: {},
+        series_key: null,
+        price_includes: 'spot_only',
         formula: {
           spot_multiplier: 1,
           grid_fee: 0.1,

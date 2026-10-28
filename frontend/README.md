@@ -26,9 +26,19 @@ Demo backend: `SUNCORE_DEMO=1 SUNCORE_STATIC_DIR=frontend/dist uv run python -m 
 - One WebSocket (`src/lib/stores/live.svelte.ts`) feeds all views; reconnect with jittered
   exponential back-off (`src/lib/api/ws.ts`). Flow lines use CSS animations on quantised speed
   levels, so a new value never restarts an animation unless the power class changes.
-- Bundle budget: < 250 kB gzip (`npm run size`).
+- Bundle budget (`npm run size`): everything except ECharts < 250 kB gzip, first paint < 125 kB,
+  the on-demand ECharts chunk (plan view only, never in the first paint) < 200 kB.
 - `.npmrc` sets `legacy-peer-deps=true`: npm 10.9 crashes (`edgesOut` of null in arborist) when
   resolving vitest's optional peer set. All peers we need are listed explicitly in `package.json`.
+
+## Plan view and battery card (Phase 4)
+
+`#/plan` loads `PlanChart.svelte` (the only importer of ECharts) on demand. The option is a pure
+function (`plan/chartOption.ts`), the data series, the next-actions list and the preview numbers
+come from `plan/model.ts`. "Now" is the plan's hand-over time. The Now view shows the battery
+card and the next planned actions; the wizard steps 4, 5, 6, 8 and 10 carry the Phase 4 forms
+(`wizard/batteryForm.ts`, `tariffForm.ts`, `scheduleForm.ts`, `forecastForm.ts`). The demo battery
+adapter for Playwright and screenshots is switched on with `SUNCORE_DEMO_BATTERY_CONTROL=1`.
 
 ## Setup wizard (Phase 2)
 

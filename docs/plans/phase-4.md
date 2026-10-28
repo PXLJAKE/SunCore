@@ -617,6 +617,23 @@ shadow and assisted run is the acceptance test.
   - **Answered (maintainer default):** SunCore enforces the effective reserve in plan and gate
     only, it holds no permanent min-SoC floor on the inverter.
 
+- PR 4-H, WP11 (UI; `frontend-engineer`):
+  - The plan view takes "now" from the plan's hand-over time, not from the browser clock (the demo
+    runs on a simulated clock; on a real system both agree).
+  - ECharts is registered with line and bar only (no `custom` series: the PV band is a stacked
+    pair of lines). It is 177 kB gzip in its own chunk, loaded with the plan view; the Phase 1
+    budget of 250 kB now applies to everything else, first paint has its own budget of 125 kB.
+  - Additive backend pieces the UI needed: `solar_forecast_entries` in the energy-prefs answer
+    (choices for a Forecast.Solar `config_entry_id`), site roles `workday` and `weather` for the
+    entity pickers, and the demo flag `SUNCORE_DEMO_BATTERY_CONTROL` (a controllable inverter and a
+    `generic.battery` adapter in the demo, off by default).
+  - HT/NT is a full editor (base price, periods with weekdays, midnight crossing and months)
+    instead of the "tou stored" hint.
+  - No hint for a too-new `timeseries.db`: the API exposes neither that state nor the size
+    report (4-B follow-up); it stays in the log.
+  - The battery card shows what the control state contains; there is no separate "release
+    pending" field in `BatteryControlState`, so that state is only visible through the reasons.
+
 ## 7. Out of scope for Phase 4
 
 Full plan chart with device Gantt, zoom/pan, history, savings vs baselines, what-if and
