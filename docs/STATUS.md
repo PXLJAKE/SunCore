@@ -565,7 +565,7 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
 - **WP10 done** (4-G, see Done); next: 4-H UI and docs (battery card with mode, identity and the
   assisted cap; wizard step for the battery adapter incl. enabling the Kostal number and the modbus
-  YAML; WP13 docs). ADR-0013 file still says "proposed" - record the maintainer's acceptance.
+  YAML; WP13 docs). ADR-0013 accepted by the maintainer on 2026-10-19.
 - Maintainer questions from 4-G (PR description): grid charging on the Kostal (generic
   force-charge entity or a §3.4 ADR); the fallback timer measurement procedure for
   `battery.fallback_measured`. Answered: no permanent reserve floor on the inverter.
