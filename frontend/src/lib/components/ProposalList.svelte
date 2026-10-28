@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type { Decision } from '../api/types';
-  import { describeAction } from '../control/actions';
+  import { batteryParts, describeAction } from '../control/actions';
   import { clock, secondsLeft } from '../control/present';
   import { t, tDynamic, tPower } from '../i18n/index.svelte';
   import { control } from '../stores/control.svelte';
@@ -37,6 +37,11 @@
           <div class="head">
             <strong>{names.get(p.intent.asset_id) ?? p.intent.asset_id}</strong>
             <span>{t(text.key, text.args)}</span>
+            {#if p.intent.action.kind === 'battery'}
+              {#each batteryParts(p.intent.action, tPower) as part, k (k)}
+                <span class="part">{t(part.key, part.args)}</span>
+              {/each}
+            {/if}
             {#if left !== null}
               <span class="chip-tag" class:warn={left <= 30} data-testid="countdown">
                 {left === 0
@@ -100,6 +105,9 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 12px;
+  }
+  .part {
+    color: var(--secondary-text-color);
   }
   .actions {
     display: flex;

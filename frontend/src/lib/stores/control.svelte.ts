@@ -17,6 +17,9 @@ export interface ModeRequest {
   identity: string;
 }
 
+/** The reserved scope of the battery's errors and in-flight requests. */
+export const BATTERY_SCOPE = 'battery';
+
 export class ControlActions {
   /** Catalogue key of the last failed action per scope. */
   errors = $state<Record<ErrorScope, string>>({});
@@ -81,6 +84,16 @@ export class ControlActions {
   setDeviceMode(req: ModeRequest): Promise<boolean> {
     return this.run(req.deviceId, () =>
       controlApi.setDeviceMode(req.deviceId, req.mode, req.mode === 'shadow' ? null : req.identity),
+    );
+  }
+
+  /**
+   * Set the battery's mode (ADR-0013): like a device, anything above shadow sends the identity
+   * token the user saw, shadow needs none.
+   */
+  setBatteryMode(mode: OperatingMode, identity: string): Promise<boolean> {
+    return this.run(BATTERY_SCOPE, () =>
+      controlApi.setBatteryMode(mode, mode === 'shadow' ? null : identity),
     );
   }
 

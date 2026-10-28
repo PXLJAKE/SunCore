@@ -1862,6 +1862,8 @@ export interface components {
             site: {
                 [key: string]: unknown;
             };
+            /** Solar Forecast Entries */
+            solar_forecast_entries?: string[];
             /** Suggestions */
             suggestions: components["schemas"]["SuggestionOut"][];
         };

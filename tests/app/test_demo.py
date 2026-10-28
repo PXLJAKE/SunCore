@@ -415,3 +415,30 @@ async def test_import_reloads_devices(demo_runtime: Runtime) -> None:
     await demo_runtime.import_config(exported)
     assert demo_runtime.devices == DevicesConfig()
     assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) | DEMO_FORECAST_ENTITIES | {PRICE_ID}
+
+
+async def test_demo_battery_control_flag_wires_a_generic_adapter(tmp_path: Path) -> None:
+    off = await build_runtime(
+        demo_settings(tmp_path), env={}, connection=RecordingConnection(6000.0)
+    )
+    try:
+        stored = await off.config.get("battery")
+        assert getattr(stored, "adapter_template_id", "x") is None
+    finally:
+        await off.stop()
+    on = await build_runtime(
+        demo_settings(tmp_path, demo_battery_control=True),
+        env={},
+        connection=RecordingConnection(6000.0),
+    )
+    try:
+        stored = await on.config.get("battery")
+        assert stored.adapter_template_id == "generic.battery"
+        assert set(stored.entities) == {
+            "min_soc_number",
+            "max_charge_number",
+            "max_discharge_number",
+            "grid_charge_number",
+        }
+    finally:
+        await on.stop()

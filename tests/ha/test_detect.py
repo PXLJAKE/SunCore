@@ -58,6 +58,8 @@ def test_site_roles_cover_the_documented_set() -> None:
         "pv_power",
         "battery_power",
         "battery_soc",
+        "workday",
+        "weather",
         "house_power",
         "price",
         "para14a_signal",

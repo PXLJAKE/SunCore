@@ -32,7 +32,7 @@ from __future__ import annotations
 import itertools
 import math
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any, Final
 
 from suncore.core.decisions import Reason
@@ -297,4 +297,17 @@ def suggest_from_prefs(
         suggestions=tuple(b.suggestions),
         notes=tuple(b.notes),
         site=b.site,
+        solar_forecast_entries=_solar_forecast_entries(by_type["solar"]),
     )
+
+
+def _solar_forecast_entries(solar: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    """Config entry ids the solar sources link, in order, without duplicates."""
+    found: dict[str, None] = {}
+    for source in solar:
+        linked = source.get("config_entry_solar_forecast")
+        if isinstance(linked, list):
+            for entry in linked:
+                if isinstance(entry, str) and entry:
+                    found[entry] = None
+    return tuple(found)

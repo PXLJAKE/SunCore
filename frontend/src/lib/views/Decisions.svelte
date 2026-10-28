@@ -19,7 +19,7 @@
   };
 
   const devices = $derived(live.control?.devices ?? []);
-  const names = $derived(nameMap(devices));
+  const names = $derived(nameMap(devices, [['battery', t('battery.title')]]));
 
   onMount(() => void log.load());
 

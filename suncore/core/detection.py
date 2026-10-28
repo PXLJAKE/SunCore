@@ -67,3 +67,6 @@ class EnergySuggestions:
     """Things worth telling the user that are not settings (ignored sources, ...)."""
     site: Mapping[str, Any] = field(default_factory=dict)
     """The suggestions folded into a (partial) SiteConfig document."""
+    solar_forecast_entries: tuple[str, ...] = ()
+    """Config entry ids linked to the dashboard's solar sources (``config_entry_solar_forecast``);
+    the choices for ``ForecastSourceConfig.config_entry_id`` of a Forecast.Solar source."""

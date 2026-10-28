@@ -2801,6 +2801,13 @@
             "title": "Site",
             "type": "object"
           },
+          "solar_forecast_entries": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Solar Forecast Entries",
+            "type": "array"
+          },
           "suggestions": {
             "items": {
               "$ref": "#/components/schemas/SuggestionOut"

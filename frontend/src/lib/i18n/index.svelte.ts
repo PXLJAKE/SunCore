@@ -54,6 +54,11 @@ export function tDynamic(
   return translator.render(i18n.locale, key, args);
 }
 
+/** Whether the catalogue has `key` (backend ids such as template names may not be translated). */
+export function hasMessage(key: string): boolean {
+  return translator.has(key);
+}
+
 export function tPower(watts: number): string {
   const p = formatPower(watts, i18n.locale);
   return t(p.unit === 'kw' ? 'unit.kw' : 'unit.w', { value: p.text });
