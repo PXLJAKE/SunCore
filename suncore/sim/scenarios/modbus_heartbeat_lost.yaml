@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+name: modbus_heartbeat_lost
+description: A winter evening. The plan holds the battery (discharge lock) and SunCore writes the Kostal §3.5 limits through modbus.write_register - fallback registers 1284/1286/1288 first, then 1282 = 0 with a heartbeat every 20 s. The limit registers still show a stale lock of an earlier controller (1282 = 0) and the modbus sensors poll every 10 s. At 21:00 SunCore stops (a crash, no release). The inverter must fall back to its own limits within register 1288 (60 s) and cover the house again.
+start: "2026-12-07T20:00:00+01:00"
+duration_s: 7200
+step_s: 10
+house:
+  seed: 7
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 10000, max_charge_w: 5000, max_discharge_w: 5000, initial_soc_pct: 60}
+  inverter:
+    adapter: kostal_modbus
+    min_soc_pct: 10
+    external_control: 2
+    byte_order: little
+    modbus_scan_s: 10
+    stale_limits: {1280: 5000, 1282: 0}
+control:
+  import_limit_w: 12000
+battery:
+  mode: automatic
+  fallback_measured: true
+  heartbeat_s: 20
+  fallback_timeout_s: 60

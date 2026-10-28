@@ -32,6 +32,7 @@ from suncore.core.battery import BatterySettings
 from suncore.core.config import SECTION_MODELS, OperationConfig
 from suncore.core.control import DeviceState, PowerEstimate
 from suncore.core.controlstate import (
+    BatteryNotControllableError,
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
@@ -414,6 +415,17 @@ class FakeServices:
             raise DeviceIdentityChangedError(device_id)
         modes = {**self.operation.device_modes, device_id: mode}
         self.operation = self.operation.model_copy(update={"device_modes": modes})
+        return self.operation
+
+    battery_identity: str | None = "bat-current"
+
+    async def set_battery_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        if mode is not OperatingMode.SHADOW:
+            if self.battery_identity is None:
+                raise BatteryNotControllableError("battery")
+            if identity != self.battery_identity:
+                raise DeviceIdentityChangedError("battery")
+        self.operation = self.operation.model_copy(update={"battery_mode": mode})
         return self.operation
 
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:

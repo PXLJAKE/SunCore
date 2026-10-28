@@ -9,14 +9,19 @@ from suncore.sim.scenario import Scenario, list_scenarios, load_scenario, parse_
 pytestmark = pytest.mark.simulator
 
 BUNDLED = [
+    "battery_reserve_drift",
     "climate_counter_only",
     "climate_measured_slow",
     "climate_min_run",
     "cloud_flicker",
+    "grid_charge_price_level",
     "grid_limit",
     "ha_disconnect",
     "inverter_hang",
+    "inverter_hang_battery",
+    "kostal_rest_reserve",
     "manual_override",
+    "modbus_heartbeat_lost",
     "negative_prices",
     "planner_in_shadow",
     "sensor_dropout",
@@ -146,5 +151,7 @@ def test_outdoor_temperature_is_a_daily_cosine() -> None:
 def test_closed_loop_scenarios_declare_devices(name: str) -> None:
     sc = load_scenario(name)
     controlled = [d for d in sc.devices if d.template is not None]
-    assert controlled, "a closed-loop scenario controls at least one device"
+    assert controlled or sc.battery is not None, (
+        "a closed-loop scenario controls at least one device or the battery"
+    )
     assert sc.step_s <= 60  # the controller tick (ControlSettings.tick_s <= 60)

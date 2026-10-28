@@ -3,12 +3,11 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-24 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
-tariffs, 4-D PV forecast, 4-E load forecast and risk model, 4-F planner and runtime (WP8, WP9;
-battery control WP10 next); Phase 3 (3-A
+**Last update:** 2026-10-25 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
+tariffs, 4-D PV forecast, 4-E load forecast and risk model, 4-F planner and runtime (WP8, WP9),
+4-G battery control (WP10; UI and docs 4-H next); Phase 3 (3-A
 `phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
-maintainer's shadow test · **Branch:** `phase-4/f-planner` (stacked on `phase-4/e-load-risk`, merged
-with `phase-4/c-tariff`)
+maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4/f-planner`)
 
 ## Done
 
@@ -98,6 +97,57 @@ with `phase-4/c-tariff`)
     (grid ≈ 0 W also without curtailment); only the inverter-plateau rule applies.
   - Follow-ups: the weights come from the *uncalibrated* sources' MAE (a calibrated source is
     under-weighted until a calibrated accuracy is scored); no UI yet (4-H).
+
+- **Phase 4 – PR 4-G (WP10, battery control; branch `phase-4/g-battery`, on 4-F; `control-safety`)**:
+  - Contracts (ADR-0013): `BatteryAction` = the full desired state, `None` = the adapter's baseline
+    (`core.battery.resolve_battery_action`), capabilities per field, live `BatteryRanges`, min SoC
+    rounded **up**; `core.identity.battery_identity(_token)` (asset id `battery`, adapter template,
+    role entities, the site's SoC/battery power, modbus hub + unit id);
+    `operation.battery_mode` (additive): a `battery`/`site` put that changes the identity drops it,
+    an import resets it, a restore keeps it only for the recorded identity, a full `operation` put
+    cannot raise it, `PUT /api/v1/operation/battery {mode, identity}` (404 observe-only, 409 stale);
+    `battery.modbus` (hub, unit id, byte order, heartbeat 20 s, fallback timer 60 s) and
+    `battery.fallback_measured` (additive).
+  - Adapters `suncore/devices/battery/` (only the gate calls `apply`, `release`, `arm_fallback`,
+    `keep_alive`; boundary tests): `generic` (number/select/switch roles), `kostal_plenticore`
+    (`Battery:MinSoc` only, settle 35 s for the silent REST write and the 30 s poll, no charge
+    set-point), `kostal_modbus` (§3.5 via `modbus.write_register` - a write of this adapter only,
+    never a read-only action; float32/U32 words in the configured order; refuses unless 1080 = 2;
+    1284/1286/1288 armed and read back before any limit; heartbeat; release writes the own limits).
+    Templates `generic.battery`, `kostal.plenticore`, `kostal.plenticore_g3_modbus` (`driver`,
+    register map, capability `hardware_fallback`; schema v1 additive) with conformance scenarios.
+  - Safety: the blanket `safety.battery_not_supported` stays only without a battery adapter or for
+    other asset ids; battery intents pass B1-B9 (`safety/battery.py`, hypothesis property tests),
+    mode capped at assisted while the hardware fallback is not measured, mandatory read-back, a
+    lease re-judged every tick by `poll()` (heartbeat only while it holds), override detection,
+    release check, battery watch (frozen battery power / SoC), every Phase 3 release path. All
+    Phase 3 safety tests unchanged and green.
+  - Controller: `controller/battery.py` turns the band of a fresh plan interval into intents
+    (grid charging, discharge lock as `max_discharge_w` 0 or a min-SoC floor, release), hysteresis,
+    one intent per minute, `controller.battery.grid_charge_unsupported` for Kostal REST; a held
+    forced grid charge is never surplus for the devices.
+  - App: `ControlStack` battery wiring, control state `battery`, devices' reserve guard =
+    `effective_reserve_pct` with a battery model; OpenAPI and frontend types regenerated, no UI.
+  - Simulator: `sim/inverter.py` (own control as fallback, BMS drift, REST lag and silent failures,
+    §3.5 fallback timer, hang); scenarios `modbus_heartbeat_lost`, `battery_reserve_drift`,
+    `kostal_rest_reserve`, `inverter_hang_battery`, `grid_charge_price_level` (real planner,
+    controller and gate in automatic mode).
+  - Decisions and deviations: plan §"Deviations during implementation" (PR 4-G).
+  - Review fixes (2026-10-26, reviewer blocker B1, M1-M3, minors 1-8): latched battery release
+    with read-back of the original baseline and back-off retries (also under emergency stop),
+    B4/B5 on the written state, Kostal §3.5 baseline = own limits and fallback confirmed against
+    the written values, register 5 role, lease ends on refusal / plan end, arming outside the
+    lock, user's select/switch restored, `fallback_measured` is identity, OK-only SoC, a more
+    realistic simulator (REST 30 s, modbus scan lag, stale registers, price jump). ADR-0013 got
+    an implementation addendum. Re-check fixes (2026-10-28): own late/partial writes are never
+    taken for user values (`DeviceRuntime.attempted`, per-field rule), user values found during a
+    release get the override hold, the generic adapter remembers user options only before its
+    first write attempt.
+    Approval follow-up: when the read-back shows an older own state instead of the held one,
+    the gate writes the held state again through the evaluated path (B1-B9, read-back) or
+    releases if that is refused. For the 4-H user docs: a user value that happens to equal a
+    value SunCore wrote or attempted while in control is taken for SunCore's and reset to the
+    baseline at release (accepted by the reviewer).
 
 - **Phase 4 – PR 4-F, part WP8 planner (branch `phase-4/f-planner`, on 4-E merged with 4-C)**:
   - `suncore/planner/` (depends on `core` only; boundary test extended; `mypy --strict`):
@@ -513,10 +563,12 @@ with `phase-4/c-tariff`)
   (WP3) → 4-C tariffs (WP4) and 4-D PV forecast (WP5) → 4-E load + risk (WP6, WP7) → 4-F planner and
   runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
-- **ADR-0013 must be accepted before WP10** (4-G). Its contract changes `BatteryBand.grid_charge_max_w`
-  / `discharge_lock` landed with WP8 (additive, planner-only, the controller ignores them);
-  `BatteryAction` `None` = baseline and `battery_identity` land at the start of 4-G.
-- **WP9 done** (4-F, see Done); next: 4-G battery control (WP10, ADR-0013 first).
+- **WP10 done** (4-G, see Done); next: 4-H UI and docs (battery card with mode, identity and the
+  assisted cap; wizard step for the battery adapter incl. enabling the Kostal number and the modbus
+  YAML; WP13 docs). ADR-0013 file still says "proposed" - record the maintainer's acceptance.
+- Maintainer questions from 4-G (PR description): grid charging on the Kostal (generic
+  force-charge entity or a §3.4 ADR); the fallback timer measurement procedure for
+  `battery.fallback_measured`. Answered: no permanent reserve floor on the inverter.
 - **PR 4-C (WP4, branch `phase-4/c-tariff`)**: `suncore/tariff/` - a template-driven price adapter
   (`engine.py`: action or attribute source, list or mapping shape, per-MWh conversion, native grid
   from `end - start` or the timestamp spacing, 15/60-minute mixes as segments, gaps `None`, DST
@@ -733,8 +785,11 @@ with `phase-4/c-tariff`)
 | Energy-Charts and aWATTar APIs and terms (not shipped in Phase 4) | `research/integrations.md` | session with network access (Phase 6) |
 | Open-Meteo azimuth convention in a live response (code: 0 = south, OpenAPI text contradicts); separate terms page (README only) | `research/integrations.md` | live request; maintainer reads the terms page |
 | Kostal REST battery/grid power sign; `ActivePowerLimitation` semantics; live entity ids | `research/integrations.md` | maintainer's HA (enable the entities, compare with the inverter display) |
-| Kostal Modbus external battery management not enabled on the maintainer's inverter; how it is enabled; §3.5 fallback timer behaviour | `research/kostal-plenticore-modbus.md`, ADR-0013 | maintainer enables it and measures; `kostal_modbus` capped at assisted until then |
-| Creating a modbus hub from the HA UI (else YAML) | `research/ha-websocket-api.md` | maintainer's HA |
+| Kostal Modbus external battery management not enabled on the maintainer's inverter; how it is enabled; §3.5 fallback timer behaviour (the `kostal_modbus` adapter and its fallback are exercised in the simulator only, scenario `modbus_heartbeat_lost`) | `research/kostal-plenticore-modbus.md`, ADR-0013, `suncore/devices/battery/kostal_modbus.py` | maintainer enables it and measures, then sets `battery.fallback_measured`; capped at assisted until then |
+| Kostal Modbus U32 word order of register 1288 assumed equal to the float order (register 5); modbus sensor `scan_interval` vs the adapter's 15 s settle time; how 1076/1078 (the battery's own limits) move with temperature and SoC (the fallback gets max(model, own)) | `suncore/devices/battery/modbus_codec.py`, `templates/battery/kostal.plenticore_g3_modbus.yaml` | first Modbus write on the maintainer's inverter |
+| Kostal REST: battery/grid power sign (the site's `invert_sign`), the min-SoC read-back timing after the forced refresh (35 s settle assumed), whether out-of-range values are clamped or rejected; the number is disabled by default | `suncore/devices/battery/kostal_plenticore.py`, `templates/battery/kostal.plenticore.yaml` | maintainer enables "Battery min SoC" and watches the first assisted write |
+| Creating a modbus hub from the HA UI (else YAML); the hub name and unit id the user configures | `research/ha-websocket-api.md`, `battery.modbus` | maintainer's HA |
+| Generic battery adapter (numbers/select/switch) and the battery watch thresholds (frozen 600 s / 50 W / grid 500 W, SoC frozen after 3 % of the capacity moved) | `suncore/devices/battery/generic.py`, `suncore/safety/battery.py` | first real battery integration; shadow run |
 | Supervisor proxy passes `recorder/*` and `energy/*` commands | `research/ha-websocket-api.md` | first Phase 4 run on HA OS |
 | Supervisor proxy forwards `recorder/statistics_during_period` (the 4-B rebuild logs a warning and retries) | `suncore/ha/statistics.py` | first run on HA OS |
 | `change`/`sum` rows of real energy counters (the rebuild reads them as verified from source, not tested against live counters); `backup_exclude` accepts the glob `timeseries.db.corrupt*` | `suncore/ha/statistics.py`, `addon/*/config.yaml` | maintainer's HA with an energy counter; a backup on HA OS |

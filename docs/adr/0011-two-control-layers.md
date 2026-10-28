@@ -97,6 +97,15 @@ Decision:
   ADR-0013 ("Battery as a controlled asset"), which must be accepted before
   Phase 4 WP10 lifts the rejection.
 
+Sign-off 2026-10-25 (`control-safety`, PR 4-G, Phase 4 WP10): the blanket rejection of
+`BatteryAction` is lifted **only for intents to the configured battery adapter** that pass the
+ADR-0013 invariants B1-B9 (`safety/battery.py`, property-tested; gate path
+`SafetyGate._submit_battery`, lease in `poll()`; scenarios `modbus_heartbeat_lost`,
+`battery_reserve_drift`, `kostal_rest_reserve`, `inverter_hang_battery`,
+`grid_charge_price_level`). Without a battery adapter (observe-only, no battery model) or for any
+other asset id the gate still answers `safety.battery_not_supported` and writes nothing. The
+invariant table is in the PR 4-G description.
+
 Consequence: contracts can be published ahead of their write path without
 weakening the single-writer guarantee; a boundary/unit test asserts that
 every `ActionKind` is either handled by the invariants or rejected with its

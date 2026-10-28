@@ -228,3 +228,27 @@ charging is possible on the maintainer's Kostal without §3.4 (see consequences)
 
 Accept as proposed; your input is needed on how grid charging should be executed on your
 Kostal in Phase 4 (not at all, a generic force-charge entity, or a later §3.4 ADR).
+
+## Addendum 2026-10-26: implementation notes (Phase 4 WP10, PR 4-G review)
+
+Additive, no decision above changes:
+
+- The battery invariants live in `safety/battery.py` (not `safety/invariants.py`, which stays the
+  device module); the gate's battery path is `SafetyGate._submit_battery`, the lease
+  `SafetyGate._battery_lease`.
+- B4/B5 are judged on the **resolved state that is written** (and re-sent by the heartbeat), not
+  on the request: a cap or floor inherited from the baseline counts. Forced grid charging is no
+  discharge lock (its import is bounded by B2/B5).
+- A release is complete only when the read-back shows the original baseline (or the user set a
+  third value). Until then the runtime keeps the original baseline, nothing else is written and
+  the release is retried with back-off, also during an emergency stop.
+- A field is the user's third value only if it differs from the baseline **and** from every
+  target SunCore wrote or attempted while under control (`DeviceRuntime.attempted`); a late or
+  partly applied SunCore write is restored, the user's fields are kept (restore = baseline with
+  those fields), proven by read-back and held like any override (next 04:00).
+- `kostal_modbus`: the baseline (`None` fields, release) is the battery's own limits (1076/1078);
+  the fallback registers get the larger of the model's and the own limits and are confirmed
+  against the values written; register 5 must match the configured word order.
+- `battery.fallback_measured` is part of the battery identity (it lifts the assisted cap).
+- Reserve (maintainer default): SunCore enforces the effective reserve in the plan and the gate
+  only; the user's own lower inverter floor outside a SunCore lock stays as it is.

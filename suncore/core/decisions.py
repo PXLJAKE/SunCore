@@ -181,17 +181,25 @@ class ReleaseAction(_FrozenModel):
 
 
 class BatteryAction(_FrozenModel):
-    """Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).
+    """Battery limits for the gate (Phase 4 WP2; semantics ADR-0013, decisions 1 and 2).
 
-    Every field is optional, at least one must be set; a missing field leaves that limit
-    as it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a
-    charging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the
-    inverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at
-    or above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the
-    grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both are set (forced
-    charging cannot be above the charge cap, and a cap of 0 forbids it). Until the battery
-    path exists the gate rejects this action (``safety.battery_not_supported``); nothing is
-    written.
+    **Full desired state, not a delta.** An accepted ``BatteryAction`` is the complete state
+    SunCore wants the battery adapter to hold; a field that is ``None`` means "no SunCore
+    restriction on this limit", i.e. the adapter's **baseline** value of that field (what the
+    gate read back when it took the battery over). The gate resolves the ``None`` fields from
+    the baseline before it judges, writes and reads back (``suncore.core.battery.
+    resolve_battery_action``); the heartbeat re-sends the resolved state idempotently. At least
+    one field must be set: "everything at baseline" is a :class:`ReleaseAction`, never an empty
+    ``BatteryAction``.
+
+    Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a charging power
+    drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the inverter's own
+    self-consumption control (they never command a power), ``min_soc_pct`` is the discharge
+    floor (a discharge lock when at or above the current SoC), ``grid_charge_w > 0`` asks for
+    forced charging from the grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both
+    are set (forced charging cannot be above the charge cap, and a cap of 0 forbids it). Every
+    field needs the matching adapter capability (``BatteryCapability``); the gate rejects a
+    field the adapter cannot execute (``safety.battery_capability_missing``).
     """
 
     kind: Literal[ActionKind.BATTERY] = ActionKind.BATTERY

@@ -37,7 +37,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from suncore.app.control import PlanProvider
+from suncore.app.control import BatteryWiring, PlanProvider
+from suncore.core.battery import (
+    BATTERY_ASSET_ID,
+    BatteryModel,
+    BatterySettings,
+    ModbusLink,
+    effective_reserve_pct,
+)
 from suncore.core.config import GoalsConfig
 from suncore.core.control import ControlSettings
 from suncore.core.decisions import (
@@ -51,14 +58,17 @@ from suncore.core.decisions import (
     SwitchAction,
 )
 from suncore.core.devices import DeviceConfig, step_power_w
+from suncore.core.identity import battery_identity_token
 from suncore.ha.connection import RateLimiter
 from suncore.safety.modes import StaticModes
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
+from suncore.sim.demo_devices import sim_price
 from suncore.sim.devices import SimClimate, SimDevice, SimWaterHeater
 from suncore.sim.fake_ha import FakeHAConnection, demo_site_config
+from suncore.sim.inverter import MODBUS_HUB, MODBUS_SLAVE, SimInverter
 from suncore.sim.scenario import Scenario, SimDeviceSpec
 from suncore.sim.stack import ControlStack
-from suncore.templates import DeviceTemplate, TemplateCatalog
+from suncore.templates import BatteryTemplate, DeviceTemplate, TemplateCatalog
 
 SETTLE_ROUNDS: Final = 6
 """Event-loop rounds that let woken tasks run until they block again."""
@@ -214,6 +224,8 @@ class StepLog:
     battery_w: float
     soc_pct: float
     devices_w: float
+    true_soc_pct: float | None = None
+    """The battery's true SoC (BMS drift; ``None`` without the inverter model)."""
 
 
 @dataclass(slots=True)
@@ -370,10 +382,15 @@ class ScenarioRunner:
         store: RuntimeStore | None = None,
         configs: Sequence[DeviceConfig] | None = None,
         plan_provider: PlanProvider | None = None,
+        import_price: Callable[[datetime], float | None] | None = None,
     ) -> None:
         self.scenario = scenario
         self.catalog = catalog
         self.plan_provider = plan_provider
+        profile = scenario.prices.profile
+        self.import_price: Callable[[datetime], float | None] = import_price or (
+            lambda now: sim_price(now, profile)
+        )
         self.vt = VirtualTime(scenario.start)
         self.limiter = RateLimiter(clock=self.vt.monotonic, sleep=self.vt.sleep)
         self.conn = FakeHAConnection(
@@ -400,7 +417,10 @@ class ScenarioRunner:
                 for spec in scenario.devices
                 if spec.template is not None
             }
-        self.modes = StaticModes(global_mode, device_mode_map)
+        battery_mode = (
+            scenario.battery.mode if scenario.battery is not None else OperatingMode.SHADOW
+        )
+        self.modes = StaticModes(global_mode, device_mode_map, battery=battery_mode)
         self.decisions: list[Decision] = []
         self.stack: ControlStack | None = None
         self.configs: dict[str, DeviceConfig] = {}
@@ -440,7 +460,74 @@ class ScenarioRunner:
             cadences=cadences,
             decisions=self.decisions,
             plan_provider=self.plan_provider,
+            battery=self.battery_wiring(),
         )
+
+    @property
+    def inverter(self) -> SimInverter | None:
+        house = self.conn._house
+        return None if house is None else house.inverter
+
+    def battery_settings(self) -> BatterySettings | None:
+        """What the wizard would store for the scenario's battery (``None`` = observe only)."""
+        control, inverter = self.scenario.battery, self.scenario.house.inverter
+        if control is None or inverter is None:
+            return None
+        b = self.scenario.house.battery
+        template_id = {
+            "generic": "generic.battery",
+            "kostal_plenticore": "kostal.plenticore",
+            "kostal_modbus": "kostal.plenticore_g3_modbus",
+        }[inverter.adapter]
+        sim = self.inverter
+        assert sim is not None
+        return BatterySettings.model_validate(
+            {
+                "adapter_template_id": template_id,
+                "entities": {r: {"entity_id": e} for r, e in sim.roles().items()},
+                "model": BatteryModel(
+                    capacity_wh=b.capacity_wh,
+                    max_charge_w=b.max_charge_w,
+                    max_discharge_w=b.max_discharge_w,
+                    reserve_pct=control.reserve_pct,
+                    bms_drift_margin_pct=control.bms_drift_margin_pct,
+                    max_soc_pct=control.max_soc_pct,
+                ),
+                "grid_charge": control.grid_charge,
+                "fallback_measured": control.fallback_measured,
+                "modbus": ModbusLink(
+                    hub=MODBUS_HUB,
+                    slave=MODBUS_SLAVE,
+                    byte_order=inverter.byte_order,
+                    heartbeat_s=control.heartbeat_s,
+                    fallback_timeout_s=control.fallback_timeout_s,
+                )
+                if inverter.adapter == "kostal_modbus"
+                else None,
+            }
+        )
+
+    def battery_wiring(self) -> BatteryWiring | None:
+        settings = self.battery_settings()
+        if settings is None or settings.model is None:
+            return None
+        assert settings.adapter_template_id is not None
+        template = self.catalog.get(settings.adapter_template_id)
+        assert isinstance(template, BatteryTemplate)
+        site = demo_site_config()
+        identity = battery_identity_token(settings, site)
+        assert identity is not None
+        return BatteryWiring(
+            settings=settings,
+            spec=template.adapter_spec(),
+            identity=identity,
+            reserve_pct=effective_reserve_pct(site.battery, settings.model),
+            policy=settings.grid_charge,
+            import_price=self.import_price,
+        )
+
+    def battery_decisions(self) -> list[Decision]:
+        return [d for d in self.decisions if d.intent.asset_id == BATTERY_ASSET_ID]
 
     async def start(self) -> None:
         if self._connected:
@@ -486,6 +573,7 @@ class ScenarioRunner:
                 house.battery_w,
                 house.soc_pct,
                 house.devices_w,
+                house.true_soc_pct,
             )
         )
         for device_id, device in self.sim_devices.items():

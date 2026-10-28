@@ -484,6 +484,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operation/battery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Battery Mode
+         * @description Set the battery's mode (ADR-0013). Anything above shadow needs the battery's
+         *     ``identity`` token from the control state; shadow never does. An adapter whose hardware
+         *     fallback is not measured runs at most assisted whatever is stored.
+         */
+        put: operations["set_battery_mode_api_v1_operation_battery_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operation/devices/{device_id}": {
         parameters: {
             query?: never;
@@ -921,17 +943,25 @@ export interface components {
         BandPreference: "neutral" | "prefer_on" | "prefer_off";
         /**
          * BatteryAction
-         * @description Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).
+         * @description Battery limits for the gate (Phase 4 WP2; semantics ADR-0013, decisions 1 and 2).
          *
-         *     Every field is optional, at least one must be set; a missing field leaves that limit
-         *     as it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a
-         *     charging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the
-         *     inverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at
-         *     or above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the
-         *     grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both are set (forced
-         *     charging cannot be above the charge cap, and a cap of 0 forbids it). Until the battery
-         *     path exists the gate rejects this action (``safety.battery_not_supported``); nothing is
-         *     written.
+         *     **Full desired state, not a delta.** An accepted ``BatteryAction`` is the complete state
+         *     SunCore wants the battery adapter to hold; a field that is ``None`` means "no SunCore
+         *     restriction on this limit", i.e. the adapter's **baseline** value of that field (what the
+         *     gate read back when it took the battery over). The gate resolves the ``None`` fields from
+         *     the baseline before it judges, writes and reads back (``suncore.core.battery.
+         *     resolve_battery_action``); the heartbeat re-sends the resolved state idempotently. At least
+         *     one field must be set: "everything at baseline" is a :class:`ReleaseAction`, never an empty
+         *     ``BatteryAction``.
+         *
+         *     Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a charging power
+         *     drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the inverter's own
+         *     self-consumption control (they never command a power), ``min_soc_pct`` is the discharge
+         *     floor (a discharge lock when at or above the current SoC), ``grid_charge_w > 0`` asks for
+         *     forced charging from the grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both
+         *     are set (forced charging cannot be above the charge cap, and a cap of 0 forbids it). Every
+         *     field needs the matching adapter capability (``BatteryCapability``); the gate rejects a
+         *     field the adapter cannot execute (``safety.battery_capability_missing``).
          */
         BatteryAction: {
             /** Grid Charge W */
@@ -1004,6 +1034,33 @@ export interface components {
             soc: components["schemas"]["EntityRef"];
         };
         /**
+         * BatteryControlState
+         * @description The battery as a controlled asset (Phase 4 WP10, ADR-0013).
+         */
+        BatteryControlState: {
+            /** Adapter Template Id */
+            adapter_template_id: string;
+            baseline: components["schemas"]["BatteryAction"] | null;
+            battery_mode: components["schemas"]["OperatingMode"];
+            /** Capabilities */
+            capabilities: string[];
+            effective_mode: components["schemas"]["OperatingMode"];
+            global_mode: components["schemas"]["OperatingMode"];
+            held: components["schemas"]["BatteryAction"] | null;
+            /** Identity */
+            identity: string;
+            last_decision: components["schemas"]["Decision"] | null;
+            limits: components["schemas"]["BatteryAction"] | null;
+            /** Mode Capped */
+            mode_capped: boolean;
+            paused: components["schemas"]["Reason"] | null;
+            /** Reasons */
+            reasons: components["schemas"]["Reason"][];
+            /** Under Control */
+            under_control: boolean;
+            wanted: components["schemas"]["BatteryAction"] | null;
+        };
+        /**
          * BatteryModeMeaning
          * @description What selecting a battery mode option does.
          * @enum {string}
@@ -1014,6 +1071,18 @@ export interface components {
             meaning: components["schemas"]["BatteryModeMeaning"];
             /** Value */
             value: string;
+        };
+        /**
+         * BatteryModeRequest
+         * @description ``PUT /api/v1/operation/battery``: the battery's operating mode (ADR-0013).
+         *
+         *     Like a device: raising the mode above shadow needs ``identity``, the token from
+         *     ``GET /api/v1/control/state`` (``battery.identity``); a re-mapped battery answers 409.
+         */
+        BatteryModeRequest: {
+            /** Identity */
+            identity?: string | null;
+            mode: components["schemas"]["OperatingMode"];
         };
         /**
          * BatteryModel
@@ -1103,11 +1172,17 @@ export interface components {
                 [key: string]: components["schemas"]["EntityRef"];
             };
             /**
+             * Fallback Measured
+             * @default false
+             */
+            fallback_measured: boolean;
+            /**
              * @default {
              *       "enabled": false
              *     }
              */
             grid_charge: components["schemas"]["GridChargePolicy"];
+            modbus?: components["schemas"]["ModbusLink"] | null;
             model?: components["schemas"]["BatteryModel"] | null;
             /** Morning Buffer Pct */
             morning_buffer_pct?: number | null;
@@ -1153,6 +1228,12 @@ export interface components {
             controls?: {
                 [key: string]: components["schemas"]["NumberLimitControl"] | components["schemas"]["ModeSelectControl"] | components["schemas"]["ForceChargeSwitchControl"];
             };
+            /**
+             * Driver
+             * @default generic
+             * @enum {string}
+             */
+            driver: "generic" | "kostal_plenticore" | "kostal_modbus";
             /** Id */
             id: string;
             /**
@@ -1162,6 +1243,7 @@ export interface components {
             kind: "battery";
             /** Min App Version */
             min_app_version?: string | null;
+            modbus?: components["schemas"]["ModbusRegisterMap"] | null;
             /** Name */
             name: string;
             /** Roles */
@@ -1301,7 +1383,7 @@ export interface components {
          * @description What a template provides.
          * @enum {string}
          */
-        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes";
+        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback";
         /** CheckItemOut */
         CheckItemOut: {
             reason: components["schemas"]["Reason"];
@@ -1412,6 +1494,7 @@ export interface components {
         ControlState: {
             /** Active */
             active: boolean;
+            battery?: components["schemas"]["BatteryControlState"] | null;
             /** Devices */
             devices: components["schemas"]["DeviceControlState"][];
             /** Emergency Stop */
@@ -2500,6 +2583,75 @@ export interface components {
             reason: "active" | "not_configured" | "too_few_days" | "no_spread";
         };
         /**
+         * ModbusByteOrder
+         * @description Word order of 32-bit values (Kostal register 5: ``0x00`` little, ``0x01`` big).
+         * @enum {string}
+         */
+        ModbusByteOrder: "little" | "big";
+        /**
+         * ModbusLink
+         * @description How the ``kostal_modbus`` adapter reaches the inverter through ``modbus.write_register``.
+         *
+         *     ``hub`` is the ``name`` of the user's ``modbus:`` YAML hub (HA's default ``modbus_hub``),
+         *     ``slave`` the inverter's unit id (Kostal default 71; the action itself would default to 1,
+         *     so it is mandatory here), ``byte_order`` what register 5 reports (the adapter never guesses
+         *     it). ``fallback_timeout_s`` is written to register 1288 (30-10800 s) and ``heartbeat_s`` is
+         *     the re-write period of 1280/1282; it must be at most a third of the timeout. Research:
+         *     ``docs/research/kostal-plenticore-modbus.md`` §3.5, ``ha-websocket-api.md`` "Modbus write
+         *     action". ``UNVERIFIED`` on hardware (external battery management is not enabled on the
+         *     maintainer's inverter yet).
+         */
+        ModbusLink: {
+            byte_order: components["schemas"]["ModbusByteOrder"];
+            /**
+             * Fallback Timeout S
+             * @default 60
+             */
+            fallback_timeout_s: number;
+            /**
+             * Heartbeat S
+             * @default 20
+             */
+            heartbeat_s: number;
+            /**
+             * Hub
+             * @default modbus_hub
+             */
+            hub: string;
+            /** Slave */
+            slave: number;
+        };
+        /**
+         * ModbusRegisterMap
+         * @description Registers of a limit-with-fallback battery interface (Kostal §3.5, ``kostal_modbus``).
+         *
+         *     Addresses as the vendor document gives them (the HA action writes them verbatim). Powers
+         *     are IEEE 754 float32 in two registers, the timeout an unsigned 32-bit value in two
+         *     registers; the word order comes from the battery configuration (``battery.modbus``).
+         *     ``external_control_value`` is what ``external_control_register`` must read before any
+         *     write (Kostal 1080 = ``0x02``: external battery management via Modbus).
+         */
+        ModbusRegisterMap: {
+            /** External Control Register */
+            external_control_register: number;
+            /** External Control Value */
+            external_control_value: number;
+            /** Fallback Max Charge */
+            fallback_max_charge: number;
+            /** Fallback Max Discharge */
+            fallback_max_discharge: number;
+            /** Fallback Timeout */
+            fallback_timeout: number;
+            /** Fallback Timeout Max S */
+            fallback_timeout_max_s: number;
+            /** Fallback Timeout Min S */
+            fallback_timeout_min_s: number;
+            /** Max Charge */
+            max_charge: number;
+            /** Max Discharge */
+            max_discharge: number;
+        };
+        /**
          * Mode
          * @description One mode of a mode-controlled device and the power it draws.
          */
@@ -2616,6 +2768,8 @@ export interface components {
          *     Devices that are new at ``devices`` put/import time lose any entry here (shadow).
          */
         OperationConfig: {
+            /** @default shadow */
+            battery_mode: components["schemas"]["OperatingMode"];
             /** Device Modes */
             device_modes?: {
                 [key: string]: components["schemas"]["OperatingMode"];
@@ -3801,7 +3955,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "device" | "tariff" | "forecast" | "region";
+            kind: "device" | "tariff" | "forecast" | "region" | "battery";
             /** Name */
             name: string;
             /**
@@ -5021,6 +5175,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InfoOut"];
+                };
+            };
+        };
+    };
+    set_battery_mode_api_v1_operation_battery_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatteryModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description No battery adapter (observe-only) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The battery changed since its identity was read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

@@ -297,7 +297,7 @@
       },
       "BatteryAction": {
         "additionalProperties": false,
-        "description": "Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).\n\nEvery field is optional, at least one must be set; a missing field leaves that limit\nas it is. Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a\ncharging power drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the\ninverter's own control, ``min_soc_pct`` is the discharge floor (discharge lock when at\nor above the current SoC), ``grid_charge_w > 0`` asks for forced charging from the\ngrid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both are set (forced\ncharging cannot be above the charge cap, and a cap of 0 forbids it). Until the battery\npath exists the gate rejects this action (``safety.battery_not_supported``); nothing is\nwritten.",
+        "description": "Battery limits for the gate (Phase 4 WP2; semantics ADR-0013, decisions 1 and 2).\n\n**Full desired state, not a delta.** An accepted ``BatteryAction`` is the complete state\nSunCore wants the battery adapter to hold; a field that is ``None`` means \"no SunCore\nrestriction on this limit\", i.e. the adapter's **baseline** value of that field (what the\ngate read back when it took the battery over). The gate resolves the ``None`` fields from\nthe baseline before it judges, writes and reads back (``suncore.core.battery.\nresolve_battery_action``); the heartbeat re-sends the resolved state idempotently. At least\none field must be set: \"everything at baseline\" is a :class:`ReleaseAction`, never an empty\n``BatteryAction``.\n\nPowers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a charging power\ndrawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the inverter's own\nself-consumption control (they never command a power), ``min_soc_pct`` is the discharge\nfloor (a discharge lock when at or above the current SoC), ``grid_charge_w > 0`` asks for\nforced charging from the grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both\nare set (forced charging cannot be above the charge cap, and a cap of 0 forbids it). Every\nfield needs the matching adapter capability (``BatteryCapability``); the gate rejects a\nfield the adapter cannot execute (``safety.battery_capability_missing``).",
         "properties": {
           "grid_charge_w": {
             "anyOf": [
@@ -541,6 +541,130 @@
         "title": "BatteryConfig",
         "type": "object"
       },
+      "BatteryControlState": {
+        "additionalProperties": false,
+        "description": "The battery as a controlled asset (Phase 4 WP10, ADR-0013).",
+        "properties": {
+          "adapter_template_id": {
+            "title": "Adapter Template Id",
+            "type": "string"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "battery_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "effective_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "global_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "held": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "last_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Decision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode_capped": {
+            "title": "Mode Capped",
+            "type": "boolean"
+          },
+          "paused": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "under_control": {
+            "title": "Under Control",
+            "type": "boolean"
+          },
+          "wanted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "identity",
+          "adapter_template_id",
+          "capabilities",
+          "global_mode",
+          "battery_mode",
+          "effective_mode",
+          "mode_capped",
+          "limits",
+          "held",
+          "baseline",
+          "under_control",
+          "wanted",
+          "reasons",
+          "paused",
+          "last_decision"
+        ],
+        "title": "BatteryControlState",
+        "type": "object"
+      },
       "BatteryModeMeaning": {
         "description": "What selecting a battery mode option does.",
         "enum": [
@@ -571,6 +695,33 @@
           "meaning"
         ],
         "title": "BatteryModeOption",
+        "type": "object"
+      },
+      "BatteryModeRequest": {
+        "additionalProperties": false,
+        "description": "``PUT /api/v1/operation/battery``: the battery's operating mode (ADR-0013).\n\nLike a device: raising the mode above shadow needs ``identity``, the token from\n``GET /api/v1/control/state`` (``battery.identity``); a re-mapped battery answers 409.",
+        "properties": {
+          "identity": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identity"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "BatteryModeRequest",
         "type": "object"
       },
       "BatteryModel": {
@@ -699,11 +850,26 @@
             "title": "Entities",
             "type": "object"
           },
+          "fallback_measured": {
+            "default": false,
+            "title": "Fallback Measured",
+            "type": "boolean"
+          },
           "grid_charge": {
             "$ref": "#/components/schemas/GridChargePolicy",
             "default": {
               "enabled": false
             }
+          },
+          "modbus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModbusLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "model": {
             "anyOf": [
@@ -821,6 +987,16 @@
             "title": "Controls",
             "type": "object"
           },
+          "driver": {
+            "default": "generic",
+            "enum": [
+              "generic",
+              "kostal_plenticore",
+              "kostal_modbus"
+            ],
+            "title": "Driver",
+            "type": "string"
+          },
           "id": {
             "maxLength": 64,
             "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
@@ -843,6 +1019,16 @@
               }
             ],
             "title": "Min App Version"
+          },
+          "modbus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModbusRegisterMap"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "name": {
             "maxLength": 120,
@@ -1232,7 +1418,8 @@
           "charge_limit",
           "discharge_limit",
           "grid_charge",
-          "battery_modes"
+          "battery_modes",
+          "hardware_fallback"
         ],
         "title": "Capability",
         "type": "string"
@@ -1476,6 +1663,16 @@
           "active": {
             "title": "Active",
             "type": "boolean"
+          },
+          "battery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryControlState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "devices": {
             "items": {
@@ -4509,6 +4706,127 @@
         "title": "LoadTemperatureView",
         "type": "object"
       },
+      "ModbusByteOrder": {
+        "description": "Word order of 32-bit values (Kostal register 5: ``0x00`` little, ``0x01`` big).",
+        "enum": [
+          "little",
+          "big"
+        ],
+        "title": "ModbusByteOrder",
+        "type": "string"
+      },
+      "ModbusLink": {
+        "additionalProperties": false,
+        "description": "How the ``kostal_modbus`` adapter reaches the inverter through ``modbus.write_register``.\n\n``hub`` is the ``name`` of the user's ``modbus:`` YAML hub (HA's default ``modbus_hub``),\n``slave`` the inverter's unit id (Kostal default 71; the action itself would default to 1,\nso it is mandatory here), ``byte_order`` what register 5 reports (the adapter never guesses\nit). ``fallback_timeout_s`` is written to register 1288 (30-10800 s) and ``heartbeat_s`` is\nthe re-write period of 1280/1282; it must be at most a third of the timeout. Research:\n``docs/research/kostal-plenticore-modbus.md`` §3.5, ``ha-websocket-api.md`` \"Modbus write\naction\". ``UNVERIFIED`` on hardware (external battery management is not enabled on the\nmaintainer's inverter yet).",
+        "properties": {
+          "byte_order": {
+            "$ref": "#/components/schemas/ModbusByteOrder"
+          },
+          "fallback_timeout_s": {
+            "default": 60,
+            "maximum": 10800.0,
+            "minimum": 30.0,
+            "title": "Fallback Timeout S",
+            "type": "integer"
+          },
+          "heartbeat_s": {
+            "default": 20.0,
+            "maximum": 3600.0,
+            "minimum": 5.0,
+            "title": "Heartbeat S",
+            "type": "number"
+          },
+          "hub": {
+            "default": "modbus_hub",
+            "pattern": "^[A-Za-z0-9_\\-]{1,64}$",
+            "title": "Hub",
+            "type": "string"
+          },
+          "slave": {
+            "maximum": 255.0,
+            "minimum": 1.0,
+            "title": "Slave",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "slave",
+          "byte_order"
+        ],
+        "title": "ModbusLink",
+        "type": "object"
+      },
+      "ModbusRegisterMap": {
+        "additionalProperties": false,
+        "description": "Registers of a limit-with-fallback battery interface (Kostal §3.5, ``kostal_modbus``).\n\nAddresses as the vendor document gives them (the HA action writes them verbatim). Powers\nare IEEE 754 float32 in two registers, the timeout an unsigned 32-bit value in two\nregisters; the word order comes from the battery configuration (``battery.modbus``).\n``external_control_value`` is what ``external_control_register`` must read before any\nwrite (Kostal 1080 = ``0x02``: external battery management via Modbus).",
+        "properties": {
+          "external_control_register": {
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "External Control Register",
+            "type": "integer"
+          },
+          "external_control_value": {
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "External Control Value",
+            "type": "integer"
+          },
+          "fallback_max_charge": {
+            "maximum": 65534.0,
+            "minimum": 0.0,
+            "title": "Fallback Max Charge",
+            "type": "integer"
+          },
+          "fallback_max_discharge": {
+            "maximum": 65534.0,
+            "minimum": 0.0,
+            "title": "Fallback Max Discharge",
+            "type": "integer"
+          },
+          "fallback_timeout": {
+            "maximum": 65534.0,
+            "minimum": 0.0,
+            "title": "Fallback Timeout",
+            "type": "integer"
+          },
+          "fallback_timeout_max_s": {
+            "minimum": 1.0,
+            "title": "Fallback Timeout Max S",
+            "type": "integer"
+          },
+          "fallback_timeout_min_s": {
+            "minimum": 1.0,
+            "title": "Fallback Timeout Min S",
+            "type": "integer"
+          },
+          "max_charge": {
+            "maximum": 65534.0,
+            "minimum": 0.0,
+            "title": "Max Charge",
+            "type": "integer"
+          },
+          "max_discharge": {
+            "maximum": 65534.0,
+            "minimum": 0.0,
+            "title": "Max Discharge",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_charge",
+          "max_discharge",
+          "fallback_max_charge",
+          "fallback_max_discharge",
+          "fallback_timeout",
+          "fallback_timeout_min_s",
+          "fallback_timeout_max_s",
+          "external_control_register",
+          "external_control_value"
+        ],
+        "title": "ModbusRegisterMap",
+        "type": "object"
+      },
       "Mode": {
         "additionalProperties": false,
         "description": "One mode of a mode-controlled device and the power it draws.",
@@ -4729,6 +5047,10 @@
         "additionalProperties": false,
         "description": "Stored operating modes. Not read by the safety gate before Phase 3.\n\nDevices that are new at ``devices`` put/import time lose any entry here (shadow).",
         "properties": {
+          "battery_mode": {
+            "$ref": "#/components/schemas/OperatingMode",
+            "default": "shadow"
+          },
           "device_modes": {
             "patternProperties": {
               "^[a-z][a-z0-9_]{0,47}$": {
@@ -7791,7 +8113,8 @@
               "device",
               "tariff",
               "forecast",
-              "region"
+              "region",
+              "battery"
             ],
             "title": "Kind",
             "type": "string"
@@ -9503,6 +9826,65 @@
           }
         },
         "summary": "Info"
+      }
+    },
+    "/api/v1/operation/battery": {
+      "put": {
+        "description": "Set the battery's mode (ADR-0013). Anything above shadow needs the battery's\n``identity`` token from the control state; shadow never does. An adapter whose hardware\nfallback is not measured runs at most assisted whatever is stored.",
+        "operationId": "set_battery_mode_api_v1_operation_battery_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatteryModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No battery adapter (observe-only)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The battery changed since its identity was read"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Set Battery Mode"
       }
     },
     "/api/v1/operation/devices/{device_id}": {

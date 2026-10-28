@@ -37,17 +37,20 @@ import pytest
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from suncore.core.battery import BatteryModel, BatterySettings, ModbusByteOrder, ModbusLink
 from suncore.core.devices import DeviceConfig
 from suncore.core.entities import EntityMeta
 from suncore.core.series import TimeRange, floor_to_step
 from suncore.core.site import EntityRef
 from suncore.core.units import Dimension, parse_unit
+from suncore.devices.battery import create_battery_driver
 from suncore.ha.connection import EntityState
 from suncore.sim.fake_ha import FakeHAConnection
 from suncore.sim.scenario import load_scenario
 from suncore.tariff import EntityReading, SourceBinding, TemplatePriceSource
 from suncore.tariff.units import normalise_price_unit
 from suncore.templates import (
+    BatteryTemplate,
     DeviceTemplate,
     ForecastTemplate,
     RegionTemplate,
@@ -124,6 +127,8 @@ class ScenarioFile(BaseModel):
     extra_entities: list[ExtraEntity] = Field(default_factory=list)
     roles: dict[str, RoleExpectation]
     expect: SeriesExpectation | None = None
+    capabilities: list[str] | None = None
+    """Battery templates: what the adapter built from the resolved mapping can execute."""
 
 
 def _scenario_files() -> dict[str, Path]:
@@ -212,7 +217,7 @@ def _check_tied(
 
 
 @pytest.mark.parametrize("template_id", sorted(FILES))
-async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> None:
+async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> None:  # noqa: PLR0912 - one branch per kind
     scenario = _load(FILES[template_id])
     template = CATALOG.templates[template_id]
     fixture = _fixture(scenario)
@@ -259,6 +264,52 @@ async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> No
         await _check_forecast(template, fake, resolved, states)
     elif isinstance(template, RegionTemplate):
         await _check_region(template, fake)
+    elif isinstance(template, BatteryTemplate):
+        await _check_battery(template, scenario, resolved, states)
+
+
+async def _check_battery(
+    template: BatteryTemplate,
+    scenario: ScenarioFile,
+    resolved: Mapping[str, EntityMeta],
+    states: Mapping[str, EntityState],
+) -> None:
+    """The real adapter is built from the resolved mapping; it reports the expected
+    capabilities and live ranges, and its read-back works on the fixture states."""
+    for name, spec in template.roles.items():
+        if spec.required:
+            assert name in resolved, f"required role {name} unresolved"
+    settings = BatterySettings(
+        adapter_template_id=template.id,
+        entities={r: EntityRef(entity_id=m.entity_id) for r, m in resolved.items()},
+        model=BatteryModel(capacity_wh=10_000, max_charge_w=5000, max_discharge_w=5000),
+        modbus=ModbusLink(slave=71, byte_order=ModbusByteOrder.LITTLE)
+        if template.driver == "kostal_modbus"
+        else None,
+    )
+
+    async def no_write(*_: object, **__: object) -> object:
+        msg = "conformance never writes"
+        raise AssertionError(msg)
+
+    driver = create_battery_driver(
+        template.adapter_spec(),
+        settings,
+        write=no_write,
+        states=states.get,  # type: ignore[arg-type]
+    )
+    assert scenario.capabilities is not None, "battery scenarios state the capabilities"
+    assert sorted(c.value for c in driver.capabilities) == sorted(scenario.capabilities)
+    assert await driver.read_back() is not None
+    ranges = driver.ranges()
+    for field in ("max_charge_w", "max_discharge_w", "min_soc_pct", "grid_charge_w"):
+        capability = {
+            "max_charge_w": "charge_limit",
+            "max_discharge_w": "discharge_limit",
+            "min_soc_pct": "min_soc",
+            "grid_charge_w": "grid_charge",
+        }[field]
+        assert (ranges.of(field) is not None) == (capability in scenario.capabilities), field
 
 
 def _check_device(

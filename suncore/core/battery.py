@@ -12,11 +12,13 @@ with the other action variants and is re-exported here.
 
 from __future__ import annotations
 
+import math
+from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from enum import StrEnum, unique
 from typing import Annotated, Final, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from suncore.core.decisions import BatteryAction
 from suncore.core.devices import RoleName, TemplateId
@@ -39,6 +41,102 @@ DEFAULT_RESERVE_PCT: Final = 10.0
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+BATTERY_ASSET_ID: Final = "battery"
+"""The asset id of the (one) battery in intents, decisions and the gate (ADR-0013 decision 6)."""
+
+
+@unique
+class BatteryCapability(StrEnum):
+    """What a battery adapter can execute (ADR-0013 decision 1)."""
+
+    CHARGE_LIMIT = "charge_limit"
+    """``max_charge_w``: cap the charging power of the inverter's own control."""
+    DISCHARGE_LIMIT = "discharge_limit"
+    """``max_discharge_w``: cap the discharging power (0 = discharge lock)."""
+    MIN_SOC = "min_soc"
+    """``min_soc_pct``: the inverter's discharge floor (reserve, discharge lock)."""
+    GRID_CHARGE = "grid_charge"
+    """``grid_charge_w``: forced charging from the grid."""
+    HARDWARE_FALLBACK = "hardware_fallback"
+    """The inverter falls back to its own limits when SunCore stops re-writing (Kostal §3.5)."""
+
+
+BATTERY_ACTION_FIELDS: Final = ("max_charge_w", "max_discharge_w", "min_soc_pct", "grid_charge_w")
+"""The limit fields of a :class:`BatteryAction`, in a fixed order."""
+
+FIELD_CAPABILITY: Final[dict[str, BatteryCapability]] = {
+    "max_charge_w": BatteryCapability.CHARGE_LIMIT,
+    "max_discharge_w": BatteryCapability.DISCHARGE_LIMIT,
+    "min_soc_pct": BatteryCapability.MIN_SOC,
+    "grid_charge_w": BatteryCapability.GRID_CHARGE,
+}
+"""The capability a non-``None`` field of a :class:`BatteryAction` needs."""
+
+
+def action_fields(action: BatteryAction) -> dict[str, float | None]:
+    """The limit fields of ``action`` by name (``None`` = baseline)."""
+    return {name: getattr(action, name) for name in BATTERY_ACTION_FIELDS}
+
+
+def resolve_battery_action(action: BatteryAction, baseline: BatteryAction | None) -> BatteryAction:
+    """The full state ``action`` asks for: every ``None`` field taken from ``baseline``.
+
+    ADR-0013 decision 2: ``None`` = the baseline value of that field. A field the baseline does
+    not know either stays ``None`` (the adapter leaves it untouched). The validator of
+    :class:`BatteryAction` still holds: a baseline charge cap below the requested grid-charge
+    power is not inherited (forced charging asks for its own power; the gate bounds it), and an
+    inherited grid-charge power above a requested cap is lowered to the cap.
+    """
+    if baseline is None:
+        return action
+    values = action_fields(action)
+    for name, value in action_fields(baseline).items():
+        if values[name] is None and value is not None:
+            values[name] = value
+    grid, cap = values["grid_charge_w"], values["max_charge_w"]
+    if grid is not None and cap is not None and grid > cap:
+        if action.max_charge_w is None:
+            values["max_charge_w"] = None  # inherited cap: forced charging brings its own power
+        else:
+            values["grid_charge_w"] = cap  # inherited forced charging: SunCore's cap wins
+    return BatteryAction(**values)
+
+
+@dataclass(frozen=True, slots=True)
+class FieldRange:
+    """The live range of one battery limit (in the field's unit: W or %)."""
+
+    low: float
+    high: float
+    step: float | None = None
+    """Quantisation of the entity (e.g. Kostal ``Battery:MinSoc`` step 5); ``None`` = none."""
+
+    def contains(self, value: float, tolerance: float = 1e-6) -> bool:
+        return self.low - tolerance <= value <= self.high + tolerance
+
+
+@dataclass(frozen=True, slots=True)
+class BatteryRanges:
+    """What the adapter can write right now, per field (``None`` = unknown, nothing allowed)."""
+
+    max_charge_w: FieldRange | None = None
+    max_discharge_w: FieldRange | None = None
+    min_soc_pct: FieldRange | None = None
+    grid_charge_w: FieldRange | None = None
+
+    def of(self, name: str) -> FieldRange | None:
+        value: FieldRange | None = getattr(self, name)
+        return value
+
+
+def round_up_to_step(value: float, step: float | None, low: float = 0.0) -> float:
+    """``value`` rounded **up** onto ``low + k * step`` (a floor is never lowered by rounding)."""
+    if step is None or step <= 0:
+        return value
+    k = math.ceil((value - low) / step - 1e-9)
+    return round(low + k * step, 6)
 
 
 class BatteryModel(_Frozen):
@@ -228,6 +326,51 @@ class CalibrationCharge(_Frozen):
     target_soc_pct: Pct = 100.0
 
 
+@unique
+class ModbusByteOrder(StrEnum):
+    """Word order of 32-bit values (Kostal register 5: ``0x00`` little, ``0x01`` big)."""
+
+    LITTLE = "little"
+    """CDAB: the low word first (Kostal default)."""
+    BIG = "big"
+    """ABCD: the high word first (SunSpec)."""
+
+
+HubName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_\-]{1,64}$")]
+
+
+class ModbusLink(_Frozen):
+    """How the ``kostal_modbus`` adapter reaches the inverter through ``modbus.write_register``.
+
+    ``hub`` is the ``name`` of the user's ``modbus:`` YAML hub (HA's default ``modbus_hub``),
+    ``slave`` the inverter's unit id (Kostal default 71; the action itself would default to 1,
+    so it is mandatory here), ``byte_order`` what register 5 reports (the adapter never guesses
+    it). ``fallback_timeout_s`` is written to register 1288 (30-10800 s) and ``heartbeat_s`` is
+    the re-write period of 1280/1282; it must be at most a third of the timeout. Research:
+    ``docs/research/kostal-plenticore-modbus.md`` §3.5, ``ha-websocket-api.md`` "Modbus write
+    action". ``UNVERIFIED`` on hardware (external battery management is not enabled on the
+    maintainer's inverter yet).
+    """
+
+    hub: HubName = "modbus_hub"
+    slave: Annotated[int, Field(ge=1, le=255)]
+    byte_order: ModbusByteOrder
+    heartbeat_s: Annotated[float, Field(ge=5, le=3600)] = 20.0
+    fallback_timeout_s: Annotated[int, Field(ge=30, le=10_800)] = 60
+
+    @model_validator(mode="after")
+    def _heartbeat(self) -> Self:
+        if self.heartbeat_s * 3 > self.fallback_timeout_s:
+            raise invalid(
+                "modbus_heartbeat_too_slow",
+                "battery.modbus: heartbeat_s ({heartbeat_s}) must be at most a third of "
+                "fallback_timeout_s ({timeout_s})",
+                heartbeat_s=self.heartbeat_s,
+                timeout_s=self.fallback_timeout_s,
+            )
+        return self
+
+
 BATTERY_SCHEMA_VERSION: Final = 1
 
 
@@ -264,8 +407,20 @@ class BatterySettings(_Frozen):
     (0.01) is a tie-breaker: it prefers self-sufficiency only where the cost difference is
     below 1 ct/kWh, which also removes LP degeneracy on flat tariffs; 0 = pure cost."""
 
+    modbus: ModbusLink | None = None
+    """``kostal_modbus`` adapter only: hub, unit id and word order (additive in v1, WP10)."""
+    fallback_measured: bool = False
+    """The maintainer measured the adapter's hardware fallback (Kostal §3.5 timer) on the real
+    inverter. Until then the gate caps an adapter with ``hardware_fallback`` at **assisted**
+    (ADR-0013 decision 6, plan §6 question 3). Additive in v1 (WP10)."""
+
     @model_validator(mode="after")
     def _consistent(self) -> Self:
+        if self.modbus is not None and self.adapter_template_id is None:
+            raise invalid(
+                "battery_modbus_needs_adapter",
+                "battery: a modbus link needs an adapter template",
+            )
         if self.entities and self.adapter_template_id is None:
             raise invalid(
                 "battery_entities_need_adapter",
@@ -291,6 +446,8 @@ class BatterySettings(_Frozen):
 
 
 __all__ = [
+    "BATTERY_ACTION_FIELDS",
+    "BATTERY_ASSET_ID",
     "BATTERY_SCHEMA_VERSION",
     "DEFAULT_AUTARKY_WEIGHT_PER_KWH",
     "DEFAULT_BMS_DRIFT_PCT",
@@ -298,12 +455,21 @@ __all__ = [
     "DEFAULT_EFFICIENCY",
     "DEFAULT_GRID_CHARGE_MARGIN_PER_KWH",
     "DEFAULT_RESERVE_PCT",
+    "FIELD_CAPABILITY",
     "BatteryAction",
+    "BatteryCapability",
     "BatteryModel",
+    "BatteryRanges",
     "BatterySettings",
     "BatteryStrategy",
     "CalibrationCharge",
+    "FieldRange",
     "GridChargePolicy",
+    "ModbusByteOrder",
+    "ModbusLink",
     "RiskLevel",
+    "action_fields",
     "effective_reserve_pct",
+    "resolve_battery_action",
+    "round_up_to_step",
 ]

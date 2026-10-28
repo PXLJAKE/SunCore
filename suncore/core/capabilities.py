@@ -35,3 +35,5 @@ class Capability(StrEnum):
     DISCHARGE_LIMIT = "discharge_limit"
     GRID_CHARGE = "grid_charge"
     BATTERY_MODES = "battery_modes"
+    HARDWARE_FALLBACK = "hardware_fallback"
+    """The inverter falls back to its own limits when SunCore stops writing (Phase 4 WP10)."""

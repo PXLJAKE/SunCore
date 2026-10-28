@@ -28,6 +28,8 @@ log = structlog.get_logger(__name__)
 KEY_EMERGENCY_STOP: Final = "emergency_stop"
 KEY_MODE_IDENTITIES: Final = "mode_identities"
 """Identity record of the devices that hold a non-shadow mode (see ``ConfigStore``)."""
+KEY_BATTERY_MODE_IDENTITY: Final = "battery_mode_identity"
+"""Battery identity token under which a non-shadow battery mode was granted (ADR-0013)."""
 
 
 def _now() -> datetime:
@@ -135,6 +137,7 @@ class PowerModelStateStore:
 
 
 __all__ = [
+    "KEY_BATTERY_MODE_IDENTITY",
     "KEY_EMERGENCY_STOP",
     "KEY_MODE_IDENTITIES",
     "PowerModelStateStore",

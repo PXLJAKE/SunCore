@@ -101,6 +101,12 @@ def writer_of(source: object) -> WriterFn:
     return _no_capability
 
 
+def build_actuator[A: Actuator](source: object, make: Callable[[WriterFn], A]) -> A:
+    """One actuator built by ``make(write)`` with the connection's writer (the battery adapter,
+    Phase 4 WP10; the composition root never names the write capability)."""
+    return make(writer_of(source))
+
+
 def build_actuators[A: Actuator](
     source: object,
     devices: Iterable[DeviceConfig],
@@ -117,6 +123,7 @@ __all__ = [
     "WriteOutcome",
     "WriteSource",
     "WriterFn",
+    "build_actuator",
     "build_actuators",
     "writer_of",
 ]
