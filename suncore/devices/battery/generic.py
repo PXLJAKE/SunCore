@@ -101,6 +101,9 @@ class GenericBatteryDriver(BatteryDriver):
         self._capabilities = self._derive_capabilities()
         self._user_option: str | None = None
         self._user_switch_on: bool | None = None
+        self._attempted = False
+        """A write was attempted since the last completed release: the select/switch may show
+        SunCore's own (partial) position, never the user's choice (review 4-G re-check)."""
 
     # --- capabilities and ranges -------------------------------------------------------------
 
@@ -237,8 +240,11 @@ class GenericBatteryDriver(BatteryDriver):
     async def apply(self, intent: Intent) -> str | None:
         action = self.battery_action(intent)
         self.begin()
-        if self._applied is None:
+        if not self._attempted:
+            # Only before the first write attempt: after a failed or partial write the select
+            # and switch may already show SunCore's position (review 4-G re-check, minor 3).
             self._remember_user_options()
+            self._attempted = True
         await self._write_state(action)
         self._applied = action
         return self.last_context_id()
@@ -367,6 +373,7 @@ class GenericBatteryDriver(BatteryDriver):
             await self._write_switch(on=bool(self._user_switch_on))
         self._user_option = None
         self._user_switch_on = None
+        self._attempted = False
 
 
 __all__ = ["GenericBatteryDriver"]

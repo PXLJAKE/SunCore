@@ -5,7 +5,7 @@ heartbeat, release paths, override, watchdog - with a fake battery adapter."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Any
 
 import pytest
@@ -31,6 +31,8 @@ from suncore.core.decisions import (
     ReleaseAction,
     SwitchAction,
 )
+from suncore.core.devices import OverridePolicy
+from suncore.safety import overrides
 from suncore.safety.battery import BatteryActuator, BatteryGateConfig, BatteryWatch
 from suncore.safety.gate import SafetyGate
 from suncore.safety.modes import StaticModes
@@ -619,6 +621,130 @@ async def test_a_user_change_during_the_release_is_kept() -> None:
     done = [d for _ in range(4) for d in await r.tick(5)]
     assert [keys(d) for d in done] == [["safety.released", "safety.battery_override"]]
     assert r.battery.state == user
+    # Review 4-G re-check, minor 2: the user's choice is held like a lease override (04:00).
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert runtime.override
+    assert runtime.override_until == overrides.resume_at(OverridePolicy(), done[0].ts, UTC)
+    assert runtime.is_held(r.clock.now)
+    await r.gate.clear_emergency_stop()
+    assert (await r.submit(BatteryAction(max_discharge_w=0))).kind is DecisionKind.HELD
+    assert r.battery.state == user
+
+
+async def test_a_late_landing_own_write_is_never_taken_for_a_user_value() -> None:
+    """Review 4-G re-check (reviewer probe 3): a pending write that lands after its read-back
+    window, behind an earlier confirmed write, is SunCore's state - the release writes the
+    original baseline and waits for the read-back instead of keeping SunCore's 45 % floor."""
+    r = rig()
+    first = await r.submit(BatteryAction(max_discharge_w=0))
+    assert first.kind is DecisionKind.ACCEPTED, keys(first)
+    r.clock.advance(120)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    r.battery.silent_fail = True
+    late = await r.submit(BatteryAction(min_soc_pct=45))
+    assert late.kind is DecisionKind.FAILED, keys(late)
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert isinstance(late.intent.action, BatteryAction)
+    r.battery.state = resolve_battery_action(late.intent.action, runtime.baseline)  # lands late
+    r.battery.silent_fail = False
+    await r.gate.emergency_stop()
+    assert r.battery.released == [BASE]
+    assert r.battery.state == BASE
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert not runtime.override  # nothing was the user's
+    assert "safety.battery_override" not in [k for d in r.decisions for k in keys(d)]
+
+
+async def test_a_partial_own_write_is_restored_and_only_the_users_field_is_kept() -> None:
+    """Review 4-G re-check, mixed multi-field case: one field still shows SunCore's partly
+    applied write, another the user's value - SunCore's goes back to the baseline, the user's
+    stays, the result is proven by read-back and held as an override."""
+    r = rig()
+    await r.submit(BatteryAction(max_discharge_w=0))
+    r.clock.advance(120)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+
+    async def partial(intent: Intent) -> str | None:  # only the SoC floor reaches the battery
+        assert isinstance(intent.action, BatteryAction)
+        assert isinstance(r.battery.state, BatteryAction)
+        r.battery.state = r.battery.state.model_copy(
+            update={"min_soc_pct": intent.action.min_soc_pct}
+        )
+        msg = "number.max_discharge did not answer"
+        raise RuntimeError(msg)
+
+    r.battery.apply = partial  # type: ignore[method-assign]
+    failed = await r.submit(BatteryAction(max_discharge_w=1000, min_soc_pct=45))
+    assert failed.kind is DecisionKind.FAILED, keys(failed)
+    assert isinstance(r.battery.state, BatteryAction)
+    # SunCore's 0 W cap and 45 % floor are on the battery; the user lowers the charge cap.
+    r.battery.state = r.battery.state.model_copy(update={"max_charge_w": 3000})
+    await r.gate.emergency_stop()
+    kept = BASE.model_copy(update={"max_charge_w": 3000})
+    assert r.battery.released == [kept]
+    assert r.battery.state == kept
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert runtime.under_control  # until the read-back confirms
+    assert runtime.override
+    done = [d for _ in range(6) for d in await r.tick(5)]
+    assert [keys(d) for d in done] == [["safety.released", "safety.battery_release_confirmed"]]
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert not runtime.under_control
+    assert runtime.attempted == ()
+    assert runtime.is_held(r.clock.now)
+
+
+async def test_a_partial_own_write_without_user_change_restores_the_full_baseline() -> None:
+    r = rig()
+    await r.submit(BatteryAction(max_discharge_w=0))
+    r.clock.advance(120)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    landed = BASE.model_copy(update={"max_discharge_w": 1000})  # half of a two-field write
+
+    async def partial(_: Intent) -> str | None:
+        r.battery.state = landed
+        msg = "timeout"
+        raise RuntimeError(msg)
+
+    r.battery.apply = partial  # type: ignore[method-assign]
+    await r.submit(BatteryAction(max_discharge_w=1000, min_soc_pct=45))
+    await r.gate.emergency_stop()
+    assert r.battery.released == [BASE]
+    assert r.battery.state == BASE
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert not runtime.override
+
+
+async def test_a_late_landing_earlier_write_is_no_lease_override() -> None:
+    """The same class on the lease: an earlier failed write that lands behind a confirmed one
+    is SunCore's own value - no override, the next write brings the held state back."""
+    r = rig()
+    r.battery.silent_fail = True
+    stale = await r.submit(BatteryAction(max_discharge_w=0))
+    assert stale.kind is DecisionKind.FAILED, keys(stale)
+    r.battery.silent_fail = False
+    r.clock.advance(120)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    held = await r.submit(BatteryAction(min_soc_pct=20))
+    assert held.kind is DecisionKind.ACCEPTED, keys(held)
+    r.battery.state = BASE.model_copy(update={"max_discharge_w": 0})  # the stale write lands
+    r.clock.advance(60)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    rows = await r.tick(5)
+    assert "safety.battery_override" not in [k for d in rows for k in keys(d)]
+    runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
+    assert runtime is not None
+    assert runtime.under_control
+    assert not runtime.override
+    again = await r.submit(BatteryAction(min_soc_pct=20))
+    assert again.kind is DecisionKind.ACCEPTED, keys(again)
+    assert r.battery.state == BASE.model_copy(update={"min_soc_pct": 20})
 
 
 # --- watchdog (B8) ------------------------------------------------------------------------------

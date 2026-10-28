@@ -173,6 +173,50 @@ def _with_controls(controls: dict[str, Any], roles: dict[str, Any]) -> BatteryAd
     return BatteryTemplate.model_validate(base).adapter_spec()
 
 
+async def test_a_failed_first_write_never_becomes_the_users_option() -> None:
+    """Review 4-G re-check, minor 3: the select position SunCore's own failed write left is not
+    remembered as the user's choice by the retry; the release restores the user's option."""
+    role = {"matcher": {"domain": "select"}, "description": "template.acme.battery.role.mode"}
+    tpl = _with_controls(
+        {
+            "mode": {
+                "kind": "mode",
+                "options": [
+                    {"value": "Auto", "meaning": "auto"},
+                    {"value": "Hold", "meaning": "no_discharge"},
+                    {"value": "Eco", "meaning": "other"},
+                ],
+            }
+        },
+        {"mode": role},
+    )
+    ha = FakeHA()
+    ha.set("select.mode", "Eco")
+    failures = [RuntimeError("timeout")]
+
+    async def flaky(*args: Any, **kwargs: Any) -> Any:
+        result = await ha.write(*args, **kwargs)
+        if failures:
+            raise failures.pop()  # the call reached HA, the answer did not come back
+        return result
+
+    driver = GenericBatteryDriver(
+        tpl, settings("acme.battery", {"mode": "select.mode"}), write=flaky, states=ha.lookup
+    )
+    with pytest.raises(RuntimeError):
+        await driver.apply(battery_intent(max_discharge_w=0))
+    ha.set("select.mode", "Hold")  # SunCore's write landed after all
+    await driver.apply(battery_intent(max_discharge_w=0))
+    await driver.release(None)
+    assert ha.sent[-1][3] == {"option": "Eco"}
+    # After a completed release the next takeover remembers the user's option again.
+    ha.set("select.mode", "Auto")
+    await driver.apply(battery_intent(max_discharge_w=0))
+    ha.set("select.mode", "Hold")
+    await driver.release(None)
+    assert ha.sent[-1][3] == {"option": "Auto"}
+
+
 async def test_select_based_lock_and_force_charge() -> None:
     role = {"matcher": {"domain": "select"}, "description": "template.acme.battery.role.mode"}
     tpl = _with_controls(

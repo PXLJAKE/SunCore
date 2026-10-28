@@ -98,7 +98,9 @@ from suncore.safety.battery import (
     plan_band,
     quantise,
     readable_fields,
+    restore_target,
     same_state,
+    user_changed_fields,
 )
 from suncore.safety.invariants import (
     InvariantContext,
@@ -914,6 +916,7 @@ class SafetyGate:
                             "baseline": baseline,
                             "baseline_ts": now,
                             "identity": config.identity,
+                            "attempted": (),
                         }
                     )
                     took_over = True
@@ -925,7 +928,14 @@ class SafetyGate:
                     if not armed:
                         self._limiter.release_slot(BATTERY_ASSET_ID, previous_slot)
                     return await self._decide(intent, DecisionKind.REJECTED, now, violations, mode)
-                if took_over:
+                # Every target SunCore sends is remembered (and saved) *before* the write: a
+                # write that lands late or only in part is never taken for the user's own
+                # state by a release (review 4-G re-check).
+                if took_over or ctx.target not in runtime.attempted:
+                    if ctx.target not in runtime.attempted:
+                        runtime = runtime.model_copy(
+                            update={"attempted": (*runtime.attempted, ctx.target)}
+                        )
                     await self._save(runtime)
                 written = intent.model_copy(update={"action": ctx.target})
                 try:
@@ -1094,7 +1104,13 @@ class SafetyGate:
         base = runtime.baseline if isinstance(runtime.baseline, BatteryAction) else None
         target = quantise(resolve_battery_action(held, base), actuator.ranges())
         observed = await actuator.read_back()
-        if observed is None or same_state(target, observed, readable_fields(actuator.capabilities)):
+        fields = readable_fields(actuator.capabilities)
+        if observed is None or same_state(target, observed, fields):
+            return None
+        if not user_changed_fields(observed, runtime.baseline, self._own_targets(runtime), fields):
+            # Only SunCore's own earlier values (a late-landing write): no override; the next
+            # write or heartbeat brings the held state back (review 4-G re-check).
+            log.info("safety.battery_own_state_late", observed=observed.model_dump())
             return None
         async with self._lock(BATTERY_ASSET_ID):
             until = overrides.resume_at(_DEFAULT_POLICY, now, self._tz)
@@ -1105,6 +1121,7 @@ class SafetyGate:
                     "last_written": None,
                     "pending_action": None,
                     "pending_ts": None,
+                    "attempted": (),
                 }
             )
             await self._save(released)
@@ -1466,11 +1483,6 @@ class SafetyGate:
         fields = readable_fields(caps)
         fallback = BatteryCapability.HARDWARE_FALLBACK in caps
         observed = await actuator.read_back()
-        held = runtime.last_written or runtime.pending_action
-        held_target: Action | None = None
-        if isinstance(held, BatteryAction) and isinstance(actuator, BatteryActuator):
-            base = baseline if isinstance(baseline, BatteryAction) else None
-            held_target = quantise(resolve_battery_action(held, base), actuator.ranges())
         checking = runtime.release_due_reason == REASON_BATTERY_RELEASE_CHECK.key
         if observed is not None and same_state(baseline, observed, fields):
             return await self._battery_released(
@@ -1480,15 +1492,25 @@ class SafetyGate:
                 mode,
                 (REASON_RELEASED, REASON_BATTERY_RELEASE_CONFIRMED if checking else reason),
             )
-        if (
-            observed is not None
-            and not fallback
-            and (held_target is None or not same_state(held_target, observed, fields))
-        ):
-            # Neither the baseline nor SunCore's state: the user set the limits meanwhile.
-            return await self._battery_released(
-                intent, runtime, now, mode, (REASON_RELEASED, REASON_BATTERY_OVERRIDE)
-            )
+        if observed is not None and not fallback:
+            # A field is the user's only if it differs from the baseline *and* from every value
+            # SunCore wrote or attempted for it; everything else goes back to the baseline and
+            # is proven by read-back (review 4-G re-check: a late-landing or partly applied
+            # write of SunCore's never passes for a user value).
+            user = user_changed_fields(observed, baseline, self._own_targets(runtime), fields)
+            if user:
+                baseline = restore_target(baseline, observed, user)
+                if baseline != runtime.baseline:
+                    until = overrides.resume_at(_DEFAULT_POLICY, now, self._tz)
+                    runtime = overrides.hold_until(runtime, until).model_copy(
+                        update={"baseline": baseline}
+                    )
+                    log.info("safety.battery_override", until=until, fields=user)
+                if same_state(baseline, observed, fields):
+                    return await self._battery_released(
+                        intent, runtime, now, mode, (REASON_RELEASED, REASON_BATTERY_OVERRIDE)
+                    )
+                await self._save(runtime)
         attempt = self._release_attempts.get(BATTERY_ASSET_ID, 0)
         try:
             await actuator.release(baseline)
@@ -1564,6 +1586,7 @@ class SafetyGate:
                 "pending_ts": None,
                 "release_due_ts": None,
                 "release_due_reason": None,
+                "attempted": (),
             }
         )
         await self._save(released)
@@ -1571,6 +1594,18 @@ class SafetyGate:
             k: v for k, v in self._proposals.items() if v.intent.asset_id != BATTERY_ASSET_ID
         }
         return await self._decide(intent, DecisionKind.ACCEPTED, now, reasons, mode)
+
+    def _own_targets(self, runtime: DeviceRuntime) -> tuple[Action, ...]:
+        """Every battery state SunCore wrote or attempted while under control (resolved)."""
+        own: list[Action] = list(runtime.attempted)
+        actuator = self._battery_actuator()
+        base = runtime.baseline if isinstance(runtime.baseline, BatteryAction) else None
+        for held in (runtime.last_written, runtime.pending_action):
+            if isinstance(held, BatteryAction):
+                own.append(resolve_battery_action(held, base))
+                if actuator is not None:
+                    own.append(quantise(resolve_battery_action(held, base), actuator.ranges()))
+        return tuple(own)
 
     def _identity_of(self, asset_id: str) -> str | None:
         """The configured identity token of an asset (``None`` = not configured)."""

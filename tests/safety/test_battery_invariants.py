@@ -37,7 +37,9 @@ from suncore.safety.battery import (
     plan_band,
     projected_import_w,
     quantise,
+    restore_target,
     same_state,
+    user_changed_fields,
 )
 
 NOW = datetime(2026, 10, 24, 2, 0, tzinfo=UTC)
@@ -548,3 +550,63 @@ def test_the_generator_produces_accepted_actions_of_every_kind() -> None:
     assert find(
         contexts(), lambda c: accepted(c) and c.requested.min_soc_pct is not None, settings=quick
     )
+
+
+# --- release: whose value is it (review 4-G re-check) -------------------------------------------
+
+_FIELDS = ("max_charge_w", "max_discharge_w", "min_soc_pct", "grid_charge_w")
+_power = st.integers(min_value=0, max_value=50).map(lambda n: float(n * 100))
+_soc = st.integers(min_value=1, max_value=20).map(lambda n: float(n * 5))
+
+
+@st.composite
+def _limits(draw: Any) -> BatteryAction:
+    charge = draw(_power)
+    return BatteryAction(
+        max_charge_w=charge,
+        max_discharge_w=draw(_power),
+        min_soc_pct=draw(_soc),
+        grid_charge_w=draw(st.sampled_from([0.0, charge])),
+    )
+
+
+@given(base=_limits(), own=st.lists(_limits(), min_size=1, max_size=4), data=st.data())
+@settings(max_examples=300, deadline=None)
+def test_own_or_baseline_values_are_never_the_users(
+    base: BatteryAction, own: list[BatteryAction], data: Any
+) -> None:
+    """Every field shows the baseline or some value SunCore wrote/attempted (late, partial,
+    any mix): nothing is the user's, so a release writes the full baseline."""
+    sources = [base, *own]
+    observed = {name: getattr(data.draw(st.sampled_from(sources)), name) for name in _FIELDS}
+    mixed = BatteryAction.model_construct(**observed)
+    assert user_changed_fields(mixed, base, own, _FIELDS) == ()
+    assert restore_target(base, mixed, ()) == base
+
+
+@given(base=_limits(), own=st.lists(_limits(), max_size=4), name=st.sampled_from(_FIELDS))
+@settings(max_examples=300, deadline=None)
+def test_a_value_nobody_wrote_is_the_users_and_kept(
+    base: BatteryAction, own: list[BatteryAction], name: str
+) -> None:
+    taken = {getattr(a, name) for a in (base, *own)}
+    value = next(v for v in (n * 100.0 + 50.0 for n in range(60)) if v not in taken)
+    if name == "min_soc_pct":
+        value = next(v for v in (n * 5.0 + 2.5 for n in range(20)) if v not in taken)
+    observed = base.model_copy(update={name: value})
+    assert user_changed_fields(observed, base, own, _FIELDS) == (name,)
+    restored = restore_target(base, observed, (name,))
+    if (
+        name in {"grid_charge_w", "max_charge_w"}
+        and observed.grid_charge_w is not None
+        and (observed.max_charge_w is not None and observed.grid_charge_w > observed.max_charge_w)
+    ):
+        assert restored == base  # an invalid mix falls back to the known-good baseline
+    else:
+        assert restored == observed
+
+
+def test_an_unreadable_field_is_never_the_users() -> None:
+    base = BatteryAction(max_charge_w=5000, max_discharge_w=5000, min_soc_pct=10, grid_charge_w=0)
+    observed = BatteryAction(max_charge_w=5000, max_discharge_w=None, min_soc_pct=10)
+    assert user_changed_fields(observed, base, (), _FIELDS) == ()

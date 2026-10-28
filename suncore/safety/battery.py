@@ -514,6 +514,68 @@ def same_state(a: Action | None, b: Action | None, fields: Sequence[str]) -> boo
     return True
 
 
+def _field_equal(name: str, a: float | None, b: float | None) -> bool:
+    if a is None or b is None:
+        return False
+    tolerance = SOC_TOLERANCE_PCT if name == "min_soc_pct" else POWER_TOLERANCE_W
+    return abs(a - b) <= tolerance
+
+
+def user_changed_fields(
+    observed: Action | None,
+    baseline: Action | None,
+    own: Sequence[Action],
+    fields: Sequence[str],
+) -> tuple[str, ...]:
+    """The fields of ``observed`` that only the user can have set (review 4-G re-check).
+
+    A field counts as changed by the user only if its read-back value differs from the
+    ``baseline`` **and** from every value SunCore wrote or attempted for it (``own``: the
+    resolved targets of all writes while under control). A late-landing or partly applied
+    SunCore write therefore never passes for the user's choice. An unreadable field is
+    never the user's (unknown is restored, not kept).
+    """
+    if not isinstance(observed, BatteryAction):
+        return ()
+    base = baseline if isinstance(baseline, BatteryAction) else None
+    changed: list[str] = []
+    for name in fields:
+        got = getattr(observed, name)
+        if got is None:
+            continue
+        if base is not None and _field_equal(name, getattr(base, name), got):
+            continue
+        if any(
+            isinstance(action, BatteryAction) and _field_equal(name, getattr(action, name), got)
+            for action in own
+        ):
+            continue
+        changed.append(name)
+    return tuple(changed)
+
+
+def restore_target(
+    baseline: Action | None, observed: Action | None, user_fields: Sequence[str]
+) -> Action | None:
+    """What a release restores: the baseline, with the user's own fields kept.
+
+    Falls back to the plain baseline when the mix is not a valid ``BatteryAction`` (the
+    known-good takeover state wins over a combination nobody chose).
+    """
+    if (
+        not user_fields
+        or not isinstance(baseline, BatteryAction)
+        or not isinstance(observed, BatteryAction)
+    ):
+        return baseline
+    values = baseline.model_dump()
+    values.update({name: getattr(observed, name) for name in user_fields})
+    try:
+        return BatteryAction.model_validate(values)
+    except ValueError:
+        return baseline
+
+
 def readable_fields(capabilities: frozenset[BatteryCapability]) -> tuple[str, ...]:
     """The action fields an adapter with ``capabilities`` writes and reads back."""
     return tuple(name for name in BATTERY_ACTION_FIELDS if FIELD_CAPABILITY[name] in capabilities)
@@ -623,5 +685,7 @@ __all__ = [
     "projected_import_w",
     "quantise",
     "readable_fields",
+    "restore_target",
     "same_state",
+    "user_changed_fields",
 ]
