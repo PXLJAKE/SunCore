@@ -28,12 +28,12 @@ test.describe('Plan view', () => {
     const chart = page.getByTestId('plan-chart');
     await expect(chart.locator('canvas').first()).toBeVisible();
     const box = (await chart.boundingBox())!;
+    const x = box.width * 0.45;
     await expect
       .poll(
         async () => {
           // Hover on a desktop, tap on a phone: both end in a click on the same spot.
-          await page.mouse.move(box.x + box.width * 0.4, box.y + 150);
-          await page.mouse.click(box.x + box.width * 0.45, box.y + 150);
+          await chart.click({ position: { x, y: 150 } });
           return page.getByText('Why', { exact: true }).count();
         },
         { timeout: 15_000 },

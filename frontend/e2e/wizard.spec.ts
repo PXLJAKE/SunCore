@@ -62,8 +62,12 @@ test.describe('setup wizard', () => {
     // 5 battery
     await expect(page).toHaveURL(/#\/setup\/battery$/);
     await expect(page.getByTestId('sign-question')).toContainText(/battery is/i);
+    await page.getByRole('combobox', { name: 'Battery adapter' }).selectOption('');
     await expect(page.getByTestId('observe-note')).toBeVisible();
-    await page.getByLabel('Usable capacity').fill('10');
+    await page
+      .getByRole('group', { name: 'Capacity and limits' })
+      .getByLabel('Usable capacity')
+      .fill('10');
     await expectNoAxeViolations(page);
     await next(page).click();
 
