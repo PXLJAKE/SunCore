@@ -954,6 +954,7 @@
   "safety.battery_unplanned_import": "Den Akku zurückzuhalten würde Netzbezug verursachen, und der Plan sieht das nicht vor.",
   "safety.battery_external_control_off": "Externes Batteriemanagement über Modbus ist aus (Register 1080 = {value}, nötig ist {expected}); nichts geschrieben.",
   "safety.battery_byte_order_mismatch": "Der Wechselrichter meldet die Byte-Reihenfolge {reported}, SunCore ist auf {configured} eingestellt: nichts wird geschrieben.",
+  "safety.battery_held_restored": "Der Akku zeigte eine ältere SunCore-Einstellung; SunCore schreibt die aktuelle erneut.",
   "action.battery": "Batterie-Limits setzen",
   "api.validation.forecast_workday_domain": "{entity_id} ist kein Binärsensor. Wähle den Binärsensor der Workday-Integration.",
   "api.validation.forecast_weather_domain": "{entity_id} ist keine Wetter-Entität.",

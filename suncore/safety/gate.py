@@ -179,6 +179,7 @@ REASON_BATTERY_RELEASE_UNCONFIRMED: Final = Reason(key="safety.battery_release_u
 """After a release the battery does not show its baseline: retried with back-off, battery control
 stays blocked (latched in the runtime) until it does or the user changes the limits."""
 REASON_BATTERY_RELEASE_CHECK: Final = Reason(key="safety.battery_release_check")
+REASON_BATTERY_HELD_RESTORED: Final = Reason(key="safety.battery_held_restored")
 """The deferred read-back of a battery release (an adapter without hardware fallback)."""
 REASON_BATTERY_RELEASE_CONFIRMED: Final = Reason(key="safety.battery_release_confirmed")
 """The battery shows its own settings again: control of it has ended."""
@@ -1095,7 +1096,8 @@ class SafetyGate:
     async def _battery_override(
         self, actuator: BatteryActuator, runtime: DeviceRuntime, now: datetime
     ) -> Decision | None:
-        """The held limits changed outside SunCore (after the settle time): let go, no write."""
+        """The held limits changed after the settle time: the user's change lets go (no write);
+        SunCore's own older state is replaced by the held one again (or released)."""
         last = runtime.last_write_ts
         if last is None or (now - last).total_seconds() < 2 * actuator.settle_s:
             return None
@@ -1108,10 +1110,12 @@ class SafetyGate:
         if observed is None or same_state(target, observed, fields):
             return None
         if not user_changed_fields(observed, runtime.baseline, self._own_targets(runtime), fields):
-            # Only SunCore's own earlier values (a late-landing write): no override; the next
-            # write or heartbeat brings the held state back (review 4-G re-check).
+            # Only SunCore's own earlier values (a late-landing write): no override. The battery
+            # runs a state the lease does not judge, so the held state is written again through
+            # the evaluated write path (B1-B9 on the current inputs, read-back); if that is not
+            # accepted, the battery is released (review 4-G approval, minor 2).
             log.info("safety.battery_own_state_late", observed=observed.model_dump())
-            return None
+            return await self._restore_held(actuator, held, now)
         async with self._lock(BATTERY_ASSET_ID):
             until = overrides.resume_at(_DEFAULT_POLICY, now, self._tz)
             released = overrides.hold_until(runtime, until).model_copy(
@@ -1594,6 +1598,25 @@ class SafetyGate:
             k: v for k, v in self._proposals.items() if v.intent.asset_id != BATTERY_ASSET_ID
         }
         return await self._decide(intent, DecisionKind.ACCEPTED, now, reasons, mode)
+
+    async def _restore_held(
+        self, actuator: BatteryActuator, held: BatteryAction, now: datetime
+    ) -> Decision:
+        """Write the held state again (normal evaluated path) or, if refused, release."""
+        intent = Intent(
+            id=f"restore:{BATTERY_ASSET_ID}:{now.isoformat()}",
+            ts=now,
+            asset_id=BATTERY_ASSET_ID,
+            action=held,
+            reasons=(REASON_BATTERY_HELD_RESTORED,),
+            origin=Origin.SAFETY,
+        )
+        mode = self.modes_of(BATTERY_ASSET_ID).effective
+        decision = await self._battery_write(intent, held, actuator, now, mode)
+        if decision.kind is DecisionKind.ACCEPTED:
+            return decision
+        reason = decision.reasons[0] if decision.reasons else REASON_BATTERY_HELD_RESTORED
+        return await self.release_device(BATTERY_ASSET_ID, reason, origin=Origin.SAFETY)
 
     def _own_targets(self, runtime: DeviceRuntime) -> tuple[Action, ...]:
         """Every battery state SunCore wrote or attempted while under control (resolved)."""

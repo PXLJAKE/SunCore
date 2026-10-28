@@ -723,7 +723,8 @@ async def test_a_partial_own_write_without_user_change_restores_the_full_baselin
 
 async def test_a_late_landing_earlier_write_is_no_lease_override() -> None:
     """The same class on the lease: an earlier failed write that lands behind a confirmed one
-    is SunCore's own value - no override, the next write brings the held state back."""
+    is SunCore's own value - no override; the held state is written again at once through the
+    evaluated path (review 4-G approval, minor 2: no heartbeat would restore it)."""
     r = rig()
     r.battery.silent_fail = True
     stale = await r.submit(BatteryAction(max_discharge_w=0))
@@ -736,15 +737,39 @@ async def test_a_late_landing_earlier_write_is_no_lease_override() -> None:
     r.battery.state = BASE.model_copy(update={"max_discharge_w": 0})  # the stale write lands
     r.clock.advance(60)
     r.at(grid_w=600, battery_w=0, soc_pct=40)
+    writes = len(r.battery.applied)
     rows = await r.tick(5)
     assert "safety.battery_override" not in [k for d in rows for k in keys(d)]
+    assert [d.kind for d in rows] == [DecisionKind.ACCEPTED]
+    assert rows[0].intent.reasons[0].key == "safety.battery_held_restored"
+    assert len(r.battery.applied) == writes + 1
+    assert r.battery.state == BASE.model_copy(update={"min_soc_pct": 20})
     runtime = r.gate.runtime_of(BATTERY_ASSET_ID)
     assert runtime is not None
     assert runtime.under_control
     assert not runtime.override
-    again = await r.submit(BatteryAction(min_soc_pct=20))
-    assert again.kind is DecisionKind.ACCEPTED, keys(again)
-    assert r.battery.state == BASE.model_copy(update={"min_soc_pct": 20})
+    assert runtime.last_written == BatteryAction(min_soc_pct=20)
+
+
+async def test_a_refused_rewrite_of_the_held_state_releases() -> None:
+    """If the held state cannot be written again (here: rate limit), the battery is released
+    instead of running SunCore's older, unjudged state until the lease ends."""
+    r = rig(settings=ControlSettings(min_write_interval_s=600))
+    r.battery.silent_fail = True
+    await r.submit(BatteryAction(grid_charge_w=3000))  # fails, lands later
+    r.battery.silent_fail = False
+    r.clock.advance(600)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    r.plans["now"] = plan(now=r.clock.now, grid_charge_max_w=3000, discharge_lock=True)
+    held = await r.submit(BatteryAction(max_discharge_w=0))
+    assert held.kind is DecisionKind.ACCEPTED, keys(held)
+    r.battery.state = BASE.model_copy(update={"grid_charge_w": 3000})  # the old target lands
+    r.clock.advance(60)
+    r.at(grid_w=600, battery_w=0, soc_pct=40)
+    rows = await r.tick(5)
+    assert [keys(d) for d in rows] == [["safety.released", "safety.rate_limited"]]
+    assert r.battery.released == [BASE]
+    assert r.battery.state == BASE
 
 
 # --- watchdog (B8) ------------------------------------------------------------------------------

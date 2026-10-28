@@ -954,6 +954,7 @@
   "safety.battery_unplanned_import": "Holding the battery back would make the house import, and the plan does not ask for it.",
   "safety.battery_external_control_off": "External battery management via Modbus is off (register 1080 = {value}, needs {expected}); nothing was written.",
   "safety.battery_byte_order_mismatch": "The inverter reports the byte order {reported}, SunCore is configured for {configured}: nothing is written.",
+  "safety.battery_held_restored": "The battery showed an older SunCore setting; SunCore writes the current one again.",
   "action.battery": "Set battery limits",
   "api.validation.forecast_workday_domain": "{entity_id} is not a binary sensor. Choose the binary sensor of the Workday integration.",
   "api.validation.forecast_weather_domain": "{entity_id} is not a weather entity.",

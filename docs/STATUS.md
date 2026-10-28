@@ -143,6 +143,11 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
     taken for user values (`DeviceRuntime.attempted`, per-field rule), user values found during a
     release get the override hold, the generic adapter remembers user options only before its
     first write attempt.
+    Approval follow-up: when the read-back shows an older own state instead of the held one,
+    the gate writes the held state again through the evaluated path (B1-B9, read-back) or
+    releases if that is refused. For the 4-H user docs: a user value that happens to equal a
+    value SunCore wrote or attempted while in control is taken for SunCore's and reset to the
+    baseline at release (accepted by the reviewer).
 
 - **Phase 4 – PR 4-F, part WP8 planner (branch `phase-4/f-planner`, on 4-E merged with 4-C)**:
   - `suncore/planner/` (depends on `core` only; boundary test extended; `mypy --strict`):
