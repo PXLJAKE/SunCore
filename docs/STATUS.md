@@ -183,6 +183,9 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
   - Not done: the "too-new `timeseries.db`" hint (the API exposes no such state), editing of
     `action_params`/`series_key`, `learning` settings and the periodic calibration charge (carried
     through unchanged), a mini chart in the summary beyond a sparkline.
+  - Verified (2026-10-28): `./scripts/check.sh` green (4654 pytest, coverage 96 %, 267 Vitest),
+    Playwright against the demo 228 passed on desktop, phone and tablet (axe on plan, Now and the
+    wizard steps), markdownlint clean.
   - Bundle: first paint 119 kB gzip (was about 100 kB: the two catalogues grew by about 170
     keys), everything but ECharts 182 kB (budget 250 kB), ECharts chunk 177 kB on demand.
 
