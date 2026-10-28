@@ -3,11 +3,12 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-25 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
-tariffs, 4-D PV forecast, 4-E load forecast and risk model, 4-F planner and runtime (WP8, WP9),
-4-G battery control (WP10), 4-H UI (WP11; docs WP13 next); Phase 3 (3-A
-`phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
-maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4/f-planner`)
+**Last update:** 2026-10-28 · **Phase:** 4 implemented in the stacked PRs 4-A (contracts), 4-B
+(storage), 4-C (tariffs), 4-D (PV forecast), 4-E (load forecast and risk model), 4-F (planner and
+runtime), 4-G (battery control) and 4-H (UI and docs, WP11 + WP13); only the optional 4-I (ML load
+model) is open; waiting for the maintainer's acceptance on his system. Phase 3 (3-A `phase-3/a-safety`,
+3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) is implemented, waiting for the maintainer's shadow
+test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
 
 ## Done
 
@@ -149,6 +150,32 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
     value SunCore wrote or attempted while in control is taken for SunCore's and reset to the
     baseline at release (accepted by the reviewer).
 
+- **Phase 4 – PR 4-H, WP13 docs, translations, STATUS (branch `phase-4/h-ui-docs`; `docs-writer`)**:
+  - User guide `docs/user/<lang>/planning-and-battery.md` (en/de, same structure): the planner
+    (48 h, 15 min, every 15 min and on events, solver or rule-based fallback, "Why?"), forecasts
+    (sources, blending by measured accuracy, calibration after 30 days, clipping, accuracy panel,
+    Open-Meteo CC BY 4.0), load forecast (base load without controlled devices, workday/weather,
+    `days_offset`, 28 days from HA statistics), tariffs (price formula for spot prices only, tiered
+    feed-in, negative-price rule), risk level, morning buffer, evening target, bridging, strategies,
+    the self-sufficiency weight, grid charging, battery control (shadow, assisted, automatic,
+    limits only, effective reserve, release and hardware fallback, manual changes until 04:00 with
+    the documented corner case, emergency stop), adapters with the step-by-step enabling of the
+    Kostal `Battery:MinSoc` entity and a **procedure to measure the Kostal §3.5 fallback timer**
+    (with abort criteria), a "first battery to assisted" walk-through, troubleshooting, known
+    limitations. Screenshots `plan-*`, `now-battery-*`, `wizard-battery-*` from the demo.
+  - Quick start (steps 4, 5, 6, 8, 10, Now view, settings, "cannot do yet"), surplus control
+    (the plan sets bands, battery first until the morning buffer, your target is a floor, schema 4),
+    both app `DOCS.md` (Phase 4 features, planning section, demo variables, "not there yet"),
+    README status, architecture §4 (planner paragraph, deviation events), roadmap Phase 4 table.
+  - The generated compatibility list was already current (`scripts/gen_compat.py --check`).
+    Translations checked: the frontend catalogues have identical key sets (1311 keys), argument
+    names match, `scripts/check_reasons.py` is clean (383 backend keys), the app options
+    translations match `schema:` in both apps; no gaps found, nothing changed.
+  - Facts found while writing: a normal app stop **releases** the battery first, so measuring the
+    Kostal timer needs an abrupt end of the container (`docker kill`); `battery.fallback_measured`
+    has no switch in the panel (the guide uses export, edit, import). The gate caps only adapters
+    with the `hardware_fallback` capability (Kostal Modbus); the generic and Kostal REST adapters
+    are not capped (the card's "generic" cap note cannot appear).
 - **Phase 4 – PR 4-H, part WP11 UI (branch `phase-4/h-ui-docs`, on 4-G; `frontend-engineer`)**:
   - Plan view `#/plan` (own lazy chunk; ECharts 5.6 tree-shaken to line and bar series, grid,
     tooltip, legend, markLine, inside zoom and the canvas renderer, its own `echarts` chunk that
@@ -603,9 +630,14 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
   (WP3) → 4-C tariffs (WP4) and 4-D PV forecast (WP5) → 4-E load + risk (WP6, WP7) → 4-F planner and
   runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
-- **WP10 done** (4-G, see Done); next: 4-H UI and docs (battery card with mode, identity and the
-  assisted cap; wizard step for the battery adapter incl. enabling the Kostal number and the modbus
-  YAML; WP13 docs). ADR-0013 accepted by the maintainer on 2026-10-19.
+- **WP10, WP11 and WP13 done** (4-G and 4-H, see Done). All Phase 4 PRs are open and stacked; merge
+  order **#25 → #26 → #27/#29 → #30 → #31 → #33 → 4-H** (merge commits are fine; **squash is
+  recommended**, one commit per PR on `main`), **only after the Phase 3 acceptance** (plan §6).
+  ADR-0013 accepted by the maintainer on 2026-10-19. Open: 4-I (optional ML load model), and the
+  follow-ups below.
+- Follow-ups from 4-H and the docs: a switch for `battery.fallback_measured` in the panel (today:
+  export, edit, import), a hint for a too-new `timeseries.db` (the API exposes no such state), the
+  panel for editing `action_params`/`series_key`/`learning`.
 - Maintainer questions from 4-G (PR description): grid charging on the Kostal (generic
   force-charge entity or a §3.4 ADR); the fallback timer measurement procedure for
   `battery.fallback_measured`. Answered: no permanent reserve floor on the inverter.
@@ -803,18 +835,30 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
 
 ## Next steps
 
-1. Maintainer: install the beta (export a configuration backup first: schema 3 cannot be opened
-   by earlier versions), keep everything in **shadow mode**, read `docs/user/en/surplus-control.md`
-   (or `de`) and check the **Decision log** after a day with sun: are the "would have" entries
-   plausible? Check the summary system check at noon.
-2. ~~Answer the open questions~~ Answered 2026-10-16: keep everything as built (safe and simple),
-   see the plan's "Answers after implementation".
-3. Phase 3 exit: switch **one** device to automatic following the guide's walk-through and report
-   the first live writes (the climate unit's counter-only estimate and the cloud echo delay are
-   the interesting parts). Then merge 3-A, 3-B, 3-C and release.
-4. Release the next release-please PR for the stable app after acceptance.
-5. Phase 4: finish the 4-A review fixes, open PR 4-A; maintainer decides on ADR-0013 and the 4-A
-   questions; continue with 4-B (storage/time series).
+1. Maintainer: **Phase 3 shadow test first.** Install the beta (export a configuration backup first:
+   schema 4 cannot be opened by earlier versions), keep everything in **shadow mode**, read
+   `docs/user/en/surplus-control.md` (or `de`) and check the **Decision log** after a day with sun:
+   are the "would have" entries plausible? Check the summary system check at noon. Then switch
+   **one** device to automatic and report the first live writes. Then merge 3-A, 3-B, 3-C.
+2. Then **Phase 4**, following `docs/user/en/planning-and-battery.md` (or `de`):
+   1. Wizard: step 4 (forecast sources, workday and weather inputs), step 5 (battery model,
+      strategy, risk level), step 6 (price formula for a spot source, HT/NT), step 8 (grid charging
+      stays off), step 10 (first plan).
+   2. Look at the **Plan** view in shadow for a day or two: are the reasons and the evening target
+      plausible, is the accuracy panel filling up (calibration needs 30 days)?
+   3. Enable the disabled Kostal `Battery:MinSoc` number entity in Home Assistant, map it in step 5
+      (adapter "Kostal Plenticore, minimum SoC"), compare the signs, then switch the battery to
+      **assisted** and confirm the first proposals.
+   4. Optional, later: enable external battery management via Modbus on the inverter, add the modbus
+      hub, and measure the fallback timer with the documented procedure; then set
+      `battery.fallback_measured`.
+3. Merge the stacked PRs in order **#25 → #26 → #27/#29 → #30 → #31 → #33 → 4-H** (squash
+   recommended), after the Phase 3 acceptance; each rebase onto `main` after the previous merge.
+   Release the next release-please PR for the stable app after acceptance (schema 4: release note
+   "export before updating").
+4. Answer the open questions in `docs/plans/phase-4.md` §6 ("Offene Fragen aus PR 4-A" and "4-C"),
+   in particular grid charging on the Kostal (generic force-charge entity or a §3.4 ADR) and the
+   fallback timer procedure.
 
 ## Known problems and `UNVERIFIED` items
 
@@ -844,14 +888,15 @@ maintainer's shadow test · **Branch:** `phase-4/g-battery` (stacked on `phase-4
 | Section 51 EEG 2023 text could not be fetched; region `de` feed-in tiers are empty until the official BNetzA table is cited | `templates/region/de.yaml` | maintainer provides the table or a session with access to gesetze-im-internet.de |
 | Whether Tibber's `total` includes grid fees (country dependent) | `templates/tariff/tibber.price.yaml` | live check on the maintainer's Tibber account |
 | LG translation keys (inferred from source and unique ids; LG entity ids, modes and units checked live on 2026-10-14), other LG models' modes (Solcast default day-sensor count verified from source in 4-A; Tibber publication time: see the price row above) | `research/device-integrations.md` | maintainer's HA with LG ThinQ, Tibber, Solcast (Phase 2 wizard test) |
-| Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA); the surplus control guide is written from the code and the demo, its walk-through has not been followed on a real system | `docs/user/*/quick-start.md`, `docs/user/*/surplus-control.md` | maintainer follows the quick start and the first-device walk-through on HA OS |
+| Wording of the quick start steps and the HA menu names in the new docs (written from the UI catalogues, not clicked through on a real HA); the surplus control and planning guides are written from the code and the demo, their walk-throughs have not been followed on a real system | `docs/user/*/quick-start.md`, `surplus-control.md`, `planning-and-battery.md` | maintainer follows the quick start and the first-device and first-battery walk-throughs on HA OS |
+| Steps to enable the disabled Kostal `Battery:MinSoc` entity (HA menu names for disabled entities), the `docker kill` way to end the app without a hand-back, the container name, and the sensor behaviour while measuring the §3.5 timer (what exactly shows the fall-back: battery power and grid power are assumed) | `docs/user/*/planning-and-battery.md` (adapters, "Measuring the fallback timer") | maintainer's HA OS with a Kostal inverter |
 | Which Home Assistant tool lets users place files in the app's `/data/templates` | `docs/user/*/device-templates.md` | maintainer checks on HA OS |
 | Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |
 | Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (`power_update_s` is in the device editor since WP10) |
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
-| Open-Meteo Solar Forecast: translation key assumed equal to the description key; CC BY 4.0 attribution still to be shown in the UI (4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration; PR 4-H |
+| Open-Meteo Solar Forecast: translation key assumed equal to the description key (the CC BY 4.0 attribution is shown in the plan view since 4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration |
 | Forecast.Solar `wh_hours`/`watt_hours_period` keys read as period *start* (vendor API unreachable) | `templates/forecast/forecast_solar.pv.yaml`, `suncore/forecast/pv/parsing.py` | live comparison with the integration's sensors |
 | Supervisor proxy forwards `energy/solar_forecast` | `suncore/ha/` (`fetch_solar_forecast`) | first run on HA OS |
 | PV calibration constants (classes kt 0.3/0.65, shrink k = 16, decay 0.98, factor 0.5–1.5) and the clipping thresholds (plateau ±0.3 % for ≥ 1 h on ≥ 2 days; export within max(3 %, 50 W)) are reasoned, not fitted to real data | `suncore/forecast/pv/` | 30+ days of the maintainer's data |

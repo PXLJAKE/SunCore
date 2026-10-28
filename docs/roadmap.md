@@ -75,23 +75,29 @@ Exit: climate surplus control runs in shadow mode on the maintainer's
 system with plausible "would have" entries; maintainer switches one device
 to automatic. ⏸ waiting for the maintainer (shadow run on HA OS, then one device to automatic).
 
-## Phase 4 – Forecasts, tariffs, planner, battery 🟨
+## Phase 4 – Forecasts, tariffs, planner, battery ⏸
 
-In progress in stacked PRs 4-A…4-I ([`plans/phase-4.md`](plans/phase-4.md)); PR 4-A
-(contracts) first. Battery control (WP10) waits for ADR-0013.
+Implemented in the stacked PRs 4-A…4-H ([`plans/phase-4.md`](plans/phase-4.md)); waiting for the
+maintainer's acceptance on his system (Phase 3 shadow test first, then the plan in shadow mode and
+the battery to assisted). The optional ML load model (4-I) is not built yet.
 
-| Milestone | Acceptance |
-|---|---|
-| Forecast adapters | Solcast, Forecast.Solar, Open-Meteo Solar Forecast, generic attribute, built-in fallback; blending and bias calibration; accuracy stats |
-| Load forecast | profiles from statistics (weekday/holiday/temperature), controlled loads excluded |
-| Tariffs | Tibber, Nord Pool, ENTSO-E/EPEX via HACS, fixed/HT-NT, price formula, EEG tiered export, negative-price region rule |
-| Planner | HiGHS model, heuristic fallback, warm start, time budget, benchmark on aarch64 < 10 s |
-| Battery strategies | self-consumption, target SoC by time, grid charging on spread, discharge lock, reserve, calibration charge |
-| Battery adapters | generic HA entities, Kostal REST (min SoC), Kostal Modbus (only with verified register map) |
-| Explanations | per-interval reasons rendered in UI |
+| Milestone | Acceptance | Status |
+|---|---|---|
+| Forecast adapters | Solcast, Forecast.Solar, Open-Meteo Solar Forecast, generic attribute; blending and bias calibration; accuracy stats (the built-in fallback moved to Phase 6) | ✅ |
+| Load forecast | profiles from statistics (weekday/holiday/temperature), controlled loads excluded | ✅ |
+| Risk model and buffers | learnt net error per weather class, risk level cautious/balanced/bold, morning buffer, evening target | ✅ |
+| Tariffs | Tibber, Nord Pool, ENTSO-E/EPEX via HACS, Octopus, fixed/HT-NT, price formula, EEG tiered export, negative-price region rule | ✅ |
+| Planner | HiGHS model, heuristic fallback, warm start, time budget, benchmark on aarch64 < 10 s | ✅ (aarch64 not measured yet) |
+| Battery strategies | self-consumption, prefer full, target SoC by time, next-day bridging, grid charging by price level and schedule, discharge lock, reserve, calibration charge (off by default) | ✅ |
+| Battery adapters | generic HA entities, Kostal REST (min SoC), Kostal Modbus §3.5 (simulator only, capped at assisted until the fallback timer is measured) | ✅ |
+| Explanations | per-interval reasons rendered in UI | ✅ |
+| UI | plan view, forecast accuracy, battery card, wizard steps 4, 5, 6, 8 and 10 | ✅ |
+| Docs | planning and battery guide (en/de), quick start, app description | ✅ |
+| ML load model in shadow | NumPy KNN scored next to the profiles (PR 4-I, optional) | ⬜ |
 
-Exit: plan with battery strategy and "Why?" on the maintainer's system,
-battery control in shadow mode, then assisted.
+Exit: plan with battery strategy and "Why?" on the maintainer's system, battery control in shadow
+mode, then assisted. ⏸ waiting for the maintainer (after the Phase 3 acceptance: wizard steps, plan
+in shadow, enabling the Kostal `Battery:MinSoc` entity, the battery to assisted).
 
 ## Phase 5 – Visualisation, analysis, expert mode ⬜
 
