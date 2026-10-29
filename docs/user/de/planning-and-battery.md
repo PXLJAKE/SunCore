@@ -306,8 +306,8 @@ begrenzt**: Die Karte sagt es, und Automatik wirkt wie assistiert.
 ## 6. Ablauf: dein erster Akku in den assistierten Modus
 
 Mach das an einem Tag mit Sonne (die Rückfall-Messung in
-Abschnitt 7 braucht stattdessen den Abend), mit einem Akku weit über seiner Reserve und während du zu Hause
-bist.
+Abschnitt 7 braucht stattdessen den Abend), mit einem Akku weit über seiner Reserve und
+während du zu Hause bist.
 
 1. **Vorbereiten.** Beende den Einrichtungs-Assistenten. Trage in Schritt 5 die Kapazität, die
    maximale Lade- und Entladeleistung und die Reserve ein (**Akkumodell für den Planer**), wähle
