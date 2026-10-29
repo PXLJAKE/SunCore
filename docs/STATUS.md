@@ -642,6 +642,10 @@ test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
   `UNVERIFIED` on HA OS.
 - **Calibration charge:** only a configuration field so far, the planner does not use it (plan §6
   question 11 said "built"; corrected in the plan's deviations). Open.
+- **S1 (code, separate PR):** bind `fallback_measured` to the measured `fallback_timeout_s` (store
+  the measured timeout, the gate caps unless equal); needs an ADR-0013 addendum and a gate test.
+  The `control-safety` review of the measurement procedure approved it with changes R1-R7, applied
+  in the guide (2026-10-29).
 - Follow-ups from 4-H and the docs: `fallback_timeout_s` changes should drop the battery mode to
   shadow on the server (follows); a switch for `battery.fallback_measured` in the panel (today:
   export, edit, import), a hint for a too-new `timeseries.db` (the API exposes no such state), the

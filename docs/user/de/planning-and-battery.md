@@ -305,7 +305,8 @@ begrenzt**: Die Karte sagt es, und Automatik wirkt wie assistiert.
 
 ## 6. Ablauf: dein erster Akku in den assistierten Modus
 
-Mach das an einem Tag mit Sonne, mit einem Akku weit über seiner Reserve und während du zu Hause
+Mach das an einem Tag mit Sonne (die Rückfall-Messung in
+Abschnitt 7 braucht stattdessen den Abend), mit einem Akku weit über seiner Reserve und während du zu Hause
 bist.
 
 1. **Vorbereiten.** Beende den Einrichtungs-Assistenten. Trage in Schritt 5 die Kapazität, die
@@ -419,21 +420,30 @@ Mach das **einmal**, während du zu Hause bist. Es beweist, dass der Wechselrich
 seine eigenen Grenzen zurückfällt, wenn SunCore verstummt, und genau deshalb ist Automatik
 überhaupt erlaubt.
 
-**Sicherer Test, kurz:** Akku auf assistiert stellen, **eine** Entladegrenze bestätigen, SunCore
-**ohne** Rückgabe beenden und beobachten, wann der Wechselrichter zu seinen eigenen Grenzen
-zurückkehrt. Erwartet: höchstens der Rückfall-Timer (60 s) plus ein Schritt der Sensoren.
+**Sicherer Test, kurz:** Alle Geräte im Schattenmodus, den Akku im assistierten Modus, abends
+(Hauslast über der Solarleistung) eine Entladesperre bestätigen, SunCore abrupt beenden, sodass
+es nichts zurückgeben kann, und beobachten, wann der Akku wieder entlädt. Erwartet: 40 bis 60
+Sekunden nach dem Beenden (der eingestellte Timer minus die Zeit seit SunCores letztem
+Neuschreiben), plus die Verzögerung deines Leistungssensors.
 
 Bevor du anfängst:
 
-- Der Akku liegt weit über seiner Reserve, die Hauslast ist mäßig, und es ist keine Not-Aus-Lage.
-  Eine Entladegrenze von 0 W lässt das Haus für ein paar Minuten **Strom beziehen**: Wähle einen
-  Zeitpunkt, an dem das nichts ausmacht.
-- In Home Assistant: Der Sensor von Register 1080 zeigt `2`; der Timer-Sensor (1288) zeigt `60`; die
-  Rückfall-Sensoren 1284 und 1286 zeigen die eigenen Grenzen des Akkus (oder höhere); du kennst die
-  eigenen Grenzen des Akkus (1076, 1078).
+- Der Akku liegt weit über seiner Reserve (zum Beispiel 30 Punkte), die Hauslast ist niedrig und
+  es startet keine große Last (keine Wallbox, kein Wärmepumpen-Boost, kein Kochen). Die
+  Solarleistung liegt **unter** der Hauslast, der Akku entlädt also schon vor dem Test (Abend oder
+  trüber Tag). Die Sperre, die SunCore vorschlägt, ist eine **volle Entladesperre** (0 W): Das Haus
+  bezieht seine ganze Last für ein paar Minuten aus dem Netz und, falls der Wechselrichter nicht
+  zurückfällt, bis du ihn wiederherstellst. Es ist keine Not-Aus-Lage.
+- Stelle **jede Gerätekarte auf Schattenmodus** (der Gesamtmodus bleibt Assistiert). Ein
+  beendetes SunCore kann nichts zurückgeben: Ein Gerät, das es eingeschaltet hatte, bliebe bei
+  gesperrtem Akku an, und keine Bezugsgrenze wird mehr überwacht.
+- Lass den Modbus-Timer auf der Vorgabe (`fallback_timeout_s` 60 s, `heartbeat_s` 20 s). Der
+  Sensor von Register 1080 zeigt `2`, und du kennst die eigenen Grenzen des Akkus (1076, 1078).
+  Die Rückfall-Register werden in Schritt 2 geprüft.
 - Du siehst **Akkuleistung** und **Netzleistung** mit Zeitstempeln (ein Verlaufsdiagramm).
 - Du kommst an die Shell des Home-Assistant-Hosts (zum Beispiel mit der App „Advanced SSH & Web
   Terminal“ bei ausgeschaltetem Schutzmodus) **oder** kannst die App anderweitig abrupt beenden.
+  Schalte den Schutzmodus nach dem Test wieder ein.
 - **Schalte den Watchdog der App AUS** (Seite **Info** der App), bevor du testest. Bei
   eingeschaltetem Watchdog startet der Supervisor einen beendeten Container sofort neu, SunCore
   gibt den Akku zurück und schreibt die Grenzen innerhalb der 60 Sekunden selbst, und der Test
@@ -442,12 +452,15 @@ Bevor du anfängst:
   2026-10-28; auf HA OS `UNVERIFIED`.)
 - **Abbruchkriterien:** ein Modbus-Fehler im Protokoll, Register 1080 nicht `2`, ein Sensor, der
   nicht zeigt, was SunCore geschrieben hat, ein Ladestand, der sich der Reserve nähert, Netzbezug
-  nahe deiner Anschlussgrenze, SunCore läuft wieder, bevor du den Rückfall beobachtet hast (siehe
-  Schritt 4), oder irgendetwas, das du nicht verstehst. Dann nicht weitermachen:
-  Starte die App (sie gibt den Akku nach dem Verbinden zurück), stelle die Akku-Karte auf
-  **Schattenmodus** und sieh ins Protokoll. Kehrt die Grenze nicht von allein zurück, stelle den
-  Wechselrichter von Hand wieder her (seine eigenen Einstellungen oder im Installateurmenü das
-  externe Management ausschalten).
+  nahe deiner Anschlussgrenze, die Solarleistung deckt die Last, SunCore läuft wieder, bevor du
+  den Rückfall beobachtet hast (siehe Schritt 4), oder irgendetwas, das du nicht verstehst. Dann
+  nicht weitermachen: Starte die App (sie gibt den Akku nach dem Verbinden zurück), stelle die
+  Akku-Karte auf **Schattenmodus** und sieh ins Protokoll. Kehrt die Grenze nicht von allein
+  zurück: Starte SunCore und prüfe, ob der Sensor von Register 1282 die eigene Entladegrenze des
+  Akkus zeigt und der Akku wieder entlädt. Klappt auch das nicht, lass deinen Installateur (oder
+  den Installateurzugang zur Weboberfläche des Wechselrichters) das externe Batteriemanagement
+  über Modbus ausschalten. Halte bis dahin große Lasten aus: Eine hängende Entladesperre kostet
+  Netzbezug, schadet dem Akku aber nicht. Lass `fallback_measured` auf false.
 
 Schritte:
 
@@ -455,37 +468,53 @@ Schritte:
    [Abschnitt 6](#6-ablauf-dein-erster-akku-in-den-assistierten-modus)).
 2. Warte auf einen Vorschlag, der eine **Entladegrenze** enthält (der Plan zeigt „Akkuentladung
    zurückgehalten“). **Bestätige** ihn einmal. Die Karte zeigt **SunCore hält diese Grenzen**, und
-   der Sensor von Register 1282 zeigt den Wert.
+   der Sensor von Register 1282 zeigt den Wert. Prüfe jetzt die Rückfall-Register, die SunCore vor
+   diesem Schreiben gesetzt hat: 1288 zeigt 60, und 1284 und 1286 zeigen die eigenen Grenzen des
+   Akkus oder höhere. Wenn nicht, brich ab.
 3. Prüfe die Wirkung: Bei einer Entladegrenze von 0 W geht die Akkuleistung auf etwa 0 W, und das
-   Haus bezieht aus dem Netz. Warte mindestens 20 Sekunden (ein
-   Heartbeat), damit der Wert sichtbar gehalten wird.
-4. Notiere die Uhrzeit (sekundengenau). **Beende SunCore ohne Rückgabe.** Ein normales **Stoppen**
-   oder ein Neustart der App funktioniert dafür **nicht**: SunCore gibt den Akku dann zuerst
-   zurück, und der Wechselrichter kehrt sofort zu seinen eigenen Grenzen zurück, was über den Timer
-   nichts beweist. Beende stattdessen den Container, zum Beispiel mit `docker kill` in der Shell (den
-   Namen findest du mit `docker ps`; er endet auf `suncore`; der genaue Name ist `UNVERIFIED`).
-   Prüfe auf der App-Seite und mit `docker ps`, dass die
-   App **gestoppt bleibt**. Notiere später im SunCore-Protokoll nach dem Start die Zeit der
-   Wiederherstellungszeile: Sie muss **nach** dem beobachteten Rückfall liegen, sonst hat SunCore
-   die Grenzen selbst geschrieben, und die Messung ist ungültig.
+   Haus bezieht aus dem Netz. Warte mindestens 20 Sekunden (ein Heartbeat), damit der Wert sichtbar
+   gehalten wird. Entlud der Akku vorher nicht (die Solarleistung deckt die Last), kann der Test
+   den Rückfall nicht zeigen: Lass den Vorschlag auslaufen und versuche es an einem anderen Abend.
+4. Notiere die Uhrzeit (sekundengenau). Solange die Karte noch **SunCore hält diese Grenzen**
+   zeigt, beende den Container mit `docker kill <Name>` ohne Option `--signal` (das sendet
+   SIGKILL). Den Namen findest du mit `docker ps` (er endet auf `suncore`; der genaue Name ist
+   `UNVERIFIED`). Nutze nie `docker stop`, `docker restart`, `docker kill --signal=TERM`,
+   `ha apps stop` oder die Stopp-Schaltfläche: Sie lassen SunCore sauber herunterfahren und den
+   Akku zurückgeben, was nichts beweist. Prüfe auf der App-Seite und mit `docker ps`, dass die App
+   **gestoppt bleibt**. Suche später, nach dem Start, im **Entscheidungsprotokoll** den Eintrag
+   „Neustart nach unsauberem Stopp“ (`safety.crash_recovery`): Seine Zeit muss **nach** dem
+   beobachteten Rückfall liegen, sonst hat SunCore die Grenzen selbst geschrieben, und die Messung
+   ist ungültig.
 5. Beobachte Akkuleistung und Netzleistung. Fällt der Wechselrichter zurück, beginnt der Akku, ins
-   Haus zu entladen, und der Netzbezug sinkt. Notiere die Zeit, zu der das passiert. Die Differenz
-   ist dein gemessener Timer.
-6. **Erwartet:** Die Rückkehr geschieht innerhalb von **60 Sekunden plus einem Sensorschritt** (das
-   Abfrageintervall deiner Modbus-Sensoren, angenommen 15 Sekunden). Hat der Akku nach dem
-   Dreifachen des eingestellten Timers (3 Minuten) nicht begonnen zu entladen, **brich ab**: Starte
-   SunCore und nimm den Wechselrichter wie oben beschrieben von Hand zurück.
+   Haus zu entladen, und der Netzbezug sinkt. Notiere die Zeit, zu der das passiert. Die Zeit vom
+   Beenden bis zu diesem Moment ist dein Ergebnis. Sie ist der Timer minus die Zeit seit SunCores
+   letztem Neuschreiben (0 bis 20 s), plus deine Sensorverzögerung. Nutze dafür nicht die Sensoren
+   1280/1282: Sie zeigen nach dem Rückfall möglicherweise weiter SunCores letzten Wert
+   (`UNVERIFIED`).
+6. **Erwartet:** Der Akku entlädt wieder zwischen etwa 40 und 60 Sekunden nach dem Beenden, plus
+   einem Sensorschritt (angenommen 15 Sekunden). Deutlich schneller als 35 Sekunden heißt, dass
+   etwas anderes als der Timer des Wechselrichters die Grenzen zurückgegeben hat (SunCore wurde
+   nicht abrupt beendet, oder etwas anderes hat sie geschrieben): Der Lauf ist ungültig. Hat der
+   Akku nach dem Dreifachen des eingestellten Timers (3 Minuten) nicht begonnen zu entladen,
+   **brich ab**: Starte SunCore und nimm den Wechselrichter wie oben beschrieben von Hand zurück.
 7. Starte die App wieder. Sie findet die Aufzeichnung, was sie gehalten hat, und gibt den Akku
-   zurück (schreibt die eigenen Grenzen), sobald Home Assistant verbunden ist.
-8. Wiederhole es zur Sicherheit einmal. Kehrt der Wechselrichter in beiden Läufen innerhalb des
-   Timers zurück: **Exportiere** die Konfiguration unter **Einstellungen**, setze in der Datei im
-   Abschnitt `battery` `"fallback_measured": true` (`sections → battery → body`) und **importiere**
-   sie wieder. Die Akku-Karte zeigt dann die Begrenzung auf assistiert nicht mehr (die Einstellung
-   hat im Panel noch keinen Schalter). Ein Import setzt Gesamtmodus und Akku wie immer auf Schatten
-   zurück: Stelle sie wieder um, einen Schritt nach dem anderen.
+   zurück (schreibt die eigenen Grenzen), sobald Home Assistant verbunden ist. Schalte den
+   Watchdog der App wieder ein und stelle die Gerätekarten auf ihre früheren Modi zurück.
+8. Wiederhole es zur Sicherheit einmal. Ist der Wechselrichter in beiden Läufen wie erwartet
+   zurückgefallen: **Exportiere** die Konfiguration unter **Einstellungen**, setze in der Datei im
+   Abschnitt `battery` `"fallback_measured": true` (`sections → battery → body`) und
+   **importiere** sie wieder. Die Akku-Karte zeigt dann die Begrenzung auf assistiert nicht mehr
+   (die Einstellung hat im Panel noch keinen Schalter). `fallback_measured` ist deine eigene
+   Aussage; SunCore prüft sie nicht. Sie hebt nur die Begrenzung auf: Sie schaltet nichts auf
+   Automatik und ändert weder Timer noch Heartbeat. Sie gilt nur für den Timer, mit dem du
+   gemessen hast, an diesem Wechselrichter und dieser Firmware. Änderst du `fallback_timeout_s`
+   oder `heartbeat_s`, aktualisierst du die Firmware, tauschst den Wechselrichter oder verkabelst
+   den Modbus-Hub neu, setze sie wieder auf false und miss erneut. Ein Import setzt Gesamtmodus
+   und Akku wie immer auf Schatten zurück: Stelle sie wieder um, einen Schritt nach dem anderen.
 
-Ist der Timer länger als eingestellt, lass die Begrenzung bestehen und eröffne ein Issue mit deinen
-Messwerten.
+Ist in einem Lauf der Rückfall ausgeblieben, später als 60 Sekunden plus einem Sensorschritt
+eingetreten oder der Lauf ungültig, lass `fallback_measured` auf false (die Begrenzung bleibt) und
+eröffne ein Issue mit deinen Messwerten.
 
 ## 8. Was du sonst noch siehst
 

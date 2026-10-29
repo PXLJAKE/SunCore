@@ -288,7 +288,8 @@ card says so, and automatic acts like assisted.
 
 ## 6. Walk-through: your first battery to assisted
 
-Do this on a day with sun, with the battery well above its reserve and while you are at home.
+Do this on a day with sun (the fallback measurement in
+section 7 needs the evening instead), with the battery well above its reserve and while you are at home.
 
 1. **Prepare.** Finish the setup assistant. In step 5 enter the capacity, the maximum charging
    and discharging power and the reserve (**Battery model for the planner**), choose the
@@ -393,67 +394,96 @@ have external battery management enabled yet. It is **capped at assisted** until
 Do this **once**, while you are at home. It proves that the inverter really returns to its own
 limits when SunCore goes silent, which is why automatic is allowed at all.
 
-**Safe test, in short:** put the battery in assisted, confirm **one** discharge limit, end
-SunCore **without** a hand-back, and watch when the inverter returns to its own limits. Expected:
-at most the fallback timer (60 s) plus one step of the sensors.
+**Safe test, in short:** with all devices in shadow and the battery in assisted, confirm one
+discharge lock in the evening (house load above solar), kill SunCore abruptly so that it cannot
+hand anything back, and watch when the battery starts discharging again. Expected: 40 to 60
+seconds after the kill (the configured timer minus the time since SunCore's last re-write), plus
+the delay of your power sensor.
 
 Before you start:
 
-- The battery is well above its reserve, the house load is moderate, and it is not an
-  emergency-stop situation. A discharge limit of 0 W makes the house **import** for a few
-  minutes: pick a time when that does not matter.
-- In Home Assistant: the sensor of register 1080 shows `2`; the timer sensor (1288) shows
-  `60`; the fallback sensors 1284 and 1286 show the battery's own limits (or higher); you
-  know the battery's own limits (1076, 1078).
+- The battery is well above its reserve (for example 30 points), the house load is low and no
+  large load starts (no wallbox, no heat-pump boost, no cooking). Solar is **below** the house
+  load, so the battery is discharging before the test (evening or a dull day). The lock SunCore
+  proposes is a **full discharge lock** (0 W): the house imports its whole load for a few
+  minutes, and, if the inverter does not fall back, until you restore it. It is not an
+  emergency-stop situation.
+- Put **every device card in Shadow mode** (the overall mode stays Assisted). A killed SunCore
+  can release nothing: a device it had switched on would stay on while the battery is locked,
+  and no import limit is watched any more.
+- Leave the Modbus timer at its default (`fallback_timeout_s` 60 s, `heartbeat_s` 20 s). The
+  sensor of register 1080 shows `2`, and you know the battery's own limits (1076, 1078). The
+  fallback registers are checked in step 2.
 - You can see the **battery power** and the **grid power** with timestamps (a history graph).
 - You know how to reach the Home Assistant host's shell (for example the "Advanced SSH & Web
-  Terminal" app with protection mode off) **or** can otherwise end the app abruptly.
+  Terminal" app with protection mode off) **or** can otherwise end the app abruptly. Turn
+  protection mode back on after the test.
 - **Turn the app's Watchdog switch OFF** (the app's **Info** page) before the test. With the
   watchdog on, the Supervisor restarts a killed container at once, SunCore releases the battery
   and writes the limits itself within the 60 seconds, and the test shows a fall-back that never
   happened (a false positive). Turn the watchdog back on afterwards. (Behaviour read in the
   Supervisor source, `supervisor/apps/app.py` watchdog, on 2026-10-28; `UNVERIFIED` on HA OS.)
 - **Abort criteria:** a modbus error in the log, register 1080 not `2`, a sensor that does not
-  show what SunCore wrote, the charge approaching the reserve, grid import near your
-  connection limit, SunCore running again before you observed the fall-back (see step 4), or
-  anything you do not understand. Then do not continue: start the app (it
-  releases the battery after reconnecting), switch the battery card to **Shadow mode** and
-  check the log. If the limit does not return on its own, restore the inverter by hand (its
-  own settings or, in the installer menu, the external management off).
+  show what SunCore wrote, the charge approaching the reserve, grid import near your connection
+  limit, solar starting to cover the load, SunCore running again before you observed the
+  fall-back (see step 4), or anything you do not understand. Then do not continue: start the
+  app (it releases the battery after reconnecting), switch the battery card to **Shadow mode**
+  and check the log. If the limit does not return on its own: start SunCore and check that the
+  register 1282 sensor shows the battery's own discharge limit and that the battery discharges
+  again. If that fails too, have your installer (or installer access to the inverter's web
+  interface) switch off external battery management via Modbus. Until then keep large loads
+  off: a stuck discharge lock costs grid import but does not harm the battery. Leave
+  `fallback_measured` at false.
 
 Steps:
 
 1. Set the battery to **Assisted mode** (see [section 6](#6-walk-through-your-first-battery-to-assisted)).
 2. Wait for a proposal that contains a **discharge limit** (the plan shows "Battery discharge
    held back"). **Confirm** it once. The card shows **SunCore holds these limits**, and the
-   register 1282 sensor shows the value.
+   register 1282 sensor shows the value. Now check the fallback registers SunCore armed before
+   this write: 1288 shows 60, and 1284 and 1286 show the battery's own limits or higher. If not,
+   abort.
 3. Confirm the effect: with a discharge limit of 0 W the battery power goes to about 0 W and the
-   house imports. Wait for at least one heartbeat (20 s) to see the value held.
-4. Note the time (to the second). **Stop SunCore without a hand-back.** A normal **Stop** or
-   restart of the app does **not** work for this: SunCore then releases the battery first, and
-   the inverter returns to its own limits immediately, which proves nothing about the timer. End
-   the container instead, for example with `docker kill` in the shell (find the name with
-   `docker ps`; it ends in `suncore`; the exact name is `UNVERIFIED`). Check on the app page and
-   with `docker ps` that the app **stays stopped**. Later, in the SunCore log after you start it,
-   note the time of the recovery line: it must be **after** the fall-back you observed, otherwise
+   house imports. Wait for at least one heartbeat (20 s) to see the value held. If the battery
+   was not discharging before (solar covers the load), the test cannot show the fall-back: let
+   the proposal run out and try another evening.
+4. Note the time (to the second). While the card still shows **SunCore holds these limits**,
+   end the container with `docker kill <name>` without a `--signal` option (that sends SIGKILL).
+   Find the name with `docker ps` (it ends in `suncore`; the exact name is `UNVERIFIED`). Never
+   use `docker stop`, `docker restart`, `docker kill --signal=TERM`, `ha apps stop` or the Stop
+   button: they let SunCore shut down cleanly and hand the battery back, which proves nothing.
+   Check on the app page and with `docker ps` that the app **stays stopped**. Later, after you
+   start it, look in the **Decision log** for the entry "Restart after an unclean stop"
+   (`safety.crash_recovery`): its time must be **after** the fall-back you observed, otherwise
    SunCore wrote the limits itself and the measurement is void.
 5. Watch the battery power and the grid power. When the inverter falls back, the battery starts
    to discharge into the house and the grid import drops. Note the time when that happens. The
-   difference is your measured timer.
-6. **Expected:** the return happens within **60 seconds plus one sensor step** (the scan
-   interval of your modbus sensors, 15 seconds assumed). If the battery has not started to
-   discharge after three times the configured timer (3 minutes), **abort**: start SunCore, and
-   take the inverter back by hand as described above.
+   time from the kill to that moment is your result. It is the timer minus the time since
+   SunCore's last re-write (0 to 20 s), plus your sensor delay. Do not use the 1280/1282
+   sensors for this: they may keep showing SunCore's last value after the fall-back
+   (`UNVERIFIED`).
+6. **Expected:** the battery discharges again between about 40 and 60 seconds after the kill,
+   plus one sensor step (15 seconds assumed). Much faster than 35 seconds means something other
+   than the inverter's timer gave the limits back (SunCore was not killed abruptly, or something
+   else wrote them): the run is void. If the battery has not started to discharge after three
+   times the configured timer (3 minutes), **abort**: start SunCore, and take the inverter back
+   by hand as described above.
 7. Start the app again. It finds the record of what it held and releases the battery (writes the
-   own limits) once Home Assistant is connected.
-8. Repeat once for confidence. If both runs return within the timer: **export** the
-   configuration under **Settings**, set `"fallback_measured": true` in the `battery` section of
-   the file (`sections → battery → body`), and **import** it again. The battery card then no
-   longer shows the assisted cap (the setting has no switch in the panel yet). An import resets
-   the overall mode and the battery to shadow, as it always does: switch them again, one step
-   at a time.
+   own limits) once Home Assistant is connected. Turn the app's Watchdog back on and set the
+   device cards back to their earlier modes.
+8. Repeat once for confidence. If both runs fell back as expected: **export** the configuration
+   under **Settings**, set `"fallback_measured": true` in the `battery` section of the file
+   (`sections → battery → body`), and **import** it again. The battery card then no longer shows
+   the assisted cap (the setting has no switch in the panel yet). `fallback_measured` is your
+   own statement; SunCore does not check it. It only lifts the cap: it does not switch anything
+   to automatic and does not change the timer or the heartbeat. It is valid only for the timer
+   you measured with, on this inverter and firmware. If you change `fallback_timeout_s` or
+   `heartbeat_s`, update the inverter firmware, replace the inverter or re-wire the modbus hub,
+   set it back to false and measure again. An import resets the overall mode and the battery to
+   shadow, as it always does: switch them again, one step at a time.
 
-If the timer is longer than configured, leave the cap in place and open an issue with your
+If either run did not fall back, fell back later than 60 seconds plus one sensor step, or was
+void, leave `fallback_measured` at false (the cap stays) and open an issue with your
 measurements.
 
 ## 8. What else you will see
