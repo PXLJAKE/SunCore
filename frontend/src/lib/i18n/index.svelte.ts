@@ -9,6 +9,8 @@ import {
   formatPercentValue,
   formatPower,
   formatTime,
+  clockParts,
+  validZone,
 } from './format';
 
 export type MessageKey = keyof typeof en;
@@ -22,6 +24,8 @@ function initialLocale(): Locale {
 
 class I18n {
   locale = $state<Locale>(initialLocale());
+  /** Home Assistant's time zone (region section); `undefined` = the browser's. */
+  timeZone = $state<string | undefined>(undefined);
 
   setLocale(locale: Locale): void {
     this.locale = locale;
@@ -30,6 +34,16 @@ class I18n {
 }
 
 export const i18n = new I18n();
+
+/** Show times in the configured zone, as Home Assistant does (not the tablet's own). */
+export function applyTimeZone(zone: string | null | undefined): void {
+  i18n.timeZone = validZone(zone);
+}
+
+/** Hour and minute of a moment in the display zone. */
+export function tClock(date: Date): { hour: number; minute: number } {
+  return clockParts(date, i18n.timeZone);
+}
 
 /** The language preference of the region section: `auto` follows the browser. */
 export function applyLanguage(pref: 'auto' | 'en' | 'de'): void {
@@ -69,11 +83,11 @@ export function tPercent(pct: number): string {
 }
 
 export function tTime(date: Date): string {
-  return formatTime(date, i18n.locale);
+  return formatTime(date, i18n.locale, i18n.timeZone);
 }
 
 export function tDateTime(date: Date): string {
-  return formatDateTime(date, i18n.locale);
+  return formatDateTime(date, i18n.locale, i18n.timeZone);
 }
 
 /** Locale-aware number, e.g. `tNumber(3.5, { maximumFractionDigits: 1 })`. */

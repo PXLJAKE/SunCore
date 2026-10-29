@@ -2808,6 +2808,13 @@
             "title": "Solar Forecast Entries",
             "type": "array"
           },
+          "solar_forecast_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Solar Forecast Labels",
+            "type": "object"
+          },
           "suggestions": {
             "items": {
               "$ref": "#/components/schemas/SuggestionOut"

@@ -16,7 +16,7 @@ import type {
   TariffConfig,
   WizardState,
 } from '../api/types';
-import { applyLanguage, type MessageKey } from '../i18n/index.svelte';
+import { applyLanguage, applyTimeZone, type MessageKey } from '../i18n/index.svelte';
 import {
   batteryFormFromConfig,
   batteryFromForm,
@@ -209,6 +209,7 @@ export class WizardStore {
     this.region = regionFormFromConfig(saved);
     app.region = saved;
     applyLanguage(saved.language);
+    applyTimeZone(saved.timezone);
   }
 
   async saveSite(): Promise<void> {

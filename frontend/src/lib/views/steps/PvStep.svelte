@@ -24,6 +24,13 @@
   let forecastError = $state(false);
   /** Config entries the Energy dashboard links to its solar sources (Forecast.Solar). */
   let entries = $state.raw<string[]>([]);
+  let entryLabels = $state.raw<Record<string, string>>({});
+  /** Entries that plausibly belong to Forecast.Solar (all of them when none can be told apart). */
+  const shownEntries = $derived.by(() => {
+    const plausible = entries.filter((e) => /forecast\.?solar/i.test(entryLabels[e] ?? ''));
+    return plausible.length > 0 ? plausible : entries;
+  });
+  const entryText = (e: string): string => (entryLabels[e] ? `${entryLabels[e]} (${e})` : e);
   const uid = $props.id();
 
   const pvLive = $derived(
@@ -33,7 +40,10 @@
   onMount(() => {
     void api
       .energyPrefs()
-      .then((p) => (entries = p.solar_forecast_entries ?? []))
+      .then((p) => {
+        entries = p.solar_forecast_entries ?? [];
+        entryLabels = p.solar_forecast_labels ?? {};
+      })
       .catch(() => (entries = []));
     if (wizard.site.pv.length === 0) wizard.site.pv.push(emptyPvRow());
     void (async () => {
@@ -189,7 +199,7 @@
         {#if on}
           {#if isEntrySource(tpl.id)}
             <div class="field" data-testid="entry-field">
-              {#if entries.length > 0}
+              {#if shownEntries.length > 0}
                 <label for="{uid}-{tpl.id}-entry">{t('pvf.entry')}</label>
                 <select
                   id="{uid}-{tpl.id}-entry"
@@ -198,11 +208,24 @@
                   onchange={(e) => (wizard.forecast.configEntries[tpl.id] = e.currentTarget.value)}
                 >
                   <option value=""
-                    >{entries.length === 1 ? t('pvf.entry_auto') : t('pvf.entry_choose')}</option
+                    >{shownEntries.length === 1
+                      ? t('pvf.entry_auto')
+                      : t('pvf.entry_choose')}</option
                   >
-                  {#each entries as entry (entry)}<option value={entry}>{entry}</option>{/each}
+                  {#each shownEntries as entry (entry)}
+                    <option value={entry}>{entryText(entry)}</option>
+                  {/each}
+                  {#if wizard.forecast.configEntries[tpl.id] && !shownEntries.includes(wizard.forecast.configEntries[tpl.id]!)}
+                    <option value={wizard.forecast.configEntries[tpl.id]}
+                      >{t('pvf.entry_saved', {
+                        id: wizard.forecast.configEntries[tpl.id]!,
+                      })}</option
+                    >
+                  {/if}
                 </select>
-                <p class="hint">{t(entries.length === 1 ? 'pvf.entry_only' : 'pvf.entry_hint')}</p>
+                <p class="hint">
+                  {t(shownEntries.length === 1 ? 'pvf.entry_only' : 'pvf.entry_hint')}
+                </p>
               {:else}
                 <label for="{uid}-{tpl.id}-entry">{t('pvf.entry_manual')}</label>
                 <input

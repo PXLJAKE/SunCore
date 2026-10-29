@@ -34,14 +34,12 @@
     charge_limit: 'bcard.cap.charge_limit',
     discharge_limit: 'bcard.cap.discharge_limit',
     grid_charge: 'bcard.cap.grid_charge',
-    force_charge: 'bcard.cap.force_charge',
     hardware_fallback: 'bcard.cap.hardware_fallback',
   };
 
   const busy = $derived(control.busy[BATTERY_SCOPE] ?? false);
   const error = $derived(control.errors[BATTERY_SCOPE] ?? null);
   const limitedByGlobal = $derived(battery.effective_mode !== battery.battery_mode);
-  const hasFallback = $derived(battery.capabilities.includes('hardware_fallback'));
 
   /** The limits of an action as list items; unset fields are the adapter's own settings. */
   function limitRows(a: BatteryAction | null): { key: MessageKey; value: string }[] {
@@ -171,7 +169,7 @@
     {/if}
     {#if battery.mode_capped}
       <p class="notice info" data-testid="battery-cap-note">
-        {t(hasFallback ? 'bcard.cap_fallback' : 'bcard.cap_generic')}
+        {t('bcard.cap_fallback')}
       </p>
     {/if}
   </div>

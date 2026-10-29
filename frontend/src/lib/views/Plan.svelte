@@ -10,6 +10,7 @@
     tNumber,
     tPercent,
     tPower,
+    tClock,
     tTime,
     type MessageKey,
   } from '../i18n/index.svelte';
@@ -74,7 +75,7 @@
 
   /** One row per full hour for the text alternative of the chart. */
   const hourly = $derived(
-    intervals.filter((i) => new Date(i.start).getMinutes() === 0 && i.expected != null),
+    intervals.filter((i) => tClock(new Date(i.start)).minute === 0 && i.expected != null),
   );
 
   const price = (v: number | undefined): string =>

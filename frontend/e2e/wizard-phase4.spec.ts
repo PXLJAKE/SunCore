@@ -147,6 +147,7 @@ test('step 6: a spot-only price gets its formula', async ({ page, request }) => 
   await formula.getByLabel('VAT').fill('19');
   await formula.getByText('Time-variable grid fees').click();
   await formula.getByRole('button', { name: 'Add a grid fee window' }).click();
+  await formula.getByLabel(/^Grid fee in this window/).fill('0.12');
   await expectNoAxeViolations(page);
   await next(page).click();
   await expect(page).toHaveURL(/#\/setup\/devices$/);
@@ -219,4 +220,53 @@ test('German labels of the new steps', async ({ browser }) => {
   await page.goto('/#/setup/priorities');
   await expect(page.getByTestId('grid-charge')).toContainText('Laden aus dem Netz');
   await ctx.close();
+});
+
+test('step 6: a stored price formula survives saving at once, before the template has loaded', async ({
+  page,
+  request,
+}) => {
+  const formula = {
+    spot_multiplier: 1,
+    grid_fee: 0.08,
+    levies: 0.03,
+    margin: 0.01,
+    vat_pct: 19,
+    grid_fee_windows: [],
+  };
+  const put = await request.put('/api/v1/config/tariff', {
+    data: {
+      schema_version: 3,
+      import: {
+        kind: 'dynamic',
+        template_id: 'entsoe.price',
+        price_entity: { entity_id: 'sensor.sim_electricity_price', invert_sign: false },
+        formula,
+      },
+      export: { kind: 'fixed', fixed_price: 0.08, tiers: [] },
+    },
+  });
+  expect(put.ok()).toBe(true);
+  // Slow template answers: the step cannot know the source yet when "save" is pressed.
+  await page.route('**/api/v1/templates/entsoe.price', async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue();
+  });
+  await openStep(page, 'tariff');
+  await next(page).click();
+  await expect(page).toHaveURL(/#\/setup\/devices$/);
+  const tariff = await get(request, 'tariff');
+  expect(tariff.import.formula).toMatchObject({ grid_fee: 0.08, vat_pct: 19 });
+});
+
+test('step 6: a period without a price blocks saving', async ({ page }) => {
+  await openStep(page, 'tariff');
+  const imp = page.getByRole('group', { name: 'Import price' });
+  await imp.getByRole('radio', { name: 'Fixed time-of-use (HT/NT)' }).check();
+  const editor = page.getByTestId('tou-editor');
+  await editor.getByLabel(/^Base price/).fill('0.34');
+  await editor.getByTestId('tou-add').click();
+  await next(page).click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page).toHaveURL(/#\/setup\/tariff$/);
 });

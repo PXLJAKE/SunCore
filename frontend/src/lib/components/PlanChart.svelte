@@ -15,7 +15,16 @@
   import { init, use, type ECharts } from 'echarts/core';
   import { CanvasRenderer } from 'echarts/renderers';
   import { onMount } from 'svelte';
-  import { i18n, t, tDynamic, tNumber, tPercent, tPower, tTime } from '../i18n/index.svelte';
+  import {
+    i18n,
+    t,
+    tClock,
+    tDynamic,
+    tNumber,
+    tPercent,
+    tPower,
+    tTime,
+  } from '../i18n/index.svelte';
   import {
     buildOption,
     chartHeight,
@@ -77,7 +86,11 @@
   }
 
   const dayFormat = (ms: number): string =>
-    new Intl.DateTimeFormat(i18n.locale, { weekday: 'short', day: 'numeric' }).format(new Date(ms));
+    new Intl.DateTimeFormat(i18n.locale, {
+      weekday: 'short',
+      day: 'numeric',
+      timeZone: i18n.timeZone,
+    }).format(new Date(ms));
 
   function tooltipFor(index: number): HTMLElement {
     const root = document.createElement('div');
@@ -151,7 +164,10 @@
       power: (w) => tPower(w),
       percent: (pct) => tPercent(pct),
       price,
-      axisTime: (ms) => (new Date(ms).getHours() === 0 ? dayFormat(ms) : tTime(new Date(ms))),
+      axisTime: (ms) => {
+        const c = tClock(new Date(ms));
+        return c.hour === 0 && c.minute === 0 ? dayFormat(ms) : tTime(new Date(ms));
+      },
       tooltip: tooltipFor,
     };
   }

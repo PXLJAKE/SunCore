@@ -3,7 +3,7 @@
 // (language) and the wizard state (first start redirect).
 import { api, ApiError } from '../api/client';
 import type { DevicesConfig, Info, RegionConfig, SiteConfig, WizardState } from '../api/types';
-import { applyLanguage } from '../i18n/index.svelte';
+import { applyLanguage, applyTimeZone } from '../i18n/index.svelte';
 
 export class AppStore {
   info = $state.raw<Info | null>(null);
@@ -30,7 +30,10 @@ export class AppStore {
       this.wizard = wizard;
       this.region = region;
       this.devices = devices;
-      if (region) applyLanguage(region.language);
+      if (region) {
+        applyLanguage(region.language);
+        applyTimeZone(region.timezone);
+      }
       this.error = null;
     } catch (e) {
       this.error = e instanceof ApiError ? (e.key ?? 'api.error.network') : 'api.error.network';

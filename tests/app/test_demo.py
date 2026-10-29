@@ -442,3 +442,13 @@ async def test_demo_battery_control_flag_wires_a_generic_adapter(tmp_path: Path)
         }
     finally:
         await on.stop()
+
+
+async def test_energy_prefs_label_the_solar_forecast_entries(demo_runtime: Runtime) -> None:
+    async with client_for(create_app(demo_runtime)) as client:
+        body = (await client.get("/api/v1/wizard/energy-prefs")).json()
+    assert body["solar_forecast_entries"] == ["sim_entry_solcast_solar", "sim_entry_forecast_solar"]
+    assert (
+        body["solar_forecast_labels"]["sim_entry_forecast_solar"] == "Forecast.Solar Home forecast"
+    )
+    assert "BJReplay" in body["solar_forecast_labels"]["sim_entry_solcast_solar"]

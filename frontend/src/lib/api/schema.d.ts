@@ -1864,6 +1864,10 @@ export interface components {
             };
             /** Solar Forecast Entries */
             solar_forecast_entries?: string[];
+            /** Solar Forecast Labels */
+            solar_forecast_labels?: {
+                [key: string]: string;
+            };
             /** Suggestions */
             suggestions: components["schemas"]["SuggestionOut"][];
         };

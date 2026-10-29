@@ -28,6 +28,17 @@ test.describe('battery card on the Now view', () => {
     await expectNoAxeViolations(page);
   });
 
+  test('hides the planned actions and says why when the plan is not followed', async ({ page }) => {
+    await page.route('**/api/v1/plan?*', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      await route.fulfill({ response: res, json: { ...body, stale: true, in_use: false } });
+    });
+    await page.goto('/');
+    await expect(page.getByTestId('now-plan-outdated')).toBeVisible();
+    await expect(page.getByTestId('now-planned-actions')).toHaveCount(0);
+  });
+
   test('switches to assisted after a confirmation with the battery identity', async ({
     page,
     request,

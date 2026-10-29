@@ -41,10 +41,41 @@ export function formatPercentValue(pct: number, locale: Locale): string {
   return numberFormat(locale, { maximumFractionDigits: 0 }).format(pct);
 }
 
-export function formatTime(date: Date, locale: Locale): string {
-  return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(date);
+/** A usable IANA zone name, or `undefined` (= the browser's zone). */
+export function validZone(zone: string | null | undefined): string | undefined {
+  if (!zone) return undefined;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone });
+    return zone;
+  } catch {
+    return undefined;
+  }
 }
 
-export function formatDateTime(date: Date, locale: Locale): string {
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+export function formatTime(date: Date, locale: Locale, timeZone?: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone,
+  }).format(date);
+}
+
+export function formatDateTime(date: Date, locale: Locale, timeZone?: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone,
+  }).format(date);
+}
+
+/** Hour (0-23) and minute of `date` in `timeZone` (the browser's zone when undefined). */
+export function clockParts(date: Date, timeZone?: string): { hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone,
+  }).formatToParts(date);
+  const num = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return { hour: num('hour'), minute: num('minute') };
 }

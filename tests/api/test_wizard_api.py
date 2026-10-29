@@ -98,6 +98,7 @@ async def test_energy_prefs_not_configured_and_configured(services: FakeServices
         "notes": [],
         "site": {},
         "solar_forecast_entries": [],
+        "solar_forecast_labels": {},
     }
     body = got.json()
     assert body["configured"] is True
