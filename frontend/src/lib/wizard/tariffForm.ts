@@ -7,6 +7,7 @@ import { emptyRef, fromRef, toRef, type RefField } from './forms';
 import {
   feesFromApi,
   feesToApi,
+  isWindowValid,
   periodsFromApi,
   periodsToApi,
   type FeeRow,
@@ -134,9 +135,15 @@ export function tariffFormFromConfig(cfg: TariffConfig | null): TariffForm {
 
 /** Enough to store the tariff section (the backend requires import and export). */
 export function isTariffComplete(form: TariffForm): boolean {
+  const feeWindowsOk =
+    form.importKind !== 'dynamic' ||
+    !form.formulaEnabled ||
+    form.formula.feeWindows.every((w) => w.fee != null && isWindowValid(w.window));
   const importOk =
     form.importKind === 'tou'
-      ? form.tou.basePrice != null && form.tou.periods.length > 0
+      ? form.tou.basePrice != null &&
+        form.tou.periods.length > 0 &&
+        form.tou.periods.every((p) => p.price != null && isWindowValid(p.window))
       : form.importKind === 'fixed'
         ? form.importFixed != null
         : form.dynamicSource === 'template'
@@ -148,7 +155,7 @@ export function isTariffComplete(form: TariffForm): boolean {
     (form.exportKind === 'tiered' &&
       form.tiers.length > 0 &&
       form.tiers.every((t) => t.price != null));
-  return importOk && exportOk;
+  return importOk && exportOk && feeWindowsOk;
 }
 
 export function tariffFromForm(form: TariffForm): TariffConfig {
@@ -232,4 +239,19 @@ export function tiersFromRegion(template: RegionTemplate | undefined): TierRow[]
 export function formulaApplies(form: TariffForm, templateIncludes: PriceIncludes | null): boolean {
   if (form.importKind !== 'dynamic') return false;
   return (form.priceIncludes ?? templateIncludes) === 'spot_only';
+}
+
+/**
+ * A stored formula may only be dropped when it certainly does not apply: the price is an end
+ * price, stated by the user or by the loaded template. `templateIncludes` is `undefined` while the
+ * template is not loaded (or failed to load): then nothing is certain and the formula stays.
+ */
+export function formulaCertainlyOff(
+  form: TariffForm,
+  templateIncludes: PriceIncludes | null | undefined,
+): boolean {
+  if (form.importKind !== 'dynamic') return false;
+  const effective =
+    form.priceIncludes ?? (templateIncludes === undefined ? null : templateIncludes);
+  return effective === 'all_in';
 }

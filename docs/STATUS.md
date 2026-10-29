@@ -29,7 +29,7 @@ test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
     `BatteryBand.priority_until_soc_pct`; v1 still loads); config `TariffConfig` v3,
     `ForecastConfig` v2, `goals` v2; template schema v1 additions (kind `battery`, `series`,
     HT/NT).
-  - ADR-0013 "Battery as a controlled asset" **proposed** (prerequisite of WP10).
+  - ADR-0013 "Battery as a controlled asset" **proposed** (prerequisite of WP10; accepted 2026-10-19).
   - Review fixes: in progress (`fix(...)` commits on the branch).
 
 - **Phase 4 – PR 4-B (WP3, storage and statistics; branch `phase-4/b-storage`, stacked on 4-A)**:
@@ -635,7 +635,15 @@ test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
   recommended**, one commit per PR on `main`), **only after the Phase 3 acceptance** (plan §6).
   ADR-0013 accepted by the maintainer on 2026-10-19. Open: 4-I (optional ML load model), and the
   follow-ups below.
-- Follow-ups from 4-H and the docs: a switch for `battery.fallback_measured` in the panel (today:
+- **Safety note:** the documented fallback-timer measurement lifts the assisted cap (via
+  `fallback_measured`); the procedure gets a `control-safety` review (the lead runs it). It needs
+  the app's Watchdog switch off, otherwise the Supervisor restarts the killed app and SunCore itself
+  releases and writes within the 60 s (false positive); Supervisor behaviour read in the source,
+  `UNVERIFIED` on HA OS.
+- **Calibration charge:** only a configuration field so far, the planner does not use it (plan §6
+  question 11 said "built"; corrected in the plan's deviations). Open.
+- Follow-ups from 4-H and the docs: `fallback_timeout_s` changes should drop the battery mode to
+  shadow on the server (follows); a switch for `battery.fallback_measured` in the panel (today:
   export, edit, import), a hint for a too-new `timeseries.db` (the API exposes no such state), the
   panel for editing `action_params`/`series_key`/`learning`.
 - Maintainer questions from 4-G (PR description): grid charging on the Kostal (generic

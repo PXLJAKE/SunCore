@@ -15,6 +15,7 @@ export interface ChartColors {
   pv: string;
   load: string;
   battery: string;
+  devices: string;
   gridImport: string;
   gridExport: string;
   target: string;
@@ -26,6 +27,7 @@ export interface ChartLabels {
   pvBand: string;
   pvP50: string;
   load: string;
+  devices: string;
   batteryPower: string;
   gridImport: string;
   gridExport: string;
@@ -183,6 +185,7 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
         l.pvBand,
         l.pvP50,
         l.load,
+        l.devices,
         l.batteryPower,
         l.gridImport,
         l.gridExport,
@@ -275,6 +278,17 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
         step: 'start',
         lineStyle: { color: c.load, width: 2, type: 'dashed' },
         itemStyle: { color: c.load },
+      },
+      {
+        name: l.devices,
+        type: 'line',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: closed(data.devicesW),
+        symbol: 'none',
+        step: 'start',
+        lineStyle: { color: c.devices, width: 2, type: 'dotted' },
+        itemStyle: { color: c.devices },
       },
       {
         name: l.batteryPower,

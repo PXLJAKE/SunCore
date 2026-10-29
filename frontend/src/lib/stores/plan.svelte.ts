@@ -36,6 +36,11 @@ export class PlanStore {
   replanAck = $state.raw<ReplanAck | null>(null);
   replanError = $state<string | null>(null);
 
+  /** Server clock minus browser clock at the last fetch (ms). */
+  private offsetMs = 0;
+  /** Bumped once a minute so "now" moves on between fetches. */
+  private tick = $state(0);
+  private clock: ReturnType<typeof setInterval> | null = null;
   private seen = -1;
   private cooldown: ReturnType<typeof setTimeout> | null = null;
 
@@ -47,6 +52,8 @@ export class PlanStore {
       const [view, status] = await Promise.all([planApi.plan(48), planApi.status()]);
       this.view = view;
       this.status = status;
+      this.offsetMs = Date.parse(view.generated_at) - Date.now();
+      this.startClock();
       this.error = null;
     } catch (e) {
       this.error = e instanceof ApiError && e.key ? e.key : describeError(e).key;
@@ -72,7 +79,8 @@ export class PlanStore {
 
   /** Refetch when the live feed announced a plan since the last look (call from an effect). */
   syncWithFeed(withForecasts = false): void {
-    const n = live.planUpdates;
+    // A new plan, or a new connection (a drop may have hidden plans): fetch again.
+    const n = live.planUpdates + live.snapshotCount;
     if (n === this.seen) return;
     const first = this.seen === -1;
     this.seen = n;
@@ -103,11 +111,30 @@ export class PlanStore {
   }
 
   /**
-   * "Now" as the server sees it (the plan's hand-over time): the demo runs on a simulated clock,
-   * so the browser's clock must not decide which intervals are in the past.
+   * "Now" as the server sees it: the browser clock plus the offset measured at the last fetch (the
+   * demo runs on a simulated clock, so the browser's clock alone must not decide which intervals
+   * are in the past), moved on by a minute tick.
    */
   get nowMs(): number {
-    return this.view ? Date.parse(this.view.generated_at) : Date.now();
+    void this.tick;
+    return Date.now() + this.offsetMs;
+  }
+
+  private startClock(): void {
+    if (this.clock !== null) return;
+    this.clock = setInterval(() => (this.tick += 1), 60_000);
+  }
+
+  /** Stop the minute tick (tests). */
+  stopClock(): void {
+    if (this.clock !== null) clearInterval(this.clock);
+    this.clock = null;
+  }
+
+  /** The plan is old, over or not followed by the control: the lists must say so. */
+  get outdated(): boolean {
+    const v = this.view;
+    return v !== null && (v.stale || v.expired || !v.in_use);
   }
 
   /** The planner is not running (no site set up): the API answers 409. */

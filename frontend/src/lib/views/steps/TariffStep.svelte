@@ -15,6 +15,7 @@
   import {
     addTier,
     formulaApplies,
+    formulaCertainlyOff,
     isTariffComplete,
     removeTier,
     tiersFromRegion,
@@ -95,7 +96,9 @@
   async function onsave(): Promise<void> {
     if (!isTariffComplete(wizard.tariff)) throw new FormError(['tariff.error.incomplete']);
     // An end price never gets the formula on top (fees would count twice).
-    if (wizard.tariff.importKind === 'dynamic' && !applies) wizard.tariff.formulaEnabled = false;
+    if (formulaCertainlyOff(wizard.tariff, detail ? (detail.price_includes ?? null) : undefined)) {
+      wizard.tariff.formulaEnabled = false;
+    }
     await wizard.saveTariff();
   }
 </script>

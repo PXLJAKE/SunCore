@@ -65,6 +65,11 @@ export const scheduleFromApi = (s: WeeklySchedule | null | undefined): WindowRow
 export const scheduleToApi = (rows: readonly WindowRow[]): WeeklySchedule | null =>
   rows.length === 0 ? null : { windows: rows.map(windowToApi) };
 
+function requirePrice(value: number | null): number {
+  if (value == null) throw new Error('a time window needs its price');
+  return value;
+}
+
 export const periodsFromApi = (periods: readonly TouPeriod[] | undefined): PeriodRow[] =>
   (periods ?? []).map((p) => ({
     window: windowFromApi(p.window),
@@ -72,10 +77,11 @@ export const periodsFromApi = (periods: readonly TouPeriod[] | undefined): Perio
     months: [...(p.months ?? [])].sort((a, b) => a - b),
   }));
 
+/** Every period needs its price: a missing one is never stored as 0 (throws, see `isTariffComplete`). */
 export const periodsToApi = (rows: readonly PeriodRow[]): TouPeriod[] =>
   rows.map((r) => ({
     window: windowToApi(r.window),
-    price: r.price ?? 0,
+    price: requirePrice(r.price),
     ...(r.months.length === 0 ? {} : { months: [...r.months] }),
   }));
 
@@ -89,6 +95,6 @@ export const feesFromApi = (windows: readonly GridFeeWindow[] | undefined): FeeR
 export const feesToApi = (rows: readonly FeeRow[]): GridFeeWindow[] =>
   rows.map((r) => ({
     window: windowToApi(r.window),
-    fee: r.fee ?? 0,
+    fee: requirePrice(r.fee),
     ...(r.months.length === 0 ? {} : { months: [...r.months] }),
   }));

@@ -1086,7 +1086,7 @@
   "plan.table.caption": "Plan by hour",
   "plan.table.time": "Time",
   "plan.table.pv": "Solar P50",
-  "plan.table.load": "House",
+  "plan.table.load": "Base load",
   "plan.table.battery": "Battery",
   "plan.table.grid": "Grid (import − export)",
   "plan.table.soc": "State of charge",
@@ -1309,5 +1309,12 @@
   "settings.sum.battery_control": "Control: {adapter}",
   "settings.sum.battery_observe": "Observe only",
   "settings.sum.battery_plan": "{strategy}, risk level {risk}",
-  "settings.section.battery": "Battery (control and planning)"
+  "settings.section.battery": "Battery (control and planning)",
+  "plan.now_outdated": "The plan is old, has run out or is not followed by the control, so its next actions are not shown. SunCore controls with the surplus rules until a new plan arrives.",
+  "plan.s.devices": "Devices (planned)",
+  "plan.s.load_base": "Base load P50",
+  "plan.table.devices": "Devices",
+  "pvf.entry_saved": "(saved) {id}",
+  "bat.fallback_reset": "The adapter, the modbus link or the fallback timer changed: the earlier fallback measurement no longer counts and is reset when you save.",
+  "plan.tt.devices": "Devices (planned): {power}"
 }

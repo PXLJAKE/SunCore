@@ -204,7 +204,7 @@ you and always win over what is learnt.
 Step 8 has the expert field **Self-sufficiency weight per kWh**, default **0.01** (1 cent per
 kWh in your currency). Think of it as a tiny bonus for every kWh you use from your own panels
 instead of buying: the plan values it at 1 ct/kWh more than the price. It only decides between
-options whose cost differs by **less than 1 ct/kWh**, so it never costs real money; it prevents
+options whose cost differs by **less than 1 ct/kWh**, so it costs at most 1 ct per kWh; it prevents
 the optimiser from picking arbitrarily among equal-cost plans on a flat tariff. **0** means pure
 cost.
 
@@ -408,9 +408,15 @@ Before you start:
 - You can see the **battery power** and the **grid power** with timestamps (a history graph).
 - You know how to reach the Home Assistant host's shell (for example the "Advanced SSH & Web
   Terminal" app with protection mode off) **or** can otherwise end the app abruptly.
+- **Turn the app's Watchdog switch OFF** (the app's **Info** page) before the test. With the
+  watchdog on, the Supervisor restarts a killed container at once, SunCore releases the battery
+  and writes the limits itself within the 60 seconds, and the test shows a fall-back that never
+  happened (a false positive). Turn the watchdog back on afterwards. (Behaviour read in the
+  Supervisor source, `supervisor/apps/app.py` watchdog, on 2026-10-28; `UNVERIFIED` on HA OS.)
 - **Abort criteria:** a modbus error in the log, register 1080 not `2`, a sensor that does not
   show what SunCore wrote, the charge approaching the reserve, grid import near your
-  connection limit, or anything you do not understand. Then do not continue: start the app (it
+  connection limit, SunCore running again before you observed the fall-back (see step 4), or
+  anything you do not understand. Then do not continue: start the app (it
   releases the battery after reconnecting), switch the battery card to **Shadow mode** and
   check the log. If the limit does not return on its own, restore the inverter by hand (its
   own settings or, in the installer menu, the external management off).
@@ -422,12 +428,15 @@ Steps:
    held back"). **Confirm** it once. The card shows **SunCore holds these limits**, and the
    register 1282 sensor shows the value.
 3. Confirm the effect: with a discharge limit of 0 W the battery power goes to about 0 W and the
-   house imports. Wait for at least one heartbeat (30 s) to see the value held.
+   house imports. Wait for at least one heartbeat (20 s) to see the value held.
 4. Note the time (to the second). **Stop SunCore without a hand-back.** A normal **Stop** or
    restart of the app does **not** work for this: SunCore then releases the battery first, and
    the inverter returns to its own limits immediately, which proves nothing about the timer. End
    the container instead, for example with `docker kill` in the shell (find the name with
-   `docker ps`; it ends in `suncore`; the exact name is `UNVERIFIED`).
+   `docker ps`; it ends in `suncore`; the exact name is `UNVERIFIED`). Check on the app page and
+   with `docker ps` that the app **stays stopped**. Later, in the SunCore log after you start it,
+   note the time of the recovery line: it must be **after** the fall-back you observed, otherwise
+   SunCore wrote the limits itself and the measurement is void.
 5. Watch the battery power and the grid power. When the inverter falls back, the battery starts
    to discharge into the house and the grid import drops. Note the time when that happens. The
    difference is your measured timer.
@@ -497,7 +506,8 @@ measurements.
   battery path are tested in the simulator and with fixtures read from the integrations' source
   code. Wording and menu paths in this guide were not clicked through on a real Home Assistant.
 - **Kostal Modbus** runs in the simulator only: how external battery management is enabled, the
-  inverter's fallback timer and the byte order of register 1288 are unverified. The procedure
+  inverter's fallback timer and the byte order of register 5 and of the timer register 1288
+  are unverified. The procedure
   above is meant to measure it.
 - **Kostal REST:** the sign of the battery and grid power, how soon the minimum charge is read
   back (35 seconds assumed) and whether out-of-range values are clamped are unverified.

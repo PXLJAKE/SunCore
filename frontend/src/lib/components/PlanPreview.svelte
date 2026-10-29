@@ -18,6 +18,7 @@
   // The planner reruns after the settings changed; the new plan arrives on the live feed.
   $effect(() => {
     void live.planUpdates;
+    void live.snapshotCount;
     plan.syncWithFeed();
   });
 

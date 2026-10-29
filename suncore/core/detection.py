@@ -70,3 +70,5 @@ class EnergySuggestions:
     solar_forecast_entries: tuple[str, ...] = ()
     """Config entry ids linked to the dashboard's solar sources (``config_entry_solar_forecast``);
     the choices for ``ForecastSourceConfig.config_entry_id`` of a Forecast.Solar source."""
+    solar_forecast_labels: Mapping[str, str] = field(default_factory=dict)
+    """Readable labels of those entries from the device registry (may lack some entries)."""

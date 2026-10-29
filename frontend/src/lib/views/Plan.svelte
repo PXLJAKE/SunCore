@@ -58,6 +58,7 @@
   // A plan announced on the live feed is fetched once, with the forecasts that go with it.
   $effect(() => {
     void live.planUpdates;
+    void live.snapshotCount;
     plan.syncWithFeed(true);
   });
 
@@ -235,6 +236,7 @@
                 <th scope="col">{t('plan.table.time')}</th>
                 <th scope="col">{t('plan.table.pv')}</th>
                 <th scope="col">{t('plan.table.load')}</th>
+                <th scope="col">{t('plan.table.devices')}</th>
                 <th scope="col">{t('plan.table.battery')}</th>
                 <th scope="col">{t('plan.table.grid')}</th>
                 <th scope="col">{t('plan.table.soc')}</th>
@@ -248,6 +250,7 @@
                   <th scope="row">{tDateTime(new Date(i.start))}</th>
                   <td>{tPower(e.pv_p50_w)}</td>
                   <td>{tPower(e.load_w)}</td>
+                  <td>{tPower(e.devices_w ?? 0)}</td>
                   <td>{signed(e.battery_w ?? 0)}</td>
                   <td>{signed(e.import_w - e.export_w)}</td>
                   <td>{e.soc_pct == null ? '–' : tPercent(e.soc_pct)}</td>

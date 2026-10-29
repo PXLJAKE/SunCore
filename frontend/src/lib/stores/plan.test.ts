@@ -25,10 +25,46 @@ afterEach(() => {
 
 describe('PlanStore', () => {
   it('loads plan and status and takes "now" from the server', async () => {
+    vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));
     await store.refresh();
     expect(store.view).toBe(view);
     expect(store.loaded).toBe(true);
     expect(store.nowMs).toBe(Date.parse('2026-06-21T09:30:00+02:00'));
+    store.stopClock();
+  });
+
+  it('moves "now" on with the browser clock between fetches', async () => {
+    vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));
+    await store.refresh();
+    const first = store.nowMs;
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(store.nowMs - first).toBe(5 * 60_000);
+    store.stopClock();
+  });
+
+  it('flags a stale, expired or unused plan as outdated', async () => {
+    expect(store.outdated).toBe(false);
+    for (const [over, want] of [
+      [{ in_use: true, stale: false, expired: false }, false],
+      [{ in_use: true, stale: true, expired: false }, true],
+      [{ in_use: true, stale: false, expired: true }, true],
+      [{ in_use: false, stale: false, expired: false }, true],
+    ] as const) {
+      vi.spyOn(planApi, 'plan').mockResolvedValue({ ...view, ...over } as PlanView);
+      await store.refresh();
+      expect(store.outdated, JSON.stringify(over)).toBe(want);
+    }
+    store.stopClock();
+  });
+
+  it('refetches after a reconnect (a new snapshot), not only on a plan message', async () => {
+    const spy = vi.spyOn(store, 'refresh').mockResolvedValue();
+    live.planUpdates = 0;
+    live.snapshotCount = 1;
+    store.syncWithFeed();
+    live.snapshotCount = 2;
+    store.syncWithFeed();
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it('reports a missing planner (409) as unavailable', async () => {
@@ -76,6 +112,7 @@ describe('PlanStore', () => {
   it('refetches on a plan message of the feed, not on the first look', async () => {
     const spy = vi.spyOn(store, 'refresh').mockResolvedValue();
     live.planUpdates = 0;
+    live.snapshotCount = 0;
     store.syncWithFeed();
     expect(spy).not.toHaveBeenCalled();
     live.planUpdates = 1;

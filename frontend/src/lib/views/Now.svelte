@@ -35,6 +35,7 @@
   });
   $effect(() => {
     void live.planUpdates;
+    void live.snapshotCount;
     plan.syncWithFeed();
   });
   const upcoming = $derived(
@@ -85,7 +86,11 @@
         <h3 id="next-title">{t('plan.next.title')}</h3>
         <a href="#/plan">{t('plan.next.open')}</a>
       </div>
-      <PlannedActions actions={upcoming} testid="now-planned-actions" />
+      {#if plan.outdated}
+        <p class="notice warn" data-testid="now-plan-outdated">{t('plan.now_outdated')}</p>
+      {:else}
+        <PlannedActions actions={upcoming} testid="now-planned-actions" />
+      {/if}
     </section>
   {/if}
 

@@ -20,7 +20,12 @@
   import { issuesAt } from '../../wizard/issues';
   import { validateSiteForm } from '../../wizard/siteForm';
   import { emptyRef } from '../../wizard/forms';
-  import { hasModel, validateBatteryForm, type BatteryFormError } from '../../wizard/batteryForm';
+  import {
+    fallbackStillMeasured,
+    hasModel,
+    validateBatteryForm,
+    type BatteryFormError,
+  } from '../../wizard/batteryForm';
 
   const save = new SaveState();
   const UNIT = { kwh: 'kWh', pct: '%', w: 'W', s: 's' } as const;
@@ -305,7 +310,13 @@
             />
           </div>
           <p class="hint" data-testid="fallback-state">
-            {t(f.fallbackMeasured ? 'bat.fallback_measured' : 'bat.fallback_not_measured')}
+            {t(
+              fallbackStillMeasured(f)
+                ? 'bat.fallback_measured'
+                : f.fallbackMeasured
+                  ? 'bat.fallback_reset'
+                  : 'bat.fallback_not_measured',
+            )}
           </p>
         {/if}
       {/if}

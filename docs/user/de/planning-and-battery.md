@@ -215,7 +215,7 @@ Schritt 8 hat das Expertenfeld **Autarkie-Gewicht je kWh**, Standard **0,01** (1
 deiner Währung). Stell es dir als winzigen Bonus für jede kWh vor, die du aus den eigenen Modulen
 nutzt, statt sie zu kaufen: Der Plan bewertet sie mit 1 ct/kWh mehr als dem Preis. Es entscheidet
 nur zwischen Möglichkeiten, deren Kosten sich um **weniger als 1 ct/kWh** unterscheiden, kostet
-also nie echtes Geld; es verhindert, dass der Optimierer bei flachem Tarif beliebig unter
+also höchstens 1 ct je kWh; es verhindert, dass der Optimierer bei flachem Tarif beliebig unter
 gleich teuren Plänen wählt. **0** bedeutet reine Kosten.
 
 ### Netzladen
@@ -434,9 +434,16 @@ Bevor du anfängst:
 - Du siehst **Akkuleistung** und **Netzleistung** mit Zeitstempeln (ein Verlaufsdiagramm).
 - Du kommst an die Shell des Home-Assistant-Hosts (zum Beispiel mit der App „Advanced SSH & Web
   Terminal“ bei ausgeschaltetem Schutzmodus) **oder** kannst die App anderweitig abrupt beenden.
+- **Schalte den Watchdog der App AUS** (Seite **Info** der App), bevor du testest. Bei
+  eingeschaltetem Watchdog startet der Supervisor einen beendeten Container sofort neu, SunCore
+  gibt den Akku zurück und schreibt die Grenzen innerhalb der 60 Sekunden selbst, und der Test
+  zeigt einen Rückfall, der nie stattgefunden hat (falsch positiv). Schalte den Watchdog danach
+  wieder ein. (Verhalten aus dem Supervisor-Quelltext `supervisor/apps/app.py` gelesen am
+  2026-10-28; auf HA OS `UNVERIFIED`.)
 - **Abbruchkriterien:** ein Modbus-Fehler im Protokoll, Register 1080 nicht `2`, ein Sensor, der
   nicht zeigt, was SunCore geschrieben hat, ein Ladestand, der sich der Reserve nähert, Netzbezug
-  nahe deiner Anschlussgrenze oder irgendetwas, das du nicht verstehst. Dann nicht weitermachen:
+  nahe deiner Anschlussgrenze, SunCore läuft wieder, bevor du den Rückfall beobachtet hast (siehe
+  Schritt 4), oder irgendetwas, das du nicht verstehst. Dann nicht weitermachen:
   Starte die App (sie gibt den Akku nach dem Verbinden zurück), stelle die Akku-Karte auf
   **Schattenmodus** und sieh ins Protokoll. Kehrt die Grenze nicht von allein zurück, stelle den
   Wechselrichter von Hand wieder her (seine eigenen Einstellungen oder im Installateurmenü das
@@ -450,12 +457,17 @@ Schritte:
    zurückgehalten“). **Bestätige** ihn einmal. Die Karte zeigt **SunCore hält diese Grenzen**, und
    der Sensor von Register 1282 zeigt den Wert.
 3. Prüfe die Wirkung: Bei einer Entladegrenze von 0 W geht die Akkuleistung auf etwa 0 W, und das
-   Haus bezieht aus dem Netz. Warte mindestens 30 Sekunden, damit der Heartbeat den Wert sichtbar hält.
+   Haus bezieht aus dem Netz. Warte mindestens 20 Sekunden (ein
+   Heartbeat), damit der Wert sichtbar gehalten wird.
 4. Notiere die Uhrzeit (sekundengenau). **Beende SunCore ohne Rückgabe.** Ein normales **Stoppen**
    oder ein Neustart der App funktioniert dafür **nicht**: SunCore gibt den Akku dann zuerst
    zurück, und der Wechselrichter kehrt sofort zu seinen eigenen Grenzen zurück, was über den Timer
    nichts beweist. Beende stattdessen den Container, zum Beispiel mit `docker kill` in der Shell (den
    Namen findest du mit `docker ps`; er endet auf `suncore`; der genaue Name ist `UNVERIFIED`).
+   Prüfe auf der App-Seite und mit `docker ps`, dass die
+   App **gestoppt bleibt**. Notiere später im SunCore-Protokoll nach dem Start die Zeit der
+   Wiederherstellungszeile: Sie muss **nach** dem beobachteten Rückfall liegen, sonst hat SunCore
+   die Grenzen selbst geschrieben, und die Messung ist ungültig.
 5. Beobachte Akkuleistung und Netzleistung. Fällt der Wechselrichter zurück, beginnt der Akku, ins
    Haus zu entladen, und der Netzbezug sinkt. Notiere die Zeit, zu der das passiert. Die Differenz
    ist dein gemessener Timer.
@@ -526,8 +538,8 @@ Messwerten.
   Formulierungen und Menüpfade in dieser Anleitung wurden nicht in einem echten Home Assistant
   durchgeklickt.
 - **Kostal Modbus** läuft nur im Simulator: Wie das externe Batteriemanagement aktiviert wird, der
-  Rückfall-Timer des Wechselrichters und die Bytereihenfolge von Register 1288 sind unbestätigt. Das
-  Verfahren oben soll den Timer messen.
+  Rückfall-Timer des Wechselrichters und die Bytereihenfolge von Register 5 und des Timer-Registers 1288
+  sind unbestätigt. Das Verfahren oben soll den Timer messen.
 - **Kostal REST:** Das Vorzeichen von Akku- und Netzleistung, wie schnell der Mindest-Ladestand
   zurückgelesen wird (35 Sekunden angenommen) und ob Werte außerhalb des Bereichs begrenzt werden,
   sind unbestätigt.

@@ -32,6 +32,8 @@ export class LiveStore {
   plan = $state.raw<PlanSummary | null>(null);
   /** Plan messages received since start: views refetch the plan when it changes. */
   planUpdates = $state(0);
+  /** Snapshots received since start: one per (re)connect, so views refetch what they cached. */
+  snapshotCount = $state(0);
   connection = $state<ConnectionState>('connecting');
   haveSnapshot = $state(false);
   /** Flow messages received since start (tests and the E2E "values update" check). */
@@ -49,6 +51,7 @@ export class LiveStore {
         this.decisions = msg.decisions;
         this.control = msg.control ?? null;
         this.haveSnapshot = true;
+        this.snapshotCount += 1;
         this.flowUpdates += 1;
         break;
       case 'flows':

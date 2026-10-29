@@ -50,8 +50,20 @@ export interface BatteryForm {
   // Carried through unchanged.
   calibration: BatterySettings['calibration'] | null;
   fallbackMeasured: boolean;
+  /** What the measurement was taken on (adapter, modbus link, fallback timer) when loaded. */
+  fallbackBasis: string;
   schemaVersion: number;
 }
+
+/** The setup a fallback measurement belongs to: another adapter, link or timer voids it. */
+export function fallbackKey(f: BatteryForm): string {
+  const m = f.modbus;
+  return [f.adapterTemplateId, m.hub.trim(), m.slave, m.byteOrder, m.fallbackTimeoutS].join('|');
+}
+
+/** Whether the stored "fallback measured" still holds for the form as it is now. */
+export const fallbackStillMeasured = (f: BatteryForm): boolean =>
+  f.fallbackMeasured && fallbackKey(f) === f.fallbackBasis;
 
 /** Site values that fill an empty model (the battery of the site section). */
 export interface ModelDefaults {
@@ -99,6 +111,7 @@ export function emptyBatteryForm(defaults: ModelDefaults = {}): BatteryForm {
     autarkyWeightPerKwh: 0.01,
     calibration: null,
     fallbackMeasured: false,
+    fallbackBasis: '',
     schemaVersion: 1,
   };
 }
@@ -146,6 +159,7 @@ export function batteryFormFromConfig(
       fallbackTimeoutS: cfg.modbus.fallback_timeout_s ?? 60,
     };
   }
+  form.fallbackBasis = fallbackKey(form);
   return form;
 }
 
@@ -238,7 +252,7 @@ export function batteryFromForm(form: BatteryForm, usesModbus: boolean): Battery
             fallback_timeout_s: form.modbus.fallbackTimeoutS ?? 60,
           }
         : null,
-    fallback_measured: form.fallbackMeasured,
+    fallback_measured: fallbackStillMeasured(form),
   };
 }
 

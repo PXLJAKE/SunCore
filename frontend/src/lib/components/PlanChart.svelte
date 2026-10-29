@@ -67,6 +67,7 @@
       card: v('--card-background-color', '#ffffff'),
       pv: v('--energy-solar-color', '#c77700'),
       load: v('--primary-text-color', '#212121'),
+      devices: v('--info-color', '#0b6fa4'),
       battery: v('--energy-battery-in-color', '#00796b'),
       gridImport: v('--energy-grid-consumption-color', '#2f6fa8'),
       gridExport: v('--energy-grid-return-color', '#7040b8'),
@@ -98,6 +99,7 @@
       }),
     );
     add(t('plan.tt.load', { power: tPower(data.loadW[index] ?? 0) }));
+    add(t('plan.tt.devices', { power: tPower(data.devicesW[index] ?? 0) }));
     add(t('plan.tt.battery', { power: tPower(data.batteryW[index] ?? 0) }));
     add(
       t('plan.tt.grid', {
@@ -135,7 +137,8 @@
     return {
       pvBand: t('plan.s.pv_band'),
       pvP50: t('plan.s.pv_p50'),
-      load: t('plan.s.load'),
+      load: t('plan.s.load_base'),
+      devices: t('plan.s.devices'),
       batteryPower: t('plan.s.battery_power'),
       gridImport: t('plan.s.grid_import'),
       gridExport: t('plan.s.grid_export'),

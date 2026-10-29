@@ -17,6 +17,7 @@ const colors: ChartColors = {
   pv: '#c77700',
   load: '#111111',
   battery: '#00796b',
+  devices: '#0b6fa4',
   gridImport: '#2f6fa8',
   gridExport: '#7040b8',
   target: '#8a5100',
@@ -26,6 +27,7 @@ const labels: ChartLabels = {
   pvBand: 'band',
   pvP50: 'pv',
   load: 'load',
+  devices: 'devices',
   batteryPower: 'battery',
   gridImport: 'import',
   gridExport: 'export',
@@ -129,7 +131,8 @@ describe('buildOption', () => {
   });
   it('lists every visible series in the legend and builds the tooltip from the axis value', () => {
     const o = build();
-    expect(o.legend.data).toHaveLength(9);
+    expect(o.legend.data).toHaveLength(10);
+    expect(o.series.find((s) => s.name === 'devices')!.step).toBe('start');
     expect(o.tooltip.formatter([{ axisValue: 1_000_000 }]).textContent).toBe('interval 1');
     expect(o.tooltip.formatter({}).textContent).toBe('interval 0');
   });

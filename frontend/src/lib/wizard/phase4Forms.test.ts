@@ -17,7 +17,9 @@ import { emptySiteForm } from './siteForm';
 import { goalsFormFromConfig, operationFormFromConfig } from './goalsForm';
 import {
   emptyTariffForm,
+  isTariffComplete,
   formulaApplies,
+  formulaCertainlyOff,
   tariffFormFromConfig,
   tariffFromForm,
 } from './tariffForm';
@@ -298,5 +300,68 @@ describe('dirty sections with the battery', () => {
     expect(dirtySections(input)).not.toContain('battery');
     input.forms.battery.risk = 'bold';
     expect(dirtySections(input)).toContain('battery');
+  });
+});
+
+describe('formulaCertainlyOff', () => {
+  const form = () => {
+    const f = emptyTariffForm();
+    f.importKind = 'dynamic';
+    f.formulaEnabled = true;
+    return f;
+  };
+  it('keeps a stored formula while the template is not known', () => {
+    expect(formulaCertainlyOff(form(), undefined)).toBe(false);
+    expect(formulaCertainlyOff(form(), null)).toBe(false);
+    expect(formulaCertainlyOff(form(), 'spot_only')).toBe(false);
+  });
+  it('drops it only for an end price, from the template or from the user', () => {
+    expect(formulaCertainlyOff(form(), 'all_in')).toBe(true);
+    const f = form();
+    f.priceIncludes = 'all_in';
+    expect(formulaCertainlyOff(f, undefined)).toBe(true);
+    f.priceIncludes = 'spot_only';
+    expect(formulaCertainlyOff(f, 'all_in')).toBe(false);
+    f.importKind = 'fixed';
+    expect(formulaCertainlyOff(f, 'all_in')).toBe(false);
+  });
+});
+
+describe('review fixes', () => {
+  it('resets "fallback measured" when the adapter, the link or the timer changes', () => {
+    const form = batteryFormFromConfig(FULL_BATTERY);
+    expect(batteryFromForm(form, true).fallback_measured).toBe(true);
+    form.modbus.fallbackTimeoutS = 90;
+    expect(batteryFromForm(form, true).fallback_measured).toBe(false);
+    form.modbus.fallbackTimeoutS = 60;
+    expect(batteryFromForm(form, true).fallback_measured).toBe(true);
+    form.modbus.hub = 'other';
+    expect(batteryFromForm(form, true).fallback_measured).toBe(false);
+    const other = batteryFormFromConfig(FULL_BATTERY);
+    other.adapterTemplateId = 'generic.battery';
+    expect(batteryFromForm(other, false).fallback_measured).toBe(false);
+  });
+  it('a period or fee window without a price is incomplete and never stored as 0', () => {
+    const f = emptyTariffForm();
+    f.importKind = 'tou';
+    f.exportKind = 'none';
+    f.tou.basePrice = 0.3;
+    f.tou.periods.push({ window: emptyWindow(), price: null, months: [] });
+    expect(isTariffComplete(f)).toBe(false);
+    expect(() => tariffFromForm(f)).toThrow();
+    f.tou.periods[0]!.price = 0.2;
+    expect(isTariffComplete(f)).toBe(true);
+    f.tou.periods[0]!.window.days = [];
+    expect(isTariffComplete(f)).toBe(false);
+    const g = emptyTariffForm();
+    g.importKind = 'dynamic';
+    g.dynamicSource = 'entity';
+    g.priceEntity = ref('sensor.spot');
+    g.exportKind = 'none';
+    g.formulaEnabled = true;
+    g.formula.feeWindows.push({ window: emptyWindow(), fee: null, months: [] });
+    expect(isTariffComplete(g)).toBe(false);
+    g.formula.feeWindows[0]!.fee = 0.1;
+    expect(isTariffComplete(g)).toBe(true);
   });
 });

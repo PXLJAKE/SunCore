@@ -618,8 +618,10 @@ shadow and assisted run is the acceptance test.
     only, it holds no permanent min-SoC floor on the inverter.
 
 - PR 4-H, WP11 (UI; `frontend-engineer`):
-  - The plan view takes "now" from the plan's hand-over time, not from the browser clock (the demo
-    runs on a simulated clock; on a real system both agree).
+  - The plan view's "now" is the browser clock corrected by the server offset measured at each
+    plan fetch, ticking every minute (the demo runs on a simulated clock).
+  - The calibration charge (answer 11) is only a configuration field (`battery.calibration`); the
+    planner does not use it yet, planner support follows. Corrects "built" in §6 question 11.
   - ECharts is registered with line and bar only (no `custom` series: the PV band is a stacked
     pair of lines). It is 177 kB gzip in its own chunk, loaded with the plan view; the Phase 1
     budget of 250 kB now applies to everything else, first paint has its own budget of 125 kB.

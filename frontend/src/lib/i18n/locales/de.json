@@ -1086,7 +1086,7 @@
   "plan.table.caption": "Plan nach Stunden",
   "plan.table.time": "Zeit",
   "plan.table.pv": "Solar P50",
-  "plan.table.load": "Haus",
+  "plan.table.load": "Grundlast",
   "plan.table.battery": "Akku",
   "plan.table.grid": "Netz (Bezug − Einspeisung)",
   "plan.table.soc": "Ladestand",
@@ -1309,5 +1309,12 @@
   "settings.sum.battery_control": "Steuerung: {adapter}",
   "settings.sum.battery_observe": "Nur beobachten",
   "settings.sum.battery_plan": "{strategy}, Risikostufe {risk}",
-  "settings.section.battery": "Akku (Steuerung und Planung)"
+  "settings.section.battery": "Akku (Steuerung und Planung)",
+  "plan.now_outdated": "Der Plan ist veraltet, abgelaufen oder wird von der Regelung nicht genutzt, daher werden seine nächsten Aktionen nicht angezeigt. SunCore regelt nach den Überschussregeln, bis ein neuer Plan kommt.",
+  "plan.s.devices": "Geräte (geplant)",
+  "plan.s.load_base": "Grundlast P50",
+  "plan.table.devices": "Geräte",
+  "pvf.entry_saved": "(gespeichert) {id}",
+  "bat.fallback_reset": "Adapter, Modbus-Verbindung oder Rückfall-Timer wurden geändert: Die frühere Rückfall-Messung zählt nicht mehr und wird beim Speichern zurückgesetzt.",
+  "plan.tt.devices": "Geräte (geplant): {power}"
 }

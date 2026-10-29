@@ -88,7 +88,7 @@ the battery to assisted). The optional ML load model (4-I) is not built yet.
 | Risk model and buffers | learnt net error per weather class, risk level cautious/balanced/bold, morning buffer, evening target | ✅ |
 | Tariffs | Tibber, Nord Pool, ENTSO-E/EPEX via HACS, Octopus, fixed/HT-NT, price formula, EEG tiered export, negative-price region rule | ✅ |
 | Planner | HiGHS model, heuristic fallback, warm start, time budget, benchmark on aarch64 < 10 s | ✅ (aarch64 not measured yet) |
-| Battery strategies | self-consumption, prefer full, target SoC by time, next-day bridging, grid charging by price level and schedule, discharge lock, reserve, calibration charge (off by default) | ✅ |
+| Battery strategies | self-consumption, prefer full, target SoC by time, next-day bridging, grid charging by price level and schedule, discharge lock, reserve; the calibration charge exists only as a config field, planner support follows | ✅ (calibration charge ⬜) |
 | Battery adapters | generic HA entities, Kostal REST (min SoC), Kostal Modbus §3.5 (simulator only, capped at assisted until the fallback timer is measured) | ✅ |
 | Explanations | per-interval reasons rendered in UI | ✅ |
 | UI | plan view, forecast accuracy, battery card, wizard steps 4, 5, 6, 8 and 10 | ✅ |
