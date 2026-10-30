@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type { Decision } from '../api/types';
-  import { describeAction } from '../control/actions';
+  import { batteryParts, describeAction } from '../control/actions';
   import { t, tDateTime, tDynamic, tPower, tTime, type MessageKey } from '../i18n/index.svelte';
 
   interface Props {
@@ -40,6 +40,11 @@
           {#if d.intent.action}
             {@const a = describeAction(d.intent.action, tPower)}
             <span class="action">{t(a.key, a.args)}</span>
+            {#if d.intent.action.kind === 'battery'}
+              {#each batteryParts(d.intent.action, tPower) as p, i (i)}
+                <span class="action">{t(p.key, p.args)}</span>
+              {/each}
+            {/if}
           {/if}
         </span>
         <span class="reasons">

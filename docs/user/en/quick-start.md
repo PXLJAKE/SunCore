@@ -1,10 +1,12 @@
 # Quick start
 
-SunCore is **pre-alpha** (Phase 3). This version helps you describe your
-installation with a setup assistant, shows your energy flow live and can
-control devices from your solar surplus. It starts in **shadow mode**:
-nothing is switched and no set-point is written until you switch a device to
-automatic yourself, see [Surplus control](surplus-control.md). The full app
+SunCore is **pre-alpha** (Phase 4). This version helps you describe your
+installation with a setup assistant, shows your energy flow live, controls
+devices from your solar surplus, and plans the next 48 hours with forecasts,
+prices and your battery. It starts in **shadow mode**: nothing is switched and
+no limit or set-point is written until you switch a device or the battery to
+automatic (or assisted) yourself, see [Surplus control](surplus-control.md) and
+[Planning and battery control](planning-and-battery.md). The full app
 description is in [`addon/suncore/DOCS.md`](../../../addon/suncore/DOCS.md).
 
 ## 1. Install
@@ -76,25 +78,50 @@ sign**. Idle at the moment? Check again when something clearly flows.
 ### Solar
 
 Add each solar array with its **Power sensor**, installed power in kWp,
-tilt and orientation (azimuth: 0 = north, 180 = south). Optionally choose a
-**Forecast source**, such as Solcast, if the integration is installed.
+tilt and orientation (azimuth: 0 = north, 180 = south). Under **Forecast
+sources** choose one or **several** solar forecasts (Solcast, Forecast.Solar,
+Open-Meteo Solar Forecast or a generic template); SunCore offers the ones it
+finds in Home Assistant and blends them by how well each has been right (the
+**Weight in the blend** is automatic unless you set a fixed share). With
+Forecast.Solar and several linked entries, choose the **Forecast.Solar entry**
+of this plant. Optionally add a **Workday sensor** and a **Weather entity**
+under **Load forecast inputs**: they improve the house load forecast. No
+forecast source at all is allowed; the plan then assumes no solar power. See
+[Forecasts](planning-and-battery.md#2-forecasts).
 
 ![Step Solar](../../assets/screenshots/wizard-pv-tablet-light-en.png)
 
 ### Battery
 
 Select the battery power sensor (positive = charging) and the state of
-charge sensor, or choose **No battery**. Capacity and the minimum and
-maximum charge are optional. SunCore only observes the battery for now.
+charge sensor, or choose **No battery**. Capacity, the minimum and maximum
+charge and the power limits are optional for observing, but the planner needs
+them. Under **Control** choose a **Battery adapter**: the default **Observe
+only (SunCore never writes)** leaves the battery to you; an adapter (generic
+Home Assistant entities, Kostal Plenticore through the Home Assistant
+integration or through Modbus) lets SunCore set limits later, and the battery
+still starts in shadow mode. Then fill the **Battery model for the planner**
+(capacity, power limits, reserve, BMS drift margin) and choose the
+**Strategy** (self-consumption, keep the battery as full as possible, or reach
+a target by a time), the **Risk level** (cautious is the default and the
+targets are then met in about 9 of 10 cases), an optional **Minimum morning
+buffer** and **Bridge into the next day**. Everything is explained in
+[Planning and battery control](planning-and-battery.md#4-targets-and-strategies);
+the adapters in [Adapters](planning-and-battery.md#7-adapters).
 
 ![Step Battery](../../assets/screenshots/wizard-battery-tablet-light-en.png)
 
 ### Tariff
 
-Enter the **Import price** (**Fixed price** or **Dynamic price**) and the
+Enter the **Import price** (**Fixed price**, **Fixed time-of-use (HT/NT)** or
+**Dynamic price**) and the
 **Feed-in remuneration** (fixed, tiered by plant size, or none). A dynamic
-price needs a price sensor or a tariff template such as Tibber. Prices are
-stored for later versions; the planner does not use them yet.
+price needs a price sensor or a tariff template (Tibber, Nord Pool, ENTSO-E,
+EPEX Spot, Octopus Energy or a generic price list). If the source delivers
+only the bare spot price, choose **Spot price only** under **What the price
+contains** and enter your **Price formula** (grid fee, levies, margin, VAT);
+without it the planner cannot optimise on prices. The planner uses these
+prices; see [Tariffs](planning-and-battery.md#3-tariffs).
 
 ![Step Tariff](../../assets/screenshots/wizard-tariff-tablet-light-en.png)
 
@@ -135,8 +162,12 @@ Drag devices by their handle, or use the arrow buttons or the arrow keys,
 to decide who gets surplus first. Position 1 is served first. Goals decide
 whether the battery's charging power counts as surplus for devices (target
 charge of the battery, climate before export); see
-[Battery and goals](surplus-control.md#battery-and-goals). Grid charging at
-night only is stored for a later version.
+[Battery and goals](surplus-control.md#battery-and-goals). Under **Charging
+from the grid** you can allow the battery to be charged from the grid, only
+below a price level and inside a weekly schedule (off by default; see
+[Grid charging](planning-and-battery.md#grid-charging)). The expert field
+**Self-sufficiency weight per kWh** is a small tie-breaker for the planner
+([explained here](planning-and-battery.md#the-self-sufficiency-weight)).
 
 ![Step Priorities and goals](../../assets/screenshots/wizard-priorities-tablet-light-en.png)
 
@@ -156,7 +187,12 @@ for now.
 The **System check** looks at units, signs, the power balance and whether
 sensors deliver current values. Fix everything marked with a cross (open the
 step from the list), choose **Check again**, then **Finish setup**.
-Warnings do not block you.
+Warnings do not block you. A warning that the tariff delivers bare market
+prices without a price formula means the plan cannot optimise on prices:
+add the formula in the **Tariff** step. The summary also shows the **First
+plan**: the expected solar energy, consumption, import and export of the next
+hours and the battery's lowest, highest and final charge. **Update the
+preview** recomputes it.
 
 ![Step Summary and check](../../assets/screenshots/wizard-summary-tablet-light-en.png)
 
@@ -177,22 +213,30 @@ log and only then switch a single device: the step-by-step guide is
 ## 5. The Now view
 
 After **Finish setup** the **Now** page shows solar, grid, battery and house
-with animated flows, the **Surplus** card and a card for every device with its
-state, estimated power, mode switch and **Why?**. The red **Emergency stop**
-button in the header hands every device back at once.
+with animated flows, the **Surplus** card, a **Battery** card (state of charge,
+power, the limits in force, the battery's mode switch and **Why?**), the
+**Next planned actions** and a card for every device with its state, estimated
+power, mode switch and **Why?**. The red **Emergency stop** button in the
+header hands every device and the battery back at once. The **Plan** page
+shows the 24 or 48 hour plan with the forecasts and their accuracy.
 
 ![Now view on a tablet, light theme](../../assets/screenshots/now-tablet-light-en.png)
 
+![Battery card and next planned actions](../../assets/screenshots/now-battery-tablet-light-en.png)
+
 The **Decision log** lists every decision with its reasons. How it all works,
 what happens when you change a device yourself and what SunCore does when
-something fails is in [Surplus control](surplus-control.md).
+something fails is in [Surplus control](surplus-control.md); the plan, the
+forecasts and the battery are in
+[Planning and battery control](planning-and-battery.md), including a
+walk-through to take your first battery to assisted mode.
 
 ## 6. Change things later
 
 Open **Settings**. It lists every section of your setup (**Region**,
-**Site (grid, solar, battery)**, **Tariff**, **PV forecast**, **Devices**,
-**Goals**, **Operating mode**) with a short summary and an **Open** link to
-the matching step.
+**Site (grid, solar, battery)**, **Tariff**, **PV forecast**, **Battery
+(control and planning)**, **Devices**, **Goals**, **Operating mode**) with a short
+summary and an **Open** link to the matching step.
 
 ![Settings overview](../../assets/screenshots/settings-tablet-light-en.png)
 
@@ -233,12 +277,17 @@ the matching step.
 
 ## What SunCore cannot do yet
 
-Be aware before you rely on it. This version has no forecasts or planner
-(your tariff and forecast choices are only stored), no history charts, no
-battery control, no charge point (wallbox) control and no Home Assistant
-entities. Its surplus control has never run against real hardware yet: that is
-what your shadow-mode run is for. Compared with evcc (charge points and
-heaters), EMHASS and Predbat (battery optimisation), SunCore currently
-controls consumers from real surplus only. The list of open points is in
-[Known limitations](surplus-control.md#known-limitations-and-unverified); the
-[roadmap](../../roadmap.md) shows when each part arrives.
+Be aware before you rely on it. SunCore now has forecasts, tariffs, a 48 hour
+planner and battery control, but **none of it has ever run against real
+hardware**: that is what your shadow-mode run is for. The battery starts in
+shadow mode, and until the inverter's fallback timer has been measured on your
+system a Kostal Modbus battery is capped at assisted mode. Kostal Plenticore
+cannot be told to charge from the grid. There are no history charts or what-if
+analysis yet (the plan view is minimal), no thermal models for air conditioners
+and water heaters in the plan, no charge point (wallbox) control and no Home
+Assistant entities. Compared with evcc (charge points and heaters), EMHASS and
+Predbat (battery optimisation), SunCore's planner is new and unproven, while
+its surplus control and safety layer are its strengths. The list of open points
+is in [Known limitations](planning-and-battery.md#10-known-limitations-and-unverified)
+and in [Surplus control](surplus-control.md#known-limitations-and-unverified);
+the [roadmap](../../roadmap.md) shows when each part arrives.

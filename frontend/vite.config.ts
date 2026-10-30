@@ -22,6 +22,10 @@ export default defineConfig({
             return 'icu';
           }
           if (id.includes('/src/lib/i18n/locales/')) return 'catalogues';
+          // ECharts and its canvas layer ride along with the plan view only (dynamic import).
+          if (id.includes('/node_modules/echarts') || id.includes('/node_modules/zrender')) {
+            return 'echarts';
+          }
           return undefined;
         },
       },

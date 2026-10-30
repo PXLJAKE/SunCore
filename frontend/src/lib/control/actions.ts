@@ -32,3 +32,28 @@ export function describeAction(action: Action, power: (w: number) => string): Ac
       return { key: 'action.battery', args: {} };
   }
 }
+
+/** The limits a battery action sets, one line each (`None` = the adapter's own baseline). */
+export function batteryParts(
+  action: Extract<Action, { kind: 'battery' }>,
+  power: (w: number) => string,
+): ActionText[] {
+  const parts: ActionText[] = [];
+  if (action.min_soc_pct != null) {
+    parts.push({ key: 'action.battery.min_soc', args: { soc: action.min_soc_pct } });
+  }
+  if (action.max_charge_w != null) {
+    parts.push({ key: 'action.battery.max_charge', args: { power: power(action.max_charge_w) } });
+  }
+  if (action.max_discharge_w != null) {
+    parts.push(
+      action.max_discharge_w === 0
+        ? { key: 'action.battery.discharge_lock', args: {} }
+        : { key: 'action.battery.max_discharge', args: { power: power(action.max_discharge_w) } },
+    );
+  }
+  if (action.grid_charge_w != null && action.grid_charge_w > 0) {
+    parts.push({ key: 'action.battery.grid_charge', args: { power: power(action.grid_charge_w) } });
+  }
+  return parts;
+}

@@ -377,6 +377,14 @@ shadow and assisted run is the acceptance test.
   write at all (the inverter's own self-consumption logic does it).
 - Self-sufficiency weight: explained to the maintainer, default 0.01 currency/kWh kept.
 
+### Answers (2026-10-19)
+
+- ADR-0013: the maintainer takes the recommendation as default → **accepted**; WP10 may start
+  once 4-F is done.
+- All open questions of PRs 4-A, 4-B and 4-C: **defaults** as written in each PR.
+- Phase 3 acceptance (shadow run, one device to automatic) is postponed because of the weather;
+  Phase 4 keeps being built, the PRs are merged only after that acceptance.
+
 ### Offene Fragen aus PR 4-A (an den Maintainer)
 
 1. **Doppelter Netzladeplan:** `goals.grid_charge_night_only` wird zu einem Zeitplan migriert,
@@ -608,6 +616,25 @@ shadow and assisted run is the acceptance test.
     switch state only before its first write attempt.
   - **Answered (maintainer default):** SunCore enforces the effective reserve in plan and gate
     only, it holds no permanent min-SoC floor on the inverter.
+
+- PR 4-H, WP11 (UI; `frontend-engineer`):
+  - The plan view's "now" is the browser clock corrected by the server offset measured at each
+    plan fetch, ticking every minute (the demo runs on a simulated clock).
+  - The calibration charge (answer 11) is only a configuration field (`battery.calibration`); the
+    planner does not use it yet, planner support follows. Corrects "built" in §6 question 11.
+  - ECharts is registered with line and bar only (no `custom` series: the PV band is a stacked
+    pair of lines). It is 177 kB gzip in its own chunk, loaded with the plan view; the Phase 1
+    budget of 250 kB now applies to everything else, first paint has its own budget of 125 kB.
+  - Additive backend pieces the UI needed: `solar_forecast_entries` in the energy-prefs answer
+    (choices for a Forecast.Solar `config_entry_id`), site roles `workday` and `weather` for the
+    entity pickers, and the demo flag `SUNCORE_DEMO_BATTERY_CONTROL` (a controllable inverter and a
+    `generic.battery` adapter in the demo, off by default).
+  - HT/NT is a full editor (base price, periods with weekdays, midnight crossing and months)
+    instead of the "tou stored" hint.
+  - No hint for a too-new `timeseries.db`: the API exposes neither that state nor the size
+    report (4-B follow-up); it stays in the log.
+  - The battery card shows what the control state contains; there is no separate "release
+    pending" field in `BatteryControlState`, so that state is only visible through the reasons.
 
 ## 7. Out of scope for Phase 4
 

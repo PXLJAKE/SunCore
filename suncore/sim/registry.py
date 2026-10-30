@@ -42,6 +42,7 @@ DEV_WATER_HEATER_RELAYS: Final = "sim_dev_water_heater_relays"
 DEV_TIBBER: Final = "sim_dev_tibber"
 DEV_SOLCAST: Final = "sim_dev_solcast"
 DEV_OPEN_METEO: Final = "sim_dev_open_meteo"
+DEV_FORECAST_SOLAR: Final = "sim_dev_forecast_solar"
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +184,7 @@ _DEVICES: Final[tuple[tuple[str, str, str, str, str | None, str | None], ...]] =
         None,
         "service",
     ),
+    (DEV_FORECAST_SOLAR, "Home forecast", "Forecast.Solar", "Estimate", None, "service"),
 )
 _DEVICE_DOMAIN: Final[dict[str, str]] = {
     DEV_AC: "lg_thinq",
@@ -190,6 +192,7 @@ _DEVICE_DOMAIN: Final[dict[str, str]] = {
     DEV_TIBBER: "tibber",
     DEV_SOLCAST: "solcast_solar",
     DEV_OPEN_METEO: "open_meteo_solar_forecast",
+    DEV_FORECAST_SOLAR: "forecast_solar",
 }
 
 

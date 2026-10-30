@@ -72,18 +72,29 @@ switch other devices off for it unless the controlled devices are the reason.
 
 ### Battery and goals
 
-In this version SunCore does not control the battery; it only decides whether the
-battery's **charging power** counts as surplus for devices:
+Without a plan, this controller only decides whether the battery's **charging power** counts as
+surplus for devices:
 
 - With the goal *Have the battery at a target charge by a time* and a charge below the
   target: the battery charges first, devices get no share of the battery's charging power.
-  The time of day is not evaluated yet, the target counts all day.
+  Without a plan the time of day is not evaluated and the target counts all day. **Your target is
+  a floor**: even with a plan, the battery stays first while it is below your target.
 - With *Run the air conditioner before exporting*, or when the target is reached:
   charging power is available to devices.
 - With **no goal at all**: the battery comes first, and devices only get what would be
   exported. This is a conservative default and `UNVERIFIED` against what you actually
   want; set one of the two goals if you want devices to use the power that would charge
   the battery.
+
+**With a plan** (see [Planning and battery control](planning-and-battery.md)) the planner now sets
+the bands the controller follows. **The battery comes first until the morning buffer** ("battery
+first until X %"), which the plan computes from the forecast and your risk level; the controller
+compares X with the **live** charge every few seconds. Above X the surplus goes to the devices
+**while the plan says the evening target is still reachable**, and the plan caps a device at a maximum
+power or blocks it when the target gets tight. A plan only ever **restricts**
+devices compared with the plan-less controller. A stale plan (older than 2 hours) or none means the
+behaviour above. The battery itself is controlled separately, through its own mode on the battery
+card; see [Control](planning-and-battery.md#5-control-shadow-assisted-automatic).
 
 ## 2. Operating modes
 
@@ -290,21 +301,24 @@ day with sun. The window of a few days is the point: you decide on evidence, not
   off. Whether a hung Plenticore shows unavailable or frozen values is `UNVERIFIED`. The
   default sensor cadences (power sensor 60 s, energy counter 300 s unless set) are
   assumptions.
-- **No plan**: there are no forecasts, tariffs or planner in control yet. SunCore does not
-  shift load to cheaper hours, does not pre-heat for the weather and does not write to the
-  battery or the inverter. The goals *battery target* and *climate before export* only decide
-  whether the battery's charging power counts as surplus; the target's time is not evaluated.
+- **The plan is new.** Forecasts, tariffs, the planner and battery control exist now
+  ([Planning and battery control](planning-and-battery.md)), but have never run against real
+  hardware either. SunCore does not shift device load to cheaper hours, does not pre-heat for the
+  weather and models no thermal behaviour of devices. Without a plan the goals *battery target*
+  and *climate before export* only decide whether the battery's charging power counts as surplus,
+  and the target's time is not evaluated.
 - **Time windows and quiet hours** are honoured by the controller but cannot be edited in the
   panel yet (templates and imported configuration only).
 - A removed or re-mapped device that cannot be given back (for example after a crash) is
   reported ("please check it by hand"), not retried forever.
-- **Downgrade**: this version stores its data in database schema 3, which earlier versions cannot
+- **Downgrade**: this version stores its data in database schema 4, which earlier versions cannot
   open. Export the configuration before updating.
 - **Compared with evcc, EMHASS and Predbat**: evcc is the better choice for charge points and
   has years of hardware experience; SunCore has no wallbox control yet. EMHASS and Predbat
-  optimise the battery over time, SunCore does not yet. What SunCore adds is one app with a
-  safety layer, shadow mode and a reason for every decision; see the
-  [roadmap](../../roadmap.md).
+  optimise the battery over time with years of field experience; SunCore's planner is new and
+  unproven on hardware. What SunCore adds is one app with a safety layer, shadow mode and a reason
+  for every decision; see the [roadmap](../../roadmap.md).
 
-See also: [Quick start](quick-start.md), [Contribute a device template](device-templates.md),
+See also: [Quick start](quick-start.md), [Planning and battery control](planning-and-battery.md),
+[Contribute a device template](device-templates.md),
 [compatibility list](../compatibility.md).

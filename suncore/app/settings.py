@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     """Scenario acceleration in demo mode (60 = one 60 s step per real second)."""
     demo_start_time: time = time(10, 0)
     """Time of day (scenario-local) at which the demo starts (env SUNCORE_DEMO_START_TIME)."""
+    demo_battery_control: bool = False
+    """Demo only (env SUNCORE_DEMO_BATTERY_CONTROL): the simulated house gets a controllable
+    inverter and the demo stores a ``generic.battery`` adapter, so the UI can show the battery
+    card (used by the Playwright run and the screenshots). Off = the battery is observe only."""
     data_dir: Path = Path("/data")
     port: int = Field(default=8099, ge=1, le=65535)
     host: str = "0.0.0.0"

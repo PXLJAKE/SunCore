@@ -77,18 +77,30 @@ Geräte ab, solange nicht die gesteuerten Geräte der Grund sind.
 
 ### Batterie und Ziele
 
-In dieser Version steuert SunCore die Batterie nicht; es entscheidet nur, ob die **Ladeleistung**
-der Batterie für Geräte als Überschuss zählt:
+Ohne Plan entscheidet dieser Regler nur, ob die **Ladeleistung** der Batterie für Geräte als
+Überschuss zählt:
 
 - Mit dem Ziel *Batterie zu einer Uhrzeit auf einen Ziel-Ladestand bringen* und einem Ladestand
-  unter dem Ziel: Die Batterie lädt zuerst, Geräte bekommen nichts von der Ladeleistung. Die
-  Uhrzeit wird noch nicht ausgewertet, das Ziel gilt den ganzen Tag.
+  unter dem Ziel: Die Batterie lädt zuerst, Geräte bekommen nichts von der Ladeleistung. Ohne
+  Plan wird die Uhrzeit nicht ausgewertet, das Ziel gilt den ganzen Tag. **Dein Ziel ist eine
+  Untergrenze**: Auch mit Plan bleibt die Batterie vorn, solange sie unter deinem Ziel liegt.
 - Mit *Klimagerät laufen lassen, bevor eingespeist wird* oder bei erreichtem Ziel steht die
   Ladeleistung den Geräten zur Verfügung.
 - Mit **gar keinem Ziel**: Die Batterie hat Vorrang, und Geräte bekommen nur, was sonst
   eingespeist würde. Das ist ein vorsichtiger Standard und `UNVERIFIED` gegenüber dem, was du
   tatsächlich willst; setze eines der beiden Ziele, wenn Geräte den Strom nutzen sollen, der
   sonst die Batterie laden würde.
+
+**Mit Plan** (siehe [Planung und Akkusteuerung](planning-and-battery.md)) setzt jetzt der Planer
+die Bänder, denen der Regler folgt. **Die Batterie kommt zuerst bis zum Morgenpuffer** („Akku
+zuerst bis X %“), den der Plan aus der Prognose und deiner Risikostufe berechnet; der Regler
+vergleicht X alle paar Sekunden mit dem **aktuellen** Ladestand. Oberhalb von X geht der
+Überschuss an die Geräte, **solange der Plan sagt, dass das Abendziel noch erreichbar ist**, und
+der Plan drosselt ein Gerät auf eine maximale Leistung oder sperrt es, wenn das Ziel knapp
+wird. Ein Plan **schränkt** Geräte gegenüber dem Regler ohne Plan nur ein. Ein veralteter Plan
+(älter als 2 Stunden) oder keiner heißt: das Verhalten oben. Die Batterie selbst wird getrennt
+gesteuert, über ihren eigenen Modus auf der Akku-Karte; siehe
+[Steuerung](planning-and-battery.md#5-steuerung-schatten-assistiert-automatik).
 
 ## 2. Betriebsmodi
 
@@ -308,21 +320,24 @@ anhand von Belegen, nicht aus Hoffnung.
   erkannt; echter Netzbezug lässt SunCore trotzdem zurücknehmen. Ob ein hängender Plenticore
   „nicht verfügbar“ oder eingefrorene Werte zeigt, ist `UNVERIFIED`. Die Standard-Sensortakte
   (Leistungssensor 60 s, Energiezähler 300 s, sofern nicht gesetzt) sind Annahmen.
-- **Kein Plan**: Prognosen, Tarife und Planer steuern noch nichts. SunCore verschiebt keine Last in
-  günstigere Stunden, heizt nicht nach dem Wetter vor und schreibt weder auf Batterie noch auf
-  Wechselrichter. Die Ziele *Batterie-Ziel* und *Klimagerät vor Einspeisung* entscheiden nur, ob
-  die Ladeleistung der Batterie als Überschuss zählt; die Uhrzeit des Ziels wird nicht ausgewertet.
+- **Der Plan ist neu.** Prognosen, Tarife, Planer und Akkusteuerung gibt es jetzt
+  ([Planung und Akkusteuerung](planning-and-battery.md)), aber auch sie sind noch nie an echter
+  Hardware gelaufen. SunCore verschiebt keine Geräte-Last in günstigere Stunden, heizt nicht nach dem
+  Wetter vor und modelliert kein thermisches Verhalten von Geräten. Ohne Plan entscheiden die Ziele
+  *Batterie-Ziel* und *Klimagerät vor Einspeisung* nur, ob die Ladeleistung der Batterie als
+  Überschuss zählt, und die Uhrzeit des Ziels wird nicht ausgewertet.
 - **Zeitfenster und Ruhezeiten** beachtet der Regler, sie lassen sich im Panel aber noch nicht
   bearbeiten (nur über Vorlagen und importierte Konfiguration).
 - Ein entferntes oder neu zugeordnetes Gerät, das nicht zurückgegeben werden kann (etwa nach einem
   Absturz), wird gemeldet („bitte von Hand prüfen“), nicht endlos wiederholt.
-- **Downgrade**: Diese Version speichert ihre Daten in Datenbankschema 3, das frühere Versionen
+- **Downgrade**: Diese Version speichert ihre Daten in Datenbankschema 4, das frühere Versionen
   nicht öffnen können. Exportiere die Konfiguration vor dem Update.
 - **Im Vergleich zu evcc, EMHASS und Predbat**: evcc ist die bessere Wahl für Ladepunkte und hat
   Jahre an Hardware-Erfahrung; SunCore hat noch keine Wallbox-Steuerung. EMHASS und Predbat
-  optimieren die Batterie über die Zeit, SunCore noch nicht. Was SunCore bietet, ist eine App mit
-  Sicherheitsschicht, Schattenmodus und einer Begründung zu jeder Entscheidung; siehe die
-  [Roadmap](../../roadmap.md).
+  optimieren die Batterie über die Zeit, mit jahrelanger Praxis; SunCores Planer ist neu und an
+  Hardware unerprobt. Was SunCore bietet, ist eine App mit Sicherheitsschicht, Schattenmodus und
+  einer Begründung zu jeder Entscheidung; siehe die [Roadmap](../../roadmap.md).
 
-Siehe auch: [Schnellstart](quick-start.md), [Gerätevorlage beitragen](device-templates.md),
+Siehe auch: [Schnellstart](quick-start.md), [Planung und Akkusteuerung](planning-and-battery.md),
+[Gerätevorlage beitragen](device-templates.md),
 [Kompatibilitätsliste](../compatibility.md).

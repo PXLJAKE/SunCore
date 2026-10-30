@@ -316,6 +316,11 @@ class EnergyPrefsOut(_Model):
     notes: list[Reason]
     site: dict[str, Any]
     """The suggestions as a partial site document."""
+    solar_forecast_entries: list[str] = Field(default_factory=list)
+    """Config entry ids linked to the dashboard's solar sources: the choices for a Forecast.Solar
+    source's ``config_entry_id`` (several entries need an explicit choice)."""
+    solar_forecast_labels: dict[str, str] = Field(default_factory=dict)
+    """Readable label per entry id where the device registry names one."""
 
     @classmethod
     def from_core(cls, e: EnergySuggestions) -> EnergyPrefsOut:
@@ -326,6 +331,8 @@ class EnergyPrefsOut(_Model):
             ],
             notes=list(e.notes),
             site=dict(e.site),
+            solar_forecast_entries=list(e.solar_forecast_entries),
+            solar_forecast_labels=dict(e.solar_forecast_labels),
         )
 
 

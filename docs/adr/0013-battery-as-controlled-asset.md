@@ -1,6 +1,6 @@
 # ADR-0013: Battery as a controlled asset
 
-- **Status:** proposed
+- **Status:** accepted (maintainer took the recommendation as default on 2026-10-19)
 - **Date:** 2026-10-16
 - **Deciders:** maintainer, lead engineer (`architect`), `control-safety`
 - **Research:** [`integrations.md`](../research/integrations.md) (Kostal Plenticore, summary

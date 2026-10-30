@@ -62,8 +62,12 @@ test.describe('setup wizard', () => {
     // 5 battery
     await expect(page).toHaveURL(/#\/setup\/battery$/);
     await expect(page.getByTestId('sign-question')).toContainText(/battery is/i);
+    await page.getByRole('combobox', { name: 'Battery adapter' }).selectOption('');
     await expect(page.getByTestId('observe-note')).toBeVisible();
-    await page.getByLabel('Usable capacity').fill('10');
+    await page
+      .getByRole('group', { name: 'Capacity and limits' })
+      .getByLabel('Usable capacity')
+      .fill('10');
     await expectNoAxeViolations(page);
     await next(page).click();
 
@@ -122,7 +126,7 @@ test.describe('setup wizard', () => {
     await expect(page).toHaveURL(/#\/setup\/summary$/);
     await expect(page.getByTestId('check-items')).toBeVisible();
     await expect(page.getByTestId('check-overall')).toHaveAttribute('data-severity', /ok|warn/);
-    await expect(page.getByTestId('plan-note')).toContainText('later version');
+    await expect(page.getByTestId('plan-preview')).toBeVisible();
     await expectNoAxeViolations(page);
     await next(page).click();
     await expect(page).toHaveURL(/#\/$/);

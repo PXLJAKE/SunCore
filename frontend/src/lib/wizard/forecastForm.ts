@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Forecast section (v2) <-> form: the PV forecast sources (templates plus the entities of their
-// roles). Independent of the tariff, so the choice can be stored without prices. Weights, learning
-// settings and the load forecast inputs (`load`: workday sensor, weather entity) have no form
-// fields yet (Phase 4 WP11); they are carried through unchanged.
+// roles, weight, Forecast.Solar config entry) and the load forecast inputs (workday sensor,
+// weather entity). Independent of the tariff, so the choice can be stored without prices. The
+// learning settings have no form fields yet and are carried through unchanged.
 import type { ForecastConfig } from '../api/types';
 import { emptyRef, fromRef, toRef, type RefField } from './forms';
 
@@ -15,23 +15,37 @@ export interface ForecastForm {
   entities: Record<string, Record<string, RefField>>;
   /** Stored weighting per template id (carried through). */
   weights: Record<string, Pick<Source, 'weight_mode' | 'weight'>>;
+  /** Forecast.Solar: the config entry the Energy dashboard links (`''` = the only one). */
+  configEntries: Record<string, string>;
   learning: ForecastConfig['learning'] | null;
-  load: ForecastConfig['load'] | null;
+  /** Optional inputs of the load forecast. */
+  workday: RefField;
+  weather: RefField;
 }
 
 export function emptyForecastForm(): ForecastForm {
-  return { templateIds: [], entities: {}, weights: {}, learning: null, load: null };
+  return {
+    templateIds: [],
+    entities: {},
+    weights: {},
+    configEntries: {},
+    learning: null,
+    workday: emptyRef(),
+    weather: emptyRef(),
+  };
 }
 
 export function forecastFormFromConfig(cfg: ForecastConfig | null): ForecastForm {
   if (!cfg) return emptyForecastForm();
   const form = emptyForecastForm();
   form.learning = cfg.learning;
-  form.load = cfg.load ?? null;
+  form.workday = fromRef(cfg.load?.workday);
+  form.weather = fromRef(cfg.load?.weather);
   for (const source of cfg.sources ?? []) {
     const id = source.template_id;
     form.templateIds.push(id);
     form.weights[id] = { weight_mode: source.weight_mode, weight: source.weight };
+    if (source.config_entry_id) form.configEntries[id] = source.config_entry_id;
     form.entities[id] = Object.fromEntries(
       Object.entries(source.entities ?? {}).map(([role, ref]) => [role, fromRef(ref)]),
     );
@@ -47,18 +61,20 @@ export function forecastFromForm(form: ForecastForm): ForecastConfig {
       if (ref) own[role] = ref;
     }
     const weight = form.weights[id];
+    const manual = weight?.weight_mode === 'manual' && weight.weight != null;
     return {
       template_id: id,
       entities: own,
-      weight_mode: weight?.weight_mode ?? 'auto',
-      weight: weight?.weight ?? null,
+      weight_mode: manual ? 'manual' : 'auto',
+      weight: manual ? weight.weight : null,
+      config_entry_id: (form.configEntries[id] ?? '').trim() || null,
     };
   });
   return {
     schema_version: 2,
     sources,
     learning: form.learning ?? { min_history_days: 30, load_ml_mode: 'shadow' },
-    load: form.load ?? { workday: null, weather: null },
+    load: { workday: toRef(form.workday, false), weather: toRef(form.weather, false) },
   };
 }
 
@@ -77,6 +93,7 @@ export function setForecastTemplate(
     form.templateIds = form.templateIds.filter((x) => x !== id);
     delete form.entities[id];
     delete form.weights[id];
+    delete form.configEntries[id];
   }
 }
 

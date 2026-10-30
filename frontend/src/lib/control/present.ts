@@ -48,9 +48,12 @@ export function stateView(d: DeviceControlState): StateView {
   return { kind: s.on ? 'on' : 'off' };
 }
 
-/** Device id -> name, to label decisions and proposals. */
-export function nameMap(devices: readonly Pick<DeviceControlState, 'device_id' | 'name'>[]) {
-  return new Map(devices.map((d) => [d.device_id, d.name]));
+/** Device id -> name, to label decisions and proposals; `extra` adds assets such as the battery. */
+export function nameMap(
+  devices: readonly Pick<DeviceControlState, 'device_id' | 'name'>[],
+  extra: Iterable<readonly [string, string]> = [],
+): Map<string, string> {
+  return new Map<string, string>([...devices.map((d) => [d.device_id, d.name] as const), ...extra]);
 }
 
 /** Proposals that can still be confirmed (oldest first, as the server sends them). */
