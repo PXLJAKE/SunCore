@@ -119,8 +119,33 @@ Zwei optionale Eingaben in Schritt 4 (**Eingaben der Lastprognose**) verbessern 
   zeichnet SunCore deren Außentemperatur selbst auf. Der Temperaturterm der Lastprognose wird
   nach 14 Tagen mit aufgezeichneter Temperatur aktiv.
 
-Ein Lastmodell mit maschinellem Lernen ist **noch nicht verfügbar**; das Feld sagt es. Die Profile
-funktionieren vom ersten Tag an.
+Die Profile funktionieren vom ersten Tag an.
+
+### Das maschinelle Lastmodell
+
+Neben den Profilen rechnet SunCore ein optionales **maschinelles Lastmodell**. Es sucht die
+vergangenen Tage, die dem kommenden am ähnlichsten sind (gleiche Tagesart – ein Feiertag zählt wie
+ein Wochenendtag –, gleiche Uhrzeit, ähnliche Außentemperatur, wenn eine Wetter-Entität zugeordnet
+ist, und ein ähnliches Lastniveau in der letzten Woche), und sagt jede Viertelstunde aus dem
+Verbrauch an diesen Tagen voraus, mit einem Band aus deren Streuung. Es braucht keine zusätzliche
+Software und rechnet in wenigen zehn Millisekunden.
+
+Den Modus wählst du in Schritt 4 unter **Maschinelles Lastmodell**:
+
+- **Aus**: Es wird nicht berechnet.
+- **Nur Vergleich** (Standard): Es wird berechnet, gespeichert und jede Nacht genau wie die Profile
+  bewertet und in **Prognosen und Genauigkeit** unter *Maschinelles Lastmodell* angezeigt, beide
+  Fehler nebeneinander. Der Plan nutzt es nie.
+- **Automatisch**: Der Plan nutzt es nur, solange zweierlei gilt: Es hat mindestens den Verlauf,
+  den die Lerneinstellung verlangt (standardmäßig 30 Tage), **und** sein mittlerer absoluter
+  Fehler lag in den letzten 14 Tagen mindestens 2 % unter dem der Profile (bewertet an etwa
+  ebenso vielen Viertelstunden). Sonst bleibt der Plan bei den Profilen. Jeder Plan trägt dann
+  einen kurzen Hinweis, welches Modell er genutzt hat und warum („noch zu wenig Verlauf“, „nicht
+  deutlich besser“, „genauer als die Profile“ mit beiden Fehlern).
+
+Die Bewertung entsteht im nächtlichen Lauf, ein Wechsel zwischen den Modellen passiert also
+höchstens einmal am Tag. Das Risikomodell lernt seine Fehlerverteilung weiter aus der
+Profilprognose.
 
 ## 3. Tarife
 

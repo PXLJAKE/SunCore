@@ -86,6 +86,7 @@ export type BatteryBand = S['BatteryBand'];
 export type PriceReport = S['PriceReport'];
 export type PvForecastView = S['PvForecastView'];
 export type ForecastAccuracyView = S['ForecastAccuracyView'];
+export type LoadModelView = S['LoadModelView'];
 export type AccuracySourceView = S['AccuracySourceView'];
 export type AccuracyRecord = S['AccuracyRecord'];
 export type RiskView = S['RiskView'];

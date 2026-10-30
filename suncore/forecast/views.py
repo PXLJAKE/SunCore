@@ -18,6 +18,7 @@ from suncore.core.battery import BatteryStrategy, RiskLevel
 from suncore.core.decisions import Reason
 from suncore.core.forecast import AccuracyRecord, HorizonBucket
 from suncore.forecast.load import DayType, DayTypeSource, LoadQuality, TemperatureReason
+from suncore.forecast.load_ml import LoadMlMode, ModelInUse
 from suncore.forecast.pv.adapter import FetchStatus
 from suncore.forecast.risk import DistributionSource, RiskClass, RiskWindow
 
@@ -135,16 +136,39 @@ class AccuracySourceView(_View):
     records: list[AccuracyRecord]
 
 
+class LoadModelView(_View):
+    """Which load model the planner gets: the profiles or the optional KNN model (WP12).
+
+    ``mode`` is ``forecast.learning.load_ml_mode``; ``reason`` explains ``in_use``
+    (``forecast.load_model.*``). The errors are the rolling 14-day MAE of ``load_profile`` and
+    ``load_ml`` pooled over the horizon buckets (``None``: not scored yet); ``ml_days`` counts the
+    usable history days of the KNN model, which ``auto`` needs ``min_history_days`` of."""
+
+    mode: LoadMlMode
+    in_use: ModelInUse
+    reason: Reason
+    ml_ready: bool
+    """The KNN model has enough history to forecast (7 days) and produced a forecast."""
+    ml_days: int
+    min_history_days: int
+    profile_mae_w: float | None
+    ml_mae_w: float | None
+    profile_n: int
+    ml_n: int
+
+
 class ForecastAccuracyView(_View):
     """Accuracy per source and horizon bucket.
 
     ``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts
     15-minute daylight intervals (forecast or measurement above 0 W; clipped ones excluded).
-    A record with ``n`` below ``min_samples`` is too thin to rely on.
+    A record with ``n`` below ``min_samples`` is too thin to rely on. ``load_model`` compares the
+    KNN load model with the profiles ("ML vs profile"; ``None`` without a load forecast).
     """
 
     min_samples: int
     sources: list[AccuracySourceView]
+    load_model: LoadModelView | None = None
 
 
 class LoadDayView(_View):
@@ -208,6 +232,8 @@ class LoadForecastView(_View):
     unmeasured_in_profile: list[DayType]
     """Day types whose profile still contains quarter hours with an unmeasured device (fewer
     than 7 fully measured days of that type; elsewhere those quarter hours are left out)."""
+    model: LoadModelView | None = None
+    """Which model the series above comes from (profiles or the KNN model) and why."""
 
 
 class EnergyView(_View):
@@ -286,6 +312,7 @@ __all__ = [
     "ForecastAccuracyView",
     "LoadDayView",
     "LoadForecastView",
+    "LoadModelView",
     "LoadTemperatureView",
     "PvForecastView",
     "PvSeriesView",

@@ -382,7 +382,11 @@ export interface paths {
          *     days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
          *     forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
          *     clipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is
-         *     the base load forecast (scored on every quarter hour, not only in daylight).
+         *     the base load forecast (scored on every quarter hour, not only in daylight), ``load_ml``
+         *     the optional machine-learning (KNN) load model scored the same way unless
+         *     ``forecast.learning.load_ml_mode`` is ``off``. ``load_model`` compares the two ("ML vs
+         *     profile": pooled 14-day MAE) and says which one the planner uses and why
+         *     (``forecast.load_model.*`` reason); ``null`` without a load forecast.
          */
         get: operations["forecast_accuracy_api_v1_forecast_accuracy_get"];
         put?: never;
@@ -2084,9 +2088,11 @@ export interface components {
          *
          *     ``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts
          *     15-minute daylight intervals (forecast or measurement above 0 W; clipped ones excluded).
-         *     A record with ``n`` below ``min_samples`` is too thin to rely on.
+         *     A record with ``n`` below ``min_samples`` is too thin to rely on. ``load_model`` compares the
+         *     KNN load model with the profiles ("ML vs profile"; ``None`` without a load forecast).
          */
         ForecastAccuracyView: {
+            load_model?: components["schemas"]["LoadModelView"] | null;
             /** Min Samples */
             min_samples: number;
             /** Sources */
@@ -2543,6 +2549,7 @@ export interface components {
             generated_at: string;
             /** Hours */
             hours: number;
+            model?: components["schemas"]["LoadModelView"] | null;
             /** P10 W */
             p10_w: (number | null)[];
             /** P50 W */
@@ -2559,6 +2566,42 @@ export interface components {
             temperature: components["schemas"]["LoadTemperatureView"];
             /** Unmeasured In Profile */
             unmeasured_in_profile: components["schemas"]["DayType"][];
+        };
+        /**
+         * LoadModelView
+         * @description Which load model the planner gets: the profiles or the optional KNN model (WP12).
+         *
+         *     ``mode`` is ``forecast.learning.load_ml_mode``; ``reason`` explains ``in_use``
+         *     (``forecast.load_model.*``). The errors are the rolling 14-day MAE of ``load_profile`` and
+         *     ``load_ml`` pooled over the horizon buckets (``None``: not scored yet); ``ml_days`` counts the
+         *     usable history days of the KNN model, which ``auto`` needs ``min_history_days`` of.
+         */
+        LoadModelView: {
+            /**
+             * In Use
+             * @enum {string}
+             */
+            in_use: "profile" | "ml";
+            /** Min History Days */
+            min_history_days: number;
+            /** Ml Days */
+            ml_days: number;
+            /** Ml Mae W */
+            ml_mae_w: number | null;
+            /** Ml N */
+            ml_n: number;
+            /** Ml Ready */
+            ml_ready: boolean;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "off" | "shadow" | "auto";
+            /** Profile Mae W */
+            profile_mae_w: number | null;
+            /** Profile N */
+            profile_n: number;
+            reason: components["schemas"]["Reason"];
         };
         /**
          * LoadQuality

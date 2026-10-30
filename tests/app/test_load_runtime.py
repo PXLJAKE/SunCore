@@ -106,3 +106,37 @@ async def test_the_demo_risk_view_has_a_buffer_and_a_target(runtime: Runtime) ->
     assert view.history_days == 0
     await runtime.update_forecast_accuracy()  # the nightly job learns (nothing yet) safely
     assert runtime.risk_model.samples == ()
+
+
+async def test_the_demo_compares_the_ml_model_with_the_profiles(runtime: Runtime) -> None:
+    """Default mode ``shadow``: the KNN model is configured, scored and shown, never used."""
+    service = runtime.load_service
+    assert service is not None
+    assert service.inputs.ml_mode == "shadow"
+    assert service.inputs.min_history_days == 30
+    await until(lambda: service.model is not None)
+    accuracy = await runtime.forecast_accuracy()
+    assert [s.source_id for s in accuracy.sources][-2:] == ["load_profile", "load_ml"]
+    assert accuracy.load_model is not None
+    assert accuracy.load_model.mode == "shadow"
+    assert accuracy.load_model.in_use == "profile"
+    assert accuracy.load_model.reason.key == "forecast.load_model.ml_shadow"
+    assert service.planning_reasons() == ()
+
+
+async def test_auto_mode_explains_the_load_model_in_the_plan(runtime: Runtime) -> None:
+    current = await runtime.config.get("forecast")
+    assert isinstance(current, ForecastConfig)
+    learning = current.learning.model_copy(update={"load_ml_mode": "auto"})
+    await runtime.put_section("forecast", current.model_copy(update={"learning": learning}))
+    service = runtime.load_service
+    assert service is not None
+    assert service.inputs.ml_mode == "auto"
+    await until(lambda: service.model is not None)
+    await until(lambda: runtime.cache.get(WORKDAY_ID) is not None)
+    await service.refresh()
+    assert service.forecast() is not None
+    snapshot = await runtime._collect_planning(runtime.clock(), None)
+    assert snapshot.inputs is not None
+    keys = [r.key for r in snapshot.inputs.reasons]
+    assert "forecast.load_model.ml_collecting" in keys  # the demo has no 30 days of history

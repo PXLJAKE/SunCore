@@ -422,6 +422,15 @@ def test_without_a_load_forecast_a_flat_load_and_no_devices(series) -> None:  # 
     assert set(recent.load_p50) == {730.0}
 
 
+def test_the_load_model_reason_is_passed_through(series) -> None:  # type: ignore[no-untyped-def]
+    why = Reason(key="forecast.load_model.ml_in_use", args={"ml_mae_w": 80, "profile_mae_w": 95})
+    inputs = _build(series, load_reasons=(why,))
+    assert why in inputs.reasons
+    # without a load forecast the flat-load reason says it all (no model was used)
+    flat = _build(series, load=None, load_reasons=(why,))
+    assert why not in flat.reasons
+
+
 @dataclass(frozen=True)
 class _Target:
     soc_pct: float
