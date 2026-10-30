@@ -16,7 +16,13 @@
         "pv_curve",
         "pv_quantiles",
         "feed_in_tiers",
-        "negative_price_rule"
+        "negative_price_rule",
+        "battery_soc",
+        "min_soc_limit",
+        "charge_limit",
+        "discharge_limit",
+        "grid_charge",
+        "battery_modes"
       ],
       "title": "Capability",
       "type": "string"

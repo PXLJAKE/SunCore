@@ -16,5 +16,6 @@ the status line; a new ADR supersedes an old one. Template:
 | [0008](0008-documentation-tooling.md) | Documentation tooling | accepted | MkDocs Material + static-i18n, GitHub Pages |
 | [0009](0009-release-and-versioning.md) | Release and versioning | accepted | release-please, SemVer, stable + beta app, GHCR |
 | [0010](0010-target-platform.md) | Target platform | accepted | HA OS app on aarch64/amd64, HA connection abstracted |
-| [0011](0011-two-control-layers.md) | Two control layers and safety boundary | accepted | Planner → Controller → Safety (single writer) → Actuators |
+| [0011](0011-two-control-layers.md) | Two control layers and safety boundary | accepted (addendum 2026-10-16: new action kinds rejected until their invariants exist) | Planner → Controller → Safety (single writer) → Actuators |
 | [0012](0012-template-schema-v1.md) | Template schema v1 – review before freeze | accepted | Required changes (matcher regex/lists, same-device role, `ControlSpec`, series source, capability enum) before freeze; `battery` kind added later under the v1 compatibility policy |
+| [0013](0013-battery-as-controlled-asset.md) | Battery as a controlled asset | accepted | `BatteryAction` as limits (not set-points); one reserve source of truth; planned grid charging as the only bounded exception to "no SunCore-caused import"; adapter heartbeat with hardware fallback; battery identity in the fingerprint; prerequisite of Phase 4 WP10 |

@@ -24,9 +24,10 @@ TEMPLATES = ROOT / "templates"
 EN_CATALOGUE = ROOT / "frontend" / "src" / "lib" / "i18n" / "locales" / "en.json"
 DEFAULT_OUTPUT = ROOT / "docs" / "user" / "compatibility.md"
 
-KIND_ORDER = ("device", "tariff", "forecast", "region")
+KIND_ORDER = ("device", "battery", "tariff", "forecast", "region")
 KIND_TITLES = {
     "device": "Devices",
+    "battery": "Batteries",
     "tariff": "Tariffs",
     "forecast": "PV forecasts",
     "region": "Regions",

@@ -58,6 +58,7 @@ def test_schema_shape(gen: ModuleType) -> None:
         "tariff.schema.json",
         "forecast.schema.json",
         "region.schema.json",
+        "battery.schema.json",
         "template.schema.json",
     }
     union = json.loads(files["template.schema.json"])

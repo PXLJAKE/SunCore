@@ -191,3 +191,20 @@ extracted with `pdftotext`).
 `UNVERIFIED`: timeout behaviour of §3.4 set-points; how external battery
 management is enabled; whether 533 limits AC output including battery
 discharge (to be tested in Phase 4).
+
+### Phase 4 verification (2026-10-16): writing through Home Assistant
+
+`home-assistant/core` `dev` `5cfe9aad7cb428c2c2ebb449719ae81976780de1`,
+`components/modbus/{services.py,services.yaml,modbus.py}` (details in
+[`ha-websocket-api.md`](ha-websocket-api.md), section "Modbus write action"):
+the `modbus.write_register` action writes raw unsigned 16-bit words (single value
+-> function 0x06, list -> 0x10), has no float32 support and no read action, and
+**does not raise on a failed write** (the hub logs the error). For the register
+map above this means: the adapter encodes every `Float` (2 registers) into two
+words itself (word order per the byte-order register 5), sends them as one list
+`value` to the start address (e.g. 1280/1282 for the §3.5 limits), uses `slave`
+(unit id of the inverter, the action defaults to 1, not the hub's configured id),
+and **must read the value back** (modbus sensors or battery power) because a failed
+write is invisible to the caller. The heartbeat (20 s) shares the hub's lock with
+all polled entities. `UNVERIFIED` still: the fallback timer behaviour on the
+maintainer's inverter (measurement pending).

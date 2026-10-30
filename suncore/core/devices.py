@@ -399,6 +399,11 @@ class DeviceConfig(_Frozen):
     switch_on_hvac_mode: Literal["heat", "cool", "heat_cool", "auto"] | None = None
     """Climate: the HVAC mode used for switching on; required with ``allow_switch_on``."""
     override_policy: OverridePolicy = OverridePolicy()
+    planner_value_per_kwh: Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)] | None = None
+    """The device's utility for the planner, currency/kWh (Phase 4). ``None`` = automatic:
+    just above the export price (self-consumption beats export) and never above the import
+    price (SunCore never imports for a device). An explicit value is capped the same way
+    by the planner: the import price stays the ceiling."""
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:  # noqa: PLR0912

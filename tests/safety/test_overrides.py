@@ -128,7 +128,12 @@ def test_next_day_resume_is_strictly_later_and_within_48_hours(now: datetime, ho
     policy = OverridePolicy(resume_time=datetime(2000, 1, 1, hour).time())  # noqa: DTZ001
     resume = overrides.resume_at(policy, now, BERLIN)
     assert now < resume <= now + timedelta(hours=48)
-    assert resume.astimezone(BERLIN).hour == hour
+    local = resume.astimezone(BERLIN)
+    # On the spring-forward day the wall time in the DST gap does not exist (02:xx in
+    # Berlin); it resolves to the same instant one hour later on the clock.
+    wall = datetime(local.year, local.month, local.day, hour, tzinfo=BERLIN)
+    in_gap = wall.astimezone(UTC).astimezone(BERLIN).hour != hour
+    assert local.hour == (hour + 1 if in_gap else hour)
 
 
 def test_hold_resume_expire() -> None:
