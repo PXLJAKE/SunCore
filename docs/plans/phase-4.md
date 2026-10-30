@@ -652,12 +652,19 @@ shadow and assisted run is the acceptance test.
     56 days; the service reads the longer window once and slices it for the profiles). The fit
     window now starts at a local midnight, so a DST change inside it no longer drops its first
     day (also for the profiles).
-  - "Better" in `auto` = the pooled (n-weighted over the three horizon buckets) 14-day MAE of
-    `load_ml` at least **2 %** below `load_profile`'s, with `load_ml` scored on at least 90 % as many
-    quarter hours (else the two MAEs cover different periods; ≥ 96 in any case) and at least
-    `min_history_days` usable days; otherwise the profiles, each with a
-    `forecast.load_model.*` reason. The choice changes with the nightly scores, at most once a
-    day.
+  - "Better" in `auto` = a **paired** 14-day score (review M2): the KNN forecast is stored with
+    the same issue time as the profile forecast, and the nightly job scores both on the common
+    issues and only on quarter hours where both and the measurement are known (pooled over the
+    horizon buckets, ≥ 7 × 96 quarter hours); it is kept in `learned_param` `ml_state/
+    load_comparison` with its time and counts only while ≤ 36 h old (review M1; a failed nightly
+    comparison drops it, a missing `load_ml` score is removed from the display). The KNN model is
+    entered at an MAE ≥ **2 %** below the profiles' and left only when it is no longer below
+    (hysteresis, review m4), with at least `min_history_days` usable days; otherwise the
+    profiles, each with a `forecast.load_model.*` reason. The per-source rows stay for display.
+  - The KNN model is fitted once per local day (or after `request_refit`) in a worker thread
+    (`asyncio.to_thread`); its forecast level is the 7 days before local midnight like every
+    sample's; a model fitted before yesterday (its fit keeps failing) is stale and not used
+    (review m1, m3, m4). The KNN forecast is computed only when it is stored or in use (m2).
   - In `auto` the plan carries the choice as a plan-level reason (`build_inputs(load_reasons=…)`,
     planner still imports only `core`); in `off`/`shadow` no plan reason (nothing to explain).
     The risk view and the planner get the same selected forecast; the risk model's *learnt*

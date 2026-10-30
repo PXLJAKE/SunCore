@@ -32,11 +32,13 @@ forecast.
 
 **Model choice** (:func:`choose_load_model`, ``forecast.learning.load_ml_mode``): ``off`` - not
 computed; ``shadow`` (default) - computed, stored and scored as source ``load_ml``, never used;
-``auto`` - used only while it has at least ``min_history_days`` days of history **and** its
-rolling 14-day MAE (the same nightly statistic as the profiles', pooled over the horizon buckets)
-is at least ``ML_MARGIN`` better than the profiles' on a comparable number of scored quarter hours
-(plan §0: "only if measurably better"); otherwise the profiles. Every outcome carries a
-:class:`~suncore.core.decisions.Reason`.
+``auto`` - used only while it has at least ``min_history_days`` days of history, a current
+forecast (a model fitted before yesterday is stale) **and** a fresh paired score (both models on
+the same issues and quarter hours of the last 14 days, one nightly run at most
+``SCORE_MAX_AGE`` old, at least ``ML_MIN_PAIRED_SAMPLES`` quarter hours) in which its MAE is
+``ML_MARGIN`` below the profiles' (plan §0: "only if measurably better"); once in use it stays
+until its MAE is no longer below the profiles' (hysteresis). Otherwise the profiles. Every
+outcome carries a :class:`~suncore.core.decisions.Reason`.
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ import numpy as np
 import numpy.typing as npt
 
 from suncore.core.decisions import Reason
-from suncore.core.forecast import ACCURACY_MIN_SAMPLES, AccuracyRecord
+from suncore.core.forecast import AccuracyRecord
 from suncore.core.series import Grid, QuantileSeries, SeriesUnit, TimeSeries
 from suncore.forecast.days import local_midnight
 from suncore.forecast.load import (
@@ -93,9 +95,12 @@ LOW_QUANTILE: Final = 0.1
 HIGH_QUANTILE: Final = 0.9
 ML_MARGIN: Final = 0.02
 """``auto`` needs an MAE at least 2 % below the profiles' (measurably better, plan §0)."""
-ML_MIN_SCORED_SHARE: Final = 0.9
-"""``auto`` needs the ML forecast scored on at least 90 % as many quarter hours as the profiles
-(else it was not stored for most of the 14 days and the two MAEs are not comparable)."""
+ML_MIN_PAIRED_SAMPLES: Final = 7 * SLOTS_PER_DAY
+"""Quarter hours both models must have been scored on (a week) before ``auto`` compares them."""
+SCORE_MAX_AGE: Final = timedelta(hours=36)
+"""A paired score older than this (a nightly job failed or did not run) does not count."""
+ML_MAX_AGE_DAYS: Final = 1
+"""A KNN model fitted before yesterday is stale (its fit keeps failing): no forecast."""
 
 _TYPE_INDEX: Final = {DayType.WORKDAY: 0, DayType.WEEKEND: 1, DayType.HOLIDAY: 2}
 _TYPE_DISTANCE: Final = np.array(
@@ -122,7 +127,8 @@ class KnnLoadModel:
     fitted_for: date
     """The local date the model was fitted on (ages count from it)."""
     recent_level_w: float | None
-    """Mean base load of the ``LEVEL_DAYS`` days before the fit (the forecast's level)."""
+    """Mean base load of the ``LEVEL_DAYS`` days before the local midnight of the fit (the
+    forecast's level, measured like every sample's level)."""
     slot: IntArray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     day_type: IntArray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     temperature: FloatArray = field(default_factory=lambda: np.zeros(0))
@@ -232,8 +238,10 @@ def fit_knn_model(
     def index_of(moment: datetime) -> int:
         return (moment - base.start) // step
 
-    now_index = index_of(min(now, base.end)) if len(base) else 0
-    recent = _window_mean(values, now_index - level_span, now_index) if len(base) else None
+    # the level of the forecast days: the 7 days before today's local midnight, measured like
+    # the samples' levels (a partial today would mix in a different time-of-day pattern)
+    end_index = index_of(midnight) if len(base) else 0
+    recent = _window_mean(values, end_index - level_span, end_index) if len(base) else None
     temps = {} if temperature is None else daily_temperatures(temperature, tz, midnight)
 
     slots: list[int] = []
@@ -402,10 +410,22 @@ class PooledError:
 
 
 def pooled_error(records: Sequence[AccuracyRecord]) -> PooledError | None:
+    """Display figure of one source; the model choice uses :class:`PairedScore` instead."""
     n = sum(r.n for r in records)
     if n <= 0:
         return None
     return PooledError(mae_w=sum(r.mae_w * r.n for r in records) / n, n=n)
+
+
+@dataclass(frozen=True, slots=True)
+class PairedScore:
+    """The profiles and the KNN model scored on the same issues and quarter hours by one nightly
+    run (:func:`suncore.forecast.accuracy.compute_paired_accuracy`)."""
+
+    profile_mae_w: float
+    ml_mae_w: float
+    n: int
+    computed_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -417,8 +437,8 @@ class LoadModelChoice:
     reason: Reason
     ml_days: int
     min_history_days: int
-    profile: PooledError | None
-    ml: PooledError | None
+    score: PairedScore | None
+    """The comparison the choice used (``None``: none, or too old to count)."""
 
 
 def choose_load_model(
@@ -427,16 +447,19 @@ def choose_load_model(
     ml_days: int,
     ml_available: bool,
     min_history_days: int,
-    profile_records: Sequence[AccuracyRecord],
-    ml_records: Sequence[AccuracyRecord],
+    score: PairedScore | None,
+    now: datetime,
+    ml_in_use: bool = False,
 ) -> LoadModelChoice:
     """The model the planner uses (module doc). Pure and deterministic.
 
-    ``ml_days``: usable history days of the KNN model; ``ml_available``: it produced a forecast
-    now; the records are the stored rolling 14-day accuracy of ``load_profile`` and ``load_ml``.
+    ``ml_days``: usable history days of the KNN model; ``ml_available``: it has a current
+    forecast; ``score``: the latest paired comparison; ``ml_in_use``: the previous choice was the
+    KNN model (hysteresis: it is entered at ``ML_MARGIN`` better and left only when it is no
+    longer better at all). A score older than ``SCORE_MAX_AGE`` counts as missing.
     """
-    profile = pooled_error(profile_records)
-    ml = pooled_error(ml_records)
+    if score is not None and now - score.computed_at > SCORE_MAX_AGE:
+        score = None
     if mode == "off":
         in_use: ModelInUse = "profile"
         reason = Reason(key="forecast.load_model.ml_off")
@@ -451,8 +474,8 @@ def choose_load_model(
             ml_days=ml_days,
             ml_available=ml_available,
             min_history_days=min_history_days,
-            profile=profile,
-            ml=ml,
+            score=score,
+            ml_in_use=ml_in_use,
         )
     return LoadModelChoice(
         mode=mode,
@@ -460,8 +483,7 @@ def choose_load_model(
         reason=reason,
         ml_days=ml_days,
         min_history_days=min_history_days,
-        profile=profile,
-        ml=ml,
+        score=score,
     )
 
 
@@ -470,11 +492,11 @@ def _auto(
     ml_days: int,
     ml_available: bool,
     min_history_days: int,
-    profile: PooledError | None,
-    ml: PooledError | None,
+    score: PairedScore | None,
+    ml_in_use: bool,
 ) -> tuple[ModelInUse, Reason]:
-    """Mode ``auto``: the KNN model only with enough history, a forecast now, a comparable
-    score and an MAE ``ML_MARGIN`` below the profiles'."""
+    """Mode ``auto``: the KNN model only with enough history, a current forecast, a fresh paired
+    score on ``ML_MIN_PAIRED_SAMPLES`` quarter hours and a smaller MAE (hysteresis)."""
     if ml_days < min_history_days:
         return "profile", Reason(
             key="forecast.load_model.ml_collecting",
@@ -482,17 +504,14 @@ def _auto(
         )
     if not ml_available:
         return "profile", Reason(key="forecast.load_model.ml_unavailable")
-    needed = max(
-        ACCURACY_MIN_SAMPLES,
-        0 if profile is None else math.ceil(ML_MIN_SCORED_SHARE * profile.n),
-    )
-    if profile is None or ml is None or ml.n < needed:
+    if score is None or score.n < ML_MIN_PAIRED_SAMPLES:
         return "profile", Reason(
             key="forecast.load_model.ml_not_scored",
-            args={"n": 0 if ml is None else ml.n, "needed": needed},
+            args={"n": 0 if score is None else score.n, "needed": ML_MIN_PAIRED_SAMPLES},
         )
-    args = {"ml_mae_w": round(ml.mae_w), "profile_mae_w": round(profile.mae_w)}  # whole W
-    if ml.mae_w < (1.0 - ML_MARGIN) * profile.mae_w:
+    args = {"ml_mae_w": round(score.ml_mae_w), "profile_mae_w": round(score.profile_mae_w)}
+    threshold = 1.0 if ml_in_use else 1.0 - ML_MARGIN
+    if score.ml_mae_w < threshold * score.profile_mae_w:
         return "ml", Reason(key="forecast.load_model.ml_in_use", args=args)
     return "profile", Reason(key="forecast.load_model.ml_not_better", args=args)
 
@@ -503,11 +522,14 @@ __all__ = [
     "LOAD_ML_SOURCE_ID",
     "ML_HISTORY_DAYS",
     "ML_MARGIN",
-    "ML_MIN_SCORED_SHARE",
+    "ML_MAX_AGE_DAYS",
+    "ML_MIN_PAIRED_SAMPLES",
+    "SCORE_MAX_AGE",
     "KnnLoadModel",
     "LoadMlMode",
     "LoadModelChoice",
     "ModelInUse",
+    "PairedScore",
     "PooledError",
     "choose_load_model",
     "daily_temperatures",

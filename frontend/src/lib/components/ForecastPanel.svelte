@@ -235,7 +235,7 @@
       {#if loadModel.mode !== 'off'}
         <div class="scroll">
           <table class="compact" data-testid="fc-ml-compare">
-            <caption>{t('fc.ml.compare_caption')}</caption>
+            <caption>{t('fc.ml.compare_caption', { n: loadModel.compared_n })}</caption>
             <thead>
               <tr>
                 <th scope="col">{t('fc.ml.model')}</th>
@@ -247,26 +247,23 @@
                 <th scope="row">{t('fc.ml.profile')}</th>
                 <td class="num">
                   {mae(loadModel.profile_mae_w)}
-                  {#if loadModel.profile_n > 0}<span class="hint"
-                      >{t('fc.cell_n', { n: loadModel.profile_n })}</span
-                    >{/if}
                 </td>
               </tr>
               <tr data-model="ml">
                 <th scope="row">{t('fc.ml.ml')}</th>
                 <td class="num">
                   {mae(loadModel.ml_mae_w)}
-                  {#if loadModel.ml_n > 0}<span class="hint"
-                      >{t('fc.cell_n', { n: loadModel.ml_n })}</span
-                    >{/if}
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
         <p class="hint" data-testid="fc-ml-days">
-          {t('fc.ml.days', { days: loadModel.ml_days, min: loadModel.min_history_days })}
-          {#if !loadModel.ml_ready}· {t('fc.ml.collecting_model')}{/if}
+          {t('fc.ml.days', {
+            days: loadModel.ml_days,
+            min: loadModel.min_history_days,
+            ready: loadModel.ml_ready ? 'yes' : 'no',
+          })}
         </p>
       {/if}
     {/if}

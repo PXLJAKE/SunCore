@@ -140,21 +140,24 @@ class LoadModelView(_View):
     """Which load model the planner gets: the profiles or the optional KNN model (WP12).
 
     ``mode`` is ``forecast.learning.load_ml_mode``; ``reason`` explains ``in_use``
-    (``forecast.load_model.*``). The errors are the rolling 14-day MAE of ``load_profile`` and
-    ``load_ml`` pooled over the horizon buckets (``None``: not scored yet); ``ml_days`` counts the
-    usable history days of the KNN model, which ``auto`` needs ``min_history_days`` of."""
+    (``forecast.load_model.*``). The two errors are the paired comparison ``auto`` decides on:
+    the 14-day MAE of ``load_profile`` and ``load_ml`` on the same issues and quarter hours
+    (``compared_n``), computed by the nightly job at ``compared_at`` (``None``: none yet, or
+    older than 36 h). ``ml_days`` counts the usable history days of the KNN model, which
+    ``auto`` needs ``min_history_days`` of."""
 
     mode: LoadMlMode
     in_use: ModelInUse
     reason: Reason
     ml_ready: bool
-    """The KNN model has enough history to forecast (7 days) and produced a forecast."""
+    """The KNN model is on, has its 7 days of history and was fitted today or yesterday, so it
+    can forecast."""
     ml_days: int
     min_history_days: int
     profile_mae_w: float | None
     ml_mae_w: float | None
-    profile_n: int
-    ml_n: int
+    compared_n: int
+    compared_at: AwareDatetime | None
 
 
 class ForecastAccuracyView(_View):

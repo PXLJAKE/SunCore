@@ -330,6 +330,7 @@
       <label for="{uid}-load-ml">{t('pvf.load_ml')}</label>
       <select
         id="{uid}-load-ml"
+        aria-describedby="{uid}-load-ml-hint"
         class="input"
         value={loadMlMode(wizard.forecast)}
         onchange={(e) => setLoadMlMode(wizard.forecast, e.currentTarget.value as LoadMlMode)}
@@ -338,7 +339,7 @@
           <option value={mode}>{t(ML_LABEL[mode])}</option>
         {/each}
       </select>
-      <p class="hint">
+      <p class="hint" id="{uid}-load-ml-hint">
         {t('pvf.load_ml_hint', {
           min: (wizard.forecast.learning ?? DEFAULT_LEARNING).min_history_days,
         })}

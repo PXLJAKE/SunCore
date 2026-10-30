@@ -4692,8 +4692,24 @@
       },
       "LoadModelView": {
         "additionalProperties": false,
-        "description": "Which load model the planner gets: the profiles or the optional KNN model (WP12).\n\n``mode`` is ``forecast.learning.load_ml_mode``; ``reason`` explains ``in_use``\n(``forecast.load_model.*``). The errors are the rolling 14-day MAE of ``load_profile`` and\n``load_ml`` pooled over the horizon buckets (``None``: not scored yet); ``ml_days`` counts the\nusable history days of the KNN model, which ``auto`` needs ``min_history_days`` of.",
+        "description": "Which load model the planner gets: the profiles or the optional KNN model (WP12).\n\n``mode`` is ``forecast.learning.load_ml_mode``; ``reason`` explains ``in_use``\n(``forecast.load_model.*``). The two errors are the paired comparison ``auto`` decides on:\nthe 14-day MAE of ``load_profile`` and ``load_ml`` on the same issues and quarter hours\n(``compared_n``), computed by the nightly job at ``compared_at`` (``None``: none yet, or\nolder than 36 h). ``ml_days`` counts the usable history days of the KNN model, which\n``auto`` needs ``min_history_days`` of.",
         "properties": {
+          "compared_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compared At"
+          },
+          "compared_n": {
+            "title": "Compared N",
+            "type": "integer"
+          },
           "in_use": {
             "enum": [
               "profile",
@@ -4721,10 +4737,6 @@
             ],
             "title": "Ml Mae W"
           },
-          "ml_n": {
-            "title": "Ml N",
-            "type": "integer"
-          },
           "ml_ready": {
             "title": "Ml Ready",
             "type": "boolean"
@@ -4749,10 +4761,6 @@
             ],
             "title": "Profile Mae W"
           },
-          "profile_n": {
-            "title": "Profile N",
-            "type": "integer"
-          },
           "reason": {
             "$ref": "#/components/schemas/Reason"
           }
@@ -4766,8 +4774,8 @@
           "min_history_days",
           "profile_mae_w",
           "ml_mae_w",
-          "profile_n",
-          "ml_n"
+          "compared_n",
+          "compared_at"
         ],
         "title": "LoadModelView",
         "type": "object"

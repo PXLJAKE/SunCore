@@ -186,8 +186,8 @@ async def test_accuracy_compares_the_ml_model_with_the_profiles(services: FakeSe
                 min_history_days=30,
                 profile_mae_w=120.0,
                 ml_mae_w=90.0,
-                profile_n=1344,
-                ml_n=1344,
+                compared_n=1344,
+                compared_at=NOW,
             )
         }
     )

@@ -64,6 +64,7 @@ from suncore.core.series import (
 from suncore.forecast.accuracy import (
     AccuracyData,
     LearnedParams,
+    compute_paired_accuracy,
     load_accuracy,
     update_accuracy,
 )
@@ -89,9 +90,11 @@ from suncore.forecast.load import (
 from suncore.forecast.load_ml import (
     LOAD_ML_SOURCE_ID,
     ML_HISTORY_DAYS,
+    ML_MAX_AGE_DAYS,
     KnnLoadModel,
     LoadMlMode,
     LoadModelChoice,
+    PairedScore,
     choose_load_model,
     fit_knn_model,
     forecast_knn,
@@ -117,6 +120,10 @@ CHECK_DATE_INTERVAL_S: Final = 6 * 3600.0
 NS_LOAD_PROFILE: Final = "load_profile"
 """``learned_param`` namespace (equal to ``suncore.storage.learned.NS_LOAD_PROFILE``)."""
 DAY_TYPES_KEY: Final = "day_types"
+NS_ML_STATE: Final = "ml_state"
+"""``learned_param`` namespace of the KNN model (= ``suncore.storage.learned.NS_ML_STATE``)."""
+COMPARISON_KEY: Final = "load_comparison"
+COMPARISON_SCHEMA: Final = 1
 DAY_TYPES_SCHEMA: Final = 1
 
 
@@ -224,6 +231,11 @@ class LoadForecastService:
         self._scores: dict[str, tuple[AccuracyRecord, ...]] = {}
         """Latest rolling 14-day accuracy of ``load_profile`` and ``load_ml``."""
         self._scores_loaded = False
+        self._comparison: PairedScore | None = None
+        """Latest paired score of both models (decides ``auto``)."""
+        self._ml_in_use = False
+        """The last selection used the KNN model (hysteresis)."""
+        self._ml_refit = False
         self._lock = asyncio.Lock()
         self._listeners: list[Callable[[], None]] = []
 
@@ -393,7 +405,12 @@ class LoadForecastService:
         await self._load_scores()
         today = moment.astimezone(tz).date()
         end = floor_to_step(moment, PLANNING_STEP)
-        window_days = self._window_days()
+        ml_due = self.ml_enabled and (
+            self._ml_refit or self._ml is None or self._ml.fitted_for != today
+        )
+        # the KNN model is fitted once per local day (its samples and level end at midnight);
+        # the hourly profile refits read only the profiles' own window
+        window_days = self._window_days() if ml_due else self._history_days
         # local midnights (a DST change inside the window must not cut off its first day)
         window = TimeRange(start=_local_start(today, window_days, tz), end=end)
         profile_start = _local_start(today, self._history_days, tz)
@@ -428,8 +445,8 @@ class LoadForecastService:
             return self._model
         self._model, self._fitted_at = model, moment
         self._base, self._devices = base, devices
-        if self.ml_enabled:
-            self._fit_ml(
+        if ml_due:
+            await self._fit_ml(
                 full,
                 moment=moment,
                 tz=tz,
@@ -454,7 +471,7 @@ class LoadForecastService:
         )
         return model
 
-    def _fit_ml(
+    async def _fit_ml(
         self,
         full: BaseLoad,
         *,
@@ -464,9 +481,12 @@ class LoadForecastService:
         temperature: TimeSeries | None,
         window_days: int,
     ) -> None:
-        """Fit the KNN model (a failure keeps the previous one; the profiles are unaffected)."""
+        """Fit the KNN model in a worker thread (pure NumPy/Python on immutable inputs, so the
+        event loop keeps running); a failure keeps the previous model (it turns stale after a
+        day) and leaves the profiles unaffected."""
         try:
-            ml = fit_knn_model(
+            ml = await asyncio.to_thread(
+                fit_knn_model,
                 full.series,
                 now=moment,
                 tz=tz,
@@ -475,25 +495,35 @@ class LoadForecastService:
                 unmeasured=full.unmeasured,
                 history_days=window_days,
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             log.exception("forecast.load.ml_fit_failed")
             return
-        self._ml = ml
+        self._ml, self._ml_refit = ml, False
         log.info("forecast.load.ml_fitted", days=ml.days, samples=ml.samples)
 
     async def _load_scores(self) -> None:
-        """The stored accuracy of both models (once; the nightly job keeps it current)."""
+        """The stored accuracy of both models and their paired comparison (once; the nightly
+        job keeps them current). A stored comparison older than ``SCORE_MAX_AGE`` is ignored by
+        the model choice."""
         if self._scores_loaded or self._learned is None or not self.ml_enabled:
             self._scores_loaded = True
             return
         self._scores_loaded = True
         try:
             stored = await load_accuracy(self._learned, self.source_ids)
+            comparison = None
+            for entry in await self._learned.in_namespace(NS_ML_STATE):
+                if entry.key == COMPARISON_KEY and entry.schema_version == COMPARISON_SCHEMA:
+                    comparison = _decode_comparison(entry.payload)
         except Exception:
             log.exception("forecast.load.scores_unreadable")
             return
         for source_id, item in stored.items():
             self._scores.setdefault(source_id, item.records)
+        if self._comparison is None:
+            self._comparison = comparison
 
     # --- temperature ------------------------------------------------------------------
 
@@ -546,8 +576,9 @@ class LoadForecastService:
     # --- refresh ----------------------------------------------------------------------
 
     def request_refit(self) -> None:
-        """Refit at the next refresh (e.g. after the history was rebuilt)."""
+        """Refit at the next refresh (e.g. after the history was rebuilt), the KNN model too."""
         self._fitted_at = None
+        self._ml_refit = True
 
     def _forecast_days(self, now: datetime, tz: tzinfo) -> list[date]:
         first = now.astimezone(tz).date()
@@ -569,10 +600,11 @@ class LoadForecastService:
 
     def ml_forecast(self, now: datetime | None = None) -> QuantileSeries | None:
         """The KNN forecast on the same grid (``None``: mode ``off`` or too little history)."""
-        ml = self._ml
-        if ml is None or not ml.ready or not self.ml_enabled:
-            return None
         moment = self._clock() if now is None else now
+        if not self._ml_current(moment):
+            return None
+        ml = self._ml
+        assert ml is not None
         tz = self._tz()
         grid = planning_grid(moment, self._horizon)
         today = moment.astimezone(tz).date()
@@ -584,39 +616,60 @@ class LoadForecastService:
             log.exception("forecast.load.ml_forecast_failed")
             return None
 
+    def _ml_current(self, now: datetime) -> bool:
+        """The KNN model is on, ready and not stale (fitted today or yesterday)."""
+        ml = self._ml
+        if ml is None or not ml.ready or not self.ml_enabled:
+            return False
+        today = now.astimezone(self._tz()).date()
+        return ml.fitted_for >= today - timedelta(days=ML_MAX_AGE_DAYS)
+
     def set_scores(self, scores: Mapping[str, Sequence[AccuracyRecord]]) -> None:
-        """Replace the rolling accuracy the model choice uses (the nightly job's result)."""
+        """Replace the per-source accuracy shown next to the comparison (display only)."""
         for source_id, records in scores.items():
             self._scores[source_id] = tuple(records)
 
-    def choice(self, ml_available: bool | None = None) -> LoadModelChoice:
+    def set_comparison(self, comparison: PairedScore | None) -> None:
+        """The paired comparison the model choice uses (the nightly job's result)."""
+        self._comparison = comparison
+
+    def choice(
+        self, now: datetime | None = None, *, ml_available: bool | None = None
+    ) -> LoadModelChoice:
         """Which model :meth:`forecast` returns and why (:func:`choose_load_model`).
 
-        ``ml_available`` defaults to "the KNN model is fitted and ready"."""
+        ``ml_available`` defaults to "the KNN model is on, ready and not stale"."""
+        moment = self._clock() if now is None else now
         ml = self._ml
         if ml_available is None:
-            ml_available = ml is not None and ml.ready
+            ml_available = self._ml_current(moment)
         return choose_load_model(
             self._inputs.ml_mode,
             ml_days=0 if ml is None else ml.days,
             ml_available=ml_available,
             min_history_days=self._inputs.min_history_days,
-            profile_records=self._scores.get(LOAD_SOURCE_ID, ()),
-            ml_records=self._scores.get(LOAD_ML_SOURCE_ID, ()),
+            score=self._comparison,
+            now=moment,
+            ml_in_use=self._ml_in_use,
         )
 
     def selected(
         self, now: datetime | None = None
     ) -> tuple[QuantileSeries | None, LoadModelChoice]:
         """The forecast the planner uses and the choice behind it: the KNN forecast only when
-        the choice selects it and it exists, else the profile forecast."""
-        choice = self.choice()
+        the choice selects it and it exists, else the profile forecast. Remembers the outcome
+        for the hysteresis of the next choice."""
+        moment = self._clock() if now is None else now
+        choice = self.choice(moment)
+        forecast = None
         if choice.in_use == "ml":
-            ml = self.ml_forecast(now)
-            if ml is not None:
-                return ml, choice
-            choice = self.choice(ml_available=False)
-        return self.profile_forecast(now), choice
+            forecast = self.ml_forecast(moment)
+            if forecast is None:
+                choice = self.choice(moment, ml_available=False)
+        if forecast is None:
+            forecast = self.profile_forecast(moment)
+        self._ml_in_use = choice.in_use == "ml"
+        return forecast, choice
 
     def forecast(self, now: datetime | None = None) -> QuantileSeries | None:
         """The base load forecast the planner and the risk model use, from the current slot for
@@ -648,15 +701,14 @@ class LoadForecastService:
                 else:
                     await self._resolve(self._forecast_days(now, tz), now.astimezone(tz).date())
                 await self._update_weather(now)
-                profile = self.profile_forecast(now)
-                ml = self.ml_forecast(now)
-                if profile is not None:
-                    await self._maybe_store(LOAD_SOURCE_ID, profile, now)
-                if ml is not None:
-                    await self._maybe_store(LOAD_ML_SOURCE_ID, ml, now)
-                forecast = profile
-                if ml is not None and self.choice().in_use == "ml":
-                    forecast = ml
+                forecast, choice = self.selected(now)
+                profile = forecast if choice.in_use == "profile" else self.profile_forecast(now)
+                if profile is not None and await self._maybe_store(LOAD_SOURCE_ID, profile, now):
+                    # the KNN forecast is stored with the same issue time as the profiles, so the
+                    # nightly comparison pairs every issue; computed only when due or in use
+                    ml = forecast if choice.in_use == "ml" else self.ml_forecast(now)
+                    if ml is not None:
+                        await self._maybe_store(LOAD_ML_SOURCE_ID, ml, now, force=True)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -683,20 +735,24 @@ class LoadForecastService:
             except Exception:
                 log.exception("forecast.load.listener_failed")
 
-    async def _maybe_store(self, source_id: str, forecast: QuantileSeries, now: datetime) -> None:
+    async def _maybe_store(
+        self, source_id: str, forecast: QuantileSeries, now: datetime, *, force: bool = False
+    ) -> bool:
+        """Store one issue unless one was stored within the store interval; ``True`` if stored."""
         if self._data is None:
-            return
+            return False
         last = self._last_stored_at.get(source_id)
-        if last is not None and now - last < self._store_interval:
-            return
+        if not force and last is not None and now - last < self._store_interval:
+            return False
         try:
             await self._data.store_forecast(source_id, "load", now, forecast)
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("forecast.load.store_failed", source=source_id)
-            return
+            return False
         self._last_stored_at[source_id] = now
+        return True
 
     async def run(self) -> None:
         """Refresh now, then every ``refresh_interval_s``."""
@@ -722,10 +778,54 @@ class LoadForecastService:
                 actual_reader=self.base_load_series,
             )
             self.set_scores(results)
+            if LOAD_ML_SOURCE_ID not in results:  # failed or off: no stale row is shown
+                self._scores.pop(LOAD_ML_SOURCE_ID, None)
             records = results.get(LOAD_SOURCE_ID, [])
+            if self.ml_enabled:
+                await self._update_comparison(moment)
         async with self._lock:
             await self.refit(moment)
         return records
+
+    async def _update_comparison(self, now: datetime) -> None:
+        """The paired score of both models (same issues and quarter hours); on failure the old
+        one is dropped, so ``auto`` never decides on a stale or partial comparison."""
+        assert self._data is not None
+        assert self._learned is not None
+        try:
+            paired = await compute_paired_accuracy(
+                self._data,
+                LOAD_SOURCE_ID,
+                LOAD_ML_SOURCE_ID,
+                now,
+                kind="load",
+                actual_reader=self.base_load_series,
+            )
+            score = PairedScore(
+                profile_mae_w=paired.mae_a_w,
+                ml_mae_w=paired.mae_b_w,
+                n=paired.n,
+                computed_at=paired.computed_at,
+            )
+            await self._learned.put(
+                NS_ML_STATE,
+                COMPARISON_KEY,
+                _encode_comparison(score),
+                schema_version=COMPARISON_SCHEMA,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("forecast.load.comparison_failed")
+            self._comparison = None
+            return
+        self._comparison = score
+        log.info(
+            "forecast.load.comparison",
+            profile_mae_w=round(score.profile_mae_w, 1),
+            ml_mae_w=round(score.ml_mae_w, 1),
+            n=score.n,
+        )
 
     # --- view ----------------------------------------------------------------------------
 
@@ -798,21 +898,46 @@ class LoadForecastService:
         )
 
     def model_view(self, choice: LoadModelChoice | None = None) -> LoadModelView:
-        """ "ML vs profile": the model in use, why, and both rolling errors."""
+        """ "ML vs profile": the model in use, why, and the paired comparison it rests on."""
         choice = self.choice() if choice is None else choice
-        ml = self._ml
+        score = choice.score
         return LoadModelView(
             mode=choice.mode,
             in_use=choice.in_use,
             reason=choice.reason,
-            ml_ready=self.ml_enabled and ml is not None and ml.ready,
+            ml_ready=self._ml_current(self._clock()),
             ml_days=choice.ml_days,
             min_history_days=choice.min_history_days,
-            profile_mae_w=None if choice.profile is None else round(choice.profile.mae_w, 1),
-            ml_mae_w=None if choice.ml is None else round(choice.ml.mae_w, 1),
-            profile_n=0 if choice.profile is None else choice.profile.n,
-            ml_n=0 if choice.ml is None else choice.ml.n,
+            profile_mae_w=None if score is None else round(score.profile_mae_w, 1),
+            ml_mae_w=None if score is None else round(score.ml_mae_w, 1),
+            compared_n=0 if score is None else score.n,
+            compared_at=None if score is None else score.computed_at,
         )
+
+
+def _encode_comparison(score: PairedScore) -> dict[str, Any]:
+    return {
+        "profile_mae_w": score.profile_mae_w,
+        "ml_mae_w": score.ml_mae_w,
+        "n": score.n,
+        "computed_at": score.computed_at.isoformat(),
+    }
+
+
+def _decode_comparison(payload: Mapping[str, Any]) -> PairedScore | None:
+    try:
+        computed = datetime.fromisoformat(str(payload["computed_at"]))
+        if computed.tzinfo is None:
+            return None
+        return PairedScore(
+            profile_mae_w=float(payload["profile_mae_w"]),
+            ml_mae_w=float(payload["ml_mae_w"]),
+            n=int(payload["n"]),
+            computed_at=computed,
+        )
+    except (KeyError, ValueError, TypeError):
+        log.warning("forecast.load.comparison_unreadable")
+        return None
 
 
 def _local_start(today: date, days: int, tz: tzinfo) -> datetime:

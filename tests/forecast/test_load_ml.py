@@ -13,13 +13,16 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from suncore.core.forecast import ACCURACY_MIN_SAMPLES, AccuracyRecord, HorizonBucket
+from suncore.core.forecast import AccuracyRecord, HorizonBucket
 from suncore.core.series import SeriesUnit, TimeSeries, planning_grid
 from suncore.forecast.load import DayType
 from suncore.forecast.load_ml import (
     KNN_MIN_DAYS,
     ML_MARGIN,
+    ML_MIN_PAIRED_SAMPLES,
+    SCORE_MAX_AGE,
     LoadMlMode,
+    PairedScore,
     choose_load_model,
     fit_knn_model,
     forecast_knn,
@@ -194,6 +197,34 @@ def test_spring_forward_day_has_a_forecast_for_every_slot() -> None:
     assert all(v is not None for v in forecast.p50.values)
 
 
+def test_autumn_dst_day_is_a_sample_day_and_forecast() -> None:
+    """25 October 2026 has 25 hours: it counts as a day (the repeated hour averaged) and a
+    forecast across it has every slot."""
+    start = datetime(2026, 9, 28, tzinfo=BERLIN).astimezone(UTC)  # a Monday
+    end = datetime(2026, 11, 2, tzinfo=BERLIN).astimezone(UTC)
+    base = series([weekly(start + Q * i) for i in range((end - start) // Q)], start)
+    now = datetime(2026, 11, 2, 9, tzinfo=BERLIN).astimezone(UTC)
+    model = fit_knn_model(base, now=now, tz=BERLIN, day_types={})
+    assert model.days == 35
+    assert model.samples == 35 * 96
+    before = datetime(2026, 10, 24, 10, tzinfo=BERLIN).astimezone(UTC)
+    grid = planning_grid(before, timedelta(hours=48))  # 24 Oct 10:00 to 26 Oct 09:00
+    forecast = forecast_knn(model, grid, BERLIN, {})
+    assert forecast is not None
+    assert len(forecast) == grid.count
+    assert all(v is not None for v in forecast.p50.values)
+    sunday_noon = datetime(2026, 10, 25, 11, 0, tzinfo=BERLIN).astimezone(UTC)
+    assert p50_at(forecast.p50.values, grid.start, sunday_noon) == pytest.approx(500, abs=1)
+
+
+def test_the_forecast_level_ends_at_local_midnight_like_the_samples() -> None:
+    """Today's partial morning (a spike) does not move the level of the forecast days."""
+    values: list[float | None] = [400.0] * (96 * 21)
+    values += [4000.0] * 40  # today until 10:00
+    model = fit_knn_model(series(values), now=at(21, 10), tz=BERLIN, day_types={})
+    assert model.recent_level_w == pytest.approx(400)
+
+
 # --- properties --------------------------------------------------------------------------
 
 
@@ -277,12 +308,15 @@ def test_weighted_quantiles_match_the_reference(pairs: list[tuple[float, float]]
 
 # --- model choice ------------------------------------------------------------------------
 
+SCORED_AT = datetime(2026, 9, 1, 1, 0, tzinfo=UTC)
 
-def records(source: str, mae: float, n: int = 1344) -> list[AccuracyRecord]:
-    return [
-        AccuracyRecord(source_id=source, horizon=h, mae_w=mae, bias_w=0.0, n=n)
-        for h in HorizonBucket
-    ]
+
+def score(
+    ml: float = 80.0, profile: float = 100.0, n: int = 1344, age_h: float = 2.0
+) -> PairedScore:
+    return PairedScore(
+        profile_mae_w=profile, ml_mae_w=ml, n=n, computed_at=SCORED_AT - timedelta(hours=age_h)
+    )
 
 
 def choose(
@@ -291,16 +325,18 @@ def choose(
     ml_days: int = 45,
     ml_available: bool = True,
     min_history_days: int = 30,
-    profile: list[AccuracyRecord] | None = None,
-    ml: list[AccuracyRecord] | None = None,
+    paired: PairedScore | None = None,
+    no_score: bool = False,
+    ml_in_use: bool = False,
 ) -> tuple[str, str]:
     choice = choose_load_model(
         mode,
         ml_days=ml_days,
         ml_available=ml_available,
         min_history_days=min_history_days,
-        profile_records=records("load_profile", 100.0) if profile is None else profile,
-        ml_records=records("load_ml", 80.0) if ml is None else ml,
+        score=None if no_score else (paired or score()),
+        now=SCORED_AT,
+        ml_in_use=ml_in_use,
     )
     return choice.in_use, choice.reason.key
 
@@ -308,16 +344,27 @@ def choose(
 def test_off_and_shadow_never_use_the_model() -> None:
     assert choose("off") == ("profile", "forecast.load_model.ml_off")
     assert choose("shadow") == ("profile", "forecast.load_model.ml_shadow")
+    assert choose("shadow", ml_in_use=True) == ("profile", "forecast.load_model.ml_shadow")
 
 
 def test_auto_uses_the_model_only_when_it_is_measurably_better() -> None:
     assert choose() == ("ml", "forecast.load_model.ml_in_use")
-    better_by_less_than_the_margin = 100.0 * (1 - ML_MARGIN / 2)
-    assert choose(ml=records("load_ml", better_by_less_than_the_margin)) == (
+    within_margin = 100.0 * (1 - ML_MARGIN / 2)
+    assert choose(paired=score(ml=within_margin)) == (
         "profile",
         "forecast.load_model.ml_not_better",
     )
-    assert choose(ml=records("load_ml", 120.0)) == ("profile", "forecast.load_model.ml_not_better")
+    assert choose(paired=score(ml=120.0)) == ("profile", "forecast.load_model.ml_not_better")
+
+
+def test_hysteresis_keeps_the_model_until_it_is_no_longer_better() -> None:
+    within_margin = score(ml=100.0 * (1 - ML_MARGIN / 2))
+    assert choose(paired=within_margin, ml_in_use=True) == ("ml", "forecast.load_model.ml_in_use")
+    assert choose(paired=within_margin, ml_in_use=False)[0] == "profile"
+    assert choose(paired=score(ml=100.0), ml_in_use=True) == (
+        "profile",
+        "forecast.load_model.ml_not_better",
+    )
 
 
 def test_auto_needs_enough_history() -> None:
@@ -326,20 +373,28 @@ def test_auto_needs_enough_history() -> None:
     assert choose(ml_days=10, min_history_days=10) == ("ml", "forecast.load_model.ml_in_use")
 
 
-def test_auto_needs_a_forecast_and_a_comparable_score() -> None:
+def test_auto_needs_a_forecast_and_a_fresh_comparable_score() -> None:
     assert choose(ml_available=False) == ("profile", "forecast.load_model.ml_unavailable")
-    assert choose(ml=[]) == ("profile", "forecast.load_model.ml_not_scored")
-    assert choose(profile=[]) == ("profile", "forecast.load_model.ml_not_scored")
-    # scored on 3 of the profiles' 14 days (stored only for the last few days)
-    assert choose(ml=records("load_ml", 50.0, n=288)) == (
-        "profile",
-        "forecast.load_model.ml_not_scored",
+    assert choose(no_score=True) == ("profile", "forecast.load_model.ml_not_scored")
+    thin = score(ml=10.0, n=ML_MIN_PAIRED_SAMPLES - 1)
+    assert choose(paired=thin) == ("profile", "forecast.load_model.ml_not_scored")
+    hours = SCORE_MAX_AGE.total_seconds() / 3600
+    assert choose(paired=score(age_h=hours)) == ("ml", "forecast.load_model.ml_in_use")
+    stale = score(ml=10.0, age_h=hours + 0.25)  # a nightly job failed: not used, even if better
+    assert choose(paired=stale) == ("profile", "forecast.load_model.ml_not_scored")
+
+
+def test_a_stale_score_is_not_reported() -> None:
+    choice = choose_load_model(
+        "auto",
+        ml_days=45,
+        ml_available=True,
+        min_history_days=30,
+        score=score(age_h=48),
+        now=SCORED_AT,
     )
-    thin = records("load_ml", 50.0, n=ACCURACY_MIN_SAMPLES // 6)
-    assert choose(profile=records("load_profile", 100.0, n=10), ml=thin) == (
-        "profile",
-        "forecast.load_model.ml_not_scored",
-    )
+    assert choice.score is None
+    assert choice.reason.args == {"n": 0, "needed": ML_MIN_PAIRED_SAMPLES}
 
 
 @given(
@@ -349,8 +404,9 @@ def test_auto_needs_a_forecast_and_a_comparable_score() -> None:
     available=st.booleans(),
     profile_mae=st.floats(0, 5000),
     ml_mae=st.floats(0, 5000),
-    profile_n=st.integers(0, 5000),
-    ml_n=st.integers(0, 5000),
+    n=st.integers(0, 5000),
+    age_h=st.floats(0, 100),
+    in_use=st.booleans(),
 )
 def test_the_model_is_used_only_under_every_rule(
     *,
@@ -360,27 +416,29 @@ def test_the_model_is_used_only_under_every_rule(
     available: bool,
     profile_mae: float,
     ml_mae: float,
-    profile_n: int,
-    ml_n: int,
+    n: int,
+    age_h: float,
+    in_use: bool,
 ) -> None:
     choice = choose_load_model(
         mode,
         ml_days=ml_days,
         ml_available=available,
         min_history_days=min_days,
-        profile_records=records("load_profile", profile_mae, profile_n) if profile_n else [],
-        ml_records=records("load_ml", ml_mae, ml_n) if ml_n else [],
+        score=score(ml_mae, profile_mae, n, age_h),
+        now=SCORED_AT,
+        ml_in_use=in_use,
     )
     assert choice.reason.key.startswith("forecast.load_model.")
     if choice.in_use == "ml":
         assert mode == "auto"
         assert available
         assert ml_days >= min_days
-        assert ml_n >= profile_n * 0.9
-        assert 3 * ml_n >= ACCURACY_MIN_SAMPLES
+        assert n >= ML_MIN_PAIRED_SAMPLES
+        assert age_h <= SCORE_MAX_AGE.total_seconds() / 3600
         assert ml_mae < profile_mae
-    assert choice.ml_days == ml_days
-    assert choice.min_history_days == min_days
+        if not in_use:
+            assert ml_mae < (1 - ML_MARGIN) * profile_mae
 
 
 def test_pooled_error_weights_the_buckets_by_their_quarter_hours() -> None:

@@ -2572,11 +2572,17 @@ export interface components {
          * @description Which load model the planner gets: the profiles or the optional KNN model (WP12).
          *
          *     ``mode`` is ``forecast.learning.load_ml_mode``; ``reason`` explains ``in_use``
-         *     (``forecast.load_model.*``). The errors are the rolling 14-day MAE of ``load_profile`` and
-         *     ``load_ml`` pooled over the horizon buckets (``None``: not scored yet); ``ml_days`` counts the
-         *     usable history days of the KNN model, which ``auto`` needs ``min_history_days`` of.
+         *     (``forecast.load_model.*``). The two errors are the paired comparison ``auto`` decides on:
+         *     the 14-day MAE of ``load_profile`` and ``load_ml`` on the same issues and quarter hours
+         *     (``compared_n``), computed by the nightly job at ``compared_at`` (``None``: none yet, or
+         *     older than 36 h). ``ml_days`` counts the usable history days of the KNN model, which
+         *     ``auto`` needs ``min_history_days`` of.
          */
         LoadModelView: {
+            /** Compared At */
+            compared_at: string | null;
+            /** Compared N */
+            compared_n: number;
             /**
              * In Use
              * @enum {string}
@@ -2588,8 +2594,6 @@ export interface components {
             ml_days: number;
             /** Ml Mae W */
             ml_mae_w: number | null;
-            /** Ml N */
-            ml_n: number;
             /** Ml Ready */
             ml_ready: boolean;
             /**
@@ -2599,8 +2603,6 @@ export interface components {
             mode: "off" | "shadow" | "auto";
             /** Profile Mae W */
             profile_mae_w: number | null;
-            /** Profile N */
-            profile_n: number;
             reason: components["schemas"]["Reason"];
         };
         /**

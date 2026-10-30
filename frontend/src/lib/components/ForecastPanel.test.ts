@@ -21,8 +21,8 @@ function model(overrides: Partial<LoadModelView> = {}): LoadModelView {
     min_history_days: 30,
     profile_mae_w: 118.4,
     ml_mae_w: null,
-    profile_n: 1344,
-    ml_n: 0,
+    compared_n: 0,
+    compared_at: null,
     ...overrides,
   };
 }
@@ -76,7 +76,7 @@ describe('ForecastPanel: ML vs profile', () => {
     const profile = compare.querySelector('tr[data-model="profile"]')?.textContent ?? '';
     const ml = compare.querySelector('tr[data-model="ml"]')?.textContent ?? '';
     expect(profile).toMatch(/118/);
-    expect(profile).toMatch(/1,344 values/);
+    expect(compare.textContent).toMatch(/none compared yet/);
     expect(ml).toMatch(/not scored yet/);
     expect(text('fc-ml-days')).toBe('12 of 30 days of history');
   });
@@ -92,13 +92,15 @@ describe('ForecastPanel: ML vs profile', () => {
         },
         ml_days: 45,
         ml_mae_w: 97.2,
-        ml_n: 1344,
+        compared_n: 1344,
+        compared_at: '2026-10-30T02:00:00Z',
       }),
     );
     expect(text('fc-ml-mode')).toBe('Mode: automatic');
     expect(text('fc-ml-in-use')).toBe('The plan uses the machine-learning model.');
     expect(text('fc-ml-reason')).toMatch(/from the machine-learning model.*97 W against 118 W/);
     expect(text('fc-ml-days')).toBe('45 of 30 days of history');
+    expect(screen.getByTestId('fc-ml-compare').textContent).toMatch(/same 1,344 quarter hours/);
   });
 
   it('auto with too little history: explains the fallback to the profiles', () => {
@@ -112,7 +114,9 @@ describe('ForecastPanel: ML vs profile', () => {
     );
     expect(text('fc-ml-in-use')).toBe('The plan uses the profiles.');
     expect(text('fc-ml-reason')).toMatch(/has 3 of the 30 days of history it needs/);
-    expect(text('fc-ml-days')).toMatch(/Not enough history to forecast yet/);
+    expect(text('fc-ml-days')).toBe(
+      '3 of 30 days of history · Not enough history to forecast yet.',
+    );
   });
 
   it('off: no comparison', () => {

@@ -137,15 +137,19 @@ Den Modus wählst du in Schritt 4 unter **Maschinelles Lastmodell**:
   bewertet und in **Prognosen und Genauigkeit** unter *Maschinelles Lastmodell* angezeigt, beide
   Fehler nebeneinander. Der Plan nutzt es nie.
 - **Automatisch**: Der Plan nutzt es nur, solange zweierlei gilt: Es hat mindestens den Verlauf,
-  den die Lerneinstellung verlangt (standardmäßig 30 Tage), **und** sein mittlerer absoluter
-  Fehler lag in den letzten 14 Tagen mindestens 2 % unter dem der Profile (bewertet an etwa
-  ebenso vielen Viertelstunden). Sonst bleibt der Plan bei den Profilen. Jeder Plan trägt dann
-  einen kurzen Hinweis, welches Modell er genutzt hat und warum („noch zu wenig Verlauf“, „nicht
-  deutlich besser“, „genauer als die Profile“ mit beiden Fehlern).
+  den die Lerneinstellung verlangt (standardmäßig 30 Tage), **und** im Vergleich der letzten Nacht
+  lag sein mittlerer absoluter Fehler über 14 Tage mindestens 2 % unter dem der Profile. Beide
+  Modelle werden an genau denselben Prognosen und Viertelstunden verglichen (mindestens eine
+  Woche davon). Ist es einmal in Gebrauch, bleibt es, bis es gar nicht mehr besser ist, damit es
+  nicht hin und her springt. Ohne frischen Vergleich (der nächtliche Lauf ist fehlgeschlagen)
+  oder mit einem Modell, das seit gestern nicht neu angelernt werden konnte, bleibt der Plan bei
+  den Profilen. Jeder Plan trägt dann einen kurzen Hinweis, welches Modell er genutzt hat und
+  warum („noch zu wenig Verlauf“, „nicht deutlich besser“, „genauer als die Profile“ mit beiden
+  Fehlern).
 
-Die Bewertung entsteht im nächtlichen Lauf, ein Wechsel zwischen den Modellen passiert also
-höchstens einmal am Tag. Das Risikomodell lernt seine Fehlerverteilung weiter aus der
-Profilprognose.
+Das Modell wird einmal am Tag neu angelernt, der Vergleich entsteht im nächtlichen Lauf, ein
+Wechsel zwischen den Modellen passiert also höchstens einmal am Tag. Das Risikomodell lernt seine
+Fehlerverteilung weiter aus der Profilprognose.
 
 ## 3. Tarife
 

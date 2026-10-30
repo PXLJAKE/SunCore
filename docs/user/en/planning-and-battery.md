@@ -131,14 +131,18 @@ Choose its mode in step 4 under **Machine-learning load model**:
   profiles, and shown in **Forecasts and accuracy** under *Machine-learning load model*, with both
   errors side by side. The plan never uses it.
 - **Automatic**: the plan uses it only while two things hold: it has at least the history the
-  learning setting asks for (30 days by default), **and** over the last 14 days its mean absolute
-  error was at least 2 % lower than the profiles' (scored on about as many quarter hours). Otherwise
-  the plan stays on the profiles. Each plan then carries a short note which model it used and why
-  ("not enough history yet", "not clearly better", "more accurate than the profiles" with both
-  errors).
+  learning setting asks for (30 days by default), **and** in last night's comparison its mean
+  absolute error over the last 14 days was at least 2 % lower than the profiles'. Both models are
+  compared on exactly the same forecasts and quarter hours (at least a week of them). Once in use,
+  the model stays until it is no longer better at all, so it does not flip back and forth. Without
+  a fresh comparison (the nightly job failed) or with a model that could not be refitted since
+  yesterday, the plan stays on the profiles. Each plan then carries a short note which model it
+  used and why ("not enough history yet", "not clearly better", "more accurate than the profiles"
+  with both errors).
 
-The scores are computed in the nightly job, so a switch between the models happens at most once a
-day. The risk model keeps learning its error distribution from the profile forecast.
+The model is refitted once a day, the comparison is computed in the nightly job, so a switch
+between the models happens at most once a day. The risk model keeps learning its error
+distribution from the profile forecast.
 
 ## 3. Tariffs
 

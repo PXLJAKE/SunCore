@@ -19,11 +19,13 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
     slots dropped after 7 clean days), features day type (holiday ≈ weekend), slot (±2), daily
     mean temperature, 7-day load level, weak age term; K = 24, P50 weighted median, P10/P90
     weighted quantiles, ≥ 0, monotone, deterministic (stable sort). Forecasts after 7 usable days.
-  - `forecast.learning.load_ml_mode`: `off` not computed; `shadow` (default) stored hourly as
-    source `load_ml`, scored nightly like `load_profile`, shown, never used; `auto` used by the
-    planner (and the risk view) only with ≥ `min_history_days` days and a pooled 14-day MAE ≥ 2 %
-    below the profiles' on a comparable sample, else the profiles; every choice has a
-    `forecast.load_model.*` reason, in `auto` also as a plan-level reason.
+  - `forecast.learning.load_ml_mode`: `off` not computed; `shadow` (default) stored hourly with
+    the profiles' issue time as source `load_ml`, scored nightly like `load_profile`, shown, never
+    used; `auto` used by the planner (and the risk view) only with ≥ `min_history_days` days and a
+    fresh (≤ 36 h) paired 14-day comparison on the same issues and quarter hours (≥ 7 days) with
+    an MAE ≥ 2 % below the profiles' (left again only when no longer below: hysteresis), else the
+    profiles; fitted once a day in a worker thread, stale after a day without a fit; every choice
+    has a `forecast.load_model.*` reason, in `auto` also as a plan-level reason.
   - API: `ForecastAccuracyView.load_model` and `LoadForecastView.model` (`LoadModelView`, additive);
     `load_ml` rows in `/forecast/accuracy`. UI: "Machine-learning load model" in the forecast
     panel (mode, model in use, reason, both MAEs, history days); mode select in wizard step 4.
