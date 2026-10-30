@@ -262,6 +262,9 @@ NumPy KNN on analogue days (features: day type, slot, temperature, recent load);
 by default: scored next to the profiles, shown in the accuracy view, used only in `auto` while
 better over the last 14 days. Benchmark on aarch64 (training + prediction < 1 s).
 
+**Implemented in PR 4-I** (branch `phase-4/i-ml-load`); deviations see "Deviations during
+implementation".
+
 ### WP13 – Docs, translations, STATUS · `docs-writer`, `i18n-sync` (Haiku)
 
 User guide `docs/user/<lang>/planning-and-battery.md` (forecasts, risk level and buffers,
@@ -635,6 +638,43 @@ shadow and assisted run is the acceptance test.
     report (4-B follow-up); it stays in the log.
   - The battery card shows what the control state contains; there is no separate "release
     pending" field in `BatteryControlState`, so that state is only visible through the reasons.
+
+- PR 4-I, WP12 (optional ML load model; `optimizer-engineer`):
+  - `suncore/forecast/load_ml.py`: KNN on quarter-hour samples of analogue days; features day
+    type (holiday close to weekend, far from workday), wall-clock slot (candidates ±2 slots),
+    daily mean temperature (only when the forecast day has one), level = mean base load of the
+    **7 days** before the day (a whole week, so the level is free of the weekday pattern; the
+    query uses the 7 days before the fit), plus a weak age term that also breaks ties. K = 24,
+    weights `1 / (0.25 + distance)`, P50 = weighted **median** (the profiles use a weighted mean;
+    the median suits the MAE score), P10/P90 = weighted 10/90 % quantiles of the neighbours. The
+    constants are reasoned, not fitted (`UNVERIFIED` like the profile constants).
+  - History window of the KNN model: `max(91 days, min_history_days)` (the profiles keep their
+    56 days; the service reads the longer window once and slices it for the profiles). The fit
+    window now starts at a local midnight, so a DST change inside it no longer drops its first
+    day (also for the profiles).
+  - "Better" in `auto` = a **paired** 14-day score (review M2): the KNN forecast is stored with
+    the same issue time as the profile forecast, and the nightly job scores both on the common
+    issues and only on quarter hours where both and the measurement are known (pooled over the
+    horizon buckets, ≥ 7 × 96 quarter hours); it is kept in `learned_param` `ml_state/
+    load_comparison` with its time and counts only while ≤ 36 h old (review M1; a failed nightly
+    comparison drops it, a missing `load_ml` score is removed from the display). The KNN model is
+    entered at an MAE ≥ **2 %** below the profiles' and left only when it is no longer below
+    (hysteresis, review m4), with at least `min_history_days` usable days; otherwise the
+    profiles, each with a `forecast.load_model.*` reason. The per-source rows stay for display.
+  - The KNN model is fitted once per local day (or after `request_refit`) in a worker thread
+    (`asyncio.to_thread`); its forecast level is the 7 days before local midnight like every
+    sample's; a model fitted before yesterday (its fit keeps failing) is stale and not used
+    (review m1, m3, m4). The KNN forecast is computed only when it is stored or in use (m2).
+  - In `auto` the plan carries the choice as a plan-level reason (`build_inputs(load_reasons=…)`,
+    planner still imports only `core`); in `off`/`shadow` no plan reason (nothing to explain).
+    The risk view and the planner get the same selected forecast; the risk model's *learnt*
+    errors keep coming from the stored `load_profile` forecasts.
+  - The accuracy view shows `load_ml` as its own source row and `load_model` (mode, model in use,
+    reason, both pooled MAEs, history days) under "Machine-learning load model"; the forecast
+    wizard step got the mode select (`forecast.learning.load_ml_mode`, the only learning field
+    in the UI).
+  - Benchmark `scripts/bench_load_ml.py` (sibling of `bench_planner.py`), slow test < 1 s on CI;
+    aarch64 still `UNVERIFIED` (no arm runner job exists yet).
 
 ## 7. Out of scope for Phase 4
 

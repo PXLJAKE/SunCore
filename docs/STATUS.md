@@ -5,12 +5,40 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 **Last update:** 2026-10-28 · **Phase:** 4 implemented in the stacked PRs 4-A (contracts), 4-B
 (storage), 4-C (tariffs), 4-D (PV forecast), 4-E (load forecast and risk model), 4-F (planner and
-runtime), 4-G (battery control) and 4-H (UI and docs, WP11 + WP13); only the optional 4-I (ML load
-model) is open; waiting for the maintainer's acceptance on his system. Phase 3 (3-A `phase-3/a-safety`,
+runtime), 4-G (battery control), 4-H (UI and docs, WP11 + WP13) and the optional 4-I (ML load
+model, WP12); waiting for the maintainer's acceptance on his system. Phase 3 (3-A `phase-3/a-safety`,
 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) is implemented, waiting for the maintainer's shadow
-test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
+test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
 
 ## Done
+
+- **Phase 4 – PR 4-I, WP12 optional ML load model (branch `phase-4/i-ml-load`, stacked on 4-H;
+  `optimizer-engineer`)**:
+  - `suncore/forecast/load_ml.py` (NumPy only): KNN on analogue days - quarter-hour samples of
+    the base load history (`max(91, min_history_days)` days, ≥ 75 % coverage, unmeasured device
+    slots dropped after 7 clean days), features day type (holiday ≈ weekend), slot (±2), daily
+    mean temperature, 7-day load level, weak age term; K = 24, P50 weighted median, P10/P90
+    weighted quantiles, ≥ 0, monotone, deterministic (stable sort). Forecasts after 7 usable days.
+  - `forecast.learning.load_ml_mode`: `off` not computed; `shadow` (default) stored hourly with
+    the profiles' issue time as source `load_ml`, scored nightly like `load_profile`, shown, never
+    used; `auto` used by the planner (and the risk view) only with ≥ `min_history_days` days and a
+    fresh (≤ 36 h) paired 14-day comparison on the same issues and quarter hours (≥ 7 days) with
+    an MAE ≥ 2 % below the profiles' (left again only when no longer below: hysteresis), else the
+    profiles; fitted once a day in a worker thread, stale after a day without a fit; every choice
+    has a `forecast.load_model.*` reason, in `auto` also as a plan-level reason.
+  - API: `ForecastAccuracyView.load_model` and `LoadForecastView.model` (`LoadModelView`, additive);
+    `load_ml` rows in `/forecast/accuracy`. UI: "Machine-learning load model" in the forecast
+    panel (mode, model in use, reason, both MAEs, history days); mode select in wizard step 4.
+    en/de keys added (`check_reasons` green), user guide §2 "The machine-learning load model".
+  - Benchmark `scripts/bench_load_ml.py` (synthetic house, 48 h = 193 slots, median of 5, session
+    amd64 container): training + prediction 30 days 30 ms, 60 days 49 ms, 90 days 36 ms (budget
+    1 s; slow test `tests/forecast/test_load_ml_bench.py`). Whole service refit (SQLite read of 91
+    days, 3 devices, profile + KNN fit) 128 ms vs 82 ms without the KNN model; aarch64 not
+    measured (`UNVERIFIED`).
+  - Tests: `tests/forecast/test_load_ml.py` (features, DST, hypothesis: quantiles monotone,
+    non-negative, on the grid, deterministic, every `auto` rule), `test_load_ml_service.py`
+    (shadow/off/auto, fallback, window, nightly bookkeeping, stored scores), API, runtime, planner
+    pass-through, Vitest panel and form.
 
 - **Phase 4 – PR 4-A (plan, WP1, WP2; branch `claude/zealous-mayer-j5oda9`)**:
   - Plan `docs/plans/phase-4.md` **revision 2 approved** (2026-10-16), incl. the merged concept
@@ -631,10 +659,10 @@ test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
   runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
 - **WP10, WP11 and WP13 done** (4-G and 4-H, see Done). All Phase 4 PRs are open and stacked; merge
-  order **#25 → #26 → #27/#29 → #30 → #31 → #33 → 4-H** (merge commits are fine; **squash is
+  order **#25 → #26 → #27/#29 → #30 → #31 → #33 → 4-H → 4-I** (merge commits are fine; **squash is
   recommended**, one commit per PR on `main`), **only after the Phase 3 acceptance** (plan §6).
-  ADR-0013 accepted by the maintainer on 2026-10-19. Open: 4-I (optional ML load model), and the
-  follow-ups below.
+  ADR-0013 accepted by the maintainer on 2026-10-19. 4-I (optional ML load model) is implemented on
+  `phase-4/i-ml-load`; open are the follow-ups below.
 - **Safety note:** the documented fallback-timer measurement lifts the assisted cap (via
   `fallback_measured`); the procedure gets a `control-safety` review (the lead runs it). It needs
   the app's Watchdog switch off, otherwise the Supervisor restarts the killed app and SunCore itself
@@ -649,7 +677,8 @@ test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
 - Follow-ups from 4-H and the docs: `fallback_timeout_s` changes should drop the battery mode to
   shadow on the server (follows); a switch for `battery.fallback_measured` in the panel (today:
   export, edit, import), a hint for a too-new `timeseries.db` (the API exposes no such state), the
-  panel for editing `action_params`/`series_key`/`learning`.
+  panel for editing `action_params`/`series_key`/`learning.min_history_days` (the ML mode has a
+  select since 4-I).
 - Maintainer questions from 4-G (PR description): grid charging on the Kostal (generic
   force-charge entity or a §3.4 ADR); the fallback timer measurement procedure for
   `battery.fallback_measured`. Answered: no permanent reserve floor on the inverter.
@@ -864,7 +893,7 @@ test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
    4. Optional, later: enable external battery management via Modbus on the inverter, add the modbus
       hub, and measure the fallback timer with the documented procedure; then set
       `battery.fallback_measured`.
-3. Merge the stacked PRs in order **#25 → #26 → #27/#29 → #30 → #31 → #33 → 4-H** (squash
+3. Merge the stacked PRs in order **#25 → #26 → #27/#29 → #30 → #31 → #33 → 4-H → 4-I** (squash
    recommended), after the Phase 3 acceptance; each rebase onto `main` after the previous merge.
    Release the next release-please PR for the stable app after acceptance (schema 4: release note
    "export before updating").
@@ -892,7 +921,7 @@ test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
 | Publication time of next-day prices (Tibber, Nord Pool, ENTSO-E, EPEX) | `research/integrations.md` | observe on the maintainer's HA |
 | Nord Pool `config_entry` id source, sensor translation keys, publication time; Octopus/ENTSO-E/EPEX entity matchers (platform and unit only, no translation keys); `start`/`end` sent to `tibber.get_prices` as ISO with offset; negative-price rule proxy for all-in sources | `templates/tariff/*.yaml`, `suncore/tariff/pricing.py` | live check on a system with the integration |
 | VAT applied to negative spot prices | `suncore/core/tariff.py` | maintainer's bill / supplier terms |
-| KNN load model performance on aarch64 | plan WP12 | CI arm runner benchmark |
+| KNN load model run time on aarch64 (amd64: training + 48 h prediction 30–50 ms for 30–90 days, `scripts/bench_load_ml.py`); its constants (K 24, slot window ±2, scales 4 K / 15 % level / 120 days age, 2 % margin) are reasoned, not fitted | plan WP12, `suncore/forecast/load_ml.py` | CI arm runner or a Pi; 30+ days of the maintainer's data in `shadow` |
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
@@ -918,7 +947,7 @@ test · **Branch:** `phase-4/h-ui-docs` (stacked on `phase-4/g-battery`)
 | `weather.get_forecasts` `hourly` support of the maintainer's weather integration (the `temperature_unit` attribute and the conversion of the forecast to it are verified from source, `research/ha-websocket-api.md`) | `suncore/app/adapters.py` (`HaLoadReader`) | maintainer's HA |
 | `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (the `days_offset` handling is verified from source; a changed country/holiday list is not visible in the attributes, so the day-type cache only resets on a changed entity, `workdays`, `excludes` or offset) | `suncore/app/adapters.py`, `suncore/forecast/load_service.py` | maintainer maps a Workday sensor |
 | Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, 7 clean days, degree-day bases 15/22 °C, coverage 75 %/90 %, 20 h temperature days, anchors sunrise + 1 h / sunset − 1 h, sunrise threshold 2 %/20 W) and the default PV bands per weather class (clear 0.85/1.10, mixed 0.55/1.35, overcast 0.35/1.70) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |
-| Known limitation (n6): the load history and the risk samples are not re-derived when the device list changes - a device added later is only subtracted from the base load from the day its power is recorded (or rebuilt), and older risk samples keep the old base load | `suncore/forecast/load_service.py`, `risk_learning.py` | accepted for Phase 4; revisit with 4-I |
+| Known limitation (n6): the load history and the risk samples are not re-derived when the device list changes - a device added later is only subtracted from the base load from the day its power is recorded (or rebuilt), and older risk samples keep the old base load | `suncore/forecast/load_service.py`, `risk_learning.py` | accepted for Phase 4; the KNN model (4-I) shares the base load and the limitation; revisit in Phase 5 |
 
 ## Environment notes
 

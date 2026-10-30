@@ -705,8 +705,13 @@ def build_inputs(
     weights: PlannerWeights | None = None,
     horizon: timedelta = PLANNER_HORIZON,
     load_fallback_w: float | None = None,
+    load_reasons: Sequence[Reason] = (),
 ) -> PlannerInputs:
-    """The planner's snapshot (module doc); pure."""
+    """The planner's snapshot (module doc); pure.
+
+    ``load_reasons``: plan-level reasons about the load forecast from its producer (which load
+    model it is, WP12); passed through unchanged, after the planner's own input reasons.
+    """
     goals = goals or GoalsConfig()
     grid = planning_grid(now, horizon, PLANNING_STEP)
     starts = tuple(grid.starts())
@@ -723,6 +728,8 @@ def build_inputs(
         flat = max(flat, MIN_BASE_LOAD_W)
         l10, l50, l90 = [flat * 0.5] * grid.count, [flat] * grid.count, [flat * 2] * grid.count
         found.append(Reason(key=rk.INPUT_NO_LOAD_FORECAST, args={"load_w": round(flat)}))
+    elif load_reasons:
+        found.extend(load_reasons)
     price_data = _prices(prices, grid, tz)
     found = price_data.reasons + found
     planner_battery = _battery(battery, soc_pct, site_battery)

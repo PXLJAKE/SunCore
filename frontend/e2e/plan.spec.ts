@@ -69,7 +69,8 @@ test.describe('Plan view', () => {
     await expect(panel.getByTestId('fc-accuracy')).toBeVisible();
     await expect(panel.getByTestId('fc-weights')).toContainText('equal');
     await expect(panel.getByTestId('fc-calibration')).toContainText('No history yet');
-    await expect(panel.getByTestId('fc-ml')).toContainText('Not available yet');
+    await expect(panel.getByTestId('fc-ml-mode')).toContainText('comparison only');
+    await expect(panel.getByTestId('fc-ml-in-use')).toContainText('the profiles');
     const credit = panel.getByTestId('open-meteo-attribution');
     await expect(credit).toContainText('CC BY 4.0');
     await expect(credit.getByRole('link', { name: 'Open-Meteo.com' })).toHaveAttribute(

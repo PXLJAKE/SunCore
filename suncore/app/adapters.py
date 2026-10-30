@@ -34,7 +34,7 @@ from typing import Any
 
 import structlog
 
-from suncore.core.config import ForecastConfig, RegionConfig, TariffConfig
+from suncore.core.config import ForecastConfig, LearningSettings, RegionConfig, TariffConfig
 from suncore.core.site import SiteConfig
 from suncore.forecast.accuracy import LearnedParams
 from suncore.forecast.load import (
@@ -209,10 +209,13 @@ def build_load_forecast_service(
     if data is None:
         return None
     load = None if config is None else config.load
+    learning = LearningSettings() if config is None else config.learning
     inputs = LoadInputs(
         device_ids=device_ids,
         workday_entity=None if load is None or load.workday is None else load.workday.entity_id,
         weather_entity=None if load is None or load.weather is None else load.weather.entity_id,
+        ml_mode=learning.load_ml_mode,
+        min_history_days=learning.min_history_days,
     )
     return LoadForecastService(
         data,

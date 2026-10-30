@@ -3425,8 +3425,18 @@
       },
       "ForecastAccuracyView": {
         "additionalProperties": false,
-        "description": "Accuracy per source and horizon bucket.\n\n``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts\n15-minute daylight intervals (forecast or measurement above 0 W; clipped ones excluded).\nA record with ``n`` below ``min_samples`` is too thin to rely on.",
+        "description": "Accuracy per source and horizon bucket.\n\n``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts\n15-minute daylight intervals (forecast or measurement above 0 W; clipped ones excluded).\nA record with ``n`` below ``min_samples`` is too thin to rely on. ``load_model`` compares the\nKNN load model with the profiles (\"ML vs profile\"; ``None`` without a load forecast).",
         "properties": {
+          "load_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LoadModelView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "min_samples": {
             "title": "Min Samples",
             "type": "integer"
@@ -4571,6 +4581,16 @@
             "title": "Hours",
             "type": "integer"
           },
+          "model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LoadModelView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "p10_w": {
             "items": {
               "anyOf": [
@@ -4668,6 +4688,96 @@
           "unmeasured_in_profile"
         ],
         "title": "LoadForecastView",
+        "type": "object"
+      },
+      "LoadModelView": {
+        "additionalProperties": false,
+        "description": "Which load model the planner gets: the profiles or the optional KNN model (WP12).\n\n``mode`` is ``forecast.learning.load_ml_mode``; ``reason`` explains ``in_use``\n(``forecast.load_model.*``). The two errors are the paired comparison ``auto`` decides on:\nthe 14-day MAE of ``load_profile`` and ``load_ml`` on the same issues and quarter hours\n(``compared_n``), computed by the nightly job at ``compared_at`` (``None``: none yet, or\nolder than 36 h). ``ml_days`` counts the usable history days of the KNN model, which\n``auto`` needs ``min_history_days`` of.",
+        "properties": {
+          "compared_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compared At"
+          },
+          "compared_n": {
+            "title": "Compared N",
+            "type": "integer"
+          },
+          "in_use": {
+            "enum": [
+              "profile",
+              "ml"
+            ],
+            "title": "In Use",
+            "type": "string"
+          },
+          "min_history_days": {
+            "title": "Min History Days",
+            "type": "integer"
+          },
+          "ml_days": {
+            "title": "Ml Days",
+            "type": "integer"
+          },
+          "ml_mae_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml Mae W"
+          },
+          "ml_ready": {
+            "title": "Ml Ready",
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "off",
+              "shadow",
+              "auto"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "profile_mae_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Mae W"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/Reason"
+          }
+        },
+        "required": [
+          "mode",
+          "in_use",
+          "reason",
+          "ml_ready",
+          "ml_days",
+          "min_history_days",
+          "profile_mae_w",
+          "ml_mae_w",
+          "compared_n",
+          "compared_at"
+        ],
+        "title": "LoadModelView",
         "type": "object"
       },
       "LoadQuality": {
@@ -9702,7 +9812,7 @@
     },
     "/api/v1/forecast/accuracy": {
       "get": {
-        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -\nforecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;\nclipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is\nthe base load forecast (scored on every quarter hour, not only in daylight).",
+        "description": "MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14\ndays, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -\nforecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;\nclipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is\nthe base load forecast (scored on every quarter hour, not only in daylight), ``load_ml``\nthe optional machine-learning (KNN) load model scored the same way unless\n``forecast.learning.load_ml_mode`` is ``off``. ``load_model`` compares the two (\"ML vs\nprofile\": pooled 14-day MAE) and says which one the planner uses and why\n(``forecast.load_model.*`` reason); ``null`` without a load forecast.",
         "operationId": "forecast_accuracy_api_v1_forecast_accuracy_get",
         "responses": {
           "200": {

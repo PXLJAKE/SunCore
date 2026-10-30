@@ -5,6 +5,7 @@
     hasMessage,
     t,
     tDateTime,
+    tDynamic,
     tNumber,
     tPercent,
     tPower,
@@ -66,6 +67,11 @@
   const basisKeys = $derived([
     ...new Set((blended?.weights ?? []).map((w) => w.basis).filter((b) => b != null)),
   ]);
+
+  /** "ML vs profile": the optional machine-learning load model next to the profiles. */
+  const loadModel = $derived(accuracy?.load_model ?? null);
+  const mae = (w: number | null | undefined): string =>
+    w == null ? t('fc.ml.not_scored') : tPower(w);
 </script>
 
 <section class="card forecast stack" aria-labelledby="fc-title" data-testid="forecast-panel">
@@ -215,7 +221,52 @@
 
   <div data-testid="fc-ml">
     <h4>{t('fc.ml.title')}</h4>
-    <p class="hint">{t('fc.ml.none')}</p>
+    <p class="hint">{t('fc.ml.intro')}</p>
+    {#if loadModel}
+      <p class="tags">
+        <span class="chip-tag" data-testid="fc-ml-mode"
+          >{t('fc.ml.mode', { mode: loadModel.mode })}</span
+        >
+        <span class="chip-tag" class:active={loadModel.in_use === 'ml'} data-testid="fc-ml-in-use"
+          >{t('fc.ml.in_use', { model: loadModel.in_use })}</span
+        >
+      </p>
+      <p data-testid="fc-ml-reason">{tDynamic(loadModel.reason.key, loadModel.reason.args)}</p>
+      {#if loadModel.mode !== 'off'}
+        <div class="scroll">
+          <table class="compact" data-testid="fc-ml-compare">
+            <caption>{t('fc.ml.compare_caption', { n: loadModel.compared_n })}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('fc.ml.model')}</th>
+                <th scope="col">{t('fc.ml.error')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-model="profile">
+                <th scope="row">{t('fc.ml.profile')}</th>
+                <td class="num">
+                  {mae(loadModel.profile_mae_w)}
+                </td>
+              </tr>
+              <tr data-model="ml">
+                <th scope="row">{t('fc.ml.ml')}</th>
+                <td class="num">
+                  {mae(loadModel.ml_mae_w)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="hint" data-testid="fc-ml-days">
+          {t('fc.ml.days', {
+            days: loadModel.ml_days,
+            min: loadModel.min_history_days,
+            ready: loadModel.ml_ready ? 'yes' : 'no',
+          })}
+        </p>
+      {/if}
+    {/if}
   </div>
 
   {#if openMeteo}
@@ -288,6 +339,18 @@
   }
   .num {
     font-variant-numeric: tabular-nums;
+  }
+  table.compact {
+    min-width: 0;
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 6px;
+  }
+  .chip-tag.active {
+    font-weight: 600;
   }
   .attribution a {
     overflow-wrap: anywhere;

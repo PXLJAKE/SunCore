@@ -14,10 +14,23 @@
   import { SaveState, wizard } from '../../stores/wizard.svelte';
   import { issuesAt } from '../../wizard/issues';
   import { emptyPvRow } from '../../wizard/siteForm';
-  import { ensureRoleFields, setForecastTemplate } from '../../wizard/forecastForm';
+  import {
+    DEFAULT_LEARNING,
+    ensureRoleFields,
+    loadMlMode,
+    setForecastTemplate,
+    setLoadMlMode,
+    type LoadMlMode,
+  } from '../../wizard/forecastForm';
 
   const save = new SaveState();
   const UNIT = { kwp: 'kWp', deg: '°' } as const;
+  const ML_MODES: readonly LoadMlMode[] = ['off', 'shadow', 'auto'];
+  const ML_LABEL = {
+    off: 'pvf.load_ml.off',
+    shadow: 'pvf.load_ml.shadow',
+    auto: 'pvf.load_ml.auto',
+  } as const;
 
   let forecasts = $state.raw<TemplateSummary[]>([]);
   let details = $state.raw<Record<string, ForecastTemplate>>({});
@@ -313,6 +326,25 @@
       bind:field={wizard.forecast.weather}
       optional
     />
+    <div class="field" data-testid="load-ml-field">
+      <label for="{uid}-load-ml">{t('pvf.load_ml')}</label>
+      <select
+        id="{uid}-load-ml"
+        aria-describedby="{uid}-load-ml-hint"
+        class="input"
+        value={loadMlMode(wizard.forecast)}
+        onchange={(e) => setLoadMlMode(wizard.forecast, e.currentTarget.value as LoadMlMode)}
+      >
+        {#each ML_MODES as mode (mode)}
+          <option value={mode}>{t(ML_LABEL[mode])}</option>
+        {/each}
+      </select>
+      <p class="hint" id="{uid}-load-ml-hint">
+        {t('pvf.load_ml_hint', {
+          min: (wizard.forecast.learning ?? DEFAULT_LEARNING).min_history_days,
+        })}
+      </p>
+    </div>
   </fieldset>
 </WizardShell>
 
