@@ -405,5 +405,17 @@ if cheap); built-in price and PV fallbacks (Phase 6).
 
 ## 8. Deviations during implementation
 
-- **5-B:** a seventh module `suncore/analysis/summary.py` (`PeriodSummary`: flows, KPIs, savings and coverage of one bucket, DST-aware expected slots) bundles the pieces for the nightly job and the history API. The attribution rule also covers battery discharge: it serves the house first, any remainder is exported (`battery_to_grid`). Cost is the grid exchange only; battery degradation is not part of it.
-- **5-C:** `accuracy_day` has one row per source, kind (`pv`/`load`), day **and horizon bucket** (not only per source and day), so the forecast-skill view can show the 0-6 h error and still weight by `n`. A frozen day is rewritten only when more slots were measured than before (never because of a tariff edit); cost columns are NULL for days without stored prices. The backfill runs in windows of 60 days (a series is limited to 20 000 points) and, for installs that rebuilt before, once more on the next start (marker `history_backfilled_at`). The demo's plan snapshots come from the planner's reference scenario (the maintainer's house), not from the demo's own devices. `suncore.storage.backtests` also ships the small repository (start/finish/prune to 5) so 5-J only adds the engine.
+- **5-B:** a seventh module `suncore/analysis/summary.py` (`PeriodSummary`: flows, KPIs, savings and
+  coverage of one bucket, DST-aware expected slots) bundles the pieces for the nightly job and the
+  history API. The attribution rule also covers battery discharge: it serves the house first, any
+  remainder is exported (`battery_to_grid`). Cost is the grid exchange only; battery degradation is
+  not part of it.
+- **5-C:** `accuracy_day` has one row per source, kind (`pv`/`load`), day **and horizon bucket**
+  (not only per source and day), so the forecast-skill view can show the 0-6 h error and still
+  weight by `n`. A frozen day is rewritten only when more slots were measured than before (never
+  because of a tariff edit); cost columns are NULL for days without stored prices. The backfill runs
+  in windows of 60 days (a series is limited to 20 000 points) and, for installs that rebuilt
+  before, once more on the next start (marker `history_backfilled_at`). The demo's plan snapshots
+  come from the planner's reference scenario (the maintainer's house), not from the demo's own
+  devices. `suncore.storage.backtests` also ships the small repository (start/finish/prune to 5) so
+  5-J only adds the engine.
