@@ -23,10 +23,15 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     `ControlSettings`, planner defaults tied to the runtime by a test).
   - Safety: `core/control.py::SAFETY_LIMITS` is the single table of hard bounds (inside the model
     bounds, around the defaults); the registry range of every `safety` key *is* that table, the
-    `expert` document model rejects values outside, `overrides_for` clamps once more at start-up.
+    `expert` document model rejects values outside; a *stored* document is repaired at load
+    (out-of-range clamped, unknown keys dropped, logged) so a tightened limit cannot block the
+    start-up; restore and import stay strict and take effect through `gate.handover`.
     No parameter can switch a check off (every limit has a positive minimum except the deficit
     battery budget, where 0 = no deficit allowed). `PUT /config/expert` refuses a changed safety
-    value without `/params` confirmation.
+    value without `/params` confirmation. `control-safety` review: settle time and write
+    interval max 60 s (they pace the import-limit back-off), release deadline 5–10 s,
+    staleness factor 1.5–3, balance tolerance max 1000 W / 30 %, and
+    `inputs_max_age_ticks × tick_s ≤ 180 s` (`INPUTS_MAX_AGE_LIMIT_S`).
   - New optional section `expert` (`core/expert.py`, schema v1, sparse `overrides` map, absent =
     today's behaviour, golden-tested); stored/exported/history like any section. Hot apply:
     `Runtime._apply_expert` swaps the planner settings in place (`PlanningService.update_settings`)

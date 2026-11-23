@@ -418,6 +418,7 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   informs the current slot only; later slots of an all-in source keep the end-price proxy. A real
   curve needs a second price template binding and stays open. (6) Per-device minimum run/pause
   times are device configuration and are not registry parameters; their hard bounds stay with the
-  device model. (7) The hard bounds in `core/control.py::SAFETY_LIMITS` are proposals for the
+  device model. (7) The hard bounds in `core/control.py::SAFETY_LIMITS` were proposals for the
   `control-safety` review of 5-E (the maintainer's question 2 gave "inside the hard bounds of the
-  safety layer" without numbers).
+  safety layer" without numbers); the review tightened six of them and added the combined
+  bound `INPUTS_MAX_AGE_LIMIT_S` (reasons in the `SAFETY_LIMITS` docstring).
