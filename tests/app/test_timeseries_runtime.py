@@ -19,15 +19,22 @@ from suncore.app.main import build_runtime
 from suncore.app.recorder import MeasurementRecorder
 from suncore.app.runtime import Runtime
 from suncore.app.settings import Settings
+from suncore.app.summaries import META_DAY_SUMMARY_SEEDED, DaySummaryJob
 from suncore.core.measurements import (
     SITE_HOUSE_W,
     SITE_KEYS,
     SITE_SOC_PCT,
+    device_on_key,
     device_power_key,
 )
 from suncore.core.series import TimeRange
 from suncore.ha.connection import CommandError, HAError
-from suncore.storage.timeseries import META_HISTORY_REBUILT, TS_FILENAME, TimeseriesStore
+from suncore.storage.timeseries import (
+    META_HISTORY_BACKFILLED,
+    META_HISTORY_REBUILT,
+    TS_FILENAME,
+    TimeseriesStore,
+)
 from tests.app.conftest import RecordingConnection, demo_settings
 
 T0 = datetime(2026, 6, 21, 0, 0, tzinfo=UTC)
@@ -194,6 +201,14 @@ async def test_recorded_keys_cover_site_and_devices(
     keys = {str(r[0]) for r in rows}
     assert set(SITE_KEYS) <= keys
     assert {device_power_key(d) for d in stack.models} <= keys
+    # every controlled device whose driver reports a state also gets device.<id>.on (0 / 1)
+    reporting = {d for d, state in stack.states.items() if state.on is not None}
+    assert reporting
+    assert {device_on_key(d) for d in reporting} <= keys
+    on_values = await store_of(runtime).database.fetchall(
+        "SELECT DISTINCT value FROM measurement WHERE key LIKE 'device.%.on'"
+    )
+    assert {float(str(r[0])) for r in on_values} <= {0.0, 1.0}
     soc = await store_of(runtime).database.fetchone(
         "SELECT value FROM measurement WHERE key = ?", (SITE_SOC_PCT,)
     )
@@ -503,6 +518,11 @@ async def test_rebuild_runs_once_after_connect_when_the_15_minute_table_is_empty
     assert keys == set(SITE_KEYS)
     derived = await store.database.fetchone("SELECT MIN(derived) FROM measurement_15m")
     assert derived == (1,)
+    # the backfill beyond 28 days ran after it (the fake house has nothing older) and the
+    # day summaries were caught up from what is stored
+    assert await store.get_meta(META_HISTORY_BACKFILLED) is not None
+    assert await store.get_meta(META_DAY_SUMMARY_SEEDED) is not None
+    assert await store.day_summaries.count() >= 1
     # 72 h of simulated history, all hours present
     count = await store.database.fetchone(
         "SELECT COUNT(*) FROM measurement_15m WHERE key = ?", (SITE_HOUSE_W,)
@@ -524,6 +544,7 @@ async def test_rebuild_is_skipped_once_the_marker_is_set(
 ) -> None:
     runtime, conn = rebuild_env
     await store_of(runtime).set_meta(META_HISTORY_REBUILT, "2026-06-01T00:00:00+00:00")
+    await store_of(runtime).set_meta(META_HISTORY_BACKFILLED, "2026-06-01T00:00:00+00:00")
     await runtime.start()
     await until(lambda: runtime._history_done)
     assert conn.recorder.calls == []
@@ -687,3 +708,64 @@ async def test_a_failure_while_building_the_values_does_not_break_the_tick(
     with structlog.testing.capture_logs() as logs:
         stack._record_measurements(runtime.clock(), None, None)  # type: ignore[arg-type]
     assert any(e["event"] == "control.measurement_sink_failed" for e in logs)
+
+
+# --- day summaries and accuracy (Phase 5 WP3) --------------------------------------------------
+
+
+async def test_the_nightly_job_summarises_yesterday(
+    gated: tuple[Runtime, GatedSleep, RecordingConnection], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from suncore.app.summaries import local_day_bucket  # noqa: PLC0415
+    from suncore.core.measurements import SITE_BATTERY_W, SITE_GRID_W, SITE_PV_W  # noqa: PLC0415
+    from suncore.core.series import SeriesUnit, TimeSeries  # noqa: PLC0415
+
+    runtime, _sleep, _conn = gated
+    await idle(runtime)
+    store = store_of(runtime)
+    tz = runtime._blend_context().tz
+    yesterday = (runtime.clock().astimezone(tz) - timedelta(days=1)).date()
+    bucket = local_day_bucket(yesterday, tz)
+    quarters = round(bucket.duration / timedelta(minutes=15))
+    for key, value in (
+        (SITE_PV_W, 800.0),
+        (SITE_GRID_W, 100.0),
+        (SITE_BATTERY_W, 0.0),
+        (SITE_HOUSE_W, 900.0),
+    ):
+        await store.store_quarter_hours(
+            key,
+            TimeSeries(
+                start=bucket.start,
+                step=timedelta(minutes=15),
+                values=(value,) * quarters,
+                unit=SeriesUnit.W,
+            ),
+        )
+    assert await runtime.maintain_timeseries() is True
+    row = await store.day_summaries.get(yesterday)
+    assert row is not None
+    assert (row.slots, row.complete) == (quarters, True)
+    assert row.pv_wh == pytest.approx(800.0 * quarters / 4)
+    assert row.tz == "Europe/Berlin"
+
+    # a failing job never fails the maintenance
+    async def boom(*_a: Any, **_k: Any) -> Any:
+        msg = "boom"
+        raise OSError(msg)
+
+    monkeypatch.setattr(DaySummaryJob, "nightly", boom)
+    with structlog.testing.capture_logs() as logs:
+        assert await runtime.maintain_timeseries() is True
+    assert any(e["event"] == "day_summary.failed" for e in logs)
+
+
+async def test_no_summaries_before_the_time_zone_is_known(
+    gated: tuple[Runtime, GatedSleep, RecordingConnection],
+) -> None:
+    runtime, _sleep, _conn = gated
+    await idle(runtime)
+    runtime.region = None
+    runtime._tz_learnt = False
+    await runtime.update_day_summaries(catch_up=True)
+    assert await store_of(runtime).get_meta(META_DAY_SUMMARY_SEEDED) is None

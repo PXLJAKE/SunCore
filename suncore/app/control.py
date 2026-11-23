@@ -83,6 +83,7 @@ from suncore.core.measurements import (
     SITE_HOUSE_W,
     SITE_PV_W,
     SITE_SOC_PCT,
+    device_on_key,
     device_power_key,
 )
 from suncore.core.signals import Quality, Sample
@@ -819,7 +820,7 @@ class ControlStack:
         )
         self.estimates = estimates
         self.states = states
-        self._record_measurements(now, flows, estimates)
+        self._record_measurements(now, flows, estimates, states)
         self.last = await self.loop.tick(now, inputs)
         self._maybe_save_models(now)
         self._notify()
@@ -864,8 +865,14 @@ class ControlStack:
         now: datetime,
         flows: FlowSnapshot | None,
         estimates: Mapping[str, PowerEstimate],
+        states: Mapping[str, DeviceState] | None = None,
     ) -> None:
-        """Hand this tick's values to the recorder; only ``OK`` data counts (a gap otherwise)."""
+        """Hand this tick's values to the recorder; only ``OK`` data counts (a gap otherwise).
+
+        Per controlled device: the estimated power (``device.<id>.power_w``) and, when the
+        driver reports it, the on/off state (``device.<id>.on``, 1.0 / 0.0; the history view's
+        run times and the plan chart's actual Gantt overlay read it).
+        """
         if self._on_measurements is None:
             return
         try:
@@ -882,6 +889,10 @@ class ControlStack:
             for device_id, estimate in estimates.items():
                 values[device_power_key(device_id)] = (
                     estimate.value_w if estimate.quality is Quality.OK else None
+                )
+            for device_id, state in (states or {}).items():
+                values[device_on_key(device_id)] = (
+                    None if state.on is None or state.quality is not Quality.OK else float(state.on)
                 )
             self._on_measurements(now, values)
         except Exception:

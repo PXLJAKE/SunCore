@@ -34,7 +34,7 @@ from suncore.app.adapters import (
 )
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import BatteryWiring, ControlStack
-from suncore.app.history import rebuild_history
+from suncore.app.history import backfill_history, rebuild_history
 from suncore.app.modes import ConfigModes
 from suncore.app.planning import (
     LiveReading,
@@ -44,6 +44,15 @@ from suncore.app.planning import (
 )
 from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
+from suncore.app.summaries import (
+    AccuracySource,
+    DaySummaryJob,
+    SummaryContext,
+    battery_model_of,
+    export_fallback_of,
+    record_accuracy_days,
+    tariff_fingerprint,
+)
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.battery import BatterySettings, effective_reserve_pct
 from suncore.core.config import (
@@ -127,7 +136,7 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
-from suncore.storage.timeseries import META_HISTORY_REBUILT
+from suncore.storage.timeseries import META_HISTORY_BACKFILLED, META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
 from suncore.templates import BatteryTemplate, TariffTemplate, TemplateCatalog
@@ -672,8 +681,41 @@ class Runtime:
         except Exception:
             log.exception("timeseries.maintenance_failed")
             return False
+        await self.update_day_summaries()
         self._schedule_forecast_accuracy()
         return True
+
+    def _summary_context(self) -> SummaryContext:
+        """What the day summaries are computed with, read anew on every use."""
+        tz = self._blend_context().tz
+        source = None if self.tariff is None else self.tariff.plan.source.source_id
+        return SummaryContext(
+            tz=tz,
+            tz_name=self.region.timezone if self.region is not None else str(tz),
+            has_battery=self.site is not None and self.site.battery is not None,
+            battery=battery_model_of(self.site),
+            price_source_id=source,
+            export_fallback=export_fallback_of(self.tariff_config),
+            tariff_fingerprint=tariff_fingerprint(self.tariff_config),
+            currency=None if self.region is None else self.region.currency,
+        )
+
+    async def update_day_summaries(self, *, catch_up: bool = False) -> None:
+        """The frozen daily summaries (never raises): yesterday and a repair of the last week,
+        or - after a statistics rebuild or backfill, and on the first run - the whole stored
+        history. Skipped while the time zone is not known (a day cut at the wrong midnight
+        would be frozen)."""
+        if self.timeseries is None or not self._time_zone_settled():
+            return
+        job = DaySummaryJob(self.timeseries, self.clock)
+        try:
+            context = self._summary_context()
+            if catch_up:
+                await job.catch_up(context)
+            else:
+                await job.nightly(context)
+        except Exception:
+            log.exception("day_summary.failed")
 
     def _schedule_forecast_accuracy(self) -> None:
         """Run the accuracy statistics in the background (nightly timing unchanged)."""
@@ -691,6 +733,35 @@ class Runtime:
         forecast (accuracy, refit)."""
         await self._update_pv_learning()
         await self._update_load_learning()
+        await self._record_accuracy_days()
+
+    async def _record_accuracy_days(self) -> None:
+        """``accuracy_day``: yesterday's error per source (never raises)."""
+        if self.timeseries is None or not self._time_zone_settled():
+            return
+        sources: list[AccuracySource] = []
+        if self.pv_service is not None:
+            sources.extend(
+                AccuracySource(source_id, "pv")
+                for source_id in (*self.pv_service.source_ids, BLENDED_SOURCE_ID)
+            )
+        if self.load_service is not None:
+            sources.extend(
+                AccuracySource(source_id, "load", self.load_service.base_load_series)
+                for source_id in self.load_service.source_ids
+            )
+        if not sources:
+            return
+        try:
+            await record_accuracy_days(
+                self.timeseries,
+                sources,
+                now=self.clock(),
+                tz=self._blend_context().tz,
+                is_clipped=clip_filter(self._clipped),
+            )
+        except Exception:
+            log.exception("accuracy_day.failed")
 
     async def _update_load_learning(self) -> None:
         service = self.load_service
@@ -998,6 +1069,13 @@ class Runtime:
                     await store.set_meta(META_HISTORY_REBUILT, self.clock().isoformat())
                     if self.load_service is not None:
                         self.load_service.request_refit()  # the profiles can use it now
+                if await store.get_meta(META_HISTORY_BACKFILLED) is None:
+                    devices = () if self.devices is None else self.devices.devices
+                    await backfill_history(
+                        self.connection, store, site, self.clock(), devices=devices
+                    )
+                    await store.set_meta(META_HISTORY_BACKFILLED, self.clock().isoformat())
+                    await self.update_day_summaries(catch_up=True)
             except asyncio.CancelledError:
                 raise
             except CommandError as exc:
