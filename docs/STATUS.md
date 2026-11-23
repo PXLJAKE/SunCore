@@ -10,6 +10,34 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 – PR 5-C, WP3 storage and recording (branch `phase-5/c-storage`, on 5-B; `backend-engineer`)**:
+  - **Schema bump: `timeseries.db` 1 -> 2 (`day_summary`, `accuracy_day`) and `suncore.db` 4 -> 5
+    (`backtest_run`). Earlier versions refuse the newer `suncore.db` and read a newer
+    `timeseries.db` as "no time series": export before updating (release-risk note, plan R9).**
+  - `day_summary` (one frozen row per local day, 23/25 h days included): flows by the ADR-0014
+    attribution rule, KPIs, cost and both baselines (`suncore.analysis`), coverage, `derived_slots`,
+    tariff fingerprint and currency. Cost is only computed for slots with a *stored* price (NULL
+    without; `priced_slots` says how many). `accuracy_day`: MAE/bias per source, kind, day and
+    horizon bucket. Both kept for ever; `size_report` lists them.
+  - `suncore/app/summaries.py`: the nightly job (03:30, after downsample) computes yesterday and
+    repairs the last 7 days (new row, or a row whose day has more measured slots than before; a
+    tariff edit never changes a frozen day). First run on a file and the end of a rebuild/backfill
+    walk the whole stored history (`catch_up`). Skipped while the time zone is unknown. The numbers
+    are computed in a worker thread; `accuracy_day` is written after the forecast learning.
+  - Backfill: `backfill_history` extends the 28-day rebuild to 365 days (hourly, `derived`, windows
+    of 60 days because a series is limited to 20 000 points; marker `history_backfilled_at`; for
+    installs that already rebuilt it runs once on the next start).
+  - Recording: `device.<id>.power_w` was already recorded for every controlled device; added
+    `device.<id>.on` (1.0/0.0, only OK-quality driver state). `suncore.storage.backtests`:
+    `backtest_run` table and a repository keeping the last 5 (the engine follows in 5-J).
+  - Demo: `suncore.sim.demo_history` seeds 90 deterministic days (setting `demo_history_days`,
+    env `SUNCORE_DEMO_HISTORY_DAYS`, 0 = none) into the throw-away demo database only (it refuses
+    anything under `/data`): measurements, prices, 40 days of forecasts, `day_summary`,
+    `accuracy_day`, decisions and three solved plan snapshots; about 2 s at demo start.
+  - `UNVERIFIED`: how many days of long-term statistics a given Home Assistant keeps and that the
+    Supervisor proxy forwards `recorder/*` for 365-day ranges (days without statistics stay gaps);
+    memory and time of the 365-day backfill on aarch64.
+
 - **Phase 5 – PR 5-B, WP2 analytics core (branch `phase-5/b-analysis`, on 5-A; `optimizer-engineer`)**:
   - `suncore/analysis/` (pure, `core` only, `mypy --strict`): `energy.py` (quarter-hour Wh from
     mean-power series, incomplete slots dropped, coverage, 80 % completeness), `flows.py` (the
