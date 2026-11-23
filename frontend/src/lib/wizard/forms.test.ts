@@ -142,12 +142,14 @@ describe('forecast form', () => {
         },
       ],
       learning: { min_history_days: 14, load_ml_mode: 'off' },
+      load: { workday: ref('binary_sensor.workday_sensor'), weather: null },
     };
     expect(forecastFromForm(forecastFormFromConfig(cfg))).toEqual(cfg);
     expect(forecastFromForm(forecastFormFromConfig(null))).toEqual({
       schema_version: 2,
       sources: [],
       learning,
+      load: { workday: null, weather: null },
     });
   });
   it('gives each source the entities of its own roles', () => {
@@ -177,6 +179,7 @@ describe('forecast form', () => {
         },
       ],
       learning,
+      load: { workday: null, weather: null },
     };
     const form = forecastFormFromConfig(cfg);
     expect(form.entities['solcast.pv']!.today).not.toBe(form.entities['forecast_solar.pv']!.today);

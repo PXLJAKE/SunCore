@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Forecast section (v2) <-> form: the PV forecast sources (templates plus the entities of their
-// roles). Independent of the tariff, so the choice can be stored without prices. Weights and
-// learning settings have no form fields yet (Phase 4 WP10); they are carried through unchanged.
+// roles). Independent of the tariff, so the choice can be stored without prices. Weights, learning
+// settings and the load forecast inputs (`load`: workday sensor, weather entity) have no form
+// fields yet (Phase 4 WP11); they are carried through unchanged.
 import type { ForecastConfig } from '../api/types';
 import { emptyRef, fromRef, toRef, type RefField } from './forms';
 
@@ -15,16 +16,18 @@ export interface ForecastForm {
   /** Stored weighting per template id (carried through). */
   weights: Record<string, Pick<Source, 'weight_mode' | 'weight'>>;
   learning: ForecastConfig['learning'] | null;
+  load: ForecastConfig['load'] | null;
 }
 
 export function emptyForecastForm(): ForecastForm {
-  return { templateIds: [], entities: {}, weights: {}, learning: null };
+  return { templateIds: [], entities: {}, weights: {}, learning: null, load: null };
 }
 
 export function forecastFormFromConfig(cfg: ForecastConfig | null): ForecastForm {
   if (!cfg) return emptyForecastForm();
   const form = emptyForecastForm();
   form.learning = cfg.learning;
+  form.load = cfg.load ?? null;
   for (const source of cfg.sources ?? []) {
     const id = source.template_id;
     form.templateIds.push(id);
@@ -55,6 +58,7 @@ export function forecastFromForm(form: ForecastForm): ForecastConfig {
     schema_version: 2,
     sources,
     learning: form.learning ?? { min_history_days: 30, load_ml_mode: 'shadow' },
+    load: form.load ?? { workday: null, weather: null },
   };
 }
 

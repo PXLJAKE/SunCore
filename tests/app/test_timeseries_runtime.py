@@ -14,7 +14,7 @@ import pytest
 import structlog.testing
 
 from suncore.app.control import ControlStack
-from suncore.app.history import site_statistic_specs
+from suncore.app.history import device_statistic_specs, site_statistic_specs
 from suncore.app.main import build_runtime
 from suncore.app.recorder import MeasurementRecorder
 from suncore.app.runtime import Runtime
@@ -510,7 +510,9 @@ async def test_rebuild_runs_once_after_connect_when_the_15_minute_table_is_empty
     assert count == (72 * 4,)
     assert all(c["period"] == "hour" for c in conn.recorder.calls)
     asked = {i for c in conn.recorder.calls for i in c["ids"]}
-    assert asked == {s.statistic_id for s in site_statistic_specs(runtime.site)}  # type: ignore[arg-type]
+    devices = runtime.devices.devices  # type: ignore[union-attr]
+    expected = [*site_statistic_specs(runtime.site), *device_statistic_specs(devices)]  # type: ignore[arg-type]
+    assert asked == {s.statistic_id for s in expected}  # the devices' power sensors too (M2)
     calls = len(conn.recorder.calls)
     runtime._start_history_rebuild()  # a reconnect or a site edit does not rebuild again
     await asyncio.sleep(0.05)

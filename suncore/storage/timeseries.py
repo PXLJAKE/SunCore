@@ -42,7 +42,7 @@ from typing import Final, Literal
 
 import structlog
 
-from suncore.core.measurements import is_percent_key
+from suncore.core.measurements import WEATHER_TEMPERATURE_C, is_percent_key
 from suncore.core.series import (
     MAX_POINTS,
     PriceIncludes,
@@ -223,6 +223,8 @@ def _opt_num(value: object) -> float | None:
 
 
 def _default_unit(key: str) -> SeriesUnit:
+    if key == WEATHER_TEMPERATURE_C:
+        return SeriesUnit.CELSIUS
     return SeriesUnit.PERCENT if is_percent_key(key) else SeriesUnit.W
 
 

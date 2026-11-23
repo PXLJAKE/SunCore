@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Composition of the tariff and forecast adapters (Phase 4 WP4/WP5).
+"""Composition of the tariff and forecast adapters (Phase 4 WP4/WP5/WP6).
 
 This module builds the price and forecast sources from the configured templates and hands them
 the Home Assistant connection. It is the only module of ``suncore.app`` that may call
@@ -12,15 +12,28 @@ The PV forecast sources read through :class:`HaPvDataReader`: attributes of the 
 extra Home Assistant call), the Energy dashboard's ``energy/solar_forecast`` through
 ``suncore.ha.fetch_solar_forecast`` (rule 9 keeps the command inside ``suncore.ha``) and the
 read-only action ``solcast_solar.query_forecast_data``.
+
+The load forecast reads through :class:`HaLoadReader`: the ``workday`` binary sensor's state and
+the weather entity's ``temperature`` attribute from the entity cache, and the read-only actions
+``workday.check_date`` (per date) and ``weather.get_forecasts`` (``type: hourly``).
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import datetime
+from datetime import date, datetime, tzinfo
 from typing import Any
 
 from suncore.core.config import ForecastConfig
+from suncore.forecast.accuracy import LearnedParams
+from suncore.forecast.load import (
+    WorkdayState,
+    parse_check_date,
+    parse_hourly_temperatures,
+    parse_workday_sensor,
+    temperature_c,
+)
+from suncore.forecast.load_service import LoadData, LoadForecastService, LoadInputs
 from suncore.forecast.pv.factory import build_sources
 from suncore.forecast.pv.service import (
     BlendContext,
@@ -87,4 +100,103 @@ def build_pv_forecast_service(
     )
 
 
-__all__ = ["HaPvDataReader", "build_pv_forecast_service"]
+class HaLoadReader:
+    """The :class:`~suncore.forecast.load_service.LoadHaReader` backed by Home Assistant.
+
+    Shapes verified in ``docs/research/ha-websocket-api.md`` ("Workday", "Weather forecasts"):
+    the weather entity's ``temperature_unit`` attribute is the unit of its ``temperature`` and of
+    every ``weather.get_forecasts`` item (both converted to it by Home Assistant).
+    """
+
+    def __init__(self, connection: HAConnection, cache: EntityCache) -> None:
+        self._connection = connection
+        self._cache = cache
+
+    def _state(self, entity_id: str) -> tuple[str, Mapping[str, Any]] | None:
+        entry = self._cache.get(entity_id)
+        if entry is None or entry.state.state in UNAVAILABLE_STATES:
+            return None
+        return entry.state.state, entry.state.attributes
+
+    def workday_state(self, entity_id: str) -> WorkdayState | None:
+        current = self._state(entity_id)
+        return None if current is None else parse_workday_sensor(entity_id, *current)
+
+    async def check_workday(self, entity_id: str, day: date, *, min_interval_s: float) -> bool:
+        response = await self._connection.call_action_response(
+            "workday",
+            "check_date",
+            {"check_date": day.isoformat()},
+            target={"entity_id": entity_id},
+            min_interval_s=min_interval_s,
+            rate_key=day.isoformat(),
+        )
+        workday = parse_check_date(response, entity_id)
+        if workday is None:
+            msg = f"workday.check_date: no answer for {entity_id}"
+            raise ValueError(msg)
+        return workday
+
+    def _unit(self, entity_id: str) -> str | None:
+        current = self._state(entity_id)
+        unit = None if current is None else current[1].get("temperature_unit")
+        return unit if isinstance(unit, str) else None
+
+    def outside_temperature(self, entity_id: str) -> float | None:
+        current = self._state(entity_id)
+        if current is None:
+            return None
+        return temperature_c(current[1].get("temperature"), self._unit(entity_id))
+
+    async def hourly_temperatures(
+        self, entity_id: str, *, min_interval_s: float
+    ) -> list[tuple[datetime, float]]:
+        response = await self._connection.call_action_response(
+            "weather",
+            "get_forecasts",
+            {"type": "hourly"},
+            target={"entity_id": entity_id},
+            min_interval_s=min_interval_s,
+            rate_key=entity_id,
+        )
+        return parse_hourly_temperatures(response, entity_id, self._unit(entity_id))
+
+
+def build_load_forecast_service(
+    config: ForecastConfig | None,
+    device_ids: tuple[str, ...],
+    *,
+    data: LoadData | None,
+    learned: LearnedParams | None,
+    connection: HAConnection,
+    cache: EntityCache,
+    clock: Callable[[], datetime],
+    sleep: Callable[[float], Awaitable[None]],
+    tz: Callable[[], tzinfo],
+) -> LoadForecastService | None:
+    """The load forecast of the site; ``None`` without ``timeseries.db`` (no history)."""
+    if data is None:
+        return None
+    load = None if config is None else config.load
+    inputs = LoadInputs(
+        device_ids=device_ids,
+        workday_entity=None if load is None or load.workday is None else load.workday.entity_id,
+        weather_entity=None if load is None or load.weather is None else load.weather.entity_id,
+    )
+    return LoadForecastService(
+        data,
+        learned,
+        clock=clock,
+        sleep=sleep,
+        tz=tz,
+        inputs=inputs,
+        reader=HaLoadReader(connection, cache),
+    )
+
+
+__all__ = [
+    "HaLoadReader",
+    "HaPvDataReader",
+    "build_load_forecast_service",
+    "build_pv_forecast_service",
+]

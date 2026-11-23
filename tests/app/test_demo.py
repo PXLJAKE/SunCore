@@ -121,9 +121,12 @@ DEMO_FORECAST_ENTITIES = frozenset(
         "sensor.sim_solcast_forecast_tomorrow",
         "sensor.sim_open_meteo_energy_production_today",
         "sensor.sim_open_meteo_energy_production_tomorrow",
+        "binary_sensor.sim_workday_sensor",
+        "weather.sim_home",
     }
 )
-"""The configured PV forecast sources' day sensors are subscribed too (Phase 4 WP5)."""
+"""The configured PV forecast sources' day sensors (Phase 4 WP5) and the load forecast's workday
+sensor and weather entity (WP6) are subscribed too."""
 DEMO_SUBSCRIBED = frozenset(SIM_ENTITY_IDS) | DEMO_DEVICE_ENTITIES | DEMO_FORECAST_ENTITIES
 
 

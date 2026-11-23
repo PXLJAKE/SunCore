@@ -144,6 +144,8 @@ ENTITIES: Final[tuple[RegEntity, ...]] = (
     ),
     # A user's Home Assistant template sensor that exposes the generic forecast attribute.
     RegEntity(d.TEMPLATE_FORECAST_ID, "template", "PV forecast", DEV_HOUSE),
+    RegEntity(d.WORKDAY_ID, "workday", "Workday sensor", DEV_HOUSE),
+    RegEntity(d.WEATHER_ID, "met", "Home", DEV_HOUSE),
 )
 
 AREAS: Final[tuple[tuple[str, str], ...]] = ((AREA_LIVING, "Living room"), (AREA_GARDEN, "Garden"))

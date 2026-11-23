@@ -17,6 +17,10 @@ SITE_BATTERY_W: Final = "site.battery_w"
 SITE_SOC_PCT: Final = "site.soc_pct"
 SITE_HOUSE_W: Final = "site.house_w"
 
+WEATHER_TEMPERATURE_C: Final = "weather.temperature_c"
+"""Outside temperature (°C) of the ``forecast.load.weather`` entity, recorded by the load
+forecast for its temperature term (not a site power, never part of the balance)."""
+
 SITE_KEYS: Final[tuple[str, ...]] = (
     SITE_GRID_W,
     SITE_PV_W,
@@ -46,6 +50,7 @@ __all__ = [
     "SITE_KEYS",
     "SITE_PV_W",
     "SITE_SOC_PCT",
+    "WEATHER_TEMPERATURE_C",
     "device_power_key",
     "is_percent_key",
 ]

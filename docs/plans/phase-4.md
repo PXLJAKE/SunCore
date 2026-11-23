@@ -377,14 +377,6 @@ shadow and assisted run is the acceptance test.
   write at all (the inverter's own self-consumption logic does it).
 - Self-sufficiency weight: explained to the maintainer, default 0.01 currency/kWh kept.
 
-### Answers (2026-10-19)
-
-- ADR-0013: the maintainer takes the recommendation as default → **accepted**; WP10 may start
-  once 4-F is done.
-- All open questions of PRs 4-A, 4-B and 4-C: **defaults** as written in each PR.
-- Phase 3 acceptance (shadow run, one device to automatic) is postponed because of the weather;
-  Phase 4 keeps being built, the PRs are merged only after that acceptance.
-
 ### Offene Fragen aus PR 4-A (an den Maintainer)
 
 1. **Doppelter Netzladeplan:** `goals.grid_charge_night_only` wird zu einem Zeitplan migriert,
@@ -402,39 +394,6 @@ shadow and assisted run is the acceptance test.
    nicht ausführbar. Reicht das, oder soll eine generische „Zwangsladen“-Entität bzw. später ein
    eigener §3.4-ADR kommen?
 
-### Offene Fragen aus PR 4-C (an den Maintainer)
-
-1. **Zusätzliche Tarif-Einstellungen:** Damit Nord Pool (`config_entry`, `areas`), Octopus (zwei
-   Ereignis-Entitäten), mehrere Tibber-Häuser und ENTSO-E mit eigener Preisformel funktionieren,
-   bekommt `tariff.import` vier optionale Felder: `role_entities`, `action_params`, `series_key`,
-   `price_includes` (Aussage des Nutzers, ob die Quelle schon Steuern/Netzentgelte enthält).
-   Alte Dokumente bleiben gültig. Einverstanden?
-2. **Nord Pool `config_entry`:** Die ID des Konfigurationseintrags muss der Nutzer eintragen
-   (Entwicklerwerkzeuge → Aktionen zeigt sie). Ob SunCore sie aus der Entity-Registry lesen kann,
-   ist nicht verifiziert (`UNVERIFIED`). Reicht die manuelle Eingabe für Phase 4?
-3. **Negativpreis-Regel bei All-in-Quellen (Tibber):** Der Spotpreis ist nicht bekannt; als Ersatz
-   gilt der Endpreis (Import) < 0. Das markiert weniger Viertelstunden als die echten
-   Negativ-Spot-Stunden, die Einspeisung wird dann dort noch vergütet gerechnet (`UNVERIFIED`
-   gegen die Praxis). Alternative: zusätzlich die Spot-Quelle (z. B. EPEX Spot Marktpreis) als
-   Referenz konfigurieren (Phase 5). Einverstanden mit dem Ersatzwert?
-4. **`curtailment_required`:** ändert in Phase 4 keinen Preis (Abregelung ist Sache von
-   Planer/Regler, nicht des Preises). Nur `no_remuneration` setzt den Einspeisepreis auf 0.
-5. **Dynamische Einspeisepreise:** keine der verifizierten Quellen liefert welche; der Einspeisepreis
-   kommt aus `tariff.export` (fest, gestaffelt, keiner). Octopus-Export-Entitäten sind nicht
-   angebunden.
-6. **HT/NT-Preis:** pro Viertelstunde zum Beginn der Viertelstunde; Fensterkanten, die nicht auf
-   :00/:15/:30/:45 liegen, wirken ab der nächsten Viertelstunde.
-7. **Veröffentlichung der Preise für morgen:** Standard 13:00 Ortszeit, danach alle 15 min bis die
-   Preise da sind (`UNVERIFIED`; Experten-Umgebungsvariablen `SUNCORE_TARIFF_TOMORROW_AFTER`,
-   `SUNCORE_TARIFF_TOMORROW_POLL_S`, `SUNCORE_TARIFF_REFRESH_INTERVAL_S`, keine App-Optionen,
-   dokumentiert in beiden `DOCS.md`). Bitte an deinem System beobachten.
-8. **§51 EEG und Inbetriebnahmedatum:** Ob bei negativen Preisen vergütet wird, hängt vom
-   Inbetriebnahmedatum der Anlage ab. Die Regel kommt heute nur aus dem Regionsprofil (`de`:
-   `no_remuneration`). Soll es später (Phase 5) pro Anlage eine Abschaltmöglichkeit geben
-   („diese Anlage wird auch bei negativen Preisen vergütet“)?
-9. **Namensabgrenzung:** `PriceFormula.apply` heißt für Aufrufer jetzt `end_price` (der Grenztest
-   reserviert `.apply(` für den Geräteschreibpfad); `apply` bleibt als Alias.
-
 ## Deviations during implementation
 
 - Phase 4 is split into the stacked PRs 4-A…4-I (§3) instead of one PR.
@@ -451,9 +410,47 @@ shadow and assisted run is the acceptance test.
   Open-Meteo Solar Forecast, generic template).
 - `BatteryAction` is part of the 4-A contracts but rejected by the gate until WP10
   (ADR-0011 addendum); its semantics are proposed in ADR-0013.
-- WP4: ENTSO-E and EPEX Spot get two templates each where the unit or the price content differs
-  (`entsoe.price`/`_mwh`, `epex_spot.total_price`/`market_price`): a template holds one value unit
-  and one `price_includes`. Octopus is included (its source was verified in 4-A).
+- PR 4-E (WP6, WP7):
+  - The optional `workday` binary sensor and `weather` entity of the load forecast live in
+    `forecast.load` (additive in `forecast` v2, no migration; the wizard carries them through,
+    the UI is 4-H). `workday.check_date` joined the read-only action allowlist (verified in
+    `research/ha-websocket-api.md` "Workday").
+  - Home Assistant keeps no long-term statistics of a weather entity, so the temperature term
+    learns from SunCore's own recording of the entity's `temperature` attribute (key
+    `weather.temperature_c`) and becomes active after 14 days with a temperature.
+  - The risk model has a fourth window `bridge` (night + next day, sunset to sunset): the
+    evening target takes **one** quantile of it instead of adding the night's and the next
+    day's quantiles (which would count caution twice, §0).
+  - Learnt errors are relative to the window's forecast energy (PV P50 + load P50), so a short
+    `rest_of_today` and a long one, a summer and a winter day share one distribution. Samples
+    are taken from the forecasts as they stood at sunrise + 1 h (`rest_of_today`,
+    `day_and_night`) and sunset − 1 h (`night`, `next_day`, `bridge`) and kept 365 days (review
+    m3: fixed 06:00/18:00 anchors meant different situations in winter and summer). A window is
+    learnt only if the PV and load forecasts cover it (≥ 90 %); without a PV forecast only the
+    night; daytime windows with a clipped quarter hour (the 4-D clipping flags) are dropped.
+  - Before sunrise the rest of the night is its own window `rest_of_night` (review m2).
+  - Morning buffer (review m7, replaces the first rule with a comfort factor 2): **one** quantile
+    over `day_and_night` (the coming daytime and the night after it) gives the margin left after
+    both are covered; `share = clamp(1 − margin / median night need, 0, 1)` and
+    `X = floor + share × (evening target − floor)`. The evening target is only the upper bound
+    of X, so no caution is counted twice.
+  - Floor of buffer and target: `core.battery.effective_reserve_pct` (ADR-0013 decision 3;
+    review M4), never below the site battery's minimum SoC.
+  - A PV forecast without a band (P10 = P50) gets a default relative band per weather class
+    (`default_band`, `UNVERIFIED` constants) until the learnt distribution takes over (review
+    M5).
+  - `goals.battery_target` is a floor of the evening target; its **time** is ignored there, the
+    timed constraint follows in the planner (4-F) – confirmed by the maintainer on 2026-10-22.
+    A Monday–Friday holiday counts as a weekend day while few holidays were seen (shrinkage
+    towards the weekend profile) – also confirmed.
+  - Workday offset (review M1): Home Assistant evaluates the sensor and `workday.check_date`
+    for the date plus `days_offset` (`workday/entity.py`); SunCore places the state on
+    today + offset and asks `check_date(d − offset)`. Cached answers carry a fingerprint
+    (entity, `workdays`, `excludes`, `days_offset`) and are dropped when it changes (m6).
+  - Devices in the base load (review M2): the history rebuild also fetches the devices' power
+    sensors (`mean`, W); quarter hours with an unmeasured device are left out of a day type's
+    profile once it has 7 fully measured days, before that they are kept and flagged.
+  - The temperature term shifts a forecast day only with ≥ 20 hours of temperatures (m5).
 
 ## 7. Out of scope for Phase 4
 
