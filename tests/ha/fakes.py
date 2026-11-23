@@ -112,6 +112,8 @@ class FakeHA:
         self.device_registry: list[dict[str, Any]] = []
         self.area_registry: list[dict[str, Any]] = []
         self.energy_prefs: dict[str, Any] | None = None  # None = "No prefs" (not_found)
+        # recorder/statistics_during_period: statistic_id -> rows (ms epoch, as HA answers).
+        self.statistics: dict[str, list[dict[str, Any]]] = {}
         self.service_response: Callable[[dict[str, Any]], Any] = lambda msg: {"echo": msg}
         self.event_subscriptions: dict[web.WebSocketResponse, dict[int, str]] = {}
         self._server: TestServer | None = None
@@ -228,7 +230,7 @@ class FakeHA:
             for message in messages:
                 await ws.send_str(json.dumps(message))
 
-    async def _on_message(  # noqa: PLR0912
+    async def _on_message(  # noqa: PLR0912, PLR0915
         self, ws: web.WebSocketResponse, msg: dict[str, Any]
     ) -> None:
         self.received.append(msg)
@@ -273,6 +275,10 @@ class FakeHA:
                 )
             else:
                 await self._reply(ws, ok(self.energy_prefs))
+        elif kind == "recorder/statistics_during_period":
+            wanted_ids = msg["statistic_ids"]
+            result = {i: self.statistics[i] for i in wanted_ids if self.statistics.get(i)}
+            await self._reply(ws, ok(result))
         elif kind == "subscribe_events":
             self.event_subscriptions.setdefault(ws, {})[mid] = msg["event_type"]
             await self._reply(ws, ok())

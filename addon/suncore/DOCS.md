@@ -63,8 +63,11 @@ Supported architectures: `amd64` and `aarch64`.
 the assistant; **Earlier versions** restores a previous save; **Export
 configuration** and **Import configuration** back up everything as a file.
 The settings are stored in the app's `/data` folder and are part of the app
-backup. This version uses database schema 3, which earlier versions cannot open:
-export the configuration before updating.
+backup. This version uses database schema 4, which earlier versions cannot open:
+export the configuration before updating. Measurements, forecasts and prices
+live in a separate `timeseries.db`, which is left out of the app backup; SunCore
+rebuilds its quarter-hour history from Home Assistant's statistics when the file
+is missing.
 
 ### Sign convention
 

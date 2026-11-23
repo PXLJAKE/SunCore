@@ -408,6 +408,7 @@
   "grid.power": "Grid power (positive = import)",
   "grid.power_hint": "One sensor that is positive when you draw from the grid and negative when you feed in.",
   "grid.sensors": "Grid sensors",
+  "ha.error.action_rate_limited": "A Home Assistant action was requested too often and skipped; SunCore asks again after the minimum interval.",
   "log.all_devices": "All devices",
   "log.count": "{count, plural, =0 {No entries} one {# entry} other {# entries}}",
   "log.device": "Device",

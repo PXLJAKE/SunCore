@@ -25,6 +25,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final, Protocol, runtime_checkable
 
@@ -70,6 +71,31 @@ class CommandTimeoutError(HAError, TimeoutError):
 
 class ActionNotAllowedError(HAError):
     """``call_action_response`` was asked for an action that is not on the read-only allowlist."""
+
+
+def action_rate_key(domain: str, service: str, rate_key: str | None = None) -> str:
+    """Limiter key of an action call: ``domain.service`` plus an optional caller sub-key."""
+    base = f"{domain}.{service}"
+    return base if not rate_key else f"{base}#{rate_key}"
+
+
+class ActionRateLimitedError(HAError):
+    """A read-only action was asked for again before its minimum interval elapsed.
+
+    Nothing was sent to Home Assistant. ``retry_after_s`` is how long until the call would be
+    admitted. The user-visible text is the catalogue entry :data:`ERR_ACTION_RATE_LIMITED`.
+    """
+
+    code = "rate_limited"
+
+    def __init__(self, action: str, retry_after_s: float) -> None:
+        super().__init__(f"{action} is rate limited, retry in {retry_after_s:.1f} s")
+        self.action = action
+        self.retry_after_s = retry_after_s
+
+
+ERR_ACTION_RATE_LIMITED: Final = "ha.error.action_rate_limited"
+"""Catalogue key of the refusal of a too frequent read-only action."""
 
 
 # --- value types --------------------------------------------------------------
@@ -226,11 +252,44 @@ class HAConnection(Protocol):
         data: Mapping[str, Any] | None = None,
         *,
         target: Mapping[str, Any] | None = None,
+        min_interval_s: float | None = None,
+        max_wait_s: float = 0.0,
+        rate_key: str | None = None,
     ) -> dict[str, Any]:
         """Call a read-only action with ``return_response`` and return its response.
 
         Raises :class:`ActionNotAllowedError` unless ``domain.service`` is in
         :data:`suncore.core.actions.READ_ONLY_ACTIONS`. This is *not* a write path.
+
+        Each ``(domain, service)`` is rate limited (:class:`ActionRateLimiter`): at most one
+        call per ``min_interval_s`` (default :data:`DEFAULT_ACTION_INTERVAL_S`; a caller passes
+        the interval of its configured polling). A call that is too early waits at most
+        ``max_wait_s`` (default: not at all) and otherwise raises
+        :class:`ActionRateLimitedError`; it never blocks indefinitely. ``rate_key`` (e.g. the
+        target entity or the requested date) gives calls of one service that ask for different
+        things their own slot: the limiter key is ``domain.service`` or ``domain.service#key``.
+        """
+        ...
+
+    async def statistics_during_period(
+        self,
+        statistic_ids: Sequence[str],
+        start: datetime,
+        end: datetime | None = None,
+        *,
+        period: str = "hour",
+        types: Sequence[str] | None = None,
+        units: Mapping[str, str] | None = None,
+    ) -> Mapping[str, Sequence[Mapping[str, Any]]]:
+        """``recorder/statistics_during_period`` (read only, not admin gated).
+
+        ``start``/``end`` are sent as ISO 8601 with their UTC offset. The result maps each
+        statistic id *that has data* to its rows (``start``/``end`` in epoch milliseconds,
+        the requested ``types``); ids without data are absent. The response carries no unit:
+        pass ``units`` (e.g. ``{"power": "W", "energy": "Wh"}``) so the numbers do not change
+        when the user switches a sensor's display unit. Verified shapes:
+        ``docs/research/ha-websocket-api.md`` "Long-term statistics".
+        ``UNVERIFIED``: that the Supervisor proxy forwards ``recorder/*``.
         """
         ...
 
@@ -276,6 +335,75 @@ class RateLimiter:
                 if wait > 0:
                     await self._sleep(wait)
             self._last = self._clock()
+
+
+DEFAULT_ACTION_INTERVAL_S: Final = 30.0
+"""Default minimum spacing of two calls of the same read-only action (follow-up A3)."""
+
+
+class ActionRateLimiter:
+    """Minimum spacing per key (``domain.service``) with try-acquire and a wait deadline.
+
+    Slots are handed out in order: a caller that waits reserves the slot after the previous
+    one, so two concurrent callers do not both pass. A waiter that is cancelled keeps its
+    reservation (the slot stays taken until it would have elapsed): that is the safe direction
+    for an integration that must not be hammered. Clock and sleep are injected. A key that
+    is too busy is refused instead of queued (:meth:`acquire` returns ``False``), so a slow
+    integration can never stack up calls.
+    """
+
+    def __init__(
+        self,
+        default_interval_s: float = DEFAULT_ACTION_INTERVAL_S,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        if default_interval_s < 0:
+            msg = "default_interval_s must be >= 0"
+            raise ValueError(msg)
+        self._default = default_interval_s
+        self._clock = clock
+        self._sleep = sleep
+        self._next_ok: dict[str, float] = {}
+
+    def retry_after(self, key: str) -> float:
+        """Seconds until ``key`` would be admitted (0 = now)."""
+        return max(0.0, self._next_ok.get(key, 0.0) - self._clock())
+
+    def try_acquire(self, key: str, interval_s: float | None = None) -> bool:
+        """Take the slot if it is free now; otherwise change nothing and return ``False``."""
+        interval = self._interval(interval_s)
+        now = self._clock()
+        if self._next_ok.get(key, 0.0) > now:
+            return False
+        self._next_ok[key] = now + interval
+        return True
+
+    async def acquire(
+        self, key: str, interval_s: float | None = None, *, max_wait_s: float = 0.0
+    ) -> bool:
+        """Take the next slot of ``key`` if it comes within ``max_wait_s`` (waiting for it).
+
+        Returns ``False`` without waiting and without reserving when the slot is further away.
+        """
+        interval = self._interval(interval_s)
+        now = self._clock()
+        slot = max(now, self._next_ok.get(key, 0.0))
+        wait = slot - now
+        if wait > max(0.0, max_wait_s):
+            return False
+        self._next_ok[key] = slot + interval  # reserved before sleeping: no await in between
+        if wait > 0:
+            await self._sleep(wait)
+        return True
+
+    def _interval(self, interval_s: float | None) -> float:
+        interval = self._default if interval_s is None else interval_s
+        if interval < 0:
+            msg = "interval_s must be >= 0"
+            raise ValueError(msg)
+        return interval
 
 
 @dataclass(frozen=True, slots=True)

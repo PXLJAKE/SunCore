@@ -108,7 +108,7 @@ async def test_v1_export_file_imports(db: Database) -> None:
     assert site.grid.is_pair
     assert [a.power for a in site.pv] == [EntityRef(entity_id="sensor.pv_total")]
     exported = await store.export_json()
-    assert exported["db_schema_version"] == latest_version() == 3
+    assert exported["db_schema_version"] == latest_version() == 4
     assert exported["sections"]["site"]["schema_version"] == 2
 
 

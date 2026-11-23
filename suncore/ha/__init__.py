@@ -9,6 +9,8 @@ from suncore.ha.candidates import EntityCandidate, entity_candidates
 from suncore.ha.connection import (
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
+    ActionRateLimitedError,
+    ActionRateLimiter,
     AuthError,
     CommandError,
     CommandTimeoutError,
@@ -64,6 +66,8 @@ __all__ = [
     "REGISTRY_EVENT_TYPES",
     "SITE_ROLES",
     "ActionNotAllowedError",
+    "ActionRateLimitedError",
+    "ActionRateLimiter",
     "AuthError",
     "Backoff",
     "CachedEntity",
