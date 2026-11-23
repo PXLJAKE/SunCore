@@ -10,6 +10,19 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 – PR 5-B, WP2 analytics core (branch `phase-5/b-analysis`, on 5-A; `optimizer-engineer`)**:
+  - `suncore/analysis/` (pure, `core` only, `mypy --strict`): `energy.py` (quarter-hour Wh from
+    mean-power series, incomplete slots dropped, coverage, 80 % completeness), `flows.py` (the
+    ADR-0014 attribution rule per slot, exact balances, measurement residual), `kpi.py` (autarky,
+    self-consumption, equivalent full cycles over `BatteryModel.usable_wh`), `cost.py` (grid cost,
+    prices per slot, unpriced slots skipped and counted), `baselines.py` (no PV/no battery and
+    PV-only, `savings = baseline - actual`), `period.py` (day/week/month/year buckets between local
+    midnights, 23/25 h days, ISO weeks), `summary.py` (one period's figures).
+  - Boundary test: `analysis` imports `core` only; package added to the strict mypy list and the
+    coverage gate.
+  - Tests `tests/analysis/` (hypothesis: flow balance, KPI bounds, savings identity, PV-only ≤ no-PV
+    baseline for non-negative prices, energy-preserving bucketing across DST in four zones).
+
 - **Phase 4 – PR 4-I, WP12 optional ML load model (branch `phase-4/i-ml-load`, stacked on 4-H;
   `optimizer-engineer`)**:
   - `suncore/forecast/load_ml.py` (NumPy only): KNN on analogue days - quarter-hour samples of

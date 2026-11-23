@@ -98,6 +98,7 @@ plugins = ["pydantic.mypy"]
 module = [
   "suncore.core.*",
   "suncore.planner.*",
+  "suncore.analysis.*",
   "suncore.controller.*",
   "suncore.safety.*",
   "suncore.devices.*",

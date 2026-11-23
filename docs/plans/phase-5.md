@@ -402,3 +402,7 @@ charges and tax-return reports; dynamic export prices; sharing or uploading resu
 accounts or roles for expert mode; ML beyond what Phase 4 shipped; a diagnostics page for
 `timeseries.db` size and the too-new-database hint (small Phase 4 follow-ups, taken into 5-C only
 if cheap); built-in price and PV fallbacks (Phase 6).
+
+## 8. Deviations during implementation
+
+- **5-B:** a seventh module `suncore/analysis/summary.py` (`PeriodSummary`: flows, KPIs, savings and coverage of one bucket, DST-aware expected slots) bundles the pieces for the nightly job and the history API. The attribution rule also covers battery discharge: it serves the house first, any remainder is exported (`battery_to_grid`). Cost is the grid exchange only; battery degradation is not part of it.

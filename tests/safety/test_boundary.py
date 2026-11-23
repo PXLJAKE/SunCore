@@ -29,7 +29,8 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    ``suncore.tariff`` imports only ``suncore.core``, ``suncore.templates`` and itself (Phase 4
    WP4: Home Assistant reaches it through the injected action caller and entity reader);
    ``suncore.planner`` imports only ``suncore.core`` and itself (Phase 4 WP8: the runtime
-   hands it the services' outputs).
+   hands it the services' outputs); ``suncore.analysis`` imports only ``suncore.core`` and itself
+   (Phase 5 WP2: pure functions over quarter-hour energy, ADR-0014).
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
 6. ``suncore.safety`` imports neither ``suncore.core.config`` nor ``suncore.storage`` and
@@ -68,6 +69,7 @@ TEMPLATES = "suncore.templates"
 CONTROLLER = "suncore.controller"
 TARIFF = "suncore.tariff"
 PLANNER = "suncore.planner"
+ANALYSIS = "suncore.analysis"
 ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
@@ -307,6 +309,8 @@ def test_dependency_rule(path: Path) -> None:
         allowed = (CORE, TEMPLATES, TARIFF)
     elif in_package(module, PLANNER):
         allowed = (CORE, PLANNER)
+    elif in_package(module, ANALYSIS):
+        allowed = (CORE, ANALYSIS)
     else:
         return
     offenders = fmt(
@@ -615,3 +619,17 @@ def test_the_write_capability_is_taken_from_the_connection_inside_safety() -> No
     ]
     app = PACKAGE / "app" / "control.py"
     assert "suncore.safety.wiring" in {m for _, m in imported_modules(app, parse(app))}
+
+
+def test_analysis_rule_rejects_siblings() -> None:
+    """Phase 5 WP2: the analytics core sees ``core`` only (not planner, storage, ha, ...)."""
+    tmp = PACKAGE / "analysis" / "_synthetic.py"
+    src = "from suncore.planner import x\nfrom suncore.core import series\nimport suncore.storage\n"
+    bad = {
+        line
+        for line, imported in imported_modules(tmp, _tree(src))
+        if in_package(imported, "suncore")
+        and not any(in_package(imported, pkg) for pkg in (CORE, ANALYSIS))
+    }
+    assert bad == {1, 3}
+    assert (PACKAGE / "analysis" / "flows.py").is_file()

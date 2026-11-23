@@ -16,7 +16,7 @@ if [ "${FAST:-0}" = "1" ]; then
 else
   uv run pytest -q --cov --cov-report=term-missing
   # BRIEF §7: >= 80 % on the control-critical packages.
-  uv run coverage report --include="suncore/core/*,suncore/safety/*,suncore/planner/*,suncore/controller/*" --fail-under=80 >/dev/null
+  uv run coverage report --include="suncore/core/*,suncore/safety/*,suncore/planner/*,suncore/analysis/*,suncore/controller/*" --fail-under=80 >/dev/null
 fi
 
 # Frontend checks only where the toolchain is installed (the Python path works without Node).
