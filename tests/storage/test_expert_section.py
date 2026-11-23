@@ -10,12 +10,12 @@ from typing import Any
 import pytest
 
 from suncore.core.config import TariffConfig
-from suncore.core.control import ControlSettings
+from suncore.core.control import SAFETY_LIMITS, ControlSettings
 from suncore.core.expert import EXPERT_SCHEMA_VERSION, ExpertConfig
 from suncore.core.params import apply_controller
 from suncore.storage import ConfigStore, Database
 from suncore.storage.config_store import DEFAULT_SECTIONS
-from suncore.storage.errors import ConfigCorruptError
+from suncore.storage.errors import ConfigCorruptError, ImportRejectedError
 
 EXPORT = json.loads((Path(__file__).parent / "fixtures" / "export_phase3.json").read_text("utf-8"))
 
@@ -95,20 +95,68 @@ async def test_a_replaced_body_lands_in_the_configuration_history(db: Database) 
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("overrides", "loaded"),
     [
-        {"overrides": {"controller.min_write_interval_s": 0.01}},  # below the hard limit
-        {"overrides": {"controller.unknown": 1}},
-        {"overrides": {}, "stray": 1},
+        # below the hard limit (also: a limit tightened by a later release) -> nearest bound
+        ({"controller.min_write_interval_s": 0.01}, {"controller.min_write_interval_s": 1.0}),
+        ({"controller.default_settle_s": 600}, {"controller.default_settle_s": 60.0}),
+        (
+            {"controller.default_max_switches_per_hour": 3600},
+            {"controller.default_max_switches_per_hour": 30},
+        ),
+        # a key the registry no longer knows, or a value of the wrong type -> default
+        ({"controller.unknown": 1, "controller.tick_s": 9}, {"controller.tick_s": 9.0}),
+        ({"controller.reserve_w": "lots"}, {}),
+        ({"tariff.export.remunerate_negative": True}, {}),
+        # the combined staleness window is reduced to 180 s
+        (
+            {"controller.tick_s": 60, "controller.inputs_max_age_ticks": 10},
+            {"controller.tick_s": 60.0, "controller.inputs_max_age_ticks": 3},
+        ),
     ],
 )
-async def test_a_stored_document_outside_the_hard_limits_is_corrupt_not_applied(
-    db: Database, body: dict[str, Any]
+async def test_a_stored_document_outside_the_hard_limits_loads_clamped_never_loosened(
+    db: Database, overrides: dict[str, Any], loaded: dict[str, Any]
 ) -> None:
-    """A row patched around the API cannot loosen the safety layer: it does not load."""
-    await _store_raw(db, "expert", 1, {"schema_version": 1, **body})
+    """A row patched around the API, or written under older limits, cannot loosen the safety
+    layer - and cannot stop the start-up either (no stack would mean no crash recovery that
+    releases held devices): the load clamps to the hard range and drops what is unknown."""
+    await _store_raw(db, "expert", 1, {"schema_version": 1, "overrides": overrides})
+    expert = await ConfigStore(db).get("expert")
+    assert isinstance(expert, ExpertConfig)
+    assert expert.overrides == loaded
+    settings = apply_controller(ControlSettings(), expert)
+    for name, (lo, hi) in SAFETY_LIMITS.items():
+        assert lo <= getattr(settings, name) <= hi, name
+
+
+async def test_a_structurally_broken_document_is_still_corrupt(db: Database) -> None:
+    await _store_raw(db, "expert", 1, {"schema_version": 1, "overrides": {}, "stray": 1})
     with pytest.raises(ConfigCorruptError):
         await ConfigStore(db).get("expert")
+
+
+async def test_restore_and_import_stay_strict(db: Database) -> None:
+    """Only the stored current document is repaired; an import or a history entry outside the
+    hard range is refused as a whole (the user sees the error, nothing is applied)."""
+    store = ConfigStore(db)
+    bad = {"schema_version": 1, "body": {"overrides": {"controller.default_settle_s": 600}}}
+    with pytest.raises(ImportRejectedError):
+        await store.import_json(
+            {
+                "suncore_export": 1,
+                "db_schema_version": 1,
+                "sections": {"expert": bad},
+            }
+        )
+    await db.execute(
+        "INSERT INTO config_history (section, schema_version, body, replaced_at)"
+        " VALUES ('expert', 1, ?, 't')",
+        (json.dumps(bad["body"]),),
+    )
+    (entry,) = await store.history("expert")
+    with pytest.raises(ConfigCorruptError):
+        await store.restore("expert", entry.id)
 
 
 async def test_a_newer_version_is_refused(db: Database) -> None:
