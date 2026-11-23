@@ -77,9 +77,9 @@ to automatic. ⏸ waiting for the maintainer (shadow run on HA OS, then one devi
 
 ## Phase 4 – Forecasts, tariffs, planner, battery ⏸
 
-Implemented in the stacked PRs 4-A…4-H ([`plans/phase-4.md`](plans/phase-4.md)); waiting for the
-maintainer's acceptance on his system (Phase 3 shadow test first, then the plan in shadow mode and
-the battery to assisted). The optional ML load model (4-I) is not built yet.
+Implemented in the stacked PRs 4-A…4-I ([`plans/phase-4.md`](plans/phase-4.md)) and merged on
+2026-11-23; waiting for the maintainer's acceptance on his system (Phase 3 shadow test first, then
+the plan in shadow mode and the battery to assisted).
 
 | Milestone | Acceptance | Status |
 |---|---|---|
@@ -93,13 +93,15 @@ the battery to assisted). The optional ML load model (4-I) is not built yet.
 | Explanations | per-interval reasons rendered in UI | ✅ |
 | UI | plan view, forecast accuracy, battery card, wizard steps 4, 5, 6, 8 and 10 | ✅ |
 | Docs | planning and battery guide (en/de), quick start, app description | ✅ |
-| ML load model in shadow | NumPy KNN scored next to the profiles (PR 4-I, optional) | ⬜ |
+| ML load model in shadow | NumPy KNN scored next to the profiles (PR 4-I, optional) | ✅ |
 
 Exit: plan with battery strategy and "Why?" on the maintainer's system, battery control in shadow
 mode, then assisted. ⏸ waiting for the maintainer (after the Phase 3 acceptance: wizard steps, plan
 in shadow, enabling the Kostal `Battery:MinSoc` entity, the battery to assisted).
 
-## Phase 5 – Visualisation, analysis, expert mode ⬜
+## Phase 5 – Visualisation, analysis, expert mode 🔨
+
+Plan: [`plans/phase-5.md`](plans/phase-5.md) (stacked PRs 5-A…5-L).
 
 | Milestone | Acceptance |
 |---|---|

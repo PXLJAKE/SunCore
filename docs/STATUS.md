@@ -3,12 +3,10 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-28 · **Phase:** 4 implemented in the stacked PRs 4-A (contracts), 4-B
-(storage), 4-C (tariffs), 4-D (PV forecast), 4-E (load forecast and risk model), 4-F (planner and
-runtime), 4-G (battery control), 4-H (UI and docs, WP11 + WP13) and the optional 4-I (ML load
-model, WP12); waiting for the maintainer's acceptance on his system. Phase 3 (3-A `phase-3/a-safety`,
-3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) is implemented, waiting for the maintainer's shadow
-test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
+**Last update:** 2026-11-23 · **Phase:** 5 started (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
+(4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
+the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
+**Branch:** `claude/project-thread-7gkqcr`
 
 ## Done
 
@@ -879,11 +877,15 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
 
 ## Next steps
 
-1. Maintainer: **Phase 3 shadow test first.** Install the beta (export a configuration backup first:
-   schema 4 cannot be opened by earlier versions), keep everything in **shadow mode**, read
-   `docs/user/en/surplus-control.md` (or `de`) and check the **Decision log** after a day with sun:
-   are the "would have" entries plausible? Check the summary system check at noon. Then switch
-   **one** device to automatic and report the first live writes. Then merge 3-A, 3-B, 3-C.
+1. Maintainer: **Phase 3 acceptance in two stages** (decided 2026-11-23 because there is no PV
+   surplus in winter; the logic is covered by the simulator scenarios, re-run in shadow and automatic
+   on 2026-11-23). *Stage A, now:* export a configuration backup (schema 4 cannot be opened by
+   earlier versions), install the current beta, keep everything in **shadow mode** for 1-2 days and
+   check that no "paused" or "stale data" banner appears (battery SoC, LG power sensor), that the
+   **Decision log** stays (nearly) empty without surplus and that the system check is green.
+   *Stage B, on the first day with real surplus:* are the "would have" entries plausible at noon,
+   then switch **only the LG climate** to automatic, check the first live writes (`accepted`, not
+   `failed`) and the emergency stop. Stage B does not block later phases.
 2. Then **Phase 4**, following `docs/user/en/planning-and-battery.md` (or `de`):
    1. Wizard: step 4 (forecast sources, workday and weather inputs), step 5 (battery model,
       strategy, risk level), step 6 (price formula for a spot source, HT/NT), step 8 (grid charging
@@ -896,13 +898,14 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
    4. Optional, later: enable external battery management via Modbus on the inverter, add the modbus
       hub, and measure the fallback timer with the documented procedure; then set
       `battery.fallback_measured`.
-3. Merge the stacked PRs in order **#25 → #26 → #27/#29 → #30 → #31 → #33 → 4-H → 4-I** (squash
-   recommended), after the Phase 3 acceptance; each rebase onto `main` after the previous merge.
-   Release the next release-please PR for the stable app after acceptance (schema 4: release note
-   "export before updating").
-4. Answer the open questions in `docs/plans/phase-4.md` §6 ("Offene Fragen aus PR 4-A" and "4-C"),
-   in particular grid charging on the Kostal (generic force-charge entity or a §3.4 ADR) and the
-   fallback timer procedure.
+3. ~~Merge the stacked PRs~~ (done 2026-11-23: #25–#36 and #35 as one merge commit, because
+   squashing would have broken the stack). Release the next release-please PR (#17) for the stable
+   app only after the acceptance (schema 4: release note "export before updating").
+4. The questions of 4-A/4-B/4-C were answered with the defaults on 2026-10-19. Still open: what needs
+   the maintainer's system or bills (VAT on negative spot prices, the EEG tiers, the Kostal fallback
+   timer measurement, the publication time of next-day prices) and the 4-I questions (defaults built).
+5. Phase 5: plan `docs/plans/phase-5.md`, built on the defaults of its §6 while the maintainer is
+   away.
 
 ## Known problems and `UNVERIFIED` items
 
