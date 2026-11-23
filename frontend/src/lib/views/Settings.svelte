@@ -12,12 +12,12 @@
   import { STEPS, type StepId } from '../wizard/steps';
 
   const uid = $props.id();
-  // The battery section gets its settings page in Phase 4 WP10.
-  const SECTIONS: Exclude<ConfigSectionName, 'wizard' | 'battery'>[] = [
+  const SECTIONS: Exclude<ConfigSectionName, 'wizard'>[] = [
     'site',
     'region',
     'tariff',
     'forecast',
+    'battery',
     'devices',
     'goals',
     'operation',
@@ -85,19 +85,32 @@
       {
         step: 'pv',
         text: site
-          ? pvKwp == null
-            ? t('settings.sum.pv', { count: (site.pv ?? []).length })
-            : t('settings.sum.pv_kwp', {
-                count: (site.pv ?? []).length,
-                kwp: tNumber(pvKwp, { maximumFractionDigits: 2 }),
-              })
+          ? `${
+              pvKwp == null
+                ? t('settings.sum.pv', { count: (site.pv ?? []).length })
+                : t('settings.sum.pv_kwp', {
+                    count: (site.pv ?? []).length,
+                    kwp: tNumber(pvKwp, { maximumFractionDigits: 2 }),
+                  })
+            } · ${t('settings.sum.forecast', { count: s.forecast?.sources?.length ?? 0 })}`
           : t('settings.sum.none'),
       },
       {
         step: 'battery',
         text: site
           ? site.battery
-            ? t('settings.sum.battery', { entity: site.battery.power.entity_id })
+            ? `${t('settings.sum.battery', { entity: site.battery.power.entity_id })} · ${
+                s.battery?.adapter_template_id
+                  ? t('settings.sum.battery_control', { adapter: s.battery.adapter_template_id })
+                  : t('settings.sum.battery_observe')
+              }${
+                s.battery?.model
+                  ? ` · ${t('settings.sum.battery_plan', {
+                      strategy: t(`bat.strategy.${s.battery.strategy ?? 'self_consumption'}`),
+                      risk: t(`bat.risk.${s.battery.risk ?? 'cautious'}`),
+                    })}`
+                  : ''
+              }`
             : t('settings.sum.battery_none')
           : t('settings.sum.none'),
       },

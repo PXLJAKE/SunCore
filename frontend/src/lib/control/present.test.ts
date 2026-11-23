@@ -127,3 +127,31 @@ describe('qualityKey', () => {
     expect(qualityKey('invalid')).toBe('quality.invalid');
   });
 });
+
+describe('batteryParts', () => {
+  it('lists only what the action sets; None is the adapter baseline', async () => {
+    const { batteryParts } = await import('./actions');
+    const w = (n: number): string => `${n} W`;
+    expect(batteryParts({ kind: 'battery' }, w)).toEqual([]);
+    expect(
+      batteryParts(
+        {
+          kind: 'battery',
+          min_soc_pct: 40,
+          max_charge_w: 3000,
+          max_discharge_w: 0,
+          grid_charge_w: 1500,
+        },
+        w,
+      ).map((p) => p.key),
+    ).toEqual([
+      'action.battery.min_soc',
+      'action.battery.max_charge',
+      'action.battery.discharge_lock',
+      'action.battery.grid_charge',
+    ]);
+    expect(batteryParts({ kind: 'battery', max_discharge_w: 800, grid_charge_w: 0 }, w)).toEqual([
+      { key: 'action.battery.max_discharge', args: { power: '800 W' } },
+    ]);
+  });
+});

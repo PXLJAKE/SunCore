@@ -14,10 +14,17 @@ import type {
   OverrideCommand,
   EnergyPrefs,
   EntityCandidate,
+  ForecastAccuracyView,
   HistoryRestore,
   ImportResult,
   Info,
+  PlanStatus,
+  PlanView,
   PreviewResult,
+  PriceReport,
+  PvForecastView,
+  ReplanAck,
+  RiskView,
   SiteConfig,
   TemplateDetail,
   TemplateKind,
@@ -202,12 +209,33 @@ export const controlApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode }),
     }),
+  /** The battery's mode; above shadow it needs the identity token of the control state. */
+  setBatteryMode: (mode: OperatingMode, identity: string | null) =>
+    request<OperationConfig>(`${API_PREFIX}operation/battery`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, identity }),
+    }),
   setDeviceMode: (id: string, mode: OperatingMode, identity: string | null) =>
     request<OperationConfig>(`${API_PREFIX}operation/devices/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode, identity }),
     }),
+};
+
+/** The planner and its inputs (WP9): plan, status, prices and forecasts (all read only). */
+export const planApi = {
+  plan: (hours = 48) => request<PlanView>(`${API_PREFIX}plan${query({ hours: String(hours) })}`),
+  status: () => request<PlanStatus>(`${API_PREFIX}plan/status`),
+  /** Ask for a new plan; the server debounces (`accepted: false` names the earliest start). */
+  replan: () => send<ReplanAck>('POST', `${API_PREFIX}plan/replan`),
+  prices: (hours = 48) =>
+    request<PriceReport>(`${API_PREFIX}prices${query({ hours: String(hours) })}`),
+  forecastPv: (hours = 48) =>
+    request<PvForecastView>(`${API_PREFIX}forecast/pv${query({ hours: String(hours) })}`),
+  forecastAccuracy: () => request<ForecastAccuracyView>(`${API_PREFIX}forecast/accuracy`),
+  forecastRisk: () => request<RiskView>(`${API_PREFIX}forecast/risk`),
 };
 
 function query(params: Record<string, string | undefined>): string {

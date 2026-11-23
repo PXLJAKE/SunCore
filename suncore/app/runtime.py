@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 import tempfile
 from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, time, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
@@ -1555,7 +1555,10 @@ class Runtime:
             raise HAUnavailableError(str(exc)) from exc
         await self.catalogue.ensure_fresh()
         known = self.catalogue.browse.ids() if self.catalogue.has_states else None
-        return suggest_from_prefs(prefs, known_entity_ids=known)
+        result = suggest_from_prefs(prefs, known_entity_ids=known)
+        labels = self.catalogue.entry_labels()
+        wanted = {e: labels[e] for e in result.solar_forecast_entries if e in labels}
+        return replace(result, solar_forecast_labels=wanted) if wanted else result
 
     def _samples(self, entity_ids: Iterable[str]) -> dict[str, Sample]:
         """Live values where subscribed, otherwise the catalogue's browse copy."""

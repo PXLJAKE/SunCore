@@ -173,6 +173,13 @@ SITE_ROLES: Final[Mapping[str, SiteRole]] = {
             keywords=("price", "preis", "tarif", "strompreis"),
         ),
         _role(
+            "workday",
+            (EntityMatcher(domain="binary_sensor"), False),
+            keywords=("workday", "arbeitstag", "werktag"),
+            require_keyword=True,
+        ),
+        _role("weather", (EntityMatcher(domain="weather"), False), keywords=()),
+        _role(
             "para14a_signal",
             (EntityMatcher(domain="binary_sensor"), False),
             (EntityMatcher(domain="input_boolean"), False),

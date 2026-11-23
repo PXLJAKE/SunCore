@@ -111,3 +111,16 @@ describe('formatPower', () => {
     expect(formatPower(999.6, 'en').unit).toBe('kw');
   });
 });
+
+describe('time zone', () => {
+  it('shows clock times in the given zone, not the browser zone', async () => {
+    const { clockParts, formatTime, validZone } = await import('./format');
+    const at = new Date('2026-06-21T22:30:00Z');
+    expect(clockParts(at, 'Europe/Berlin')).toEqual({ hour: 0, minute: 30 });
+    expect(clockParts(at, 'UTC')).toEqual({ hour: 22, minute: 30 });
+    expect(formatTime(at, 'en', 'America/New_York').replace(/\s/g, ' ')).toBe('06:30 PM');
+    expect(validZone('Europe/Berlin')).toBe('Europe/Berlin');
+    expect(validZone('Not/AZone')).toBeUndefined();
+    expect(validZone(null)).toBeUndefined();
+  });
+});

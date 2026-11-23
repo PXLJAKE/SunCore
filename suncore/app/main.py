@@ -74,6 +74,14 @@ def _demo_wiring(settings: Settings) -> DemoWiring:
     from suncore.sim.scenario import load_scenario  # noqa: PLC0415
 
     scenario = load_scenario(DEMO_SCENARIO)
+    if settings.demo_battery_control:
+        from suncore.sim.inverter import InverterParams  # noqa: PLC0415
+
+        scenario = scenario.model_copy(
+            update={
+                "house": scenario.house.model_copy(update={"inverter": InverterParams()}),
+            }
+        )
     start = scenario.start
     begin = start.replace(
         hour=settings.demo_start_time.hour,
@@ -148,7 +156,9 @@ async def build_runtime(  # noqa: PLR0915 - the composition root
             from suncore.sim.fake_ha import demo_site_config  # noqa: PLC0415
 
             await config.put_site(demo_site_config())
-            await seed_demo_config(config, template_catalog)
+            await seed_demo_config(
+                config, template_catalog, battery_control=settings.demo_battery_control
+            )
         else:
             await config.migrate_legacy_forecast()
         # Demo: `db` lives in a throw-away temp dir, so nothing below touches /data either.

@@ -1,12 +1,14 @@
 # Schnellstart
 
-SunCore ist **Pre-Alpha** (Phase 3). Diese Version hilft dir mit einem
+SunCore ist **Pre-Alpha** (Phase 4). Diese Version hilft dir mit einem
 Einrichtungs-Assistenten, deine Anlage zu beschreiben, zeigt deinen
-Energiefluss live an und kann Geräte aus deinem Solarüberschuss steuern. Sie
-startet im **Schattenmodus**: Es wird nichts geschaltet und kein Sollwert
-geschrieben, bis du selbst ein Gerät auf Automatik stellst, siehe
-[Überschusssteuerung](surplus-control.md). Die vollständige App-Beschreibung
-(englisch) steht in [`addon/suncore/DOCS.md`](../../../addon/suncore/DOCS.md).
+Energiefluss live an, steuert Geräte aus deinem Solarüberschuss und plant mit
+Prognosen, Preisen und deinem Akku die nächsten 48 Stunden. Sie startet im
+**Schattenmodus**: Es wird nichts geschaltet und keine Grenze und kein
+Sollwert geschrieben, bis du selbst ein Gerät oder den Akku auf Automatik (oder
+assistiert) stellst, siehe [Überschusssteuerung](surplus-control.md) und
+[Planung und Akkusteuerung](planning-and-battery.md). Die vollständige
+App-Beschreibung (englisch) steht in [`addon/suncore/DOCS.md`](../../../addon/suncore/DOCS.md).
 
 ## 1. Installieren
 
@@ -83,26 +85,51 @@ noch einmal, wenn deutlich etwas fließt.
 
 Füge jede PV-Anlage mit ihrem **Leistungssensor**, der installierten
 Leistung in kWp sowie Neigung und Ausrichtung hinzu (Azimut: 0 = Nord,
-180 = Süd). Optional wählst du eine **Prognosequelle**, etwa Solcast, wenn
-die Integration installiert ist.
+180 = Süd). Unter **Prognosequellen** wählst du eine oder **mehrere**
+Solarprognosen (Solcast, Forecast.Solar, Open-Meteo Solar Forecast oder eine
+generische Vorlage); SunCore bietet die an, die es in Home Assistant findet,
+und mischt sie danach, wie gut jede lag (das **Gewicht in der Mischung** ist
+automatisch, solange du keinen festen Anteil setzt). Bei Forecast.Solar mit
+mehreren verknüpften Einträgen wählst du den **Forecast.Solar-Eintrag** dieser
+Anlage. Optional ergänzt du unter **Eingaben der Lastprognose** einen
+**Arbeitstag-Sensor** und eine **Wetter-Entität**: Sie verbessern die Prognose
+der Hauslast. Ganz ohne Prognosequelle geht es auch; der Plan rechnet dann
+ohne Solarstrom. Siehe [Prognosen](planning-and-battery.md#2-prognosen).
 
 ![Schritt Photovoltaik](../../assets/screenshots/wizard-pv-tablet-light-de.png)
 
 ### Batterie
 
 Wähle den Sensor für die Batterieleistung (positiv = Laden) und den für den
-Ladestand, oder **Keine Batterie**. Kapazität sowie Mindest- und maximaler
-Ladestand sind optional. SunCore beobachtet die Batterie vorerst nur.
+Ladestand, oder **Keine Batterie**. Kapazität, Mindest- und maximaler
+Ladestand und die Leistungsgrenzen sind zum Beobachten optional, der Planer
+braucht sie aber. Unter **Steuerung** wählst du einen **Akku-Adapter**: Die
+Vorgabe **Nur beobachten (SunCore schreibt nie)** überlässt den Akku dir; ein
+Adapter (generische Home-Assistant-Entitäten, Kostal Plenticore über die
+Home-Assistant-Integration oder über Modbus) lässt SunCore später Grenzen
+setzen, und der Akku startet trotzdem im Schattenmodus. Danach füllst du das
+**Akkumodell für den Planer** (Kapazität, Leistungsgrenzen, Reserve,
+BMS-Driftreserve) und wählst die **Strategie** (Eigenverbrauch, Akku möglichst
+voll halten oder Zielladestand zu einer Uhrzeit erreichen), die
+**Risikostufe** (vorsichtig ist die Vorgabe, die Ziele werden dann in etwa 9
+von 10 Fällen erreicht), einen optionalen **Mindest-Morgenpuffer** und **Bis
+in den nächsten Tag überbrücken**. Alles ist in
+[Planung und Akkusteuerung](planning-and-battery.md#4-ziele-und-strategien)
+erklärt, die Adapter in [Adapter](planning-and-battery.md#7-adapter).
 
 ![Schritt Batterie](../../assets/screenshots/wizard-battery-tablet-light-de.png)
 
 ### Tarif
 
-Gib den **Bezugspreis** (**Fester Preis** oder **Dynamischer Preis**) und
-die **Einspeisevergütung** ein (fest, gestaffelt nach Anlagengröße oder
-keine). Ein dynamischer Preis braucht einen Preissensor oder eine
-Tarif-Vorlage wie Tibber. Die Preise werden für spätere Versionen
-gespeichert; der Planer nutzt sie noch nicht.
+Gib den **Bezugspreis** (**Fester Preis**, **Fester Zeittarif (HT/NT)** oder
+**Dynamischer Preis**) und die **Einspeisevergütung** ein (fest, gestaffelt nach
+Anlagengröße oder keine). Ein dynamischer Preis braucht einen Preissensor oder
+eine Tarif-Vorlage (Tibber, Nord Pool, ENTSO-E, EPEX Spot, Octopus Energy oder
+eine generische Preisliste). Liefert die Quelle nur den reinen Börsenpreis,
+wähle unter **Was der Preis enthält** die Option **Nur Börsenpreis** und trage
+deine **Preisformel** ein (Netzentgelt, Abgaben, Aufschlag, MwSt); ohne sie kann
+der Planer nicht nach Preisen optimieren. Der Planer nutzt diese Preise; siehe
+[Tarife](planning-and-battery.md#3-tarife).
 
 ![Schritt Tarif](../../assets/screenshots/wizard-tariff-tablet-light-de.png)
 
@@ -143,12 +170,14 @@ Fehlt dein Gerät? Siehe
 
 Ziehe die Geräte am Griff oder nutze die Pfeil-Schaltflächen oder die Pfeiltasten, um festzulegen, wer
 den Überschuss zuerst bekommt. Position 1 wird zuerst bedient. Ziele
-(Ziel-Ladestand der Batterie zu einer Uhrzeit, Klimagerät vor der
-Einspeisung, nur nachts aus dem Netz laden) entscheiden
-jetzt, ob die Ladeleistung der Batterie für Geräte als Überschuss zählt (Ziel-Ladestand,
-Klimagerät vor Einspeisung); siehe
-[Batterie und Ziele](surplus-control.md#batterie-und-ziele). Nur nachts aus dem Netz laden wird
-für eine spätere Version gespeichert.
+entscheiden, ob die Ladeleistung der Batterie für Geräte als Überschuss zählt
+(Ziel-Ladestand der Batterie zu einer Uhrzeit, Klimagerät vor Einspeisung);
+siehe [Batterie und Ziele](surplus-control.md#batterie-und-ziele). Unter **Laden
+aus dem Netz** kannst du erlauben, den Akku aus dem Netz zu laden, nur unter
+einer Preisgrenze und in einem Wochenplan (standardmäßig aus; siehe
+[Netzladen](planning-and-battery.md#netzladen)). Das Expertenfeld
+**Autarkie-Gewicht je kWh** ist ein kleiner Gleichstand-Entscheider für den
+Planer ([erklärt hier](planning-and-battery.md#das-autarkie-gewicht)).
 
 ![Schritt Prioritäten und Ziele](../../assets/screenshots/wizard-priorities-tablet-light-de.png)
 
@@ -168,7 +197,13 @@ Automatik braucht also beides. Lass es vorerst auf Schatten.
 Der **Systemcheck** prüft Einheiten, Vorzeichen, die Leistungsbilanz und ob
 die Sensoren aktuelle Werte liefern. Behebe alles, was mit einem Kreuz
 markiert ist (Schritt über die Liste öffnen), wähle **Erneut prüfen** und
-dann **Einrichtung abschließen**. Warnungen blockieren nicht.
+dann **Einrichtung abschließen**. Warnungen blockieren nicht. Eine Warnung,
+dass der Tarif reine Börsenpreise ohne Preisformel liefert, heißt: Der Plan
+kann nicht nach Preisen optimieren, ergänze die Formel im Schritt **Tarif**.
+Die Zusammenfassung zeigt außerdem den **Ersten Plan**: erwartete
+Solarenergie, Verbrauch, Bezug und Einspeisung der nächsten Stunden sowie
+tiefsten, höchsten und letzten Ladestand des Akkus. **Vorschau aktualisieren**
+berechnet ihn neu.
 
 ![Schritt Zusammenfassung und Check](../../assets/screenshots/wizard-summary-tablet-light-de.png)
 
@@ -191,23 +226,31 @@ Schritt-für-Schritt-Anleitung ist
 ## 5. Die Ansicht Jetzt
 
 Nach **Einrichtung abschließen** zeigt die Ansicht **Jetzt** Solar, Netz,
-Batterie und Haus mit animierten Flüssen, die Karte **Überschuss** und eine
-Karte je Gerät mit Zustand, geschätzter Leistung, Modus-Umschalter und
-**Warum?**. Die rote Schaltfläche **Not-Aus** in der Kopfzeile gibt alle Geräte
-sofort zurück.
+Batterie und Haus mit animierten Flüssen, die Karte **Überschuss**, eine
+**Akku**-Karte (Ladestand, Leistung, geltende Grenzen, Modus-Umschalter des Akkus
+und **Warum?**), die **Nächsten geplanten Aktionen** und eine Karte je Gerät mit
+Zustand, geschätzter Leistung, Modus-Umschalter und **Warum?**. Die rote
+Schaltfläche **Not-Aus** in der Kopfzeile gibt alle Geräte und den Akku sofort
+zurück. Die Seite **Plan** zeigt den 24- oder 48-Stunden-Plan mit den Prognosen
+und ihrer Genauigkeit.
 
 ![Ansicht Jetzt auf einem Tablet, helles Design](../../assets/screenshots/now-tablet-light-de.png)
+
+![Akku-Karte und nächste geplante Aktionen](../../assets/screenshots/now-battery-tablet-light-de.png)
 
 Das **Entscheidungsprotokoll** (Ansicht **Entscheidungen**) listet jede
 Entscheidung mit ihren Gründen. Wie das alles funktioniert, was passiert, wenn
 du ein Gerät selbst änderst, und was SunCore bei Fehlern tut, steht in der
-[Überschusssteuerung](surplus-control.md).
+[Überschusssteuerung](surplus-control.md); Plan, Prognosen und Akku stehen in
+[Planung und Akkusteuerung](planning-and-battery.md), mit einem Ablauf, um deinen
+ersten Akku in den assistierten Modus zu nehmen.
 
 ## 6. Später ändern
 
 Öffne **Einstellungen**. Dort stehen alle Bereiche deiner Einrichtung
 (**Region**, **Anlage (Netz, PV, Batterie)**, **Tarif**, **PV-Prognose**,
-**Verbraucher**, **Ziele**, **Betriebsmodus**) mit einer Kurzfassung und
+**Akku (Steuerung und Planung)**, **Verbraucher**, **Ziele**,
+**Betriebsmodus**) mit einer Kurzfassung und
 einem Link **Öffnen** zum passenden Schritt.
 
 ![Einstellungen als Übersicht](../../assets/screenshots/settings-tablet-light-de.png)
@@ -255,13 +298,19 @@ einem Link **Öffnen** zum passenden Schritt.
 
 ## Was SunCore noch nicht kann
 
-Bedenke das, bevor du dich darauf verlässt. Diese Version hat keine
-Prognosen und keinen Planer (deine Tarif- und Prognose-Angaben werden nur
-gespeichert), keine Verlaufsdiagramme, keine Batteriesteuerung, keine
-Wallbox-Steuerung und keine Home-Assistant-Entitäten. Die Überschusssteuerung
-lief noch nie an echter Hardware: Dafür ist dein Schattenlauf da. Verglichen
-mit evcc (Ladepunkte und Heizstäbe), EMHASS und Predbat (Batterieoptimierung)
-steuert SunCore derzeit nur Verbraucher aus echtem Überschuss. Die Liste der
+Bedenke das, bevor du dich darauf verlässt. SunCore hat jetzt Prognosen, Tarife,
+einen 48-Stunden-Planer und Akkusteuerung, aber **nichts davon ist je an echter
+Hardware gelaufen**: Dafür ist dein Schattenlauf da. Der Akku startet im
+Schattenmodus, und bis der Rückfall-Timer des Wechselrichters an deiner Anlage
+gemessen ist, bleibt ein Kostal-Modbus-Akku auf den assistierten Modus
+begrenzt. Kostal Plenticore lässt sich nicht zum Laden aus dem Netz
+auffordern. Es gibt noch keine Verlaufsdiagramme und keine Was-wäre-wenn-Analyse
+(die Planansicht ist minimal), keine thermischen Modelle für Klimageräte und
+Warmwasserbereiter im Plan, keine Wallbox-Steuerung und keine
+Home-Assistant-Entitäten. Verglichen mit evcc (Ladepunkte und Heizstäbe), EMHASS
+und Predbat (Batterieoptimierung) ist SunCores Planer neu und unerprobt;
+Überschusssteuerung und Sicherheitsschicht sind seine Stärken. Die Liste der
 offenen Punkte steht in den
-[Bekannten Grenzen](surplus-control.md#bekannte-grenzen-und-unverified); die
-[Roadmap](../../roadmap.md) zeigt, wann welcher Teil kommt.
+[Bekannten Grenzen](planning-and-battery.md#10-bekannte-grenzen-und-unverified)
+und in der [Überschusssteuerung](surplus-control.md#bekannte-grenzen-und-unverified);
+die [Roadmap](../../roadmap.md) zeigt, wann welcher Teil kommt.

@@ -5,6 +5,7 @@
   import { describeError } from '../../api/errors';
   import type { CheckResult } from '../../api/types';
   import FlowList from '../../components/FlowList.svelte';
+  import PlanPreview from '../../components/PlanPreview.svelte';
   import WizardShell from '../../components/WizardShell.svelte';
   import { t, tDynamic } from '../../i18n/index.svelte';
   import { live } from '../../stores/live.svelte';
@@ -88,7 +89,7 @@
     <FlowList flows={live.flows} {hasBattery} />
   </section>
 
-  <p class="notice info" data-testid="plan-note">{t('summary.plan_pending')}</p>
+  <PlanPreview />
 </WizardShell>
 
 <style>

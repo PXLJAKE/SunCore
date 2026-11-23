@@ -92,7 +92,14 @@ async def test_energy_prefs_not_configured_and_configured(services: FakeServices
         got = await client.get("/api/v1/wizard/energy-prefs")
         services.ha_down = True
         down = await client.get("/api/v1/wizard/energy-prefs")
-    assert none.json() == {"configured": False, "suggestions": [], "notes": [], "site": {}}
+    assert none.json() == {
+        "configured": False,
+        "suggestions": [],
+        "notes": [],
+        "site": {},
+        "solar_forecast_entries": [],
+        "solar_forecast_labels": {},
+    }
     body = got.json()
     assert body["configured"] is True
     assert body["suggestions"][0] == {

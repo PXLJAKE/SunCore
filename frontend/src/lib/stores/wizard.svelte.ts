@@ -4,6 +4,7 @@
 import { api, controlApi } from '../api/client';
 import { describeError, FormError, type FailedRequest } from '../api/errors';
 import type {
+  BatterySettings,
   DeviceConfig,
   DevicesConfig,
   ForecastConfig,
@@ -15,7 +16,13 @@ import type {
   TariffConfig,
   WizardState,
 } from '../api/types';
-import { applyLanguage, type MessageKey } from '../i18n/index.svelte';
+import { applyLanguage, applyTimeZone, type MessageKey } from '../i18n/index.svelte';
+import {
+  batteryFormFromConfig,
+  batteryFromForm,
+  type BatteryForm,
+  type ModelDefaults,
+} from '../wizard/batteryForm';
 import {
   forecastFormFromConfig,
   forecastFromForm,
@@ -91,6 +98,7 @@ export class WizardStore {
     region: RegionConfig | null;
     tariff: TariffConfig | null;
     forecast: ForecastConfig | null;
+    battery: BatterySettings | null;
     devices: DevicesConfig | null;
     goals: GoalsConfig | null;
     operation: OperationConfig | null;
@@ -100,6 +108,7 @@ export class WizardStore {
     region: null,
     tariff: null,
     forecast: null,
+    battery: null,
     devices: null,
     goals: null,
     operation: null,
@@ -110,6 +119,9 @@ export class WizardStore {
   region = $state<RegionForm>(regionFormFromConfig(null));
   tariff = $state<TariffForm>(tariffFormFromConfig(null));
   forecast = $state<ForecastForm>(forecastFormFromConfig(null));
+  battery = $state<BatteryForm>(batteryFormFromConfig(null));
+  /** Whether the adapter chosen in the battery form uses a modbus link (set by the step). */
+  batteryUsesModbus = $state(false);
   goals = $state<GoalsForm>(goalsFormFromConfig(null));
   operation = $state<OperationForm>(operationFormFromConfig(null));
   devices = $state.raw<DeviceConfig[]>([]);
@@ -131,23 +143,25 @@ export class WizardStore {
 
   async load(): Promise<void> {
     try {
-      const [site, region, tariff, forecast, devices, goals, operation, wizard] = await Promise.all(
-        [
+      const [site, region, tariff, forecast, battery, devices, goals, operation, wizard] =
+        await Promise.all([
           api.getSite(),
           api.getSection<RegionConfig>('region'),
           api.getSection<TariffConfig>('tariff'),
           api.getSection<ForecastConfig>('forecast'),
+          api.getSection<BatterySettings>('battery'),
           api.getSection<DevicesConfig>('devices'),
           api.getSection<GoalsConfig>('goals'),
           api.getSection<OperationConfig>('operation'),
           api.getSection<WizardState>('wizard'),
-        ],
-      );
-      this.saved = { site, region, tariff, forecast, devices, goals, operation, wizard };
+        ]);
+      this.saved = { site, region, tariff, forecast, battery, devices, goals, operation, wizard };
       this.site = siteFormFromSite(site);
       this.region = regionFormFromConfig(region);
       this.tariff = tariffFormFromConfig(tariff);
       this.forecast = forecastFormFromConfig(forecast);
+      this.battery = batteryFormFromConfig(battery, this.modelDefaults(site));
+      this.batteryUsesModbus = battery?.modbus != null;
       this.goals = goalsFormFromConfig(goals);
       this.operation = operationFormFromConfig(operation);
       this.devices = devices?.devices ?? [];
@@ -163,17 +177,20 @@ export class WizardStore {
   /** Sections with edits that are not stored yet (reads the forms, so it is reactive). */
   dirty(): DirtySection[] {
     if (!this.loaded) return [];
-    const { site, region, tariff, forecast, goals, operation } = this.saved;
+    const { site, region, tariff, forecast, battery, goals, operation } = this.saved;
     return dirtySections({
       forms: {
         site: this.site,
         region: this.region,
         tariff: this.tariff,
         forecast: this.forecast,
+        battery: this.battery,
         goals: this.goals,
         operation: this.operation,
       },
-      saved: { site, region, tariff, forecast, goals, operation },
+      saved: { site, region, tariff, forecast, battery, goals, operation },
+      modelDefaults: this.modelDefaults(this.saved.site),
+      batteryUsesModbus: this.batteryUsesModbus,
       deviceIds: this.devices.map((d) => d.id),
     });
   }
@@ -192,6 +209,7 @@ export class WizardStore {
     this.region = regionFormFromConfig(saved);
     app.region = saved;
     applyLanguage(saved.language);
+    applyTimeZone(saved.timezone);
   }
 
   async saveSite(): Promise<void> {
@@ -212,10 +230,36 @@ export class WizardStore {
 
   /** Store the forecast sources; nothing is written while there is nothing to keep. */
   async saveForecast(): Promise<void> {
-    if (this.forecast.templateIds.length === 0 && this.saved.forecast === null) return;
+    const f = this.forecast;
+    const nothing =
+      f.templateIds.length === 0 && f.workday.entity_id === '' && f.weather.entity_id === '';
+    if (nothing && this.saved.forecast === null) return;
     const saved = await api.putSection<ForecastConfig>('forecast', forecastFromForm(this.forecast));
     this.saved = { ...this.saved, forecast: saved };
     this.forecast = forecastFormFromConfig(saved);
+  }
+
+  /** The site battery's values that fill an empty battery model. */
+  private modelDefaults(site: SiteConfig | null): ModelDefaults {
+    const b = site?.battery;
+    return {
+      capacityKwh: b?.capacity_wh == null ? null : b.capacity_wh / 1000,
+      maxChargeW: b?.max_charge_w ?? null,
+      maxDischargeW: b?.max_discharge_w ?? null,
+      minSocPct: b?.min_soc_pct ?? null,
+      maxSocPct: b?.max_soc_pct ?? null,
+    };
+  }
+
+  /** Store the battery section (adapter, model, strategy, grid-charge policy). */
+  async saveBattery(): Promise<void> {
+    const saved = await api.putSection<BatterySettings>(
+      'battery',
+      batteryFromForm(this.battery, this.batteryUsesModbus),
+    );
+    this.saved = { ...this.saved, battery: saved };
+    this.battery = batteryFormFromConfig(saved, this.modelDefaults(this.saved.site));
+    this.batteryUsesModbus = saved.modbus != null;
   }
 
   async saveDevices(devices: DeviceConfig[]): Promise<void> {

@@ -4,18 +4,20 @@
 planner and a real-time surplus controller in one app – explainable, safe
 by default, set up in minutes.**
 
-> Status: **pre-alpha, Phase 3 implemented** (waiting for the maintainer's
-> shadow-mode test on real hardware). The beta app has a guided **setup
-> assistant**, a device template gallery (LG ThinQ air conditioner, generic
-> switch, climate and adjustable load, water heaters, Tibber, Solcast), the live
-> energy-flow view and a **real-time surplus controller** with a safety layer:
-> priorities, hysteresis, minimum run times, no grid import caused by SunCore,
-> respect for manual changes, an emergency stop, and a "Why?" and decision log
-> for every decision. Everything starts in **shadow mode** and switches nothing
-> until you set a device to automatic; the controller has never run against real
-> hardware yet. Forecasts, planner and battery control follow in Phase 4. See
-> [Surplus control](docs/user/en/surplus-control.md), the
-> [roadmap](docs/roadmap.md) and [status](docs/STATUS.md).
+> Status: **pre-alpha, Phase 4 implemented** (waiting for the maintainer's shadow-mode
+> tests on real hardware: first Phase 3, then Phase 4). The beta app has a guided **setup
+> assistant**, a device template gallery (LG ThinQ air conditioner, generic switch, climate and
+> adjustable load, water heaters, Tibber, Nord Pool, ENTSO-E, EPEX Spot, Octopus Energy, Solcast,
+> Forecast.Solar, Open-Meteo Solar Forecast, battery adapters), the live energy-flow view, a
+> **real-time surplus controller** and, new in Phase 4, **forecasts, tariffs, a 48 hour planner
+> and battery control**: a plan with a reason for every interval, a risk level and buffers, and
+> limits on your home battery (generic Home Assistant entities, Kostal Plenticore), all behind a
+> safety layer. Everything starts in **shadow mode** and switches or writes nothing until you
+> set a device or the battery to automatic or assisted; neither the controller nor the planner
+> and battery control have run against real hardware yet. See
+> [Planning and battery control](docs/user/en/planning-and-battery.md),
+> [Surplus control](docs/user/en/surplus-control.md), the [roadmap](docs/roadmap.md) and
+> [status](docs/STATUS.md).
 
 ![SunCore "Now" view: live energy flow between solar, grid, battery and house](docs/assets/screenshots/now-tablet-light-en.png)
 
@@ -68,6 +70,8 @@ young: see the roadmap.
   [Schnellstart](docs/user/de/quick-start.md)
 - [Surplus control](docs/user/en/surplus-control.md) ·
   [Überschusssteuerung](docs/user/de/surplus-control.md)
+- [Planning and battery control](docs/user/en/planning-and-battery.md) ·
+  [Planung und Akkusteuerung](docs/user/de/planning-and-battery.md)
 - [Contribute a device template](docs/user/en/device-templates.md) ·
   [Compatibility list](docs/user/compatibility.md)
 - [Roadmap](docs/roadmap.md) · [Status](docs/STATUS.md)
@@ -79,8 +83,9 @@ young: see the roadmap.
 Once the first beta is released, add `https://github.com/pxljake/suncore`
 as an app repository in Home Assistant (Settings → Apps → App store →
 menu → Repositories) and install **SunCore (beta)**. The beta guides you through
-the setup, shows the live energy flow and runs the surplus controller in shadow
-mode; there are no forecasts or planner yet.
+the setup, shows the live energy flow, runs the surplus controller, the planner and
+the battery control in shadow mode and lets you take them to assisted and automatic
+one step at a time.
 Start with the [quick start](docs/user/en/quick-start.md)
 ([Deutsch](docs/user/de/quick-start.md)). Menu names differ between Home
 Assistant versions (older ones say "Add-ons" and "Add-on store").

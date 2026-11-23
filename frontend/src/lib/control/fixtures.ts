@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Test fixtures for the control state (not part of the bundle: only imported by tests).
-import type { ControlState, Decision, DeviceControlState } from '../api/types';
+import type { BatteryControlState, ControlState, Decision, DeviceControlState } from '../api/types';
 
 export const device = (over: Partial<DeviceControlState> = {}): DeviceControlState => ({
   device_id: 'ac',
@@ -65,3 +65,28 @@ export const proposal = (
     observed: null,
     ...over,
   }) as Decision;
+
+export const batteryState = (over: Partial<BatteryControlState> = {}): BatteryControlState => ({
+  identity: 'bat-1',
+  adapter_template_id: 'generic.battery',
+  capabilities: ['min_soc', 'charge_limit', 'discharge_limit', 'grid_charge'],
+  global_mode: 'automatic',
+  battery_mode: 'shadow',
+  effective_mode: 'shadow',
+  mode_capped: false,
+  limits: {
+    kind: 'battery',
+    min_soc_pct: 10,
+    max_charge_w: 5000,
+    max_discharge_w: 5000,
+    grid_charge_w: 0,
+  },
+  held: null,
+  baseline: null,
+  under_control: false,
+  wanted: null,
+  reasons: [],
+  paused: null,
+  last_decision: null,
+  ...over,
+});

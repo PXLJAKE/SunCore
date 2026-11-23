@@ -15,6 +15,10 @@ const shots = [
   { view: 'now', path: '/', scheme: 'dark', locale: 'de-DE' },
   { view: 'settings', path: '/#/settings', scheme: 'light', locale: 'en-US' },
   { view: 'settings', path: '/#/settings', scheme: 'light', locale: 'de-DE' },
+  { view: 'plan', path: '/#/plan', scheme: 'light', locale: 'en-US' },
+  { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'en-US' },
+  { view: 'plan', path: '/#/plan', scheme: 'light', locale: 'de-DE' },
+  { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'de-DE' },
 ] as const;
 
 for (const shot of shots) {
@@ -33,10 +37,58 @@ for (const shot of shots) {
     if (shot.view === 'settings') {
       await expect(page.getByTestId('overview')).toBeVisible();
     }
+    if (shot.view === 'plan') {
+      await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
+      await expect(page.getByTestId('fc-accuracy')).toBeVisible();
+    }
     // Let the live feed deliver a few updates before the capture.
     await page.waitForTimeout(1500);
     const name = `${shot.view}-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
     await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
+    await ctx.close();
+  });
+}
+
+// The battery card and the next planned actions of the Now view (the demo runs the generic
+// battery adapter, see playwright.config.ts).
+for (const shot of [
+  { scheme: 'light', locale: 'en-US' },
+  { scheme: 'dark', locale: 'en-US' },
+  { scheme: 'light', locale: 'de-DE' },
+  { scheme: 'dark', locale: 'de-DE' },
+] as const) {
+  test(`now-battery ${shot.scheme} ${shot.locale}`, async ({ browser }, info) => {
+    test.skip(info.project.name === 'desktop', 'docs use phone and tablet');
+    const ctx = await browser.newContext({
+      colorScheme: shot.scheme,
+      locale: shot.locale,
+      viewport: info.project.use.viewport ?? { width: 1024, height: 768 },
+      hasTouch: info.project.use.hasTouch,
+    });
+    const page = await ctx.newPage();
+    await page.goto('/');
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
+    const card = page.getByTestId('battery-card');
+    await expect(card).toBeVisible();
+    await expect(
+      page.getByTestId('now-next-actions').getByTestId('planned-action').first(),
+    ).toBeVisible();
+    await page.waitForTimeout(1500);
+    const area = page.locator('main');
+    const name = `now-battery-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
+    // From the battery card to the end of the planned actions.
+    const top = (await card.boundingBox())!;
+    const next = (await page.getByTestId('now-next-actions').boundingBox())!;
+    await page.screenshot({
+      path: `${dir}/${name}.png`,
+      fullPage: true,
+      clip: {
+        x: 0,
+        y: Math.max(0, top.y - 8),
+        width: (await area.boundingBox())!.x * 2 + (await area.boundingBox())!.width,
+        height: next.y + next.height - top.y + 16,
+      },
+    });
     await ctx.close();
   });
 }
@@ -95,13 +147,20 @@ const wizardShots = [
     STEP_IDS.map((step) => ({ step, scheme: 'light' as const, locale })),
   ),
   ...(['en-US', 'de-DE'] as const).flatMap((locale) =>
-    (['devices', 'summary'] as const).map((step) => ({ step, scheme: 'dark' as const, locale })),
+    (['devices', 'summary', 'battery'] as const).map((step) => ({
+      step,
+      scheme: 'dark' as const,
+      locale,
+    })),
   ),
 ];
 
 for (const { step, scheme, locale } of wizardShots) {
   test(`wizard ${step} ${scheme} ${locale}`, async ({ browser }, info) => {
-    test.skip(info.project.name !== 'tablet', 'wizard pages are long: tablet only');
+    test.skip(
+      info.project.name === 'desktop' || (info.project.name === 'phone' && step !== 'battery'),
+      'wizard pages are long: tablet only (the battery step also on the phone)',
+    );
     const ctx = await browser.newContext({
       colorScheme: scheme,
       locale,

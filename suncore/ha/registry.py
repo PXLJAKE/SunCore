@@ -441,5 +441,20 @@ class EntityCatalogue:
     def device(self, device_id: str | None) -> RegistryDevice | None:
         return None if device_id is None else self._snapshot.devices.get(device_id)
 
+    def entry_labels(self) -> dict[str, str]:
+        """Config entry id -> a readable label (``manufacturer name``) from the device registry.
+
+        Home Assistant's registries carry no entry titles; the first device of an entry names it.
+        """
+        labels: dict[str, str] = {}
+        for device in self._snapshot.devices.values():
+            entry = device.config_entry_id
+            if entry is None or entry in labels:
+                continue
+            parts = [p for p in (device.manufacturer, device.name) if p]
+            if parts:
+                labels[entry] = " ".join(dict.fromkeys(parts))
+        return labels
+
     def area_name(self, area_id: str | None) -> str | None:
         return None if area_id is None else self._snapshot.areas.get(area_id)

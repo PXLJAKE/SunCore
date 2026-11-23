@@ -141,11 +141,13 @@ convert at the boundary (e.g. Kostal reports battery positive = discharging).
 
 ## 4. Planner, controller, safety in time
 
-The planner arrives in Phase 4; until then the controller consumes `Plan.default()`, which allows
-everything. Phase 4 WP8 added `suncore/planner` (`inputs.py` → `model.py` LP for HiGHS behind a
-`SolverBackend` protocol → `run.py` with the heuristic fallback and `explain.py` reasons); it
-depends on `core` only: the scheduler (WP9) collects prices, forecasts and the risk targets and
-hands them over through `build_inputs`, and runs `run()` in a worker thread.
+The planner (Phase 4) is in place: `suncore/planner` (`inputs.py` → `model.py` LP for HiGHS
+behind a `SolverBackend` protocol → `run.py` with the heuristic fallback and `explain.py`
+reasons) depends on `core` only. The scheduler (`suncore/app/planning.py`, `PlanningService`)
+collects prices, forecasts and the risk targets, hands them over through `build_inputs`, runs
+`run()` in a daemon worker thread (budget 8 s) every quarter hour and on events, and hands the
+plan to the controller once per tick. A missing, expired or stale plan (older than 2 h) means the
+controller consumes `Plan.default()`, which allows everything (the Phase 3 behaviour).
 The control layer (Phase 3) is composed in one place, `suncore/app/control.py`
 (`ControlStack`): entity cache, one driver and one power model per device, the controller
 (`suncore/controller`), the safety gate with its watchdog (`suncore/safety`) and the connection
@@ -244,8 +246,10 @@ back-off (also during an emergency stop) and nothing else is written. Devices ke
 Phase 3 rule "no SunCore-caused import" unchanged, and the charging power of a forced grid charge
 is never surplus for them.
 
-Deviation events: the controller reports when actual SoC, PV or load leave the plan's assumption
-corridor; the scheduler then re-plans early (rate limited to once per 5 minutes) from Phase 4 on.
+Deviation events: the planning service itself watches the live state of charge against the plan
+(more than 10 %-points off) and the grid power against the planned net power (more than 1500 W
+for 30 minutes, smoothed); either triggers an early re-plan. Event runs are debounced (at least
+60 s between starts) and merged into one run.
 
 ## 5. Safety state machine (per device and global)
 

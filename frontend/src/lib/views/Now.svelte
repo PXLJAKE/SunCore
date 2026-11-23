@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import BatteryCard from '../components/BatteryCard.svelte';
   import DecisionList from '../components/DecisionList.svelte';
   import ConfirmResult from '../components/ConfirmResult.svelte';
   import DeviceCard from '../components/DeviceCard.svelte';
@@ -7,16 +8,39 @@
   import SiteSummary from '../components/SiteSummary.svelte';
   import EnergyFlow from '../components/EnergyFlow.svelte';
   import FlowList from '../components/FlowList.svelte';
+  import PlannedActions from '../components/PlannedActions.svelte';
   import { nameMap } from '../control/present';
+  import { onMount } from 'svelte';
   import { t } from '../i18n/index.svelte';
+  import { isUsable } from '../flow';
+  import { plannedActions, windowIntervals } from '../plan/model';
   import { app } from '../stores/app.svelte';
   import { live } from '../stores/live.svelte';
+  import { plan } from '../stores/plan.svelte';
 
   const configured = $derived(app.site !== null);
   // Until the site config is known assume a battery, so the layout does not jump.
   const hasBattery = $derived(app.site === undefined || app.site?.battery != null);
   const devices = $derived(live.control?.devices ?? []);
-  const names = $derived(nameMap(devices));
+  const names = $derived(nameMap(devices, [['battery', t('battery.title')]]));
+  const battery = $derived(live.control?.battery ?? null);
+  const socPct = $derived(
+    isUsable(live.flows?.battery_soc_pct) ? live.flows.battery_soc_pct.value : null,
+  );
+  const batteryW = $derived(isUsable(live.flows?.battery_w) ? live.flows.battery_w.value : null);
+
+  // The plan feeds the "next planned actions"; it is fetched again when the feed announces one.
+  onMount(() => {
+    void plan.refresh();
+  });
+  $effect(() => {
+    void live.planUpdates;
+    void live.snapshotCount;
+    plan.syncWithFeed();
+  });
+  const upcoming = $derived(
+    plannedActions(windowIntervals(plan.view, 24, new Date(plan.nowMs)), new Date(plan.nowMs), 4),
+  );
   /** Unit of an adjustable load's value, from its configured control. */
   const unitOf = (id: string): string | undefined => {
     const c = app.devices?.devices?.find((d) => d.id === id)?.control;
@@ -48,6 +72,27 @@
   <ProposalList proposals={live.control?.proposals ?? []} {names} />
 
   {#if live.control?.site}<SiteSummary site={live.control.site} {devices} />{/if}
+
+  {#if battery}
+    <section aria-labelledby="battery-title" class="batt">
+      <h3 id="battery-title" class="sr-only">{t('battery.title')}</h3>
+      <BatteryCard {battery} {socPct} powerW={batteryW} />
+    </section>
+  {/if}
+
+  {#if plan.view && !plan.unavailable}
+    <section class="card next" aria-labelledby="next-title" data-testid="now-next-actions">
+      <div class="head">
+        <h3 id="next-title">{t('plan.next.title')}</h3>
+        <a href="#/plan">{t('plan.next.open')}</a>
+      </div>
+      {#if plan.outdated}
+        <p class="notice warn" data-testid="now-plan-outdated">{t('plan.now_outdated')}</p>
+      {:else}
+        <PlannedActions actions={upcoming} testid="now-planned-actions" />
+      {/if}
+    </section>
+  {/if}
 
   <section aria-labelledby="devices-title" class="devices">
     <h3 id="devices-title">{t('now.devices')}</h3>
