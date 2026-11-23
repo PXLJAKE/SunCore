@@ -113,8 +113,36 @@ Two optional inputs in step 4 (**Load forecast inputs**) improve it:
   records its outdoor temperature itself. The temperature term of the load forecast becomes
   active after 14 days with a recorded temperature.
 
-A machine-learning load model is **not available yet**; the panel says so. The profiles work from
-day one.
+The profiles work from day one.
+
+### The machine-learning load model
+
+Next to the profiles SunCore runs an optional **machine-learning load model**. It looks for the
+past days that resemble the coming one most (same kind of day – a holiday counts like a weekend
+day –, the same time of day, a similar outdoor temperature if a weather entity is mapped, and a
+similar load level over the past week) and forecasts each quarter hour from what the house used
+on those days, with a band from their spread. It needs no extra software and runs in a few tens of
+milliseconds.
+
+Choose its mode in step 4 under **Machine-learning load model**:
+
+- **Off**: it is not computed.
+- **Comparison only** (default): it is computed, stored and scored every night exactly like the
+  profiles, and shown in **Forecasts and accuracy** under *Machine-learning load model*, with both
+  errors side by side. The plan never uses it.
+- **Automatic**: the plan uses it only while two things hold: it has at least the history the
+  learning setting asks for (30 days by default), **and** in last night's comparison its mean
+  absolute error over the last 14 days was at least 2 % lower than the profiles'. Both models are
+  compared on exactly the same forecasts and quarter hours (at least a week of them). Once in use,
+  the model stays until it is no longer better at all, so it does not flip back and forth. Without
+  a fresh comparison (the nightly job failed) or with a model that could not be refitted since
+  yesterday, the plan stays on the profiles. Each plan then carries a short note which model it
+  used and why ("not enough history yet", "not clearly better", "more accurate than the profiles"
+  with both errors).
+
+The model is refitted once a day, the comparison is computed in the nightly job, so a switch
+between the models happens at most once a day. The risk model keeps learning its error
+distribution from the profile forecast.
 
 ## 3. Tariffs
 

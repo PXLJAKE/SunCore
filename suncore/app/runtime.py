@@ -83,7 +83,6 @@ from suncore.core.wizard import (
     run_system_check,
 )
 from suncore.forecast.accuracy import accuracy_view, load_accuracy
-from suncore.forecast.load import LOAD_SOURCE_ID
 from suncore.forecast.load_service import LoadForecastService
 from suncore.forecast.pv.calibration import load_bias
 from suncore.forecast.pv.clearsky import plant_geometry
@@ -386,7 +385,11 @@ class Runtime:
         prices = None if self.tariff is None else self.tariff.prices(48.0, now)
         blended = None if self.pv_service is None else self.pv_service.blended(now)
         pv = None if blended is None else blended.series
-        load = None if self.load_service is None else self.load_service.forecast(now)
+        load: QuantileSeries | None = None
+        load_reasons: tuple[Reason, ...] = ()
+        if self.load_service is not None:
+            load, choice = self.load_service.selected(now)
+            load_reasons = self.load_service.planning_reasons(choice)
         risk = self._risk(now, battery, pv, load)
         devices = [] if self.devices is None else list(self.devices.devices)
         inputs = build_inputs(
@@ -406,6 +409,7 @@ class Runtime:
             import_limit_w=site.grid.import_limit_w,
             export_limit_w=export_limit_w(site),
             previous=previous,
+            load_reasons=load_reasons,
         )
         complete = (
             (prices is None or any(v is not None for v in prices.import_price.values))
@@ -920,9 +924,12 @@ class Runtime:
     async def forecast_accuracy(self) -> ForecastAccuracyView:
         ids = [] if self.pv_service is None else [*self.pv_service.source_ids, BLENDED_SOURCE_ID]
         if self.load_service is not None:
-            ids.append(LOAD_SOURCE_ID)
+            ids.extend(self.load_service.source_ids)
         stored = {} if self.learned is None else await load_accuracy(self.learned, ids)
-        return accuracy_view(ids, stored)
+        view = accuracy_view(ids, stored)
+        if self.load_service is None:
+            return view
+        return view.model_copy(update={"load_model": self.load_service.model_view()})
 
     def next_maintenance_after(self, moment: datetime) -> datetime:
         """The first ``maintenance_time`` (site time zone, DST safe) strictly after ``moment``."""

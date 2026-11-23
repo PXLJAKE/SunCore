@@ -312,7 +312,11 @@ def _register_forecast(app: FastAPI, services: Services) -> None:
         days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
         forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
         clipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is
-        the base load forecast (scored on every quarter hour, not only in daylight)."""
+        the base load forecast (scored on every quarter hour, not only in daylight), ``load_ml``
+        the optional machine-learning (KNN) load model scored the same way unless
+        ``forecast.learning.load_ml_mode`` is ``off``. ``load_model`` compares the two ("ML vs
+        profile": pooled 14-day MAE) and says which one the planner uses and why
+        (``forecast.load_model.*`` reason); ``null`` without a load forecast."""
         return await services.forecast_accuracy()
 
     @app.get(f"{API_PREFIX}/forecast/load", response_model=LoadForecastView)

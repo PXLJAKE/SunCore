@@ -202,26 +202,8 @@ async def compute_accuracy(
     daylight_only = kind == "pv"
     issues = await data.forecast_issues(source_id, kind, start - BUCKETS[-1][2])
     sums = {bucket: _Sums() for bucket, _, _ in BUCKETS}
-    for index, issued in enumerate(issues):
-        following = issues[index + 1] if index + 1 < len(issues) else None
-        ranges: list[tuple[HorizonBucket, datetime, datetime]] = []
-        for bucket, lower, upper in BUCKETS:
-            lo = _ceil(max(start, issued + lower))
-            upper_edge = min(end, issued + upper)
-            if following is not None:
-                upper_edge = min(upper_edge, following + lower)  # then a newer issue is judged
-            hi = _ceil(upper_edge)
-            if hi > lo:
-                ranges.append((bucket, lo, hi))
-        if not ranges:
-            continue
-        # One read per issue over the union of its buckets; a forecast slot may start before
-        # the first quarter hour and still cover it.
-        first = min(lo for _, lo, _ in ranges)
-        last = max(hi for _, _, hi in ranges)
-        forecast = await data.read_forecast(
-            source_id, kind, issued, TimeRange(start=first - timedelta(hours=1), end=last)
-        )
+    for issued, ranges, read in _issue_ranges(issues, start, end):
+        forecast = await data.read_forecast(source_id, kind, issued, read)
         if forecast is None:
             continue
         for bucket, lo, hi in ranges:
@@ -241,6 +223,98 @@ async def compute_accuracy(
         for bucket, _, _ in BUCKETS
         if (total := sums[bucket]).n > 0
     ]
+
+
+def _issue_ranges(
+    issues: Sequence[datetime], start: datetime, end: datetime
+) -> list[tuple[datetime, list[tuple[HorizonBucket, datetime, datetime]], TimeRange]]:
+    """Per issue the ``(bucket, from, to)`` ranges it is judged on (module doc) and the window
+    to read: an issue counts for a bucket only inside its lead time and only until a newer
+    issue takes over; one read per issue over the union of its buckets (a forecast slot may
+    start before the first quarter hour and still cover it)."""
+    out: list[tuple[datetime, list[tuple[HorizonBucket, datetime, datetime]], TimeRange]] = []
+    for index, issued in enumerate(issues):
+        following = issues[index + 1] if index + 1 < len(issues) else None
+        ranges: list[tuple[HorizonBucket, datetime, datetime]] = []
+        for bucket, lower, upper in BUCKETS:
+            lo = _ceil(max(start, issued + lower))
+            upper_edge = min(end, issued + upper)
+            if following is not None:
+                upper_edge = min(upper_edge, following + lower)  # then a newer issue is judged
+            hi = _ceil(upper_edge)
+            if hi > lo:
+                ranges.append((bucket, lo, hi))
+        if not ranges:
+            continue
+        first = min(lo for _, lo, _ in ranges)
+        last = max(hi for _, _, hi in ranges)
+        out.append((issued, ranges, TimeRange(start=first - timedelta(hours=1), end=last)))
+    return out
+
+
+@dataclass(frozen=True, slots=True)
+class PairedAccuracy:
+    """Two sources scored on exactly the same quarter hours (WP12 model choice).
+
+    Only issues both sources stored at the same time count, and in them only the quarter hours
+    where both forecasts and the measurement are known, pooled over the horizon buckets; so the
+    two MAEs compare like with like. ``computed_at`` is when the nightly job computed it."""
+
+    source_a: str
+    source_b: str
+    mae_a_w: float
+    mae_b_w: float
+    n: int
+    computed_at: datetime
+
+
+async def compute_paired_accuracy(
+    data: AccuracyData,
+    source_a: str,
+    source_b: str,
+    now: datetime,
+    *,
+    kind: ForecastKind,
+    actual_reader: ActualReader,
+    window_days: int = WINDOW_DAYS,
+) -> PairedAccuracy:
+    """MAE of ``source_a`` and ``source_b`` on their common issues and quarter hours (every
+    quarter hour counts, as for the load forecast)."""
+    end = floor_to_step(now, PLANNING_STEP)
+    start = end - timedelta(days=window_days)
+    actual = await actual_reader(TimeRange(start=start, end=end))
+    since = start - BUCKETS[-1][2]
+    common = sorted(
+        set(await data.forecast_issues(source_a, kind, since))
+        & set(await data.forecast_issues(source_b, kind, since))
+    )
+    abs_a = abs_b = 0.0
+    n = 0
+    for issued, ranges, read in _issue_ranges(common, start, end):
+        fa = await data.read_forecast(source_a, kind, issued, read)
+        fb = await data.read_forecast(source_b, kind, issued, read)
+        if fa is None or fb is None:
+            continue
+        for _, lo, hi in ranges:
+            measured = _slice(actual, lo, hi)
+            if not len(measured):
+                continue
+            grid = Grid(start=measured.start, step=measured.step, count=len(measured))
+            pa, pb = resample_power(fa.p50, grid), resample_power(fb.p50, grid)
+            for value, a, b in zip(measured.values, pa.values, pb.values, strict=True):
+                if value is None or a is None or b is None:
+                    continue
+                abs_a += abs(value - a)
+                abs_b += abs(value - b)
+                n += 1
+    return PairedAccuracy(
+        source_a=source_a,
+        source_b=source_b,
+        mae_a_w=abs_a / n if n else 0.0,
+        mae_b_w=abs_b / n if n else 0.0,
+        n=n,
+        computed_at=now,
+    )
 
 
 def _ceil(moment: datetime) -> datetime:
@@ -391,9 +465,11 @@ __all__ = [
     "ClipFilter",
     "ForecastKind",
     "LearnedParams",
+    "PairedAccuracy",
     "StoredAccuracy",
     "accuracy_view",
     "compute_accuracy",
+    "compute_paired_accuracy",
     "load_accuracy",
     "no_clipping",
     "quarter_errors",

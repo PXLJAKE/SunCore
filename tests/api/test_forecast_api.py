@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 from suncore.api import create_app
+from suncore.core.decisions import Reason
 from suncore.core.forecast import AccuracyRecord, HorizonBucket
 from suncore.forecast.accuracy import StoredAccuracy, accuracy_view
 from suncore.forecast.views import (
     BlendedView,
     BlendWeightsView,
     CalibrationView,
+    LoadModelView,
     PvForecastView,
     PvSeriesView,
     PvSourceView,
@@ -155,6 +157,62 @@ async def test_accuracy_shape(services: FakeServices) -> None:
     assert other["computed_at"] is None
 
 
+async def test_accuracy_compares_the_ml_model_with_the_profiles(services: FakeServices) -> None:
+    records = {
+        source: StoredAccuracy(
+            source,
+            NOW,
+            14,
+            (
+                AccuracyRecord(
+                    source_id=source, horizon=HorizonBucket.H0_6, mae_w=mae, bias_w=5.0, n=1344
+                ),
+            ),
+        )
+        for source, mae in (("load_profile", 120.0), ("load_ml", 90.0))
+    }
+    view = accuracy_view(["load_profile", "load_ml"], records)
+    services.accuracy = view.model_copy(
+        update={
+            "load_model": LoadModelView(
+                mode="auto",
+                in_use="ml",
+                reason=Reason(
+                    key="forecast.load_model.ml_in_use",
+                    args={"ml_mae_w": 90, "profile_mae_w": 120},
+                ),
+                ml_ready=True,
+                ml_days=45,
+                min_history_days=30,
+                profile_mae_w=120.0,
+                ml_mae_w=90.0,
+                compared_n=1344,
+                compared_at=NOW,
+            )
+        }
+    )
+    async with client_for(create_app(services)) as client:
+        r = await client.get("/api/v1/forecast/accuracy")
+    body = r.json()
+    assert r.status_code == 200
+    assert [s["source_id"] for s in body["sources"]] == ["load_profile", "load_ml"]
+    model = body["load_model"]
+    assert model["mode"] == "auto"
+    assert model["in_use"] == "ml"
+    assert model["reason"] == {
+        "key": "forecast.load_model.ml_in_use",
+        "args": {"ml_mae_w": 90, "profile_mae_w": 120},
+    }
+    assert model["ml_days"] == 45
+    assert model["ml_mae_w"] == 90.0
+
+
+async def test_accuracy_without_a_load_forecast_has_no_model(services: FakeServices) -> None:
+    async with client_for(create_app(services)) as client:
+        body = (await client.get("/api/v1/forecast/accuracy")).json()
+    assert body["load_model"] is None
+
+
 async def test_the_openapi_document_describes_both_routes(services: FakeServices) -> None:
     schema = create_app(services).openapi()
     for path in ("/api/v1/forecast/pv", "/api/v1/forecast/accuracy"):
@@ -165,6 +223,7 @@ async def test_the_openapi_document_describes_both_routes(services: FakeServices
     accuracy = schema["paths"]["/api/v1/forecast/accuracy"]["get"]["description"]
     assert "actual -" in accuracy
     assert "blended" in accuracy
+    assert "load_ml" in accuracy
 
 
 async def test_load_forecast_endpoint() -> None:

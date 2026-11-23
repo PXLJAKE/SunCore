@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Forecast section (v2) <-> form: the PV forecast sources (templates plus the entities of their
 // roles, weight, Forecast.Solar config entry) and the load forecast inputs (workday sensor,
-// weather entity). Independent of the tariff, so the choice can be stored without prices. The
-// learning settings have no form fields yet and are carried through unchanged.
+// weather entity, the mode of the machine-learning load model). Independent of the tariff, so the
+// choice can be stored without prices. `min_history_days` has no form field and is carried
+// through unchanged.
 import type { ForecastConfig } from '../api/types';
 import { emptyRef, fromRef, toRef, type RefField } from './forms';
 
 type Source = NonNullable<ForecastConfig['sources']>[number];
+type Learning = NonNullable<ForecastConfig['learning']>;
+export type LoadMlMode = Learning['load_ml_mode'];
+
+/** Defaults of the `learning` block (backend `LearningSettings`). */
+export const DEFAULT_LEARNING: Learning = { min_history_days: 30, load_ml_mode: 'shadow' };
 
 export interface ForecastForm {
   templateIds: string[];
@@ -73,7 +79,7 @@ export function forecastFromForm(form: ForecastForm): ForecastConfig {
   return {
     schema_version: 2,
     sources,
-    learning: form.learning ?? { min_history_days: 30, load_ml_mode: 'shadow' },
+    learning: form.learning ?? DEFAULT_LEARNING,
     load: { workday: toRef(form.workday, false), weather: toRef(form.weather, false) },
   };
 }
@@ -101,4 +107,14 @@ export function setForecastTemplate(
 export function ensureRoleFields(form: ForecastForm, id: string, roles: readonly string[]): void {
   const own = (form.entities[id] ??= {});
   for (const role of roles) own[role] ??= emptyRef();
+}
+
+/** Mode of the machine-learning load model as the form holds it. */
+export function loadMlMode(form: ForecastForm): LoadMlMode {
+  return (form.learning ?? DEFAULT_LEARNING).load_ml_mode;
+}
+
+/** Set the mode of the machine-learning load model, keeping the other learning settings. */
+export function setLoadMlMode(form: ForecastForm, mode: LoadMlMode): void {
+  form.learning = { ...(form.learning ?? DEFAULT_LEARNING), load_ml_mode: mode };
 }

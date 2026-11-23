@@ -151,7 +151,8 @@ async def test_changing_the_forecast_section_rebuilds_the_service(runtime: Runti
     assert view.sources == []
     assert view.blended is None
     accuracy = await runtime.forecast_accuracy()
-    assert [s.source_id for s in accuracy.sources] == ["load_profile"]  # the load forecast
+    # the load forecast: profiles and the ML load model in shadow (default, WP12)
+    assert [s.source_id for s in accuracy.sources] == ["load_profile", "load_ml"]
 
 
 async def test_unusable_templates_are_skipped_not_fatal(runtime: Runtime) -> None:
@@ -194,6 +195,7 @@ async def test_the_nightly_job_stores_accuracy_that_the_api_reads(runtime: Runti
         "forecast_solar.pv",
         "blended",
         "load_profile",  # the load forecast is scored by the same nightly job (WP6)
+        "load_ml",  # and the ML load model in shadow (WP12)
     }
     record = next(r for r in by_id["solcast.pv"].records if r.horizon is HorizonBucket.H6_24)
     assert record.bias_w == 300.0

@@ -10,7 +10,12 @@ import {
   validateBatteryForm,
 } from './batteryForm';
 import { dirtySections } from './dirty';
-import { forecastFormFromConfig, forecastFromForm } from './forecastForm';
+import {
+  forecastFormFromConfig,
+  forecastFromForm,
+  loadMlMode,
+  setLoadMlMode,
+} from './forecastForm';
 import { emptyWindow, isWindowValid, toggleDay, toggleMonth } from './scheduleForm';
 import { regionFormFromConfig } from './regionForm';
 import { emptySiteForm } from './siteForm';
@@ -148,6 +153,19 @@ describe('forecast form (phase 4 fields)', () => {
   };
   it('keeps the config entry, weights and the load inputs', () => {
     expect(forecastFromForm(ffc(cfg))).toEqual(cfg);
+  });
+  it('sets the mode of the machine-learning load model and keeps the history days', () => {
+    const form = forecastFormFromConfig({
+      ...cfg,
+      learning: { min_history_days: 45, load_ml_mode: 'shadow' },
+    });
+    expect(loadMlMode(form)).toBe('shadow');
+    setLoadMlMode(form, 'auto');
+    expect(forecastFromForm(form).learning).toEqual({ min_history_days: 45, load_ml_mode: 'auto' });
+    const fresh = forecastFormFromConfig(null);
+    expect(loadMlMode(fresh)).toBe('shadow');
+    setLoadMlMode(fresh, 'off');
+    expect(forecastFromForm(fresh).learning).toEqual({ min_history_days: 30, load_ml_mode: 'off' });
   });
   it('an unset manual weight falls back to automatic instead of an invalid document', () => {
     const form = forecastFormFromConfig(cfg);
