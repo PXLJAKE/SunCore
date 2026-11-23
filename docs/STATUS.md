@@ -10,6 +10,44 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 – PR 5-E, WP5 parameter registry and expert API (branch `phase-5/e-params`;
+  `backend-engineer`, safety bounds proposed for `control-safety` review)**:
+  - `suncore/core/params.py`: `ParamSpec` registry (key, kind, unit, default, hard range, group,
+    tags `expert|safety|restart|whatif`, catalogue keys `param.<key>.name|help`), range check
+    (`ParamError` -> `suncore.param_*` validation keys). 32 parameters: 21 controller
+    (`ControlSettings`; 16 `safety`), 7 planner/solver, 4 config
+    (`tariff.export.remunerate_negative`, `tariff.export.negative_reference_entity`,
+    `forecast.learning.min_history_days|load_ml_mode`).
+    Config parameters take default/range from the model field and are tagged by
+    `json_schema_extra={"param": ...}`; the rest is an explicit table (controller defaults read from
+    `ControlSettings`, planner defaults tied to the runtime by a test).
+  - Safety: `core/control.py::SAFETY_LIMITS` is the single table of hard bounds (inside the model
+    bounds, around the defaults); the registry range of every `safety` key *is* that table, the
+    `expert` document model rejects values outside, `overrides_for` clamps once more at start-up.
+    No parameter can switch a check off (every limit has a positive minimum except the deficit
+    battery budget, where 0 = no deficit allowed). `PUT /config/expert` refuses a changed safety
+    value without `/params` confirmation.
+  - New optional section `expert` (`core/expert.py`, schema v1, sparse `overrides` map, absent =
+    today's behaviour, golden-tested); stored/exported/history like any section. Hot apply:
+    `Runtime._apply_expert` swaps the planner settings in place (`PlanningService.update_settings`)
+    and rebuilds the control stack (same hand-over as a device edit) only when a controller value
+    changed; no parameter needs `restart`. The demo stores an empty section.
+  - Tariff (§51 EEG switch and reference spot, plan question 8): `tariff.export.remunerate_negative`
+    (default off) turns the region's `no_remuneration` rule off for the plant;
+    `tariff.export.negative_reference_entity` (sensor, default unset) lets the rule judge a real
+    spot price for the **current slot** of an all-in source (a price sensor has no curve; later
+    slots keep the proxy). Both additive in tariff v3, watched/subscribed like the price entity.
+  - API: `GET|PUT /api/v1/params`, `POST /api/v1/params/reset` (`suncore/api/params.py`); PUT is
+    all-or-nothing, 422 for unknown key/type/range, 422 `param_confirm_required` for a changed
+    safety value without `confirm_safety`, 409 when a config parameter's section does not exist.
+    OpenAPI and `schema.d.ts` regenerated.
+  - `scripts/gen_params.py` (+ `--check` in `check.sh` and CI) writes
+    `docs/reference/parameters.md` and `parameters.de.md`; en/de catalogue keys added
+    (`check_reasons` also checks the registry keys).
+  - Tests: registry/range/safety (hypothesis: no accepted value leaves `SAFETY_LIMITS`, forced
+    out-of-range rows are clamped), API, `expert` section storage/migration, wiring (golden of
+    `ControlSettings`/`PlanningSettings`, stack rebuild, negative-price switch), generator.
+
 - **Phase 4 – PR 4-I, WP12 optional ML load model (branch `phase-4/i-ml-load`, stacked on 4-H;
   `optimizer-engineer`)**:
   - `suncore/forecast/load_ml.py` (NumPy only): KNN on analogue days - quarter-hour samples of
