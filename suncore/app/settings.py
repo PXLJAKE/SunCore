@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     """Demo only (env SUNCORE_DEMO_BATTERY_CONTROL): the simulated house gets a controllable
     inverter and the demo stores a ``generic.battery`` adapter, so the UI can show the battery
     card (used by the Playwright run and the screenshots). Off = the battery is observe only."""
+    demo_history_days: int = Field(default=90, ge=0, le=365)
+    """Demo only (env SUNCORE_DEMO_HISTORY_DAYS): days of deterministic made-up history seeded
+    into the demo's throw-away database (history view, plan chart, forecast skill); 0 = none."""
     data_dir: Path = Path("/data")
     port: int = Field(default=8099, ge=1, le=65535)
     host: str = "0.0.0.0"

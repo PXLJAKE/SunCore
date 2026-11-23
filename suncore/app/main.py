@@ -159,6 +159,17 @@ async def build_runtime(  # noqa: PLR0915 - the composition root
             await seed_demo_config(
                 config, template_catalog, battery_control=settings.demo_battery_control
             )
+            if wiring is not None and settings.demo_history_days > 0 and timeseries is not None:
+                from suncore.sim.demo_history import (  # noqa: PLC0415
+                    seed_demo_decisions,
+                    seed_demo_history,
+                    seed_demo_plans,
+                )
+
+                seeded_at = clock()
+                await seed_demo_history(timeseries, now=seeded_at, days=settings.demo_history_days)
+                await seed_demo_decisions(decision_log, now=seeded_at)
+                await seed_demo_plans(PlanSnapshotStore(db, clock=clock), now=seeded_at)
         else:
             await config.migrate_legacy_forecast()
         # Demo: `db` lives in a throw-away temp dir, so nothing below touches /data either.

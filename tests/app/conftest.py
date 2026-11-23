@@ -36,6 +36,7 @@ class RecordingConnection(FakeHAConnection):
 
 
 def demo_settings(tmp_path: Path, **kw: object) -> Settings:
+    kw.setdefault("demo_history_days", 0)  # the made-up history is seeded only where asked for
     return Settings(
         demo_mode=True,
         demo_speed=kw.pop("demo_speed", 6000.0),  # type: ignore[arg-type]
