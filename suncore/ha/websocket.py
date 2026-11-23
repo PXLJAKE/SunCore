@@ -99,6 +99,7 @@ from suncore.ha.connection import (
     action_rate_key,
 )
 from suncore.ha.redact import DEFAULT_REGISTRY, SecretRegistry
+from suncore.ha.solar_forecast import parse_solar_forecast
 from suncore.ha.transport import Transport
 
 log = structlog.get_logger(__name__)
@@ -448,6 +449,13 @@ class WebSocketConnection:
             msg = "energy/get_prefs returned a non-object"
             raise ProtocolError(msg)
         return cast("Mapping[str, Any]", result)
+
+    async def energy_solar_forecast(self) -> Mapping[str, Mapping[str, float]]:
+        result = await self._command({"type": "energy/solar_forecast"})
+        if not isinstance(result, Mapping):
+            msg = "energy/solar_forecast returned a non-object"
+            raise ProtocolError(msg)
+        return parse_solar_forecast(result)
 
     async def subscribe_registry_updates(self, listener: RegistryListener) -> Unsubscribe:
         self._registry_listeners.append(listener)

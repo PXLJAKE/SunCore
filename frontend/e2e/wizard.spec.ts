@@ -136,7 +136,10 @@ test.describe('setup wizard', () => {
       import: { kind: 'fixed', fixed_price: 0.32 },
       export: { kind: 'fixed', fixed_price: 0.08 },
     });
-    expect(await get('forecast')).toMatchObject({ sources: [{ template_id: 'solcast.pv' }] });
+    // The demo keeps its other forecast sources (Open-Meteo, Forecast.Solar); Solcast is checked.
+    expect(await get('forecast')).toMatchObject({
+      sources: expect.arrayContaining([expect.objectContaining({ template_id: 'solcast.pv' })]),
+    });
     const devices = (await get('devices')).devices;
     expect(devices).toHaveLength(1);
     expect(devices[0]).toMatchObject({ template_id: 'generic.switch', priority: 0 });

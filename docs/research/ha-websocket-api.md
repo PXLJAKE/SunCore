@@ -49,7 +49,7 @@ the connector takes the URL and token as parameters.
 | `call_service` | `domain`, `service`, `service_data`, `target`, `return_response` | actuation; `return_response: true` for actions that return data (`weather.get_forecasts`, `tibber.get_prices`, `solcast_solar.query_forecast_data`, `nordpool.get_prices_for_date`) |
 | `get_states` | – | initial snapshot |
 | `get_services` | – | capability discovery (which actions exist) |
-| `get_config` | – | unit system, time zone, currency, location, version |
+| `get_config` | – | unit system, time zone, currency, location, version; `latitude`/`longitude` (floats, degrees) feed the PV clear-sky model of the forecast calibration – verified in `home-assistant/core` `5cfe9aad7cb428c2c2ebb449719ae81976780de1` `homeassistant/core_config.py` `Config.as_dict` (lines 706, 713) returned unchanged by `websocket_api/commands.py` `handle_get_config` (only `external_url` is removed for local-only users) |
 | `config/entity_registry/list_for_display` (preferred), `config/entity_registry/list`, `config/device_registry/list`, `config/area_registry/list` | – | setup wizard auto-detection (platform, device, area, category, translation key); verified, shapes in [Registries](#registries) |
 | `render_template` | `template` | last resort for integrations without actions |
 | `energy/get_prefs` | – | pre-fill from the Energy dashboard |
@@ -454,8 +454,9 @@ PyPI wheels `forecast-solar 5.0.1`, `open-meteo-solar-forecast 0.1.32`.
     with `begin <= timestamp < end` for "current hour"
     (`forecast-solar 5.0.1` wheel, `forecast_solar/models.py` `_interval_value_sum`), i.e. it
     treats the key as the *start* of
-    the period. Entries with value 0 are dropped except non-midnight ones
-    (`val != 0 or time != 00:00:00`). `UNVERIFIED`: whether the vendor API itself
+    the period. Only an entry with value 0 that starts exactly at 00:00:00 is
+    dropped; every other zero is listed (kept: `val != 0 or time != 00:00:00`).
+    `UNVERIFIED`: whether the vendor API itself
     labels `watt_hours_period` keys as period start or end (api.forecast.solar
     unreachable); the HA library's own usage implies start.
   - `open_meteo_solar_forecast` (HACS, `energy.py`): `wh_period`, hourly, key =

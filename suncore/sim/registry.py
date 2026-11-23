@@ -41,6 +41,7 @@ DEV_WATER_HEATER: Final = "sim_dev_water_heater"
 DEV_WATER_HEATER_RELAYS: Final = "sim_dev_water_heater_relays"
 DEV_TIBBER: Final = "sim_dev_tibber"
 DEV_SOLCAST: Final = "sim_dev_solcast"
+DEV_OPEN_METEO: Final = "sim_dev_open_meteo"
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +125,25 @@ ENTITIES: Final[tuple[RegEntity, ...]] = (
         None,
         "total_kwh_forecast_tomorrow",
     ),
+    # Open-Meteo Solar Forecast: translation key assumed to equal the sensor key (UNVERIFIED).
+    RegEntity(
+        d.OPEN_METEO_TODAY_ID,
+        "open_meteo_solar_forecast",
+        "Energy production - today",
+        DEV_OPEN_METEO,
+        None,
+        "energy_production_today",
+    ),
+    RegEntity(
+        d.OPEN_METEO_TOMORROW_ID,
+        "open_meteo_solar_forecast",
+        "Energy production - tomorrow",
+        DEV_OPEN_METEO,
+        None,
+        "energy_production_tomorrow",
+    ),
+    # A user's Home Assistant template sensor that exposes the generic forecast attribute.
+    RegEntity(d.TEMPLATE_FORECAST_ID, "template", "PV forecast", DEV_HOUSE),
 )
 
 AREAS: Final[tuple[tuple[str, str], ...]] = ((AREA_LIVING, "Living room"), (AREA_GARDEN, "Garden"))
@@ -153,12 +173,21 @@ _DEVICES: Final[tuple[tuple[str, str, str, str, str | None, str | None], ...]] =
     ),
     (DEV_TIBBER, "Home", "Tibber", "Price Sensor", None, "service"),
     (DEV_SOLCAST, "Solcast PV Forecast", "BJReplay", "Solcast PV Forecast", None, "service"),
+    (
+        DEV_OPEN_METEO,
+        "Solar production forecast",
+        "Open-Meteo",
+        "Solar production forecast",
+        None,
+        "service",
+    ),
 )
 _DEVICE_DOMAIN: Final[dict[str, str]] = {
     DEV_AC: "lg_thinq",
     DEV_AC_B: "smartthinq_sensors",
     DEV_TIBBER: "tibber",
     DEV_SOLCAST: "solcast_solar",
+    DEV_OPEN_METEO: "open_meteo_solar_forecast",
 }
 
 
@@ -303,7 +332,10 @@ def energy_prefs(battery_capacity_kwh: float) -> dict[str, Any]:
                 "type": "solar",
                 "stat_energy_from": d.PV_KWH_ID,
                 "stat_rate": "sensor.sim_pv_power",
-                "config_entry_solar_forecast": ["sim_entry_solcast_solar"],
+                "config_entry_solar_forecast": [
+                    "sim_entry_solcast_solar",
+                    "sim_entry_forecast_solar",
+                ],
             },
             {
                 "type": "battery",

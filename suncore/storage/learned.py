@@ -27,9 +27,17 @@ NS_NET_ERROR: Final = "net_error"
 NS_LOAD_PROFILE: Final = "load_profile"
 NS_BLEND_WEIGHTS: Final = "blend_weights"
 NS_ML_STATE: Final = "ml_state"
+NS_FORECAST_ACCURACY: Final = "forecast_accuracy"
 
 KNOWN_NAMESPACES: Final[frozenset[str]] = frozenset(
-    {NS_FORECAST_BIAS, NS_NET_ERROR, NS_LOAD_PROFILE, NS_BLEND_WEIGHTS, NS_ML_STATE}
+    {
+        NS_FORECAST_BIAS,
+        NS_NET_ERROR,
+        NS_LOAD_PROFILE,
+        NS_BLEND_WEIGHTS,
+        NS_ML_STATE,
+        NS_FORECAST_ACCURACY,
+    }
 )
 """The namespaces Phase 4 uses; other well-formed names are accepted (later phases)."""
 
@@ -138,6 +146,7 @@ class LearnedParamStore:
 __all__ = [
     "KNOWN_NAMESPACES",
     "NS_BLEND_WEIGHTS",
+    "NS_FORECAST_ACCURACY",
     "NS_FORECAST_BIAS",
     "NS_LOAD_PROFILE",
     "NS_ML_STATE",

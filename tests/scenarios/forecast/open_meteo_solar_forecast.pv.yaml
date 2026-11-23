@@ -1,0 +1,15 @@
+template: open_meteo_solar_forecast.pv
+sim_scenario: summer_day
+roles:
+  energy_today:
+    entity: sensor.sim_open_meteo_energy_production_today
+    unit: kWh
+    criteria: [domain, device_class, translation_key, platforms, units]
+  energy_tomorrow:
+    entity: sensor.sim_open_meteo_energy_production_tomorrow
+    unit: kWh
+    criteria: [domain, device_class, translation_key, platforms, units]
+  energy_d2:
+    none: true
+  energy_d3:
+    none: true

@@ -1,0 +1,4 @@
+# No entity roles: the series comes from `energy/solar_forecast` (config entry chosen by the user).
+template: forecast_solar.pv
+sim_scenario: summer_day
+roles: {}

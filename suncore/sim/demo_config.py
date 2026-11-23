@@ -36,6 +36,8 @@ from suncore.sim.demo_devices import (
     AC_ID,
     FORECAST_TODAY_ID,
     FORECAST_TOMORROW_ID,
+    OPEN_METEO_TODAY_ID,
+    OPEN_METEO_TOMORROW_ID,
     POOL_POWER_ID,
     POOL_SWITCH_ID,
     PRICE_ID,
@@ -181,7 +183,18 @@ async def seed_demo_config(config: ConfigStore, catalog: TemplateCatalog) -> Non
                         "forecast_today": EntityRef(entity_id=FORECAST_TODAY_ID),
                         "forecast_tomorrow": EntityRef(entity_id=FORECAST_TOMORROW_ID),
                     },
-                )
+                ),
+                ForecastSourceConfig(
+                    template_id="open_meteo_solar_forecast.pv",
+                    entities={
+                        "energy_today": EntityRef(entity_id=OPEN_METEO_TODAY_ID),
+                        "energy_tomorrow": EntityRef(entity_id=OPEN_METEO_TOMORROW_ID),
+                    },
+                ),
+                # Two entries are linked in the demo's Energy dashboard: the choice is explicit.
+                ForecastSourceConfig(
+                    template_id="forecast_solar.pv", config_entry_id="sim_entry_forecast_solar"
+                ),
             ],
         ),
     )

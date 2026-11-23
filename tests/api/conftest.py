@@ -22,7 +22,6 @@ from suncore.api import (
     HAUnavailableError,
     HealthReport,
     PeerPolicy,
-    TariffNotConfiguredError,
     UnknownRoleError,
     UnknownTemplateError,
 )
@@ -52,13 +51,14 @@ from suncore.core.devices import DeviceKind
 from suncore.core.signals import Quality
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, PreviewTooLargeError
+from suncore.forecast.accuracy import accuracy_view
+from suncore.forecast.views import ForecastAccuracyView, PvForecastView
 from suncore.storage import (
     HistoryEntry,
     HistoryEntryNotFoundError,
     ImportRejectedError,
     UnknownSectionError,
 )
-from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog, load_templates
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates"
@@ -210,14 +210,16 @@ class FakeServices:
         self.proposal_list: list[Decision] = []
         self.operation = OperationConfig()
         self.control_listeners: list[Callable[[], None]] = []
-        self.price_report: PriceReport | None = None
-        self.price_hours: list[int] = []
+        self.pv_view = PvForecastView(generated_at=NOW, hours=48, sources=[], blended=None)
+        self.accuracy = accuracy_view([], {})
+        self.pv_hours: list[int] = []
 
-    async def prices(self, hours: int) -> PriceReport:
-        self.price_hours.append(hours)
-        if self.price_report is None:
-            raise TariffNotConfiguredError
-        return self.price_report
+    async def pv_forecast(self, hours: int) -> PvForecastView:
+        self.pv_hours.append(hours)
+        return self.pv_view
+
+    async def forecast_accuracy(self) -> ForecastAccuracyView:
+        return self.accuracy
 
     async def health(self) -> HealthReport:
         self.health_calls += 1
