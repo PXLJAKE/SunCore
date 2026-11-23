@@ -72,7 +72,9 @@ jobs:
 
   frontend:
     name: Frontend
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.56.1 cannot install Chromium on the ubuntu-latest image
+    # (ubuntu 26.04, "Playwright does not support chromium on ubuntu26.04-x64").
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:

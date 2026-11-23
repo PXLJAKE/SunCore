@@ -11,11 +11,18 @@ from __future__ import annotations
 import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum, unique
-from typing import Annotated, Final, Self
+from typing import Annotated, Any, Final, Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from suncore.core.balance import FlowSnapshot
 from suncore.core.decisions import Reason
@@ -181,6 +188,22 @@ class BatteryBand(_Frozen):
     max_soc_pct: Annotated[float, Field(ge=0, le=100)] | None = None
     charge_from_surplus: bool = True
     """``False`` = surplus goes to consumers before the battery (``climate_before_export``)."""
+    priority_until_soc_pct: Annotated[float, Field(ge=0, le=100)] | None = None
+    """Plan v2: battery first until the *live* SoC reaches this value, then surplus may go
+    to consumers. Evaluated by the controller against the measured SoC every tick (robust
+    against plan deviation; an unknown SoC counts as not reached); ``None`` = no such rule.
+    It only takes surplus away from the consumers (``controller.surplus``)."""
+    grid_charge_max_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
+    """ADR-0013 decision 4: the most the battery may charge **from the grid** in this
+    interval (W); ``None`` = no grid charging planned. Set by the planner only where the
+    effective grid-charge policy (price level, schedule) and the spread rule allow it. The
+    gate bounds a ``grid_charge_w`` by it (invariant B2/B3, Phase 4 WP10); until then the
+    controller ignores it."""
+    discharge_lock: bool = False
+    """ADR-0013 decision 4: the plan holds the battery's energy in this interval although
+    the house draws from the grid (hold for the evening target or a later price peak).
+    Only a plan interval with this flag allows a discharge lock (invariant B4, WP10);
+    until then the controller ignores it."""
 
     @model_validator(mode="after")
     def _ordered(self) -> Self:
@@ -193,15 +216,80 @@ class BatteryBand(_Frozen):
         return self
 
 
+class IntervalFlows(_Frozen):
+    """Plan v2: the flows the planner expects in an interval (mean power, W).
+
+    Signs per ``core/units.py``: import/export are magnitudes, battery + = charging.
+    ``pv_p10_w``/``pv_p50_w``/``pv_p90_w`` are the PV forecast's quantiles as forecast data
+    (shown in the UI; ``None`` = the source has no quantiles); the objective uses P50.
+    Battery targets are *not* planned on P10 PV (plan §0): they use the risk quantile of
+    the learnt **net** energy error distribution (PV minus load) per weather class.
+    ``net_risk_quantile`` is that quantile (``RiskLevel.quantile``, e.g. 0.1 = cautious)
+    and ``net_risk_w`` the net power PV - load at that quantile the target constraints
+    used (may be negative; ``None`` = no target constraint in this interval).
+    ``soc_pct`` is the planned state of charge at the *end* of the interval (``None`` = no
+    battery). ``devices_w`` is the planned draw of the controllable devices (not part of
+    ``load_w``, the base load) and ``curtail_w`` the PV the plan does not use (export limit
+    or negative export price; informational until the export-limit chain, Phase 6), so
+    ``pv_p50_w + import_w + max(-battery_w, 0) = load_w + devices_w + max(battery_w, 0) +
+    export_w + curtail_w`` (both additive in plan v2, default 0).
+    """
+
+    pv_p10_w: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    pv_p50_w: float = Field(ge=0, allow_inf_nan=False)
+    pv_p90_w: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    load_w: float = Field(ge=0, allow_inf_nan=False)
+    import_w: float = Field(ge=0, allow_inf_nan=False)
+    export_w: float = Field(ge=0, allow_inf_nan=False)
+    battery_w: float = Field(default=0.0, allow_inf_nan=False)
+    soc_pct: Annotated[float, Field(ge=0, le=100)] | None = None
+    net_risk_quantile: Annotated[float, Field(gt=0, lt=1)] | None = None
+    net_risk_w: float | None = Field(default=None, allow_inf_nan=False)
+    devices_w: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    curtail_w: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _quantiles(self) -> Self:
+        lo = self.pv_p10_w if self.pv_p10_w is not None else self.pv_p50_w
+        hi = self.pv_p90_w if self.pv_p90_w is not None else self.pv_p50_w
+        if not lo <= self.pv_p50_w <= hi:
+            raise invalid("quantile_order", "quantiles: p10 <= p50 <= p90 is violated")
+        if (self.net_risk_w is None) != (self.net_risk_quantile is None):
+            raise invalid(
+                "net_risk_pair",
+                "expected flows: net_risk_w and net_risk_quantile are set together",
+            )
+        return self
+
+
+class IntervalPrices(_Frozen):
+    """Plan v2: end prices (currency/kWh) the planner used; may be negative."""
+
+    import_price: float = Field(allow_inf_nan=False)
+    export_price: float = Field(allow_inf_nan=False)
+    estimated: bool = False
+    """The source had no price for this interval; the planner used a stand-in (the median of
+    the known prices). Additive in plan v2 (review m5)."""
+
+
 class PlanInterval(_Frozen):
-    """One planning interval (15 min grid in Phase 4; any length is accepted)."""
+    """One planning interval (15 min grid in Phase 4; any length is accepted).
+
+    ``expected``, ``prices`` and ``reasons`` are the plan v2 additions for the UI's
+    "Why?"; the controller reads only the bands and the import limit.
+    """
 
     start: AwareDatetime
     end: AwareDatetime
     devices: dict[str, DeviceBand] = Field(default_factory=dict)
     """Device id -> band; a missing device gets :data:`DEFAULT_BAND`."""
-    battery: BatteryBand = BatteryBand()
+    battery: BatteryBand | None = BatteryBand()
+    """``None`` = the plan has no battery (no model or no live SoC): the controller keeps the
+    Phase 3 goal rules for the battery share (control-safety review m6)."""
     grid_import_limit_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
+    expected: IntervalFlows | None = None
+    prices: IntervalPrices | None = None
+    reasons: tuple[Reason, ...] = ()
 
     @model_validator(mode="after")
     def _ordered(self) -> Self:
@@ -217,20 +305,48 @@ DEFAULT_BAND: Final = DeviceBand()
 DEFAULT_BATTERY_BAND: Final = BatteryBand()
 
 
+PLAN_SCHEMA_VERSION: Final = 2
+"""Version of new plans; v1 (Phase 3, no expected flows/prices/source/stats) still loads."""
+
+PlanSource = Literal["solver", "heuristic", "default"]
+"""Who made the plan: the HiGHS model, the heuristic fallback, or nobody (allow all)."""
+
+StatusSlug = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$", max_length=48)]
+
+
+class SolverStats(_Frozen):
+    """Plan v2: how the plan was computed (the UI explains long solves with it)."""
+
+    solve_time_s: float = Field(ge=0, allow_inf_nan=False)
+    status: StatusSlug
+    """Solver or heuristic status, e.g. ``optimal``, ``time_limit``, ``infeasible``."""
+    objective: float | None = Field(default=None, allow_inf_nan=False)
+    """Objective value in currency (``None`` = not available, e.g. heuristic)."""
+    n_vars: int = Field(default=0, ge=0)
+    n_binaries: int = Field(default=0, ge=0)
+    mip_gap: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
 class Plan(_Frozen):
     """The planner's output as the controller consumes it (ADR-0011).
 
     Phase 3 only ever uses :meth:`Plan.default`, which has no intervals and therefore
     allows everything; the Phase 4 planner fills ``intervals`` without changing the
     controller. Intervals must not overlap and are kept in start order.
+
+    Schema v2 (Phase 4 WP2, additive): ``source``, ``stats`` and per interval
+    ``expected``/``prices``/``reasons``. A v1 payload loads unchanged (it keeps
+    ``schema_version`` 1, ``source = "default"``); :func:`plan_from_payload` stamps v2.
     """
 
-    schema_version: int = 1
+    schema_version: Annotated[int, Field(ge=1, le=PLAN_SCHEMA_VERSION)] = PLAN_SCHEMA_VERSION
     created_at: AwareDatetime | None = None
     intervals: tuple[PlanInterval, ...] = ()
     reasons: tuple[Reason, ...] = ()
     assumptions: dict[str, str | int | float | bool] = Field(default_factory=dict)
     """Forecast and price sources, mode, solver status - scalars only."""
+    source: PlanSource = "default"
+    stats: SolverStats | None = None
 
     @model_validator(mode="after")
     def _non_overlapping(self) -> Self:
@@ -266,7 +382,47 @@ class Plan(_Frozen):
 
     def battery_band_at(self, at: datetime) -> BatteryBand:
         interval = self.interval_at(at)
-        return DEFAULT_BATTERY_BAND if interval is None else interval.battery
+        if interval is None or interval.battery is None:
+            return DEFAULT_BATTERY_BAND
+        return interval.battery
+
+
+PLAN_FRESH_INTERVALS: Final = 2
+"""ADR-0013: a plan allows battery actions while it was created at most this many of its
+intervals before ``now``."""
+
+
+def battery_band_now(plan: Plan, at: datetime) -> tuple[BatteryBand | None, bool]:
+    """The battery band of the interval covering ``at`` and whether the plan is still fresh.
+
+    Fresh = created at most :data:`PLAN_FRESH_INTERVALS` intervals (of the covering interval's
+    length) before ``at``. ``Plan.default()`` (no intervals, no ``created_at``) gives no band.
+    Shared by the controller (it asks only what a fresh plan allows) and the gate (B3/B4).
+    """
+    interval = plan.interval_at(at)
+    if interval is None or plan.created_at is None:
+        return None, False
+    length = interval.end - interval.start
+    fresh = timedelta(0) <= at - plan.created_at <= PLAN_FRESH_INTERVALS * length
+    return interval.battery, fresh
+
+
+def plan_from_payload(payload: Mapping[str, Any]) -> Plan:
+    """Load a stored plan of any known schema version (v1 rows are stamped v2).
+
+    Every v1 field exists unchanged in v2, so the upgrade only stamps the version. A
+    payload newer than :data:`PLAN_SCHEMA_VERSION` raises ``ValueError``.
+    """
+    data = dict(payload)
+    version = data.get("schema_version", 1)
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        msg = f"plan payload has an invalid schema_version {version!r}"
+        raise ValueError(msg)
+    if version > PLAN_SCHEMA_VERSION:
+        msg = f"plan payload schema_version {version} is newer than {PLAN_SCHEMA_VERSION}"
+        raise ValueError(msg)
+    data["schema_version"] = PLAN_SCHEMA_VERSION
+    return Plan.model_validate(data)
 
 
 TEMPERATURE_ROLE: Final = "temperature"
@@ -302,6 +458,8 @@ def heat_capped(device: DeviceConfig, state: DeviceState | None) -> bool:
 __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single constant)
     "DEFAULT_BAND",
     "DEFAULT_BATTERY_BAND",
+    "PLAN_FRESH_INTERVALS",
+    "PLAN_SCHEMA_VERSION",
     "RESUME_TIME_DEFAULT",
     "TEMPERATURE_ROLE",
     "BandPreference",
@@ -310,9 +468,15 @@ __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single cons
     "DeviceBand",
     "DeviceState",
     "GateInputs",
+    "IntervalFlows",
+    "IntervalPrices",
     "Plan",
     "PlanInterval",
+    "PlanSource",
     "PowerEstimate",
+    "SolverStats",
+    "battery_band_now",
     "has_heat_limit",
     "heat_capped",
+    "plan_from_payload",
 ]

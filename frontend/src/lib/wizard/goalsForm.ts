@@ -7,8 +7,18 @@ export interface GoalsForm {
   targetSoc: number | null;
   targetTime: string;
   climateBeforeExport: boolean;
+  /** Goals v2: `true` = the grid-charge schedule is the night window 22:00-06:00. It never
+   * enables grid charging (that is the battery section's policy). */
   gridChargeNightOnly: boolean;
+  /** The stored schedule (may be a custom one); sent back unchanged while the checkbox stays
+   * on. Only switching the checkbox off replaces it (with `null`). */
+  storedSchedule: GoalsConfig['grid_charge_schedule'] | null;
 }
+
+/** The night window goals v1's `grid_charge_night_only` migrates to (22:00-06:00 daily). */
+export const NIGHT_SCHEDULE: NonNullable<GoalsConfig['grid_charge_schedule']> = {
+  windows: [{ days: [0, 1, 2, 3, 4, 5, 6], start: '22:00', end: '06:00' }],
+};
 
 export const DEFAULT_TARGET_TIME = '18:00';
 
@@ -18,19 +28,20 @@ export function goalsFormFromConfig(cfg: GoalsConfig | null): GoalsForm {
     targetSoc: cfg?.battery_target?.soc_pct ?? 100,
     targetTime: cfg?.battery_target?.time ?? DEFAULT_TARGET_TIME,
     climateBeforeExport: cfg?.climate_before_export ?? false,
-    gridChargeNightOnly: cfg?.grid_charge_night_only ?? true,
+    gridChargeNightOnly: cfg ? cfg.grid_charge_schedule != null : true,
+    storedSchedule: cfg?.grid_charge_schedule ?? null,
   };
 }
 
 export function goalsFromForm(form: GoalsForm): GoalsConfig {
   return {
-    schema_version: 1,
+    schema_version: 2,
     battery_target:
       form.targetEnabled && form.targetSoc != null
         ? { soc_pct: form.targetSoc, time: form.targetTime }
         : null,
     climate_before_export: form.climateBeforeExport,
-    grid_charge_night_only: form.gridChargeNightOnly,
+    grid_charge_schedule: form.gridChargeNightOnly ? (form.storedSchedule ?? NIGHT_SCHEDULE) : null,
   };
 }
 
@@ -38,10 +49,16 @@ export interface OperationForm {
   mode: OperatingMode;
   /** Explicit mode per device id; a missing entry is shadow (new devices always start there). */
   deviceModes: Record<string, OperatingMode>;
+  /** The battery's mode is carried through unchanged (raised only with its identity token). */
+  batteryMode: OperatingMode;
 }
 
 export function operationFormFromConfig(cfg: OperationConfig | null): OperationForm {
-  return { mode: cfg?.mode ?? 'shadow', deviceModes: { ...(cfg?.device_modes ?? {}) } };
+  return {
+    mode: cfg?.mode ?? 'shadow',
+    deviceModes: { ...(cfg?.device_modes ?? {}) },
+    batteryMode: cfg?.battery_mode ?? 'shadow',
+  };
 }
 
 /** Only non-shadow entries of existing devices are stored (a missing entry means shadow). */
@@ -54,7 +71,7 @@ export function operationFromForm(
     const mode = form.deviceModes[id];
     if (mode && mode !== 'shadow') device_modes[id] = mode;
   }
-  return { schema_version: 1, mode: form.mode, device_modes };
+  return { schema_version: 1, mode: form.mode, device_modes, battery_mode: form.batteryMode };
 }
 
 export const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;

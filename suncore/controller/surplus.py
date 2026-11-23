@@ -115,7 +115,13 @@ def battery_share_available(
 
     In this order:
 
-    * a plan band (Phase 4) decides with ``charge_from_surplus`` when given;
+    * a plan band (Phase 4) decides: first its ``priority_until_soc_pct`` against the *live*
+      SoC - battery first (not available) while the SoC is below it or unknown, whatever else
+      the band says - then ``charge_from_surplus``. A band can therefore only move the surplus
+      between battery and consumers; below its priority the consumers never get more than
+      without a plan whose priority is unset (``tests/controller/test_surplus.py``);
+      ``goals.battery_target`` stays a floor under a plan too (review D1): below it, or with
+      an unknown SoC, the battery charges first whatever the band says;
     * a ``battery_target`` the SoC has not reached: the battery charges first - not
       available (an unknown SoC counts as not reached); the target's time of day is left
       to the planner (Phase 4), so the target counts all day;
@@ -127,9 +133,14 @@ def battery_share_available(
 
     Returns ``(available, blocking target in %)``.
     """
-    if band is not None:
-        return (not band.charge_from_surplus, None)
     target = goals.battery_target
+    if band is not None:
+        priority = band.priority_until_soc_pct
+        if priority is not None and (soc_pct is None or soc_pct < priority):
+            return False, priority
+        if target is not None and (soc_pct is None or soc_pct < target.soc_pct):
+            return False, target.soc_pct
+        return (not band.charge_from_surplus, None)
     if target is not None and (soc_pct is None or soc_pct < target.soc_pct):
         return False, target.soc_pct
     if goals.climate_before_export or target is not None:
@@ -224,13 +235,22 @@ class SurplusTracker:
         band: BatteryBand | None = None,
         *,
         controlled_draw: Mapping[str, float] | None = None,
+        grid_charging: bool = False,
     ) -> SiteSurplus:
-        """Add this tick's sample; ``controlled_draw`` = real draw per controllable device."""
+        """Add this tick's sample; ``controlled_draw`` = real draw per controllable device.
+
+        ``grid_charging``: SunCore holds a forced grid charge (WP10). The battery's charging power
+        is then never available to consumers - it is bought from the grid, and a device switched
+        on would only raise the import (ADR-0013: a device never uses import created for the
+        battery).
+        """
         controlled_w = self._rebase(controlled_draw or {})
         grid = flows.grid_w.value if flows is not None else None
         battery = flows.battery_w.value if flows is not None else None
         soc = flows.battery_soc_pct.value if flows is not None else None
         available, target = battery_share_available(goals, soc, band)
+        if grid_charging:
+            available = False
         quality = Quality.UNAVAILABLE
         if flows is not None:
             quality = Quality.worst((flows.grid_w.quality, flows.battery_w.quality))

@@ -4,9 +4,12 @@
 AST-based scan over ``suncore/``; no module is imported. The rules:
 
 1. Only ``suncore.safety.gate`` may call ``.apply(...)`` and ``.release(...)`` - the
-   actuator write and the hardware release (Phase 3: the only write paths).
+   actuator write and the hardware release (Phase 3: the only write paths) - and the battery
+   adapters' ``.arm_fallback(...)`` / ``.keep_alive(...)`` (Phase 4 WP10: the §3.5 fallback
+   registers and the heartbeat re-write).
 2. Only ``suncore.safety`` may import ``suncore.safety.actuator``; driver modules
-   (``suncore.devices.drivers``, Phase 3 WP6) may only be imported by ``suncore.safety``,
+   (``suncore.devices.drivers``, Phase 3 WP6, and the battery adapters
+   ``suncore.devices.battery``, Phase 4 WP10) may only be imported by ``suncore.safety``,
    the composition root ``suncore.app`` and the simulator's closed-loop composition
    ``suncore.sim`` (Phase 3 WP8; nothing in production imports ``suncore.sim`` but the demo).
 3. Only ``suncore.ha`` and ``suncore.safety`` (and the simulator, which *is* the fake
@@ -22,7 +25,11 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    sibling package; ``suncore.safety`` imports only ``suncore.core`` and
    itself; ``suncore.templates`` imports only ``suncore.core`` and itself (plus
    yaml/pydantic, ADR-0012); ``suncore.controller`` imports only ``suncore.core``
-   and itself (Phase 3 WP7: drivers, power models and the gate are injected).
+   and itself (Phase 3 WP7: drivers, power models and the gate are injected);
+   ``suncore.tariff`` imports only ``suncore.core``, ``suncore.templates`` and itself (Phase 4
+   WP4: Home Assistant reaches it through the injected action caller and entity reader);
+   ``suncore.planner`` imports only ``suncore.core`` and itself (Phase 4 WP8: the runtime
+   hands it the services' outputs).
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
 6. ``suncore.safety`` imports neither ``suncore.core.config`` nor ``suncore.storage`` and
@@ -30,8 +37,14 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    operating modes only through the injected ``ModeProvider`` (Phase 3 WP3) and the
    runtime only through the injected ``RuntimeStore``.
 7. ``call_action_response`` (read-only action with ``return_response``) is defined and used
-   only in ``suncore.ha`` (implementation), ``suncore.sim`` (fake) and ``suncore.app``
-   (wiring of the tariff/forecast adapters later); ``READ_ONLY_ACTIONS`` is the fixed allowlist.
+   only in ``suncore.ha`` (implementation, rate limited per action), ``suncore.sim`` (fake) and
+   the one adapter wiring module ``suncore.app.adapters`` (Phase 4); no other part of
+   ``suncore.app`` may use it. ``READ_ONLY_ACTIONS`` is the fixed allowlist.
+8. ``statistics_during_period`` (read-only recorder statistics) is used only in ``suncore.ha``
+   and ``suncore.sim`` (``suncore.app.history`` goes through ``suncore.ha.statistics``).
+9. ``energy_solar_forecast`` (the read-only ``energy/solar_forecast`` command) is used only in
+   ``suncore.ha`` and ``suncore.sim`` (``suncore.app.adapters`` goes through
+   ``suncore.ha.fetch_solar_forecast``). It is a read: no write path changes (Phase 4 WP5).
 
 The scan is robust to packages that are still empty (``suncore/ha`` until
 WP3) because it only looks at the files that exist.
@@ -53,17 +66,22 @@ HA = "suncore.ha"
 CORE = "suncore.core"
 TEMPLATES = "suncore.templates"
 CONTROLLER = "suncore.controller"
+TARIFF = "suncore.tariff"
+PLANNER = "suncore.planner"
 ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
+BATTERY_DRIVERS = "suncore.devices.battery"
 SIM = "suncore.sim"
 DRIVER_IMPORTERS = (SAFETY, "suncore.app", SIM)
-WRITE_CALLS = ("apply", "release")
+WRITE_CALLS = ("apply", "release", "arm_fallback", "keep_alive")
 API = "suncore.api"
 API_FORBIDDEN = (SAFETY, HA, "suncore.devices")
 WRITE_CAPABILITY_NAMES = frozenset({"ServiceCaller", "ServiceCallerProvider"})
 SAFETY_FORBIDDEN_IMPORTS = ("suncore.core.config", "suncore.storage")
-ACTION_RESPONSE_OWNERS = ("suncore.ha", "suncore.sim")
+STATISTICS_OWNERS = ("suncore.ha", "suncore.sim")
+SOLAR_FORECAST_OWNERS = ("suncore.ha", "suncore.sim")
+ACTION_RESPONSE_OWNERS = ("suncore.ha", "suncore.sim", "suncore.app.adapters")
 
 
 def module_name(path: Path) -> str:
@@ -169,11 +187,12 @@ def test_only_the_gate_calls_apply_and_release(path: Path) -> None:
 
 
 def test_the_gate_is_the_single_writer() -> None:
-    """The write path exists exactly once: ``gate.py`` calls ``apply`` and ``release``."""
+    """The write path exists exactly once: ``gate.py`` calls ``apply`` and ``release`` (and the
+    battery adapters' ``arm_fallback`` and ``keep_alive``)."""
     gate = PACKAGE / "safety" / "gate.py"
     tree = parse(gate)
-    assert list(attribute_calls(tree, "apply")), "gate.py must contain the apply() call"
-    assert list(attribute_calls(tree, "release")), "gate.py must contain the release() call"
+    for attr in WRITE_CALLS:
+        assert list(attribute_calls(tree, attr)), f"gate.py must contain the {attr}() call"
     everywhere = [
         line
         for path in SOURCES
@@ -212,14 +231,18 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
     The drivers do not exist yet (WP6); the rule is in place before the first one lands.
     """
     module = module_name(path)
-    if in_package(module, DRIVERS) or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS):
+    if (
+        in_package(module, DRIVERS)
+        or in_package(module, BATTERY_DRIVERS)
+        or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS)
+    ):
         return
     offenders = fmt(
         path,
         (
             line
             for line, imported in imported_modules(path, parse(path))
-            if in_package(imported, DRIVERS)
+            if in_package(imported, DRIVERS) or in_package(imported, BATTERY_DRIVERS)
         ),
     )
     assert not offenders, f"driver module imported outside safety/app: {offenders}"
@@ -270,7 +293,7 @@ def test_api_does_not_import_write_side_packages(path: Path) -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_dependency_rule(path: Path) -> None:
-    """Rule 4: core imports no sibling; safety, templates, controller only core and itself."""
+    """Rule 4: core imports no sibling; the other layered packages only what they may."""
     module = module_name(path)
     if in_package(module, CORE):
         allowed = (CORE,)
@@ -280,6 +303,10 @@ def test_dependency_rule(path: Path) -> None:
         allowed = (CORE, TEMPLATES)
     elif in_package(module, CONTROLLER):
         allowed = (CORE, CONTROLLER)
+    elif in_package(module, TARIFF):
+        allowed = (CORE, TEMPLATES, TARIFF)
+    elif in_package(module, PLANNER):
+        allowed = (CORE, PLANNER)
     else:
         return
     offenders = fmt(
@@ -325,12 +352,45 @@ def test_safety_does_not_read_config_or_storage(path: Path) -> None:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_call_action_response_is_confined(path: Path) -> None:
-    """Rule 7: the response-returning call lives in ha (+ the fake); app joins later."""
+    """Rule 7: the response-returning call lives in ha (+ the fake) and app.adapters only."""
     module = module_name(path)
     if any(in_package(module, owner) for owner in ACTION_RESPONSE_OWNERS):
         return
     offenders = fmt(path, attribute_refs(parse(path), "call_action_response"))
-    assert not offenders, f"call_action_response referenced outside ha/sim: {offenders}"
+    assert not offenders, (
+        f"call_action_response referenced outside ha/sim/app.adapters: {offenders}"
+    )
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_statistics_during_period_is_confined(path: Path) -> None:
+    """Rule 8: the recorder statistics read lives in ha (+ the fake) only."""
+    module = module_name(path)
+    if any(in_package(module, owner) for owner in STATISTICS_OWNERS):
+        return
+    offenders = fmt(path, attribute_refs(parse(path), "statistics_during_period"))
+    assert not offenders, f"statistics_during_period referenced outside ha/sim: {offenders}"
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_energy_solar_forecast_is_confined(path: Path) -> None:
+    """Rule 9: the Energy dashboard's forecast read lives in ha (+ the fake) only."""
+    module = module_name(path)
+    if any(in_package(module, owner) for owner in SOLAR_FORECAST_OWNERS):
+        return
+    offenders = fmt(path, attribute_refs(parse(path), "energy_solar_forecast"))
+    assert not offenders, f"energy_solar_forecast referenced outside ha/sim: {offenders}"
+
+
+def test_action_response_owner_is_the_adapter_module_not_the_whole_app() -> None:
+    """Rule 7 admits ``suncore.app.adapters`` only: its siblings in ``suncore.app`` stay out."""
+    assert "suncore.app" not in ACTION_RESPONSE_OWNERS
+    assert (PACKAGE / "app" / "adapters.py").is_file()
+    for owner in ACTION_RESPONSE_OWNERS:
+        assert not in_package("suncore.app.control", owner)
+        assert not in_package("suncore.app.runtime", owner)
+        assert not in_package("suncore.app.adapters_extra", owner)
+    assert in_package("suncore.app.adapters", "suncore.app.adapters")
 
 
 def test_read_only_action_allowlist_is_fixed() -> None:
@@ -339,7 +399,13 @@ def test_read_only_action_allowlist_is_fixed() -> None:
 
     assert (
         frozenset(
-            {"tibber.get_prices", "solcast_solar.query_forecast_data", "weather.get_forecasts"}
+            {
+                "tibber.get_prices",
+                "nordpool.get_prices_for_date",
+                "solcast_solar.query_forecast_data",
+                "weather.get_forecasts",
+                "workday.check_date",
+            }
         )
         == READ_ONLY_ACTIONS
     )

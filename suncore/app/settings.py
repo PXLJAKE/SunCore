@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     """Scenario acceleration in demo mode (60 = one 60 s step per real second)."""
     demo_start_time: time = time(10, 0)
     """Time of day (scenario-local) at which the demo starts (env SUNCORE_DEMO_START_TIME)."""
+    demo_battery_control: bool = False
+    """Demo only (env SUNCORE_DEMO_BATTERY_CONTROL): the simulated house gets a controllable
+    inverter and the demo stores a ``generic.battery`` adapter, so the UI can show the battery
+    card (used by the Playwright run and the screenshots). Off = the battery is observe only."""
     data_dir: Path = Path("/data")
     port: int = Field(default=8099, ge=1, le=65535)
     host: str = "0.0.0.0"
@@ -71,6 +75,17 @@ class Settings(BaseSettings):
     static_dir: Path = Field(default_factory=default_static_dir)
     templates_dir: Path = Field(default_factory=default_templates_dir)
     """Built-in templates; user templates are read from ``<data_dir>/templates`` (not in demo)."""
+
+    tariff_refresh_interval_s: int = Field(default=3600, ge=60, le=86_400)
+    """Spacing of the regular price refresh (Tibber, Nord Pool: once per hour)."""
+    tariff_tomorrow_after: time = time(13, 0)
+    """Local time from which tomorrow's day-ahead prices are expected (UNVERIFIED)."""
+    tariff_tomorrow_poll_s: int = Field(default=900, ge=60, le=86_400)
+    """Spacing of the asks between that time and the arrival of tomorrow's prices."""
+
+    planner_budget_s: float = Field(default=8.0, ge=0.5, le=120.0)
+    """Time budget of one planner run (ADR-0003); the heuristic plan covers a miss."""
+    planner_mip_gap: float = Field(default=0.01, ge=0.0, le=0.5)
 
     _options_path: ClassVar[Path] = DEFAULT_OPTIONS_PATH
 

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+name: grid_charge_price_level
+description: A dark winter night before a poor day, generic battery adapter with a grid-charge number, grid charging allowed by a price level (0.20) inside a 00:00-06:00 schedule. The real planner (every quarter hour), the controller and the gate run in automatic mode. The battery is charged from the grid only while the live price is inside the policy and only within the import limit; when the cheap window ends the lease ends and the battery's own settings return.
+start: "2026-12-07T23:30:00+01:00"
+duration_s: 23400
+step_s: 30
+house:
+  seed: 19
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 10000, max_charge_w: 5000, max_discharge_w: 5000, initial_soc_pct: 20}
+  inverter:
+    adapter: generic
+    min_soc_pct: 10
+control:
+  import_limit_w: 8000
+battery:
+  mode: automatic
+  grid_charge:
+    enabled: true
+    max_price: 0.2
+    schedule: {windows: [{start: "00:00", end: "06:00"}]}

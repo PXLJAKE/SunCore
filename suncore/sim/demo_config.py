@@ -12,13 +12,16 @@ from __future__ import annotations
 
 from typing import Final
 
+from suncore.core.battery import BatteryModel, BatterySettings
 from suncore.core.config import (
     BatteryTarget,
     DevicesConfig,
     ExportTariff,
     ForecastConfig,
+    ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
+    LoadForecastConfig,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -34,11 +37,16 @@ from suncore.sim.demo_devices import (
     AC_ID,
     FORECAST_TODAY_ID,
     FORECAST_TOMORROW_ID,
+    OPEN_METEO_TODAY_ID,
+    OPEN_METEO_TOMORROW_ID,
     POOL_POWER_ID,
     POOL_SWITCH_ID,
     PRICE_ID,
     ROD_LIMIT_ID,
+    WEATHER_ID,
+    WORKDAY_ID,
 )
+from suncore.sim.inverter import GRID_CHARGE_ID, MAX_CHARGE_ID, MAX_DISCHARGE_ID, MIN_SOC_ID
 from suncore.storage import ConfigStore
 from suncore.templates import DeviceTemplate, TemplateCatalog
 
@@ -153,8 +161,14 @@ def demo_devices(catalog: TemplateCatalog) -> DevicesConfig:
     )
 
 
-async def seed_demo_config(config: ConfigStore, catalog: TemplateCatalog) -> None:
-    """Store every section except ``site`` (the caller stores the site)."""
+async def seed_demo_config(
+    config: ConfigStore, catalog: TemplateCatalog, *, battery_control: bool = False
+) -> None:
+    """Store every section except ``site`` (the caller stores the site).
+
+    ``battery_control``: the demo house has a controllable inverter (``generic`` adapter), the
+    battery section maps its number entities.
+    """
     await config.put(
         "region", RegionConfig(region_id="de", currency="EUR", timezone="Europe/Berlin")
     )
@@ -172,11 +186,29 @@ async def seed_demo_config(config: ConfigStore, catalog: TemplateCatalog) -> Non
     await config.put(
         "forecast",
         ForecastConfig(
-            forecast_template_ids=["solcast.pv"],
-            forecast_entities={
-                "forecast_today": EntityRef(entity_id=FORECAST_TODAY_ID),
-                "forecast_tomorrow": EntityRef(entity_id=FORECAST_TOMORROW_ID),
-            },
+            sources=[
+                ForecastSourceConfig(
+                    template_id="solcast.pv",
+                    entities={
+                        "forecast_today": EntityRef(entity_id=FORECAST_TODAY_ID),
+                        "forecast_tomorrow": EntityRef(entity_id=FORECAST_TOMORROW_ID),
+                    },
+                ),
+                ForecastSourceConfig(
+                    template_id="open_meteo_solar_forecast.pv",
+                    entities={
+                        "energy_today": EntityRef(entity_id=OPEN_METEO_TODAY_ID),
+                        "energy_tomorrow": EntityRef(entity_id=OPEN_METEO_TOMORROW_ID),
+                    },
+                ),
+                # Two entries are linked in the demo's Energy dashboard: the choice is explicit.
+                ForecastSourceConfig(
+                    template_id="forecast_solar.pv", config_entry_id="sim_entry_forecast_solar"
+                ),
+            ],
+            load=LoadForecastConfig(
+                workday=EntityRef(entity_id=WORKDAY_ID), weather=EntityRef(entity_id=WEATHER_ID)
+            ),
         ),
     )
     await config.put("devices", demo_devices(catalog))
@@ -188,4 +220,22 @@ async def seed_demo_config(config: ConfigStore, catalog: TemplateCatalog) -> Non
         ),
     )
     await config.put("operation", OperationConfig(mode=OperatingMode.SHADOW))
+    # Observe only (no adapter): the demo battery is read, never written. The model (the
+    # simulator's 10 kWh, 5 kW battery) lets the risk model show its buffer and evening target.
+    battery = BatterySettings(
+        model=BatteryModel(capacity_wh=10_000.0, max_charge_w=5_000.0, max_discharge_w=5_000.0)
+    )
+    if battery_control:
+        battery = battery.model_copy(
+            update={
+                "adapter_template_id": "generic.battery",
+                "entities": {
+                    "min_soc_number": EntityRef(entity_id=MIN_SOC_ID),
+                    "max_charge_number": EntityRef(entity_id=MAX_CHARGE_ID),
+                    "max_discharge_number": EntityRef(entity_id=MAX_DISCHARGE_ID),
+                    "grid_charge_number": EntityRef(entity_id=GRID_CHARGE_ID),
+                },
+            }
+        )
+    await config.put("battery", battery)
     await config.put("wizard", WizardState(completed=True, completed_steps=list(WIZARD_STEPS)))

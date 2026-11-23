@@ -61,6 +61,7 @@ async def test_control_state_shape(services: FakeServices) -> None:
         "site",
         "devices",
         "proposals",
+        "battery",
     }
     device = body["devices"][0]
     assert device["device_id"] == "pool"
@@ -207,6 +208,30 @@ async def test_operation_mode_endpoints(services: FakeServices) -> None:
     assert unknown.status_code == 404
     assert unknown.json() == {"detail": "api.error.unknown_device"}
     assert bad.status_code == 422
+
+
+async def test_battery_mode_endpoint(services: FakeServices) -> None:
+    async with client_for(create_app(services)) as client:
+        shadow = await client.put("/api/v1/operation/battery", json={"mode": "shadow"})
+        no_identity = await client.put("/api/v1/operation/battery", json={"mode": "assisted"})
+        stale = await client.put(
+            "/api/v1/operation/battery", json={"mode": "assisted", "identity": "old"}
+        )
+        ok = await client.put(
+            "/api/v1/operation/battery", json={"mode": "assisted", "identity": "bat-current"}
+        )
+        services.battery_identity = None
+        observe_only = await client.put(
+            "/api/v1/operation/battery", json={"mode": "automatic", "identity": "bat-current"}
+        )
+    assert shadow.json()["battery_mode"] == "shadow"
+    assert no_identity.status_code == 422
+    assert no_identity.json()["issues"][0]["key"] == "api.validation.mode_identity_required"
+    assert stale.status_code == 409
+    assert stale.json() == {"detail": "api.error.device_identity_changed"}
+    assert ok.json()["battery_mode"] == "assisted"
+    assert observe_only.status_code == 404
+    assert observe_only.json() == {"detail": "api.error.battery_not_controllable"}
 
 
 async def test_put_operation_document_that_raises_a_mode_is_409(services: FakeServices) -> None:

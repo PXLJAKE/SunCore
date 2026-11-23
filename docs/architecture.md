@@ -68,9 +68,7 @@ flowchart TB
     api --> storage
     ha --> core
     forecast --> ha
-    tariff --> ha
-    planner --> forecast
-    planner --> tariff
+    tariff --> templates
     planner --> core
     controller --> core
     controller --> devices
@@ -87,6 +85,7 @@ flowchart TB
     sched --> planner
     sched --> controller
     sched --> forecast
+    sched --> tariff
 ```
 
 Dependency rule: arrows point inward to `core/`; `core/` imports nothing
@@ -101,7 +100,7 @@ Package map (ADR-0001):
 | `suncore/core` | Domain model: `Site`, `Asset` (grid, pv, battery, device), `Signal` (typed time series with unit and quality), `Capability`, `Plan`, `Intent`, `Decision`, `Reason`, units and sign conventions | stdlib, pydantic |
 | `suncore/ha` | `HAConnection` (Supervisor or Direct transport), entity subscription with staleness tracking, service calls with read-back, write rate limiter, registry queries, MQTT discovery publisher | core, aiohttp |
 | `suncore/forecast` | Adapter protocol + Solcast, Forecast.Solar, Open-Meteo, generic-attribute, built-in model; blending by measured skill; bias calibration; load profiles | core, ha, templates |
-| `suncore/tariff` | Import/export price sources (Tibber, Nord Pool, ENTSO-E/EPEX via HACS, fixed, HT/NT), price formula, region profiles, negative-price rules | core, ha, templates |
+| `suncore/tariff` | Import/export price sources (Tibber, Nord Pool, ENTSO-E/EPEX via HACS, fixed, HT/NT), price formula, region profiles, negative-price rules (Home Assistant reaches it through an injected action caller and entity reader wired in `suncore/app/adapters.py`) | core, templates |
 | `suncore/planner` | Model builder, HiGHS solver worker, heuristic fallback, plan explanation, what-if | core, highspy, numpy |
 | `suncore/controller` | Surplus computation, priority allocation, hysteresis state machines, peak shaving, export limiting, §14a limit | core |
 | `suncore/safety` | Invariant checks, operating modes, override detection, watchdogs, fail-safe transitions; the only caller of actuators | core, devices |
@@ -142,8 +141,14 @@ convert at the boundary (e.g. Kostal reports battery positive = discharging).
 
 ## 4. Planner, controller, safety in time
 
-The planner arrives in Phase 4; until then the controller consumes `Plan.default()`, which allows
-everything. The control layer (Phase 3) is composed in one place, `suncore/app/control.py`
+The planner (Phase 4) is in place: `suncore/planner` (`inputs.py` → `model.py` LP for HiGHS
+behind a `SolverBackend` protocol → `run.py` with the heuristic fallback and `explain.py`
+reasons) depends on `core` only. The scheduler (`suncore/app/planning.py`, `PlanningService`)
+collects prices, forecasts and the risk targets, hands them over through `build_inputs`, runs
+`run()` in a daemon worker thread (budget 8 s) every quarter hour and on events, and hands the
+plan to the controller once per tick. A missing, expired or stale plan (older than 2 h) means the
+controller consumes `Plan.default()`, which allows everything (the Phase 3 behaviour).
+The control layer (Phase 3) is composed in one place, `suncore/app/control.py`
 (`ControlStack`): entity cache, one driver and one power model per device, the controller
 (`suncore/controller`), the safety gate with its watchdog (`suncore/safety`) and the connection
 life cycle. The runtime, the demo and the simulator all use this same stack; only the connection
@@ -220,8 +225,31 @@ applies, settles, reads back and logs `accepted` or `failed`. The write path re-
 stop, mode, watchdog and hold right before `apply()` under a per-device lock. The free surplus is
 claimed per `GateInputs` snapshot, so several intents of one tick cannot together exceed it.
 
-Deviation events: the controller reports when actual SoC, PV or load leave the plan's assumption
-corridor; the scheduler then re-plans early (rate limited to once per 5 minutes) from Phase 4 on.
+**The battery** (Phase 4 WP10, ADR-0013) is the asset `battery` with its own path through the
+same gate. The controller turns the band of a *fresh* plan interval into a `BatteryAction`
+(limits, not set-points; `None` = the adapter's baseline found at takeover): `grid_charge_max_w`
+-> `grid_charge_w` where the adapter can force charging, `discharge_lock` -> `max_discharge_w`
+= 0 or a min-SoC floor at the live SoC (never below `effective_reserve_pct`), nothing planned ->
+`ReleaseAction`. The gate judges it with the battery invariants B1-B9 (`safety/battery.py`):
+floor never below the reserve or the user's own floor, grid charging only from a fresh planned
+interval inside the grid-charge policy at the **live** price and within battery, adapter, band
+and import-headroom bounds, a discharge lock only when planned, the import limit for every
+action that can cause import, live ranges and capabilities, write only on change, mandatory
+read-back. An adapter with a hardware fallback (Kostal §3.5) gets it armed and read back before
+the first limit and is capped at assisted until `battery.fallback_measured`. An accepted state is
+a **lease**: `gate.poll()` re-judges it every tick and restores the baseline when the mode, the
+watchdog (site or battery scope, `gate.check_battery`: frozen battery power or SoC), stale inputs
+or any invariant says so (also when no fresh plan interval covers the held state, or the adapter
+refuses); the adapter's heartbeat re-writes only while it holds. A battery release is complete
+only when the read-back shows the original baseline; until then the release is retried with
+back-off (also during an emergency stop) and nothing else is written. Devices keep the
+Phase 3 rule "no SunCore-caused import" unchanged, and the charging power of a forced grid charge
+is never surplus for them.
+
+Deviation events: the planning service itself watches the live state of charge against the plan
+(more than 10 %-points off) and the grid power against the planned net power (more than 1500 W
+for 30 minutes, smoothed); either triggers an early re-plan. Event runs are debounced (at least
+60 s between starts) and merged into one run.
 
 ## 5. Safety state machine (per device and global)
 

@@ -27,6 +27,7 @@ from typing import Annotated, Any, Final, Literal
 import yaml
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from suncore.core.battery import GridChargePolicy
 from suncore.core.decisions import OperatingMode
 from suncore.sim.devices import DeviceParams
 from suncore.sim.house import House, HouseParams
@@ -155,6 +156,36 @@ class ControlParams(BaseModel):
     """Overrides of ``ControlSettings`` (``smoothing_s``, ``min_write_interval_s`` ...)."""
 
 
+PriceProfile = Literal["default", "negative_midday"]
+"""``negative_midday``: the spot price turns negative around 13:00 (sunny weekends in DE)."""
+
+
+class PriceParams(BaseModel):
+    """The simulated dynamic price (what the fake ``tibber.get_prices`` answers)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile: PriceProfile = "default"
+    tomorrow_after_hour: int = Field(default=13, ge=0, le=23)
+    """Local hour from which tomorrow's prices are published (the real market: afternoon)."""
+
+
+class SimBatteryControl(BaseModel):
+    """The battery as SunCore controls it in a scenario (WP10; the inverter is
+    ``house.inverter``). Mapped onto ``BatterySettings`` by the runner."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mode: OperatingMode = OperatingMode.SHADOW
+    reserve_pct: float = Field(default=10.0, ge=0, le=100)
+    bms_drift_margin_pct: float = Field(default=5.0, ge=0, le=100)
+    max_soc_pct: float = Field(default=100.0, ge=0, le=100)
+    grid_charge: GridChargePolicy = GridChargePolicy()
+    fallback_measured: bool = False
+    heartbeat_s: float = Field(default=20.0, ge=5, le=3600)
+    fallback_timeout_s: int = Field(default=60, ge=30, le=10_800)
+
+
 class Scenario(BaseModel):
     """A complete simulator scenario."""
 
@@ -172,6 +203,9 @@ class Scenario(BaseModel):
     devices: tuple[SimDeviceSpec, ...] = ()
     manual: tuple[ManualEvent, ...] = ()
     control: ControlParams = ControlParams()
+    prices: PriceParams = PriceParams()
+    battery: SimBatteryControl | None = None
+    """WP10: SunCore controls the battery through ``house.inverter`` (``None`` = observe)."""
 
     @model_validator(mode="after")
     def _check(self) -> Scenario:
@@ -195,6 +229,13 @@ class Scenario(BaseModel):
             if target is not None and target.startswith("device:") and target[7:] not in ids:
                 msg = f"fault refers to unknown device {target[7:]!r}"
                 raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _battery(self) -> Scenario:
+        if self.battery is not None and self.house.inverter is None:
+            msg = "battery control needs house.inverter"
+            raise ValueError(msg)
         return self
 
     @property

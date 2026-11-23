@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { FormError } from '../../api/errors';
   import NumberField from '../../components/NumberField.svelte';
+  import WindowFields from '../../components/WindowFields.svelte';
   import WizardShell from '../../components/WizardShell.svelte';
   import { t } from '../../i18n/index.svelte';
   import { SaveState, wizard } from '../../stores/wizard.svelte';
@@ -14,11 +15,15 @@
     withPriorities,
     type MoveDirection,
   } from '../../wizard/priorities';
-  import { TIME_PATTERN } from '../../wizard/goalsForm';
+  import { NIGHT_SCHEDULE, TIME_PATTERN } from '../../wizard/goalsForm';
+  import { validateBatteryForm } from '../../wizard/batteryForm';
+  import { emptyWindow, isWindowValid, scheduleFromApi } from '../../wizard/scheduleForm';
 
   const save = new SaveState();
   const uid = $props.id();
   const UNIT = { pct: '%' } as const;
+  const hasBattery = $derived(wizard.site.battery.enabled || wizard.saved.site?.battery != null);
+  const currency = $derived(wizard.region.currency || '');
 
   let order = $state<string[]>([]);
   let announcement = $state('');
@@ -115,6 +120,13 @@
     if (wizard.goals.targetEnabled && !TIME_PATTERN.test(wizard.goals.targetTime)) {
       throw new FormError(['goals.error.time']);
     }
+    if (hasBattery) {
+      const errors = validateBatteryForm(wizard.battery, wizard.batteryUsesModbus);
+      if (errors.includes('grid_charge_needs_rule')) throw new FormError(['gc.needs_rule']);
+      if (wizard.battery.gridChargeSchedule.some((w) => !isWindowValid(w))) {
+        throw new FormError(['win.no_days']);
+      }
+    }
     if (order.length > 0) {
       const next = withPriorities(wizard.devices, order);
       if (next.some((d, i) => d.priority !== wizard.devices[i]!.priority)) {
@@ -122,6 +134,7 @@
       }
     }
     await wizard.saveGoals();
+    if (hasBattery) await wizard.saveBattery();
   }
 </script>
 
@@ -195,6 +208,84 @@
     <p class="hint">{t('prio.order_note')}</p>
   </section>
 
+  <fieldset class="card" data-testid="grid-charge">
+    <legend>{t('gc.title')}</legend>
+    {#if !hasBattery}
+      <p class="hint">{t('gc.no_battery')}</p>
+    {:else}
+      <p class="hint">{t('gc.hint')}</p>
+      <label class="check">
+        <input
+          type="checkbox"
+          bind:checked={wizard.battery.gridChargeEnabled}
+          data-testid="gc-enable"
+        />
+        {t('gc.enable')}
+      </label>
+      {#if wizard.battery.gridChargeEnabled}
+        <NumberField
+          label={t('gc.max_price', { currency })}
+          bind:value={wizard.battery.gridChargeMaxPrice}
+          min={-10}
+          max={100}
+          step={0.001}
+          hint={t('gc.max_price_hint')}
+        />
+        <div class="stack" data-testid="gc-schedule">
+          <h4>{t('gc.schedule')}</h4>
+          <p class="hint">{t('gc.schedule_hint')}</p>
+          <ul class="windows">
+            {#each wizard.battery.gridChargeSchedule as _row, i (i)}
+              <li>
+                <span class="tier-no">{t('win.n', { n: i + 1 })}</span>
+                <WindowFields
+                  bind:window={
+                    () => wizard.battery.gridChargeSchedule[i]!,
+                    (v) => (wizard.battery.gridChargeSchedule[i] = v)
+                  }
+                  label={t('win.n', { n: i + 1 })}
+                />
+                <button
+                  type="button"
+                  class="btn secondary small"
+                  onclick={() => wizard.battery.gridChargeSchedule.splice(i, 1)}
+                  >{t('win.remove', { n: i + 1 })}</button
+                >
+              </li>
+            {/each}
+          </ul>
+          <p class="hint">{t('win.crosses_midnight')}</p>
+          <div class="row">
+            <button
+              type="button"
+              class="btn secondary"
+              data-testid="gc-add"
+              onclick={() => wizard.battery.gridChargeSchedule.push(emptyWindow())}
+              >{t('win.add')}</button
+            >
+            <button
+              type="button"
+              class="btn secondary"
+              onclick={() => (wizard.battery.gridChargeSchedule = scheduleFromApi(NIGHT_SCHEDULE))}
+              >{t('gc.night')}</button
+            >
+          </div>
+        </div>
+      {/if}
+      <details data-testid="autarky">
+        <summary>{t('gc.autarky')}</summary>
+        <NumberField
+          label={t('gc.autarky')}
+          bind:value={wizard.battery.autarkyWeightPerKwh}
+          min={0}
+          max={1}
+          step={0.001}
+          hint={t('gc.autarky_hint')}
+        />
+      </details>
+    {/if}
+  </fieldset>
+
   <fieldset class="card">
     <legend>{t('goals.title')}</legend>
     <label class="check">
@@ -226,10 +317,33 @@
       {t('goals.grid_charge_night')}
     </label>
     <p class="hint">{t('goals.stored_note')}</p>
+    {#if hasBattery}<p class="hint">{t('gc.goals_note')}</p>{/if}
   </fieldset>
 </WizardShell>
 
 <style>
+  .windows {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .windows li {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--divider-color);
+    border-radius: 8px;
+  }
+  .tier-no {
+    font-weight: 700;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
   .prio {
     display: grid;
     gap: 8px;

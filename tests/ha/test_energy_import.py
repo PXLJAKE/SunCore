@@ -327,3 +327,21 @@ def test_unknown_generated_grid_sensor_falls_back_to_the_pair() -> None:
     assert sug["grid.import_power"].value["entity_id"] == "sensor.imp"
     assert sug["grid.export_power"].value["entity_id"] == "sensor.exp"
     assert "grid.power" not in sug
+
+
+def test_solar_forecast_entries_are_listed_in_order_without_duplicates() -> None:
+    prefs = registry.energy_prefs(10.0)
+    prefs["energy_sources"].append(
+        {
+            "type": "solar",
+            "stat_energy_from": "sensor.x",
+            "config_entry_solar_forecast": ["a", "sim_entry_solcast_solar"],
+        }
+    )
+    result = suggest_from_prefs(prefs)
+    assert result.solar_forecast_entries == (
+        "sim_entry_solcast_solar",
+        "sim_entry_forecast_solar",
+        "a",
+    )
+    assert suggest_from_prefs(None).solar_forecast_entries == ()

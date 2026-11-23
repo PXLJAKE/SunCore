@@ -17,6 +17,7 @@ from suncore.templates import (
     RegionTemplate,
     TariffTemplate,
 )
+from suncore.templates.models import price_unit_factor
 from tests.templates.conftest import DOCS, device_doc, forecast_doc, region_doc, tariff_doc
 
 EXPECTED = {
@@ -36,7 +37,7 @@ def test_union_dispatches_on_kind(kind: str) -> None:
 
 def test_unknown_kind_rejected() -> None:
     doc = device_doc()
-    doc["kind"] = "battery"
+    doc["kind"] = "inverter"
     with pytest.raises(ValidationError, match="kind"):
         TEMPLATE_ADAPTER.validate_python(doc)
 
@@ -216,7 +217,11 @@ def test_action_allowlist_refuses_unknown_service_with_reason_key() -> None:
     doc["price_series"].update(domain="light", service="turn_on")
     with pytest.raises(ValidationError, match=ERR_ACTION_NOT_ALLOWED):
         TEMPLATE_ADAPTER.validate_python(doc)
-    for domain, service in (("tibber", "get_prices"), ("weather", "get_forecasts")):
+    for domain, service in (
+        ("tibber", "get_prices"),
+        ("nordpool", "get_prices_for_date"),
+        ("weather", "get_forecasts"),
+    ):
         doc["price_series"].update(domain=domain, service=service)
         assert TEMPLATE_ADAPTER.validate_python(doc).kind == "tariff"
 
@@ -246,3 +251,146 @@ def test_min_app_version_is_a_header_field() -> None:
     doc = device_doc()
     doc["min_app_version"] = "0.3.0"
     assert TEMPLATE_ADAPTER.validate_python(doc).min_app_version == "0.3.0"
+
+
+def test_tariff_prices_per_mwh_are_accepted_and_converted() -> None:
+    """M4: ENTSO-E/EPEX style prices in <currency>/MWh; the adapter divides by 1000."""
+    doc = tariff_doc()
+    doc["price_series"]["fields"]["value_unit"] = "{currency}/MWh"
+    assert TEMPLATE_ADAPTER.validate_python(doc).kind == "tariff"
+    doc["price_unit"] = "EUR/MWh"
+    doc["price_series"]["fields"]["value_unit"] = "EUR/MWh"
+    assert TEMPLATE_ADAPTER.validate_python(doc).kind == "tariff"
+    _bad(doc, lambda d: d["price_series"]["fields"].update(value_unit="USD/kWh"))
+    _bad(doc, lambda d: d["price_series"]["fields"].update(value_unit="EUR/Wh"))
+    _bad(doc, lambda d: d.update(price_unit="EUR/GWh"))
+    assert price_unit_factor("{currency}/kWh") == 1.0
+    assert price_unit_factor("EUR/MWh") * 85.0 == pytest.approx(0.085)
+    with pytest.raises(ValueError, match="not a price unit"):
+        price_unit_factor("EUR")
+
+
+def test_attribute_series_mapping_shape() -> None:
+    """M4: ``{iso_timestamp: value}`` attributes (Forecast.Solar ``wh_hours``)."""
+    doc = forecast_doc()
+    doc["series"].update(attribute="wh_hours", shape="mapping")
+    doc["series"]["fields"] = {"value_unit": "Wh"}
+    doc["resolution_min"] = 60
+    template = TEMPLATE_ADAPTER.validate_python(doc)
+    assert isinstance(template, ForecastTemplate)
+    assert template.series.shape == "mapping"  # type: ignore[union-attr]
+    _bad(doc, lambda d: d["series"]["fields"].update(timestamp_field="t"))
+    _bad(doc, lambda d: d["series"]["fields"].update(p10_field="p10"))
+    _bad(doc, lambda d: d["series"].update(shape="table"))
+    listed = forecast_doc()
+    assert TEMPLATE_ADAPTER.validate_python(listed).series.shape == "list"  # type: ignore[union-attr]
+    _bad(listed, lambda d: d["series"]["fields"].pop("timestamp_field"))
+    action = tariff_doc()
+    _bad(action, lambda d: d["price_series"]["fields"].pop("timestamp_field"))
+    nested = forecast_doc()
+    nested["series"]["list_path"] = "result.watts"
+    assert TEMPLATE_ADAPTER.validate_python(nested).kind == "forecast"
+    _bad(nested, lambda d: d["series"].update(list_path="result..watts"))
+
+
+def test_energy_solar_forecast_series_and_fallback() -> None:
+    doc = forecast_doc()
+    doc["series"] = {
+        "source": "energy_solar_forecast",
+        "missing_is_zero": True,
+        "fields": {"value_unit": "Wh"},
+    }
+    doc["roles"] = {}
+    template = TEMPLATE_ADAPTER.validate_python(doc)
+    assert template.series.missing_is_zero is True  # type: ignore[union-attr]
+    doc["series"]["fields"]["timestamp_field"] = "t"
+    with pytest.raises(ValidationError):
+        TEMPLATE_ADAPTER.validate_python(doc)
+    doc2 = forecast_doc()
+    doc2["fallback_series"] = {
+        "source": "action",
+        "domain": "tibber",
+        "service": "get_prices",
+        "response_path": "data",
+        "fields": {"timestamp_field": "a", "value_field": "b", "value_unit": "kW"},
+        "max_horizon_h": 24,
+    }
+    assert TEMPLATE_ADAPTER.validate_python(doc2).fallback_series is not None  # type: ignore[union-attr]
+    doc2["fallback_series"]["service"] = "evil"
+    with pytest.raises(ValidationError):
+        TEMPLATE_ADAPTER.validate_python(doc2)
+
+
+def test_action_series_per_date_requests_and_user_parameters() -> None:
+    """WP4: Nord Pool style action - one call per delivery date, request fields from the user."""
+    doc = tariff_doc()
+    series = doc["price_series"]
+    series.update(domain="nordpool", service="get_prices_for_date", response_path="*")
+    series.pop("start_field")
+    series.pop("end_field")
+    series.update(
+        date_field="date",
+        params=[
+            {
+                "name": "config_entry",
+                "required": True,
+                "description": "template.acme.dynamic.param.entry",
+            },
+            {
+                "name": "areas",
+                "required": False,
+                "description": "template.acme.dynamic.param.areas",
+            },
+        ],
+    )
+    series["fields"].update(end_field="end", value_unit="{currency}/MWh")
+    doc["price_unit"] = "{currency}/MWh"
+    template = TEMPLATE_ADAPTER.validate_python(doc)
+    assert isinstance(template, TariffTemplate)
+    assert template.message_keys() == [
+        "template.acme.dynamic.name",
+        "template.acme.dynamic.role.price",
+        "template.acme.dynamic.param.entry",
+        "template.acme.dynamic.param.areas",
+    ]
+    _bad(doc, lambda d: d["price_series"].update(start_field="start"))  # date XOR start/end
+    _bad(doc, lambda d: d["price_series"].update(end_field="end"))
+    _bad(
+        doc,
+        lambda d: d["price_series"]["params"].append(
+            {"name": "areas", "required": False, "description": "template.acme.dynamic.param.x"}
+        ),
+    )
+    _bad(
+        doc,
+        lambda d: d["price_series"]["params"].append(
+            {"name": "date", "required": False, "description": "template.acme.dynamic.param.x"}
+        ),
+    )
+    _bad(doc, lambda d: d["price_series"].update(params=[{"name": "x", "description": "bad key"}]))
+    _bad(doc, lambda d: d["price_series"].update(response_path="*."))
+
+
+def test_the_slot_end_field_belongs_to_lists_not_to_mapping_attributes() -> None:
+    doc = tariff_doc()
+    doc["price_series"]["fields"]["end_field"] = "end"
+    assert TEMPLATE_ADAPTER.validate_python(doc).kind == "tariff"
+    mapping = forecast_doc()
+    mapping["series"].update(attribute="wh_hours", shape="mapping")
+    mapping["series"]["fields"] = {"value_unit": "Wh", "end_field": "end"}
+    mapping["resolution_min"] = 60
+    _bad(mapping, lambda d: d["series"].update(shape="mapping"))  # end_field on a mapping
+
+
+def test_date_zone_of_a_per_date_action() -> None:
+    doc = tariff_doc()
+    series = doc["price_series"]
+    series.update(domain="nordpool", service="get_prices_for_date", response_path="*")
+    series.pop("start_field")
+    series.pop("end_field")
+    series["date_field"] = "date"
+    series["date_tz"] = "Europe/Berlin"
+    assert TEMPLATE_ADAPTER.validate_python(doc).price_series.date_tz == "Europe/Berlin"  # type: ignore[union-attr]
+    _bad(doc, lambda d: d["price_series"].update(date_tz="Mars/Olympus"))
+    _bad(doc, lambda d: d["price_series"].update(date_tz="CET"))
+    _bad(doc, lambda d: d["price_series"].pop("date_field"))  # a zone needs a date field

@@ -20,7 +20,11 @@ must follow it, ``tests/controller/sim.py`` is the reference):
    * ``blocked``: every device the gate holds (override), has a release pending for, or
      whose scope the watchdog paused - id -> the gate's reason;
    * ``reserve_soc_pct``, ``import_limit_w`` from the site/battery config, ``goals``,
-     ``plan`` (``Plan.default()`` in Phase 3);
+     ``plan`` (``Plan.default()`` until the planner's first plan, afterwards the current plan
+     read **once** for the tick - ``ControlStack.tick``; a plan can only restrict the devices
+     and move the surplus between battery and consumers); ``battery`` (WP10: the adapter's
+     capabilities and ranges and what the gate holds) - the band of a fresh plan becomes a
+     ``BatteryAction`` intent (``controller.battery``);
 
 3. ``result = await loop.tick(now, ControllerInputs(...))``. Inside, in this order:
    ``controller.step`` (surplus, allocation, back-off) -> ``loop.gate_inputs`` is the
@@ -59,6 +63,12 @@ from suncore.controller.allocation import (
     DeviationEvent,
     DeviceView,
 )
+from suncore.controller.battery import (
+    BatteryControlInputs,
+    BatteryControlSettings,
+    BatteryIntents,
+    BatteryView,
+)
 from suncore.controller.levels import ConfigQuantiser, Quantiser
 from suncore.controller.surplus import SiteSurplus, SurplusTracker
 from suncore.core.balance import FlowSnapshot
@@ -66,6 +76,7 @@ from suncore.core.config import GoalsConfig
 from suncore.core.control import ControlSettings, DeviceState, GateInputs, Plan, PowerEstimate
 from suncore.core.decisions import Decision, Intent, Reason
 from suncore.core.devices import DeviceConfig
+from suncore.core.signals import Quality
 
 log = structlog.get_logger(__name__)
 
@@ -91,6 +102,9 @@ class ControllerInputs:
     reserve_soc_pct: float | None = None
     goals: GoalsConfig = field(default_factory=GoalsConfig)
     plan: Plan = field(default_factory=Plan.default)
+    battery: BatteryControlInputs | None = None
+    """The battery adapter's capabilities, ranges and what the gate holds (``None`` = no battery
+    adapter: the battery is only observed, no battery intents; Phase 4 WP10)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +121,8 @@ class TickResult:
     """Free surplus before this tick's intents (``gate_inputs.surplus`` unclamped)."""
     allocated_draw_w: float
     attributable_deficit_w: float
+    battery: BatteryView | None = None
+    """The battery decision of the tick (``None`` without a battery adapter)."""
 
 
 class Controller:
@@ -119,8 +135,10 @@ class Controller:
         settings: ControlSettings | None = None,
         tz: tzinfo = UTC,
         quantiser: Quantiser | None = None,
+        battery: BatteryControlSettings | None = None,
     ) -> None:
         self._settings = settings if settings is not None else ControlSettings()
+        self._battery = BatteryIntents(battery)
         self._tz = tz
         devices = list(devices)
         if quantiser is None:
@@ -155,7 +173,10 @@ class Controller:
         if now.tzinfo is None or now.utcoffset() is None:
             msg = "Controller.step needs a timezone-aware now"
             raise ValueError(msg)
-        band = None if inputs.plan.is_default else inputs.plan.battery_band_at(now)
+        # A band applies only while a plan interval covers ``now``: a plan that ran out (or a
+        # default plan) leaves the Phase 3 goal rules in charge, never the empty default band.
+        interval = inputs.plan.interval_at(now)
+        band = None if interval is None else interval.battery
         allocation = AllocationInputs(
             states=inputs.states,
             estimates=inputs.estimates,
@@ -165,13 +186,24 @@ class Controller:
             import_limit_w=inputs.import_limit_w,
         )
         outcome = self._allocator.prepare(now, allocation)
+        held = None if inputs.battery is None else inputs.battery.held
         site = self._surplus.update(
-            now, inputs.flows, inputs.goals, band, controlled_draw=outcome.controlled_draw
+            now,
+            inputs.flows,
+            inputs.goals,
+            band,
+            controlled_draw=outcome.controlled_draw,
+            grid_charging=held is not None and (held.grid_charge_w or 0.0) > 0,
         )
         # The gate judges this tick's intents against the free surplus *before* them
         # (each intent's own added demand is the gate's ``delta``).
         surplus = site.gate_estimate(self._settings.reserve_w, outcome.committed_w)
         outcome = self._allocator.run(now, site, allocation, outcome)
+        soc_flow = None if inputs.flows is None else inputs.flows.battery_soc_pct
+        # Only an OK reading counts (review 4-G minor 7): a stale SoC never sets a floor.
+        soc = soc_flow.value if soc_flow is not None and soc_flow.quality is Quality.OK else None
+        battery_intent = self._battery.step(now, inputs.plan, inputs.battery, soc)
+        intents = (*outcome.intents, battery_intent) if battery_intent else tuple(outcome.intents)
         gate_inputs = GateInputs(
             flows=inputs.flows,
             surplus=surplus,
@@ -184,18 +216,25 @@ class Controller:
             ts=now,
             gate_inputs=gate_inputs,
             site=site,
-            intents=tuple(outcome.intents),
+            intents=intents,
             views=MappingProxyType(dict(outcome.views)),
             deviations=tuple(outcome.deviations),
             total_w=outcome.total_w,
             free_w=outcome.free_w,
             allocated_draw_w=outcome.allocated_draw_w,
             attributable_deficit_w=outcome.attributable_deficit_w,
+            battery=self._battery.view,
         )
 
     def report(self, decision: Decision) -> bool:
         """Feed the gate's decision on an intent back; ``True`` if it was ours and pending."""
+        if self._battery.report(decision):
+            return True
         return self._allocator.report(decision)
+
+    @property
+    def battery(self) -> BatteryIntents:
+        return self._battery
 
 
 class ControllerLoop:
@@ -255,6 +294,8 @@ class ControllerLoop:
             # The gate records its own failures; a transport error here would otherwise
             # leave the device "in flight" until the machine's timeout.
             log.warning("controller.submit_failed", intent_id=intent.id, error=str(exc)[:200])
+            if intent.id.startswith("battery:"):
+                self._controller.battery.reset_pending()
             return
         self._controller.report(decision)
 

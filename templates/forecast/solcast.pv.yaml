@@ -1,28 +1,33 @@
 # yaml-language-server: $schema=../schema/forecast.schema.json
 # Solcast PV Forecast (HACS `BJReplay/ha-solcast-solar`, domain `solcast_solar`).
-# The day sensors carry the half-hour curve in the attribute `detailedForecast`
-# (average power in kW per slot, P50 / P10 / P90).
+# The day sensors (today, tomorrow, d3 ...) carry the half-hour curve of their whole local day in
+# the attribute `detailedForecast` (average power in kW per slot; P50 / P10 / P90). If the user
+# switched that attribute off, the read-only action `solcast_solar.query_forecast_data`
+# (does not consume Solcast API calls) delivers the same entries.
 id: solcast.pv
 kind: forecast
 schema_version: 1
 name: template.solcast.pv.name
 source:
-  - title: "ha-solcast-solar forecast.py (detailedForecast slots, kW average power)"
-    url: "https://github.com/BJReplay/ha-solcast-solar/blob/3ae22af/custom_components/solcast_solar/forecast.py"
-    date: 2026-10-13
-  - title: "ha-solcast-solar sensor.py (day sensors, units, device classes)"
-    url: "https://github.com/BJReplay/ha-solcast-solar/blob/3ae22af/custom_components/solcast_solar/sensor.py"
-    date: 2026-10-13
-  - title: "ha-solcast-solar const.py (attribute and field names)"
-    url: "https://github.com/BJReplay/ha-solcast-solar/blob/3ae22af/custom_components/solcast_solar/const.py"
-    date: 2026-10-13
+  - title: "ha-solcast-solar v4.6.1 forecast.py (detailedForecast slots, kW average power, P10/P90)"
+    url: "https://github.com/BJReplay/ha-solcast-solar/blob/34e1d007e9d4a9b7a783520d723fcd05adb2ff9a/custom_components/solcast_solar/forecast.py"
+    date: 2026-10-16
+  - title: "ha-solcast-solar v4.6.1 const.py (attribute and field names, forecast_day_entities)"
+    url: "https://github.com/BJReplay/ha-solcast-solar/blob/34e1d007e9d4a9b7a783520d723fcd05adb2ff9a/custom_components/solcast_solar/const.py"
+    date: 2026-10-16
+  - title: "ha-solcast-solar v4.6.1 coordinator.py (day sensors today, tomorrow, d3 ...)"
+    url: "https://github.com/BJReplay/ha-solcast-solar/blob/34e1d007e9d4a9b7a783520d723fcd05adb2ff9a/custom_components/solcast_solar/coordinator.py"
+    date: 2026-10-16
+  - title: "ha-solcast-solar v4.6.1 actions.py and services.yaml (query_forecast_data, response data[])"
+    url: "https://github.com/BJReplay/ha-solcast-solar/blob/34e1d007e9d4a9b7a783520d723fcd05adb2ff9a/custom_components/solcast_solar/actions.py"
+    date: 2026-10-16
 tested_with: []
 capabilities: [pv_curve, pv_quantiles]
 unverified:
-  - "Read from the integration source (version 4.6.2, main 3ae22af) only; not observed on a running Home Assistant."
-  - "`detailedForecast` is only present when the option is on (default on); extra keys in the slots may appear with advanced options."
-  - "Day 3 to 7 sensors exist depending on an option and are not used by this template; the default number of day sensors is unknown."
-  - "Values are dampened when dampening is enabled in the integration."
+  - "Read from the integration source (tag v4.6.1) only; not observed on a running Home Assistant."
+  - "`detailedForecast` is only present when the option is on (default on); otherwise the action `query_forecast_data` is used (no Solcast API calls either way)."
+  - "Sensors d3 to d7 exist by default (option `forecast_day_entities`); only d3 and d4 are used (48 h planning). Their keys `total_kwh_forecast_d3` ... come from the research notes, not a running system."
+  - "Values are dampened when dampening is enabled in the integration (the action can return undampened values; SunCore does not ask for them)."
 forecast_kind: pv
 roles:
   forecast_today:
@@ -41,9 +46,27 @@ roles:
       device_class: energy
       units: [kWh]
     description: template.solcast.pv.role.forecast_tomorrow
+  forecast_d3:
+    required: false
+    matcher:
+      domain: sensor
+      platforms: [solcast_solar]
+      translation_key: total_kwh_forecast_d3
+      device_class: energy
+      units: [kWh]
+    description: template.solcast.pv.role.forecast_d3
+  forecast_d4:
+    required: false
+    matcher:
+      domain: sensor
+      platforms: [solcast_solar]
+      translation_key: total_kwh_forecast_d4
+      device_class: energy
+      units: [kWh]
+    description: template.solcast.pv.role.forecast_d4
 series:
   source: attribute
-  roles: [forecast_today, forecast_tomorrow]
+  roles: [forecast_today, forecast_tomorrow, forecast_d3, forecast_d4]
   attribute: detailedForecast
   fields:
     timestamp_field: period_start
@@ -51,4 +74,18 @@ series:
     p10_field: pv_estimate10
     p90_field: pv_estimate90
     value_unit: kW
+fallback_series:
+  source: action
+  domain: solcast_solar
+  service: query_forecast_data
+  start_field: start_date_time
+  end_field: end_date_time
+  response_path: data
+  fields:
+    timestamp_field: period_start
+    value_field: pv_estimate
+    p10_field: pv_estimate10
+    p90_field: pv_estimate90
+    value_unit: kW
+  max_horizon_h: 96
 resolution_min: 30

@@ -28,3 +28,12 @@ class Capability(StrEnum):
     PV_QUANTILES = "pv_quantiles"
     FEED_IN_TIERS = "feed_in_tiers"
     NEGATIVE_PRICE_RULE = "negative_price_rule"
+    # Phase 4 (battery kind, additive):
+    BATTERY_SOC = "battery_soc"
+    MIN_SOC_LIMIT = "min_soc_limit"
+    CHARGE_LIMIT = "charge_limit"
+    DISCHARGE_LIMIT = "discharge_limit"
+    GRID_CHARGE = "grid_charge"
+    BATTERY_MODES = "battery_modes"
+    HARDWARE_FALLBACK = "hardware_fallback"
+    """The inverter falls back to its own limits when SunCore stops writing (Phase 4 WP10)."""

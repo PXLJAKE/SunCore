@@ -35,7 +35,7 @@ from suncore.core.devices import (
 from suncore.core.site import EntityRef
 from suncore.ha.connection import CommandTimeoutError
 from suncore.sim.demo_config import WIZARD_STEPS
-from suncore.sim.demo_devices import AC_ID
+from suncore.sim.demo_devices import AC_ID, PRICE_ID
 from suncore.sim.fake_ha import SIM_ENTITY_IDS, FakeHAConnection, demo_site_config
 from suncore.templates import DeviceTemplate
 from tests.api.conftest import client_for, serving
@@ -115,7 +115,22 @@ DEMO_DEVICE_ENTITIES = frozenset(
     }
 )
 """The demo starts with devices; the runtime subscribes to their entities too."""
-DEMO_SUBSCRIBED = frozenset(SIM_ENTITY_IDS) | DEMO_DEVICE_ENTITIES
+DEMO_FORECAST_ENTITIES = frozenset(
+    {
+        "sensor.sim_solcast_forecast_today",
+        "sensor.sim_solcast_forecast_tomorrow",
+        "sensor.sim_open_meteo_energy_production_today",
+        "sensor.sim_open_meteo_energy_production_tomorrow",
+        "binary_sensor.sim_workday_sensor",
+        "weather.sim_home",
+    }
+)
+"""The configured PV forecast sources' day sensors (Phase 4 WP5) and the load forecast's workday
+sensor and weather entity (WP6) are subscribed too, and the price sensor of the tariff (it tells
+the price service when to look again)."""
+DEMO_SUBSCRIBED = (
+    frozenset(SIM_ENTITY_IDS) | DEMO_DEVICE_ENTITIES | DEMO_FORECAST_ENTITIES | {PRICE_ID}
+)
 
 
 async def test_demo_starts_fully_configured(demo_runtime: Runtime) -> None:
@@ -139,7 +154,11 @@ async def test_demo_starts_fully_configured(demo_runtime: Runtime) -> None:
     assert tariff.import_.price_entity == EntityRef(entity_id="sensor.sim_electricity_price")
     forecast = await demo_runtime.get_section("forecast")
     assert isinstance(forecast, ForecastConfig)
-    assert forecast.forecast_template_ids == ["solcast.pv"]
+    assert forecast.template_ids == [
+        "solcast.pv",
+        "open_meteo_solar_forecast.pv",
+        "forecast_solar.pv",
+    ]
     operation = await demo_runtime.get_section("operation")
     assert isinstance(operation, OperationConfig)
     assert operation.mode is OperatingMode.SHADOW
@@ -205,7 +224,9 @@ async def test_put_site_survives_subscribe_timeout(
             r = await client.put("/api/v1/config/site", json=reduced.model_dump(mode="json"))
     assert r.status_code == 200
     assert (await demo_runtime.config.get_site()) == reduced  # persisted
-    assert [e["event"] for e in logs if e["log_level"] == "warning"] == ["ha.subscribe_failed"]
+    # (the fixture's wall clock is not the simulator's, so the price service may warn as well)
+    warnings = [e["event"] for e in logs if e["log_level"] == "warning"]
+    assert [e for e in warnings if not e.startswith("tariff.")] == ["ha.subscribe_failed"]
 
 
 async def test_put_site_notifies_live_listeners(demo_runtime: Runtime) -> None:
@@ -357,9 +378,10 @@ async def test_put_devices_resubscribes_and_shadows_new_ones(demo_runtime: Runti
     stored = await demo_runtime.put_section("devices", DevicesConfig(devices=[_switch("heater")]))
     assert isinstance(stored, DevicesConfig)
     assert await demo_runtime.get_section("operation") == OperationConfig()
-    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) | {
+    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) | DEMO_FORECAST_ENTITIES | {
         "switch.heater",
         "sensor.heater_power",
+        PRICE_ID,
     }
     assert await demo_runtime.get_section("devices") == stored
 
@@ -392,4 +414,41 @@ async def test_import_reloads_devices(demo_runtime: Runtime) -> None:
     exported["sections"]["devices"]["body"]["devices"] = []
     await demo_runtime.import_config(exported)
     assert demo_runtime.devices == DevicesConfig()
-    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS)
+    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) | DEMO_FORECAST_ENTITIES | {PRICE_ID}
+
+
+async def test_demo_battery_control_flag_wires_a_generic_adapter(tmp_path: Path) -> None:
+    off = await build_runtime(
+        demo_settings(tmp_path), env={}, connection=RecordingConnection(6000.0)
+    )
+    try:
+        stored = await off.config.get("battery")
+        assert getattr(stored, "adapter_template_id", "x") is None
+    finally:
+        await off.stop()
+    on = await build_runtime(
+        demo_settings(tmp_path, demo_battery_control=True),
+        env={},
+        connection=RecordingConnection(6000.0),
+    )
+    try:
+        stored = await on.config.get("battery")
+        assert stored.adapter_template_id == "generic.battery"
+        assert set(stored.entities) == {
+            "min_soc_number",
+            "max_charge_number",
+            "max_discharge_number",
+            "grid_charge_number",
+        }
+    finally:
+        await on.stop()
+
+
+async def test_energy_prefs_label_the_solar_forecast_entries(demo_runtime: Runtime) -> None:
+    async with client_for(create_app(demo_runtime)) as client:
+        body = (await client.get("/api/v1/wizard/energy-prefs")).json()
+    assert body["solar_forecast_entries"] == ["sim_entry_solcast_solar", "sim_entry_forecast_solar"]
+    assert (
+        body["solar_forecast_labels"]["sim_entry_forecast_solar"] == "Forecast.Solar Home forecast"
+    )
+    assert "BJReplay" in body["solar_forecast_labels"]["sim_entry_solcast_solar"]

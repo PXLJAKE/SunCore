@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+name: inverter_hang_battery
+description: A cloudy spring day with a generic battery adapter. The plan holds the battery's energy (discharge lock) while PV charges it. At 11:00 the hybrid inverter hangs - battery power and SoC freeze while clouds keep moving the grid meter, and the inverter ignores every write. The battery watch must notice, release the battery and stop writing; the unconfirmed release pauses battery control until the inverter is back.
+start: "2026-04-20T09:30:00+02:00"
+duration_s: 14400
+step_s: 10
+house:
+  seed: 17
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.04}
+  battery: {capacity_wh: 10000, max_charge_w: 5000, max_discharge_w: 5000, initial_soc_pct: 30}
+  inverter:
+    adapter: generic
+    min_soc_pct: 10
+    hang_from_s: 5400
+    hang_to_s: 9000
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 5700, factor: 0.2}
+  - {at_s: 5880, factor: 1.0}
+  - {at_s: 6060, factor: 0.25}
+  - {at_s: 6240, factor: 1.0}
+  - {at_s: 6420, factor: 0.2}
+  - {at_s: 6600, factor: 1.0}
+  - {at_s: 6780, factor: 0.3}
+  - {at_s: 6960, factor: 1.0}
+faults:
+  - {kind: frozen, target: battery_power, from_s: 5400, to_s: 9000}
+  - {kind: frozen, target: battery_soc, from_s: 5400, to_s: 9000}
+control:
+  import_limit_w: 12000
+battery:
+  mode: automatic

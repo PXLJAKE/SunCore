@@ -18,6 +18,7 @@ from datetime import date
 from enum import StrEnum, unique
 from functools import lru_cache
 from typing import Annotated, Final, Literal, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
     BaseModel,
@@ -29,6 +30,16 @@ from pydantic import (
 )
 
 from suncore.core.actions import ERR_ACTION_NOT_ALLOWED, is_read_only_action
+from suncore.core.battery_adapter import (
+    KOSTAL_MODBUS_ROLES,
+    BatteryAdapterSpec,
+    BatteryDriverKind,
+    BatteryModeMeaning,
+    ModbusRegisterSpec,
+    ModeOptionSpec,
+    ModeSelectSpec,
+    NumberLimitSpec,
+)
 from suncore.core.capabilities import Capability
 from suncore.core.config import REGION_ID_PATTERN
 from suncore.core.decisions import REASON_KEY_PATTERN
@@ -53,13 +64,22 @@ SCHEMA_VERSION: Final = 1
 VERSION_PATTERN: Final = r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$"
 """PEP 440 subset accepted for ``min_app_version`` (no epochs, no local versions)."""
 
-TemplateKind = Literal["device", "tariff", "forecast", "region"]
-TEMPLATE_KINDS: Final[tuple[TemplateKind, ...]] = ("device", "tariff", "forecast", "region")
+TemplateKind = Literal["device", "tariff", "forecast", "region", "battery"]
+TEMPLATE_KINDS: Final[tuple[TemplateKind, ...]] = (
+    "device",
+    "tariff",
+    "forecast",
+    "region",
+    "battery",
+)
 
 Slug = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$", max_length=48)]
 MessageKey = Annotated[str, StringConstraints(pattern=REASON_KEY_PATTERN, max_length=120)]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Url = Annotated[str, StringConstraints(pattern=r"^https?://\S+$", max_length=500)]
+DottedPath = Annotated[
+    str, StringConstraints(pattern=r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$", max_length=200)
+]
 RegexText = Annotated[str, StringConstraints(min_length=1, max_length=200)]
 
 
@@ -206,29 +226,82 @@ def _need(caps: list[Capability], cap: Capability, ok: bool, why: str) -> None:
 
 
 class SeriesFields(_Frozen):
-    """Names of the fields of one series point and the unit of its values."""
+    """Names of the fields of one series point and the unit of its values.
 
-    timestamp_field: Text
-    value_field: Text
+    ``timestamp_field`` and ``value_field`` are required for a list of point objects
+    (``action`` series, ``attribute`` series of shape ``list``) and absent for an
+    ``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose
+    values are the values.
+    """
+
+    timestamp_field: Text | None = None
+    value_field: Text | None = None
     p10_field: Text | None = None
     p90_field: Text | None = None
+    end_field: Text | None = None
+    """Phase 4 WP4 (price lists): field with the slot *end*; the slot length is ``end - start``
+    per point (Nord Pool, EPEX Spot, Octopus). Absent = derive the length from the spacing of
+    the timestamps or from the template's ``resolution_min``."""
     value_unit: Text
+
+    def require_point_fields(self, where: str) -> None:
+        if self.timestamp_field is None or self.value_field is None:
+            msg = f"{where}: `timestamp_field` and `value_field` are required"
+            raise ValueError(msg)
 
 
 class AttributeSeries(_Frozen):
-    """Series held in an attribute of the entities of ``roles`` (concatenated in order)."""
+    """Series held in an attribute of the entities of ``roles`` (concatenated in order).
+
+    ``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's
+    value to the points when the attribute is a mapping (``None`` = the attribute itself
+    holds the points). ``shape`` says what the points are:
+
+    * ``list`` (default): a list of objects named by ``fields`` (Solcast
+      ``detailedForecast``);
+    * ``mapping``: an object ``{iso_timestamp: value}`` (Forecast.Solar ``wh_hours``,
+      Open-Meteo Solar Forecast ``wh_period_15m``); ``fields`` then gives only
+      ``value_unit`` - no point field names and no quantiles.
+
+    The period length of a point is the template's ``resolution_min``.
+    """
 
     source: Literal["attribute"]
     roles: Annotated[tuple[RoleName, ...], Field(min_length=1, max_length=16)]
     attribute: Text
     fields: SeriesFields
+    list_path: DottedPath | None = None
+    shape: Literal["list", "mapping"] = "list"
 
     @model_validator(mode="after")
     def _unique(self) -> Self:
         if len(set(self.roles)) != len(self.roles):
             msg = "series.roles: entries must be unique"
             raise ValueError(msg)
+        f = self.fields
+        if self.shape == "list":
+            f.require_point_fields("series.fields")
+        elif any(
+            x is not None
+            for x in (f.timestamp_field, f.value_field, f.p10_field, f.p90_field, f.end_field)
+        ):
+            msg = "series.fields: shape `mapping` takes only `value_unit` (keys are the timestamps)"
+            raise ValueError(msg)
         return self
+
+
+class ActionParam(_Frozen):
+    """A field of the action's request that the user's tariff configuration supplies.
+
+    The value comes from ``tariff.import.action_params[name]`` (Phase 4 WP4), e.g. the
+    Nord Pool ``config_entry`` id or ``areas``. SunCore never invents such a value.
+    """
+
+    name: Text
+    """The action's field name."""
+    required: bool = True
+    description: MessageKey
+    """i18n key explaining the field to the user."""
 
 
 class ActionSeries(_Frozen):
@@ -239,8 +312,20 @@ class ActionSeries(_Frozen):
     service: Slug
     start_field: Text | None = None
     end_field: Text | None = None
+    date_field: Text | None = None
+    """Phase 4 WP4: the action takes one delivery *date* (``YYYY-MM-DD``, local date of the
+    site) per call (Nord Pool ``date``); the adapter calls once for every date of the window.
+    Excludes ``start_field``/``end_field``."""
+    date_tz: (
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z_]+(/[A-Za-z_+\-0-9]+){1,2}$")] | None
+    ) = None
+    """IANA zone in which ``date_field`` names the delivery day (the market's, e.g. Nord Pool's
+    CET day: ``Europe/Berlin``); ``None`` = the site's zone."""
+    params: Annotated[tuple[ActionParam, ...], Field(max_length=8)] = ()
+    """Request fields the user supplies (see :class:`ActionParam`)."""
     response_path: Annotated[
-        str, StringConstraints(pattern=r"^[A-Za-z0-9_]+(\.([A-Za-z0-9_]+|\*))*$", max_length=200)
+        str,
+        StringConstraints(pattern=r"^(\*|[A-Za-z0-9_]+)(\.([A-Za-z0-9_]+|\*))*$", max_length=200),
     ]
     """Dotted path into the response; a ``*`` segment means every value of that mapping."""
     fields: SeriesFields
@@ -248,6 +333,29 @@ class ActionSeries(_Frozen):
 
     @model_validator(mode="after")
     def _allowed(self) -> Self:
+        self.fields.require_point_fields("series.fields")
+        if self.date_field is not None and (
+            self.start_field is not None or self.end_field is not None
+        ):
+            msg = "series: `date_field` excludes `start_field` and `end_field`"
+            raise ValueError(msg)
+        if self.date_tz is not None:
+            if self.date_field is None:
+                msg = "series: `date_tz` needs `date_field`"
+                raise ValueError(msg)
+            try:
+                ZoneInfo(self.date_tz)
+            except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
+                msg = f"series.date_tz: unknown time zone `{self.date_tz}`"
+                raise ValueError(msg) from exc
+        names = [p.name for p in self.params]
+        if len(set(names)) != len(names):
+            msg = "series.params: names must be unique"
+            raise ValueError(msg)
+        reserved = {self.date_field, self.start_field, self.end_field} - {None}
+        if reserved & set(names):
+            msg = "series.params: a parameter cannot reuse a date, start or end field"
+            raise ValueError(msg)
         if not is_read_only_action(self.domain, self.service):
             msg = (
                 f"{ERR_ACTION_NOT_ALLOWED}: `{self.domain}.{self.service}` is not on the "
@@ -260,8 +368,42 @@ class ActionSeries(_Frozen):
 SeriesSource = Annotated[AttributeSeries | ActionSeries, Field(discriminator="source")]
 
 
+class EnergyDashboardSeries(_Frozen):
+    """Series read from the WebSocket command ``energy/solar_forecast`` (Phase 4, forecasts only).
+
+    The command returns ``{config_entry_id: {"wh_hours": {iso_timestamp: Wh}}}`` for the forecast
+    integrations linked in the Energy dashboard (Forecast.Solar in Home Assistant core). The
+    template names no entity: the user binds the source to a config entry
+    (``ForecastSourceConfig.config_entry_id``), or SunCore takes the only entry there is.
+    ``fields`` gives only ``value_unit`` (energy per period; no quantiles). The length of a
+    period is inferred from the spacing of the timestamps; the template's ``resolution_min``
+    is the expected length (used for a series of one point).
+    """
+
+    source: Literal["energy_solar_forecast"]
+    fields: SeriesFields
+    missing_is_zero: bool = False
+    """The integration drops periods of value 0 (Forecast.Solar: only a 0 Wh period that starts
+    exactly at 00:00:00, ``forecast_solar/energy.py`` keeps ``val != 0 or not midnight``), so a
+    period missing between two known ones is 0 Wh, not unknown."""
+
+    @model_validator(mode="after")
+    def _fields(self) -> Self:
+        f = self.fields
+        if any(x is not None for x in (f.timestamp_field, f.value_field, f.p10_field, f.p90_field)):
+            msg = "series.fields: `energy_solar_forecast` takes only `value_unit`"
+            raise ValueError(msg)
+        return self
+
+
+ForecastSeriesSource = Annotated[
+    AttributeSeries | ActionSeries | EnergyDashboardSeries, Field(discriminator="source")
+]
+
+
 def _check_series_roles(
-    series: AttributeSeries | ActionSeries, roles: dict[RoleName, RoleSpec]
+    series: AttributeSeries | ActionSeries | EnergyDashboardSeries,
+    roles: dict[RoleName, RoleSpec],
 ) -> None:
     if isinstance(series, AttributeSeries):
         for role in series.roles:
@@ -371,14 +513,44 @@ class DeviceTemplate(TemplateHeader):
 
 # --- tariff ------------------------------------------------------------------
 
+PRICE_UNIT_PATTERN: Final = r"^(\{currency\}|[A-Z]{3})/(kWh|MWh)$"
+"""Unit of a tariff price: a currency (``{currency}`` = the region's) per kWh or MWh."""
+
+_PRICE_UNIT_RE: Final = re.compile(PRICE_UNIT_PATTERN)
+
+PRICE_ENERGY_FACTORS: Final[dict[str, float]] = {"kWh": 1.0, "MWh": 1 / 1000}
+"""Factor that turns a price per <energy> into a price per kWh (adapter contract)."""
+
+
+def price_unit_factor(unit: str) -> float:
+    """Multiply a price in ``unit`` by this to get currency/kWh (``EUR/MWh`` -> 0.001).
+
+    Raises ``ValueError`` for a unit that is not ``<currency>/kWh`` or ``<currency>/MWh``.
+    """
+    match = _PRICE_UNIT_RE.match(unit)
+    if match is None:
+        msg = f"`{unit}` is not a price unit (<currency>/kWh or <currency>/MWh)"
+        raise ValueError(msg)
+    return PRICE_ENERGY_FACTORS[match.group(2)]
+
+
+def _same_currency(unit: str, price_unit: str) -> bool:
+    """``unit`` is a price unit whose currency is ``price_unit``'s or ``{currency}``."""
+    match = _PRICE_UNIT_RE.match(unit)
+    reference = _PRICE_UNIT_RE.match(price_unit)
+    if match is None or reference is None:
+        return False
+    return match.group(1) in (reference.group(1), "{currency}")
+
 
 class TariffTemplate(TemplateHeader):
     kind: Literal["tariff"]
     direction: Literal["import", "export"]
     tariff_type: Literal["fixed", "dynamic"]
     roles: dict[RoleName, RoleSpec] = Field(default_factory=dict)
-    price_unit: Annotated[str, StringConstraints(pattern=r"^(\{currency\}|[A-Z]{3})/kWh$")]
-    """``<currency>/kWh``; ``{currency}`` takes the region's currency."""
+    price_unit: Annotated[str, StringConstraints(pattern=PRICE_UNIT_PATTERN)]
+    """``<currency>/kWh`` or ``<currency>/MWh``; ``{currency}`` takes the region's currency.
+    Adapters convert to currency/kWh with :func:`price_unit_factor` (MWh: / 1000)."""
     resolution_min: Literal[15, 60] | None = None
     """``None`` = derive from the timestamps."""
     price_series: SeriesSource | None = None
@@ -408,10 +580,10 @@ class TariffTemplate(TemplateHeader):
         if self.price_series is not None:
             _check_series_roles(self.price_series, self.roles)
             unit = self.price_series.fields.value_unit
-            if unit not in (self.price_unit, "{currency}/kWh"):
+            if not _same_currency(unit, self.price_unit):
                 msg = (
-                    f"price_series.fields.value_unit: `{unit}` does not match "
-                    f"price_unit `{self.price_unit}`"
+                    f"price_series.fields.value_unit: `{unit}` does not match the currency of "
+                    f"price_unit `{self.price_unit}` (allowed: <currency>/kWh or /MWh)"
                 )
                 raise ValueError(msg)
         caps = self.capabilities
@@ -420,7 +592,12 @@ class TariffTemplate(TemplateHeader):
         return self
 
     def message_keys(self) -> list[str]:
-        return [self.name, *(r.description for r in self.roles.values())]
+        params = (
+            [p.description for p in self.price_series.params]
+            if isinstance(self.price_series, ActionSeries)
+            else []
+        )
+        return [self.name, *(r.description for r in self.roles.values()), *params]
 
 
 # --- forecast ----------------------------------------------------------------
@@ -432,7 +609,10 @@ class ForecastTemplate(TemplateHeader):
     kind: Literal["forecast"]
     forecast_kind: Literal["pv", "load"]
     roles: dict[RoleName, RoleSpec] = Field(default_factory=dict)
-    series: SeriesSource
+    series: ForecastSeriesSource
+    fallback_series: ActionSeries | None = None
+    """Used when the primary ``series`` yields nothing (Solcast: the attribute is switched off,
+    then the read-only action ``query_forecast_data``)."""
     resolution_min: Annotated[int, Field(ge=1, le=1440)]
 
     @model_validator(mode="after")
@@ -442,13 +622,16 @@ class ForecastTemplate(TemplateHeader):
             raise ValueError(msg)
         _check_roles(self.roles, required=isinstance(self.series, AttributeSeries))
         _check_series_roles(self.series, self.roles)
-        unit = parse_unit(self.series.fields.value_unit)
-        if unit not in _FORECAST_UNITS:
-            msg = (
-                f"series.fields.value_unit: `{self.series.fields.value_unit}` must be one of "
-                "W, kW, Wh, kWh (power = average over the slot, energy = per slot)"
-            )
-            raise ValueError(msg)
+        for name, series in (("series", self.series), ("fallback_series", self.fallback_series)):
+            if series is None:
+                continue
+            unit = parse_unit(series.fields.value_unit)
+            if unit not in _FORECAST_UNITS:
+                msg = (
+                    f"{name}.fields.value_unit: `{series.fields.value_unit}` must be one of "
+                    "W, kW, Wh, kWh (power = average over the slot, energy = per slot)"
+                )
+                raise ValueError(msg)
         fields = self.series.fields
         has_quantiles = fields.p10_field is not None and fields.p90_field is not None
         _need(
@@ -544,14 +727,287 @@ class RegionTemplate(TemplateHeader):
         return self
 
 
+# --- battery -----------------------------------------------------------------
+
+
+class NumberLimitControl(_Frozen):
+    """A ``number`` role that sets a battery limit.
+
+    ``min_soc``: discharge floor in ``%`` (discharge lock / reserve); ``max_charge`` and
+    ``max_discharge``: power limits; ``grid_charge_power``: forced charging power from the
+    grid. ``min``/``max``/``step`` are the entity's range in ``unit`` (``%`` of the
+    battery's maximum power for the power kinds).
+    """
+
+    kind: Literal["min_soc", "max_charge", "max_discharge", "grid_charge_power"]
+    unit: Literal["W", "kW", "%"]
+    min: Annotated[float, Field(ge=0)]
+    max: Annotated[float, Field(gt=0)]
+    step: Annotated[float, Field(gt=0)] | None = None
+
+    @model_validator(mode="after")
+    def _range(self) -> Self:
+        if not self.min < self.max:
+            msg = "controls: `min` must be below `max`"
+            raise ValueError(msg)
+        if self.unit == "%" and self.max > 100:
+            msg = "controls: a value in % allows at most 100"
+            raise ValueError(msg)
+        if self.kind == "min_soc" and self.unit != "%":
+            msg = "controls: `min_soc` is set in %"
+            raise ValueError(msg)
+        return self
+
+
+OptionValue = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+"""A select option exactly as the entity lists it (whitespace is significant)."""
+
+
+class BatteryModeOption(_Frozen):
+    value: OptionValue
+    """The select option written to the entity, verbatim (not stripped)."""
+    meaning: BatteryModeMeaning
+
+
+class ModeSelectControl(_Frozen):
+    """A ``select`` role choosing the battery's operating mode."""
+
+    kind: Literal["mode"]
+    options: Annotated[tuple[BatteryModeOption, ...], Field(min_length=2, max_length=16)]
+
+    @model_validator(mode="after")
+    def _options(self) -> Self:
+        values = [o.value for o in self.options]
+        if len(set(values)) != len(values):
+            msg = "controls: mode values must be unique"
+            raise ValueError(msg)
+        autos = [o for o in self.options if o.meaning is BatteryModeMeaning.AUTO]
+        if len(autos) != 1:
+            msg = "controls: a mode select needs exactly one option with meaning `auto`"
+            raise ValueError(msg)
+        return self
+
+
+class ForceChargeSwitchControl(_Frozen):
+    """A ``switch`` role: on = force charging (from the grid if PV is short), off = auto."""
+
+    kind: Literal["force_charge"]
+
+
+BatteryControl = Annotated[
+    NumberLimitControl | ModeSelectControl | ForceChargeSwitchControl,
+    Field(discriminator="kind"),
+]
+"""What a writable battery role can express (``controls`` of a battery template)."""
+
+_CONTROL_DOMAINS: Final = {
+    "min_soc": "number",
+    "max_charge": "number",
+    "max_discharge": "number",
+    "grid_charge_power": "number",
+    "mode": "select",
+    "force_charge": "switch",
+}
+
+
+class ModbusRegisterMap(_Frozen):
+    """Registers of a limit-with-fallback battery interface (Kostal §3.5, ``kostal_modbus``).
+
+    Addresses as the vendor document gives them (the HA action writes them verbatim). Powers
+    are IEEE 754 float32 in two registers, the timeout an unsigned 32-bit value in two
+    registers; the word order comes from the battery configuration (``battery.modbus``).
+    ``external_control_value`` is what ``external_control_register`` must read before any
+    write (Kostal 1080 = ``0x02``: external battery management via Modbus).
+    """
+
+    max_charge: Annotated[int, Field(ge=0, le=65_534)]
+    max_discharge: Annotated[int, Field(ge=0, le=65_534)]
+    fallback_max_charge: Annotated[int, Field(ge=0, le=65_534)]
+    fallback_max_discharge: Annotated[int, Field(ge=0, le=65_534)]
+    fallback_timeout: Annotated[int, Field(ge=0, le=65_534)]
+    fallback_timeout_min_s: Annotated[int, Field(ge=1)]
+    fallback_timeout_max_s: Annotated[int, Field(ge=1)]
+    external_control_register: Annotated[int, Field(ge=0, le=65_535)]
+    external_control_value: Annotated[int, Field(ge=0, le=65_535)]
+
+    @model_validator(mode="after")
+    def _registers(self) -> Self:
+        words = [
+            self.max_charge,
+            self.max_discharge,
+            self.fallback_max_charge,
+            self.fallback_max_discharge,
+            self.fallback_timeout,
+        ]
+        cells = [w + i for w in words for i in (0, 1)]
+        if len(set(cells)) != len(cells):
+            msg = "modbus: the two-register values overlap"
+            raise ValueError(msg)
+        if self.fallback_timeout_min_s > self.fallback_timeout_max_s:
+            msg = "modbus: fallback_timeout_min_s above fallback_timeout_max_s"
+            raise ValueError(msg)
+        return self
+
+
+class BatteryTemplate(TemplateHeader):
+    """Battery adapter template (Phase 4, ADR-0006/ADR-0012 kind ``battery``).
+
+    ``roles`` are the readable and writable entities (e.g. ``soc``, ``power``,
+    ``min_soc_number``, ``max_charge_number``, ``max_discharge_number``, ``mode_select``,
+    ``force_charge_switch``); ``controls`` says what each *writable* role expresses. A
+    role without a control is read only. Writes go through the safety gate only.
+    """
+
+    kind: Literal["battery"]
+    roles: dict[RoleName, RoleSpec]
+    controls: Annotated[dict[RoleName, BatteryControl], Field(max_length=8)] = Field(
+        default_factory=dict
+    )
+    settle_s: Annotated[int, Field(ge=0, le=600)] | None = None
+    """Delay before the read-back after a write."""
+    driver: BatteryDriverKind = "generic"
+    """The adapter (WP10): ``generic`` (the ``controls`` above), ``kostal_plenticore`` (the core
+    integration: only a ``min_soc`` control, read-back after a forced refresh), ``kostal_modbus``
+    (§3.5 limits through ``modbus.write_register``; needs ``modbus`` and the roles of
+    :data:`KOSTAL_MODBUS_ROLES`)."""
+    modbus: ModbusRegisterMap | None = None
+    """``kostal_modbus`` only: the register map."""
+
+    @model_validator(mode="after")
+    def _battery(self) -> Self:
+        if "." not in self.id:
+            msg = "id: must be `<vendor>.<model>`"
+            raise ValueError(msg)
+        _check_roles(self.roles)
+        self._driver()
+        kinds: list[str] = []
+        for role, control in self.controls.items():
+            if role not in self.roles:
+                msg = f"controls.{role}: unknown role"
+                raise ValueError(msg)
+            domain = _CONTROL_DOMAINS[control.kind]
+            if self.roles[role].matcher.domain != domain:
+                msg = f"controls.{role}: kind `{control.kind}` needs a `{domain}` entity"
+                raise ValueError(msg)
+            kinds.append(control.kind)
+        if len(set(kinds)) != len(kinds):
+            msg = "controls: every control kind at most once"
+            raise ValueError(msg)
+        self._capabilities(set(kinds))
+        return self
+
+    def _driver(self) -> None:
+        kinds = {c.kind for c in self.controls.values()}
+        if self.driver == "kostal_modbus":
+            if self.modbus is None:
+                msg = "driver `kostal_modbus` needs a `modbus` register map"
+                raise ValueError(msg)
+            missing = [r for r in KOSTAL_MODBUS_ROLES if r not in self.roles]
+            if missing:
+                msg = f"driver `kostal_modbus` needs the roles {', '.join(missing)}"
+                raise ValueError(msg)
+            if self.controls:
+                msg = "driver `kostal_modbus` writes registers, it takes no `controls`"
+                raise ValueError(msg)
+            return
+        if self.modbus is not None:
+            msg = "`modbus` belongs to driver `kostal_modbus` only"
+            raise ValueError(msg)
+        if self.driver == "kostal_plenticore" and kinds != {"min_soc"}:
+            msg = "driver `kostal_plenticore` has exactly one control, `min_soc` (no set-point)"
+            raise ValueError(msg)
+
+    def _capabilities(self, kinds: set[str]) -> None:
+        caps = self.capabilities
+        modbus = self.driver == "kostal_modbus"
+        _need(caps, Capability.HARDWARE_FALLBACK, modbus, "no driver with a hardware fallback")
+        classes = {r.matcher.device_class for r in self.roles.values()}
+        modes = {
+            o.meaning
+            for c in self.controls.values()
+            if isinstance(c, ModeSelectControl)
+            for o in c.options
+        }
+        _need(
+            caps, Capability.BATTERY_SOC, "battery" in classes, "no role with device_class battery"
+        )
+        _need(
+            caps, Capability.POWER_MEASURED, "power" in classes, "no role with device_class power"
+        )
+        _need(caps, Capability.MIN_SOC_LIMIT, "min_soc" in kinds, "no `min_soc` control")
+        _need(
+            caps,
+            Capability.CHARGE_LIMIT,
+            modbus or "max_charge" in kinds or BatteryModeMeaning.NO_CHARGE in modes,
+            "no `max_charge` control",
+        )
+        _need(
+            caps,
+            Capability.DISCHARGE_LIMIT,
+            modbus or "max_discharge" in kinds or BatteryModeMeaning.NO_DISCHARGE in modes,
+            "no `max_discharge` control",
+        )
+        _need(
+            caps,
+            Capability.GRID_CHARGE,
+            bool(kinds & {"grid_charge_power", "force_charge"})
+            or BatteryModeMeaning.FORCE_CHARGE in modes,
+            "no grid charge control",
+        )
+        _need(caps, Capability.BATTERY_MODES, "mode" in kinds, "no `mode` control")
+
+    def message_keys(self) -> list[str]:
+        return [self.name, *(r.description for r in self.roles.values())]
+
+    def adapter_spec(self) -> BatteryAdapterSpec:
+        """The template as the battery adapters see it (core data, ``suncore.devices`` imports
+        no template model)."""
+        numbers: list[NumberLimitSpec] = []
+        mode: ModeSelectSpec | None = None
+        switch: str | None = None
+        for role, control in self.controls.items():
+            if isinstance(control, NumberLimitControl):
+                numbers.append(
+                    NumberLimitSpec(
+                        role=role,
+                        kind=control.kind,
+                        unit=control.unit,
+                        min=control.min,
+                        max=control.max,
+                        step=control.step,
+                    )
+                )
+            elif isinstance(control, ModeSelectControl):
+                mode = ModeSelectSpec(
+                    role=role,
+                    options=tuple(ModeOptionSpec(o.value, o.meaning) for o in control.options),
+                )
+            else:
+                switch = role
+        registers = None
+        if self.modbus is not None:
+            registers = ModbusRegisterSpec(**self.modbus.model_dump())
+        return BatteryAdapterSpec(
+            template_id=self.id,
+            driver=self.driver,
+            settle_s=None if self.settle_s is None else float(self.settle_s),
+            numbers=tuple(numbers),
+            mode=mode,
+            force_switch_role=switch,
+            modbus=registers,
+        )
+
+
 Template = Annotated[
-    DeviceTemplate | TariffTemplate | ForecastTemplate | RegionTemplate,
+    DeviceTemplate | TariffTemplate | ForecastTemplate | RegionTemplate | BatteryTemplate,
     Field(discriminator="kind"),
 ]
 """Discriminated union on ``kind``."""
 
 TEMPLATE_ADAPTER: Final[
-    TypeAdapter[DeviceTemplate | TariffTemplate | ForecastTemplate | RegionTemplate]
+    TypeAdapter[
+        DeviceTemplate | TariffTemplate | ForecastTemplate | RegionTemplate | BatteryTemplate
+    ]
 ] = TypeAdapter(Template)
 
 KIND_MODELS: Final[dict[str, type[BaseModel]]] = {
@@ -559,10 +1015,14 @@ KIND_MODELS: Final[dict[str, type[BaseModel]]] = {
     "tariff": TariffTemplate,
     "forecast": ForecastTemplate,
     "region": RegionTemplate,
+    "battery": BatteryTemplate,
 }
 
 __all__ = [
     "KIND_MODELS",
+    "KOSTAL_MODBUS_ROLES",
+    "PRICE_ENERGY_FACTORS",
+    "PRICE_UNIT_PATTERN",
     "REGION_ID_PATTERN",
     "SCHEMA_VERSION",
     "TEMPLATE_ADAPTER",
@@ -571,12 +1031,23 @@ __all__ = [
     "VERSION_PATTERN",
     "ActionSeries",
     "AttributeSeries",
+    "BatteryControl",
+    "BatteryDriverKind",
+    "BatteryModeMeaning",
+    "BatteryModeOption",
+    "BatteryTemplate",
     "DeviceDefaults",
     "DeviceTemplate",
+    "EnergyDashboardSeries",
     "EntityMatcher",
     "FeedInTier",
+    "ForceChargeSwitchControl",
+    "ForecastSeriesSource",
     "ForecastTemplate",
+    "ModbusRegisterMap",
+    "ModeSelectControl",
     "NegativePriceRule",
+    "NumberLimitControl",
     "PowerModelDefault",
     "RegionTemplate",
     "RoleSpec",
@@ -589,4 +1060,5 @@ __all__ = [
     "TemplateKind",
     "TestedWith",
     "compile_pattern",
+    "price_unit_factor",
 ]

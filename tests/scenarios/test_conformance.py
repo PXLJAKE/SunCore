@@ -14,7 +14,12 @@ the fake connection's registry and states (``FakeHAConnection.entity_metas``), t
 * kind specific facts: a device can be instantiated from the template defaults and the
   resolved mapping, the tariff price unit equals the currency of the HA configuration, the
   forecast attribute carries the declared fields in the declared unit and resolution, the
-  region currency is consistent with the HA configuration.
+  region currency is consistent with the HA configuration;
+* tariffs with a price curve run the real adapter (``suncore.tariff``) on the curve: from the
+  simulator (Tibber: the fake answers ``tibber.get_prices``) or from a documented-shape fixture
+  (``tests/fixtures/tariff``) for integrations the simulator does not model. A scenario may
+  list ``extra_entities`` - the registry metadata of fixture entities - and states what the
+  adapter must return under ``expect``.
 """
 
 from __future__ import annotations
@@ -22,8 +27,8 @@ from __future__ import annotations
 import asyncio
 import itertools
 import re
-from collections.abc import AsyncIterator, Mapping
-from datetime import UTC, datetime
+from collections.abc import AsyncIterator, Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -32,14 +37,20 @@ import pytest
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from suncore.core.battery import BatteryModel, BatterySettings, ModbusByteOrder, ModbusLink
 from suncore.core.devices import DeviceConfig
 from suncore.core.entities import EntityMeta
+from suncore.core.series import TimeRange, floor_to_step
 from suncore.core.site import EntityRef
-from suncore.core.units import parse_unit
+from suncore.core.units import Dimension, parse_unit
+from suncore.devices.battery import create_battery_driver
 from suncore.ha.connection import EntityState
 from suncore.sim.fake_ha import FakeHAConnection
 from suncore.sim.scenario import load_scenario
+from suncore.tariff import EntityReading, SourceBinding, TemplatePriceSource
+from suncore.tariff.units import normalise_price_unit
 from suncore.templates import (
+    BatteryTemplate,
     DeviceTemplate,
     ForecastTemplate,
     RegionTemplate,
@@ -49,7 +60,7 @@ from suncore.templates import (
     matched_criteria,
     rank_entities,
 )
-from suncore.templates.models import AttributeSeries
+from suncore.templates.models import AttributeSeries, EnergyDashboardSeries
 
 pytestmark = pytest.mark.simulator
 
@@ -70,13 +81,54 @@ class RoleExpectation(BaseModel):
     criteria: list[str] | None = None
 
 
+class ExtraEntity(BaseModel):
+    """Registry metadata of an entity of a documented-shape fixture (not in the demo house)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity_id: str
+    platform: str | None = None
+    unit: str | None = None
+    translation_key: str | None = None
+    device_class: str | None = None
+    state: str = "0"
+    """State when the fixture has no entity of this id (action fixtures carry none)."""
+
+
+class SegmentExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step_min: int
+    points: int
+
+
+class SeriesExpectation(BaseModel):
+    """What the adapter returns for the curve."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    segments: list[SegmentExpectation] | None = None
+    min_points: int | None = None
+    first_price: float | None = None
+    """First known price, currency/kWh (after the MWh conversion)."""
+    includes: str | None = None
+    matches_state: bool = False
+    """The first price equals the state of the price role's entity (the sim's Tibber)."""
+
+
 class ScenarioFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     template: str
     sim_scenario: str
+    fixture: str | None = None
+    """Documented-shape fixture under ``tests/fixtures/tariff`` (entities and/or response)."""
     user_input: dict[str, Any] = Field(default_factory=dict)
+    extra_entities: list[ExtraEntity] = Field(default_factory=list)
     roles: dict[str, RoleExpectation]
+    expect: SeriesExpectation | None = None
+    capabilities: list[str] | None = None
+    """Battery templates: what the adapter built from the resolved mapping can execute."""
 
 
 def _scenario_files() -> dict[str, Path]:
@@ -159,18 +211,20 @@ def _check_tied(
     assert {m.entity_id for m in top} == set(expected.tied), name
     if required:  # the user has to choose between the tied candidates
         assert expected.pick in expected.tied, f"{name}: a required role needs a pick"
-        resolved[name] = by_id[expected.pick]  # type: ignore[index]
-    else:
-        assert expected.pick is None, f"{name}: pick is only for required roles"
+    if expected.pick is not None:  # an optional role may be chosen too
+        assert expected.pick in expected.tied, f"{name}: the pick must be a tied candidate"
+        resolved[name] = by_id[expected.pick]
 
 
 @pytest.mark.parametrize("template_id", sorted(FILES))
-async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> None:
+async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> None:  # noqa: PLR0912 - one branch per kind
     scenario = _load(FILES[template_id])
     template = CATALOG.templates[template_id]
-    metas = fake.entity_metas()
+    fixture = _fixture(scenario)
+    metas = [*fake.entity_metas(), *_extra_metas(scenario)]
     by_id = {m.entity_id: m for m in metas}
     states = {s.entity_id: s for s in await fake.get_states()}
+    states.update(_extra_states(scenario, fixture))
     ranked = _resolve(
         template, metas, {r: e.pick for r, e in scenario.roles.items() if e.pick is not None}
     )
@@ -203,11 +257,59 @@ async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> No
     if isinstance(template, DeviceTemplate):
         _check_device(template, scenario, resolved)
     elif isinstance(template, TariffTemplate):
-        await _check_tariff(template, fake, resolved, states)
+        await _check_tariff(
+            template, scenario, fake=fake, resolved=resolved, states=states, fixture=fixture
+        )
     elif isinstance(template, ForecastTemplate):
-        _check_forecast(template, resolved, states)
+        await _check_forecast(template, fake, resolved, states)
     elif isinstance(template, RegionTemplate):
         await _check_region(template, fake)
+    elif isinstance(template, BatteryTemplate):
+        await _check_battery(template, scenario, resolved, states)
+
+
+async def _check_battery(
+    template: BatteryTemplate,
+    scenario: ScenarioFile,
+    resolved: Mapping[str, EntityMeta],
+    states: Mapping[str, EntityState],
+) -> None:
+    """The real adapter is built from the resolved mapping; it reports the expected
+    capabilities and live ranges, and its read-back works on the fixture states."""
+    for name, spec in template.roles.items():
+        if spec.required:
+            assert name in resolved, f"required role {name} unresolved"
+    settings = BatterySettings(
+        adapter_template_id=template.id,
+        entities={r: EntityRef(entity_id=m.entity_id) for r, m in resolved.items()},
+        model=BatteryModel(capacity_wh=10_000, max_charge_w=5000, max_discharge_w=5000),
+        modbus=ModbusLink(slave=71, byte_order=ModbusByteOrder.LITTLE)
+        if template.driver == "kostal_modbus"
+        else None,
+    )
+
+    async def no_write(*_: object, **__: object) -> object:
+        msg = "conformance never writes"
+        raise AssertionError(msg)
+
+    driver = create_battery_driver(
+        template.adapter_spec(),
+        settings,
+        write=no_write,
+        states=states.get,  # type: ignore[arg-type]
+    )
+    assert scenario.capabilities is not None, "battery scenarios state the capabilities"
+    assert sorted(c.value for c in driver.capabilities) == sorted(scenario.capabilities)
+    assert await driver.read_back() is not None
+    ranges = driver.ranges()
+    for field in ("max_charge_w", "max_discharge_w", "min_soc_pct", "grid_charge_w"):
+        capability = {
+            "max_charge_w": "charge_limit",
+            "max_discharge_w": "discharge_limit",
+            "min_soc_pct": "min_soc",
+            "grid_charge_w": "grid_charge",
+        }[field]
+        assert (ranges.of(field) is not None) == (capability in scenario.capabilities), field
 
 
 def _check_device(
@@ -240,53 +342,212 @@ def _check_device(
     assert config.max_switches_per_hour is None  # None = safety default, not unlimited
 
 
+FIXTURES = ROOT / "tests" / "fixtures" / "tariff"
+
+
+def _fixture(scenario: ScenarioFile) -> dict[str, Any]:
+    if scenario.fixture is None:
+        return {}
+    data = yaml.safe_load((FIXTURES / f"{scenario.fixture}.yaml").read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    return data
+
+
+def _extra_metas(scenario: ScenarioFile) -> list[EntityMeta]:
+    return [
+        EntityMeta.of(
+            e.entity_id,
+            platform=e.platform,
+            unit=e.unit,
+            translation_key=e.translation_key,
+            device_class=e.device_class,
+        )
+        for e in scenario.extra_entities
+    ]
+
+
+def _extra_states(scenario: ScenarioFile, fixture: Mapping[str, Any]) -> dict[str, EntityState]:
+    from_fixture = {e["entity_id"]: e for e in fixture.get("entities", [])}
+    states: dict[str, EntityState] = {}
+    for extra in scenario.extra_entities:
+        recorded = from_fixture.get(extra.entity_id)
+        states[extra.entity_id] = EntityState(
+            extra.entity_id,
+            str(recorded["state"]) if recorded else extra.state,
+            dict(recorded["attributes"]) if recorded else {},
+        )
+    return states
+
+
+def _currency_of(unit: str) -> str:
+    return normalise_price_unit(unit).split("/")[0]
+
+
 async def _check_tariff(
     template: TariffTemplate,
+    scenario: ScenarioFile,
+    *,
+    fake: FakeHAConnection,
+    resolved: Mapping[str, EntityMeta],
+    states: Mapping[str, EntityState],
+    fixture: Mapping[str, Any],
+) -> None:
+    currency = scenario.user_input.get("currency") or (await fake.get_config())["currency"]
+    price = resolved["price"]
+    assert price.unit is not None
+    # the entity unit may carry a currency symbol (EPEX Spot `€/kWh`) and the other energy scale
+    # (Nord Pool sensors are per kWh, its action per MWh): the currency has to agree
+    assert (
+        _currency_of(price.unit)
+        == template.price_unit.replace("{currency}", currency).split("/")[0]
+    )
+    assert float(states[price.entity_id].state) is not None  # the state is a number
+    if template.price_series is None:
+        return
+    series = template.price_series
+    assert series.fields.value_unit == template.price_unit  # one unit for the whole template
+    if scenario.expect is not None:
+        await _check_series(
+            template,
+            scenario,
+            fake=fake,
+            resolved=resolved,
+            states=states,
+            fixture=fixture,
+            currency=currency,
+        )
+
+
+async def _check_series(
+    template: TariffTemplate,
+    scenario: ScenarioFile,
+    *,
+    fake: FakeHAConnection,
+    resolved: Mapping[str, EntityMeta],
+    states: Mapping[str, EntityState],
+    fixture: Mapping[str, Any],
+    currency: str,
+) -> None:
+    """Run the real adapter on the scenario's curve and compare with the expectation."""
+    expect = scenario.expect
+    assert expect is not None
+    user = scenario.user_input
+    now = datetime.fromisoformat(user["now"]) if "now" in user else fake.sim_time
+    assert now is not None
+    first = floor_to_step(
+        datetime.fromisoformat(user["window_start"]) if "window_start" in user else now
+    )
+    window = TimeRange(
+        start=first, end=first + timedelta(hours=float(user.get("window_hours", 48)))
+    )
+    readings = {
+        entity_id: EntityReading(state.state, state.attributes)
+        for entity_id, state in states.items()
+    }
+
+    async def action(
+        domain: str, service: str, data: Mapping[str, Any], **_: float
+    ) -> Mapping[str, Any]:
+        if "response" in fixture:
+            return fixture["response"]  # type: ignore[no-any-return]
+        return await fake.call_action_response(domain, service, data)
+
+    source = TemplatePriceSource(
+        template,
+        SourceBinding(
+            tz=ZoneInfo(user.get("timezone", "Europe/Berlin")),
+            entities={role: meta.entity_id for role, meta in resolved.items()},
+            action_params=user.get("action_params", {}),
+            series_key=user.get("series_key"),
+            currency=currency,
+        ),
+        action=action,  # type: ignore[arg-type]
+        attributes=readings.get,
+        clock=lambda: now,
+    )
+    data = await source.fetch_segments(window, now)
+    if expect.segments is not None:
+        got = [(int(s.step.total_seconds() // 60), len(s)) for s in data.segments]
+        assert got == [(e.step_min, e.points) for e in expect.segments]
+    if expect.min_points is not None:
+        assert sum(len(s) for s in data.segments) >= expect.min_points
+    values = [v for s in data.segments for v in s.import_price.values if v is not None]
+    assert values, "the adapter returned no price"
+    if expect.first_price is not None:
+        assert values[0] == pytest.approx(expect.first_price)
+    if expect.matches_state:
+        price = resolved["price"]
+        # the state is the total price of the running slot, rounded to 3 decimals
+        assert values[0] == pytest.approx(float(states[price.entity_id].state), abs=0.0006)
+    if expect.includes is not None:
+        assert {s.price_includes for s in data.segments} == {expect.includes}
+
+
+def _energy_kwh(points: Sequence[float], unit_text: str, resolution_min: int) -> float:
+    """Energy of equally spaced values: power = mean over the slot, energy = per slot."""
+    unit = parse_unit(unit_text)
+    assert unit is not None
+    base = sum(points) * unit.factor  # W or Wh
+    wh = base * resolution_min / 60 if unit.dimension is Dimension.POWER else base
+    return wh / 1000
+
+
+async def _check_forecast(
+    template: ForecastTemplate,
     fake: FakeHAConnection,
     resolved: Mapping[str, EntityMeta],
     states: Mapping[str, EntityState],
 ) -> None:
-    currency = (await fake.get_config())["currency"]
-    price = resolved["price"]
-    assert price.unit == template.price_unit.replace("{currency}", currency)
-    assert float(states[price.entity_id].state) > 0  # state = all-in price of the current slot
-    assert template.price_series is not None
-    assert template.price_series.fields.value_unit == "{currency}/kWh"
-
-
-def _check_forecast(
-    template: ForecastTemplate,
-    resolved: Mapping[str, EntityMeta],
-    states: Mapping[str, EntityState],
-) -> None:
     series = template.series
-    assert isinstance(series, AttributeSeries)
     fields = series.fields
-    unit = parse_unit(fields.value_unit)
-    assert unit is not None
-    points: list[dict[str, Any]] = []
-    for role in series.roles:
+    assert parse_unit(fields.value_unit) is not None
+    if isinstance(series, EnergyDashboardSeries):
+        entries = await fake.energy_solar_forecast()
+        assert entries
+        hours = entries["sim_entry_forecast_solar"]
+        stamps = sorted(datetime.fromisoformat(k) for k in hours)
+        assert all(s.utcoffset() is not None for s in stamps)
+        assert all(v >= 0 for v in hours.values())
+        # The integration drops only a zero at 00:00:00: spacing is a multiple of the period.
+        assert {
+            (b - a).total_seconds() / 60 % template.resolution_min
+            for a, b in itertools.pairwise(stamps)
+        } == {0.0}
+        return
+    assert isinstance(series, AttributeSeries)
+    resolved_roles = [r for r in series.roles if r in resolved]
+    assert resolved_roles, "a forecast scenario resolves at least one series role"
+    for role in resolved_roles:
         entity = states[resolved[role].entity_id]
         attribute = entity.attributes[series.attribute]
-        assert isinstance(attribute, list)
-        assert attribute, role
-        points.extend(attribute)
-    required = {fields.timestamp_field, fields.value_field, fields.p10_field, fields.p90_field}
-    assert all(required <= set(p) for p in points)
-    stamps = [datetime.fromisoformat(p[fields.timestamp_field]) for p in points]
-    assert stamps == sorted(stamps)
-    deltas = {(b - a).total_seconds() / 60 for a, b in itertools.pairwise(stamps)}
-    assert deltas == {template.resolution_min}
-    assert all(p[fields.p10_field] <= p[fields.value_field] <= p[fields.p90_field] for p in points)
-    # kW is average power over the slot: the day sensor in kWh equals sum(kW) * slot hours.
-    today = states[resolved[series.roles[0]].entity_id]
-    day = [
-        p
-        for p in points
-        if p[fields.timestamp_field][:10] == points[0][fields.timestamp_field][:10]
-    ]
-    kwh = sum(p[fields.value_field] for p in day) * template.resolution_min / 60
-    assert float(today.state) == pytest.approx(kwh, abs=0.05)
+        if series.shape == "mapping":
+            assert isinstance(attribute, dict)
+            assert attribute, role
+            stamps = [datetime.fromisoformat(k) for k in attribute]
+            values = list(attribute.values())
+            assert all(isinstance(v, int | float) and v >= 0 for v in values)
+        else:
+            assert isinstance(attribute, list)
+            assert attribute, role
+            required = {fields.timestamp_field, fields.value_field}
+            required |= {f for f in (fields.p10_field, fields.p90_field) if f is not None}
+            assert all(required <= set(p) for p in attribute)
+            stamps = [datetime.fromisoformat(p[fields.timestamp_field]) for p in attribute]
+            values = [p[fields.value_field] for p in attribute]
+            if fields.p10_field is not None and fields.p90_field is not None:
+                assert all(
+                    p[fields.p10_field] <= p[fields.value_field] <= p[fields.p90_field]
+                    for p in attribute
+                )
+        assert all(s.utcoffset() is not None for s in stamps)  # offsets, never naive times
+        assert stamps == sorted(stamps)
+        deltas = {(b - a).total_seconds() / 60 for a, b in itertools.pairwise(stamps)}
+        assert deltas == {template.resolution_min}
+        # The day sensor's state is the sum of its series (kWh).
+        state_unit = parse_unit(entity.attributes["unit_of_measurement"])
+        assert state_unit is not None
+        expected = _energy_kwh(values, fields.value_unit, template.resolution_min)
+        assert float(entity.state) * state_unit.factor / 1000 == pytest.approx(expected, abs=0.05)
 
 
 async def _check_region(template: RegionTemplate, fake: FakeHAConnection) -> None:

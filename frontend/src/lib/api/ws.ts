@@ -17,7 +17,7 @@ export function backoffDelay(attempt: number, random: () => number = Math.random
   return Math.round(exp / 2 + (exp / 2) * random());
 }
 
-const KNOWN_TYPES = new Set(['snapshot', 'flows', 'health', 'decisions', 'control']);
+const KNOWN_TYPES = new Set(['snapshot', 'flows', 'health', 'decisions', 'control', 'plan']);
 
 /** Parse and shallowly validate one frame; unknown or malformed frames yield `null`. */
 export function parseMessage(data: unknown): LiveMessage | null {

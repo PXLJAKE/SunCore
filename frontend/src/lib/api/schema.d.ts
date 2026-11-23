@@ -4,6 +4,24 @@
  */
 
 export interface paths {
+    "/api/v1/config/battery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the battery section */
+        get: operations["get_config_battery"];
+        /** Replace the battery section */
+        put: operations["put_config_battery"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/devices": {
         parameters: {
             query?: never;
@@ -351,6 +369,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/forecast/accuracy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Accuracy
+         * @description MAE and bias per source and horizon bucket (0-6 h, 6-24 h, 24-48 h) over the last 14
+         *     days, plus the source id ``blended`` (the blended forecast); ``bias_w = actual -
+         *     forecast`` (positive: the source under-forecasts); ``n`` counts 15-minute intervals;
+         *     clipped quarter hours are excluded; computed nightly. The source id ``load_profile`` is
+         *     the base load forecast (scored on every quarter hour, not only in daylight), ``load_ml``
+         *     the optional machine-learning (KNN) load model scored the same way unless
+         *     ``forecast.learning.load_ml_mode`` is ``off``. ``load_model`` compares the two ("ML vs
+         *     profile": pooled 14-day MAE) and says which one the planner uses and why
+         *     (``forecast.load_model.*`` reason); ``null`` without a load forecast.
+         */
+        get: operations["forecast_accuracy_api_v1_forecast_accuracy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/forecast/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Load
+         * @description The base load forecast (house consumption without the configured devices; W,
+         *     P10/P50/P90 on the 15-minute grid from the current quarter hour), learnt from the
+         *     history per day type (workday/weekend/holiday) with an optional temperature term; its
+         *     quality (``ok``, ``cold_start``, ``no_history``), the day type of every forecast date
+         *     and where it came from, and how many quarter hours lacked a device measurement.
+         */
+        get: operations["forecast_load_api_v1_forecast_load_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/forecast/pv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Pv
+         * @description Per source the latest good P10/P50/P90 in W from the current quarter hour on, with
+         *     its freshness, and ``blended``: the forecast the planner uses (sources bias-calibrated
+         *     where active, blended by inverse 14-day MAE), its weights per horizon bucket, the
+         *     calibration state per source, and the blend without and with every learnt
+         *     calibration for comparison.
+         */
+        get: operations["forecast_pv_api_v1_forecast_pv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/forecast/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forecast Risk
+         * @description The risk model now: the windows ``rest_of_today``, ``night``, ``next_day`` and
+         *     ``bridge`` (night + next day) with PV, base load and net energy (P50 and at the risk
+         *     level's quantile), the morning buffer ("battery first until X %") and the evening
+         *     target with their structured reasons, and whether the error distribution is
+         *     ``learned`` (from ``min_history_days`` days of measured net errors) or still taken from
+         *     the ``source_quantiles``. Targets are ``null`` until the ``battery`` section has a
+         *     model.
+         */
+        get: operations["forecast_risk_api_v1_forecast_risk_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/info": {
         parameters: {
             query?: never;
@@ -361,6 +481,28 @@ export interface paths {
         /** Info */
         get: operations["info_api_v1_info_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operation/battery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Battery Mode
+         * @description Set the battery's mode (ADR-0013). Anything above shadow needs the battery's
+         *     ``identity`` token from the control state; shadow never does. An adapter whose hardware
+         *     fallback is not measured runs at most assisted whatever is stored.
+         */
+        put: operations["set_battery_mode_api_v1_operation_battery_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -410,6 +552,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plan
+         * @description The current plan from now to ``hours`` ahead: per 15-minute interval the expected
+         *     flows, prices, battery and device bands and the reasons; who made it (``solver``,
+         *     ``heuristic`` or ``default`` = none yet), the solver statistics, ``stale`` and whether
+         *     the controller follows it (``in_use``; else ``fallback`` says why).
+         */
+        get: operations["get_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/replan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replan
+         * @description Ask for a new plan. Debounced (at most one event-triggered run per minute) and
+         *     answered at once with the earliest start; the new plan arrives as a ``plan`` message
+         *     on the live feed.
+         */
+        post: operations["replan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plan Status
+         * @description Last run (time, duration, outcome and reason), pending events and the next run.
+         */
+        get: operations["plan_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/preview": {
         parameters: {
             query?: never;
@@ -424,6 +631,28 @@ export interface paths {
          * @description Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment.
          */
         post: operations["preview_api_v1_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prices
+         * @description Import and export prices on the 15-minute grid from now to the end of the known
+         *     prices (at least 24 h where the tariff allows, at most ``hours``), with the source
+         *     and its freshness. A price is ``null`` where no source value covers the interval.
+         */
+        get: operations["get_prices"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -587,10 +816,69 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AccuracyRecord
+         * @description Measured error of one source in one horizon bucket (WP5 bookkeeping).
+         *
+         *     ``mae_w`` is the mean absolute error and ``bias_w`` the mean signed error of P50 over
+         *     ``n`` intervals. **Sign convention (one for all of SunCore's forecast statistics):
+         *     error = actual - forecast**, so ``bias_w > 0`` means the source under-forecasts and
+         *     ``forecast + bias_w`` is the bias-corrected value; the risk model's net error
+         *     (PV error - load error) uses the same convention.
+         */
+        AccuracyRecord: {
+            /** Bias W */
+            bias_w: number;
+            horizon: components["schemas"]["HorizonBucket"];
+            /** Mae W */
+            mae_w: number;
+            /** N */
+            n: number;
+            /** Source Id */
+            source_id: string;
+        };
+        /**
+         * AccuracySourceView
+         * @description Measured accuracy of one source; ``records`` only holds buckets with data.
+         *
+         *     The source id ``blended`` is the blended forecast the planner used.
+         */
+        AccuracySourceView: {
+            /** Computed At */
+            computed_at: string | null;
+            /** Records */
+            records: components["schemas"]["AccuracyRecord"][];
+            /** Source Id */
+            source_id: string;
+            /** Window Days */
+            window_days: number | null;
+        };
+        /**
+         * ActionParam
+         * @description A field of the action's request that the user's tariff configuration supplies.
+         *
+         *     The value comes from ``tariff.import.action_params[name]`` (Phase 4 WP4), e.g. the
+         *     Nord Pool ``config_entry`` id or ``areas``. SunCore never invents such a value.
+         */
+        ActionParam: {
+            /** Description */
+            description: string;
+            /** Name */
+            name: string;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+        };
+        /**
          * ActionSeries
          * @description Series returned by a read-only action (``return_response`` is implied).
          */
         ActionSeries: {
+            /** Date Field */
+            date_field?: string | null;
+            /** Date Tz */
+            date_tz?: string | null;
             /** Domain */
             domain: string;
             /** End Field */
@@ -598,6 +886,11 @@ export interface components {
             fields: components["schemas"]["SeriesFields"];
             /** Max Horizon H */
             max_horizon_h: number;
+            /**
+             * Params
+             * @default []
+             */
+            params: components["schemas"]["ActionParam"][];
             /** Response Path */
             response_path: string;
             /** Service */
@@ -613,18 +906,109 @@ export interface components {
         /**
          * AttributeSeries
          * @description Series held in an attribute of the entities of ``roles`` (concatenated in order).
+         *
+         *     ``list_path`` (Phase 4, generic attribute adapter): dotted path from the attribute's
+         *     value to the points when the attribute is a mapping (``None`` = the attribute itself
+         *     holds the points). ``shape`` says what the points are:
+         *
+         *     * ``list`` (default): a list of objects named by ``fields`` (Solcast
+         *       ``detailedForecast``);
+         *     * ``mapping``: an object ``{iso_timestamp: value}`` (Forecast.Solar ``wh_hours``,
+         *       Open-Meteo Solar Forecast ``wh_period_15m``); ``fields`` then gives only
+         *       ``value_unit`` - no point field names and no quantiles.
+         *
+         *     The period length of a point is the template's ``resolution_min``.
          */
         AttributeSeries: {
             /** Attribute */
             attribute: string;
             fields: components["schemas"]["SeriesFields"];
+            /** List Path */
+            list_path?: string | null;
             /** Roles */
             roles: string[];
+            /**
+             * Shape
+             * @default list
+             * @enum {string}
+             */
+            shape: "list" | "mapping";
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             source: "attribute";
+        };
+        /**
+         * BandPreference
+         * @description What the plan would like the controller to do inside an allowed band.
+         * @enum {string}
+         */
+        BandPreference: "neutral" | "prefer_on" | "prefer_off";
+        /**
+         * BatteryAction
+         * @description Battery limits for the gate (Phase 4 WP2; semantics ADR-0013, decisions 1 and 2).
+         *
+         *     **Full desired state, not a delta.** An accepted ``BatteryAction`` is the complete state
+         *     SunCore wants the battery adapter to hold; a field that is ``None`` means "no SunCore
+         *     restriction on this limit", i.e. the adapter's **baseline** value of that field (what the
+         *     gate read back when it took the battery over). The gate resolves the ``None`` fields from
+         *     the baseline before it judges, writes and reads back (``suncore.core.battery.
+         *     resolve_battery_action``); the heartbeat re-sends the resolved state idempotently. At least
+         *     one field must be set: "everything at baseline" is a :class:`ReleaseAction`, never an empty
+         *     ``BatteryAction``.
+         *
+         *     Powers are magnitudes in W (battery + = charging, so ``grid_charge_w`` is a charging power
+         *     drawn from the grid): ``max_charge_w`` / ``max_discharge_w`` cap the inverter's own
+         *     self-consumption control (they never command a power), ``min_soc_pct`` is the discharge
+         *     floor (a discharge lock when at or above the current SoC), ``grid_charge_w > 0`` asks for
+         *     forced charging from the grid. ``grid_charge_w`` never exceeds ``max_charge_w`` when both
+         *     are set (forced charging cannot be above the charge cap, and a cap of 0 forbids it). Every
+         *     field needs the matching adapter capability (``BatteryCapability``); the gate rejects a
+         *     field the adapter cannot execute (``safety.battery_capability_missing``).
+         */
+        BatteryAction: {
+            /** Grid Charge W */
+            grid_charge_w?: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "battery";
+            /** Max Charge W */
+            max_charge_w?: number | null;
+            /** Max Discharge W */
+            max_discharge_w?: number | null;
+            /** Min Soc Pct */
+            min_soc_pct?: number | null;
+        };
+        /**
+         * BatteryBand
+         * @description Battery corridor per interval (Phase 4 writes it; Phase 3 reads only ``reserve``).
+         */
+        BatteryBand: {
+            /**
+             * Charge From Surplus
+             * @default true
+             */
+            charge_from_surplus: boolean;
+            /**
+             * Discharge Lock
+             * @default false
+             */
+            discharge_lock: boolean;
+            /** Grid Charge Max W */
+            grid_charge_max_w?: number | null;
+            /** Max Power W */
+            max_power_w?: number | null;
+            /** Max Soc Pct */
+            max_soc_pct?: number | null;
+            /** Min Power W */
+            min_power_w?: number | null;
+            /** Min Soc Pct */
+            min_soc_pct?: number | null;
+            /** Priority Until Soc Pct */
+            priority_until_soc_pct?: number | null;
         };
         /**
          * BatteryConfig
@@ -654,6 +1038,175 @@ export interface components {
             soc: components["schemas"]["EntityRef"];
         };
         /**
+         * BatteryControlState
+         * @description The battery as a controlled asset (Phase 4 WP10, ADR-0013).
+         */
+        BatteryControlState: {
+            /** Adapter Template Id */
+            adapter_template_id: string;
+            baseline: components["schemas"]["BatteryAction"] | null;
+            battery_mode: components["schemas"]["OperatingMode"];
+            /** Capabilities */
+            capabilities: string[];
+            effective_mode: components["schemas"]["OperatingMode"];
+            global_mode: components["schemas"]["OperatingMode"];
+            held: components["schemas"]["BatteryAction"] | null;
+            /** Identity */
+            identity: string;
+            last_decision: components["schemas"]["Decision"] | null;
+            limits: components["schemas"]["BatteryAction"] | null;
+            /** Mode Capped */
+            mode_capped: boolean;
+            paused: components["schemas"]["Reason"] | null;
+            /** Reasons */
+            reasons: components["schemas"]["Reason"][];
+            /** Under Control */
+            under_control: boolean;
+            wanted: components["schemas"]["BatteryAction"] | null;
+        };
+        /**
+         * BatteryModeMeaning
+         * @description What selecting a battery mode option does.
+         * @enum {string}
+         */
+        BatteryModeMeaning: "auto" | "force_charge" | "no_discharge" | "no_charge" | "other";
+        /** BatteryModeOption */
+        BatteryModeOption: {
+            meaning: components["schemas"]["BatteryModeMeaning"];
+            /** Value */
+            value: string;
+        };
+        /**
+         * BatteryModeRequest
+         * @description ``PUT /api/v1/operation/battery``: the battery's operating mode (ADR-0013).
+         *
+         *     Like a device: raising the mode above shadow needs ``identity``, the token from
+         *     ``GET /api/v1/control/state`` (``battery.identity``); a re-mapped battery answers 409.
+         */
+        BatteryModeRequest: {
+            /** Identity */
+            identity?: string | null;
+            mode: components["schemas"]["OperatingMode"];
+        };
+        /**
+         * BatteryModel
+         * @description What the planner knows about the battery.
+         *
+         *     The planning floor is ``reserve_pct + bms_drift_margin_pct``: the reserve is the user's
+         *     backup energy, the drift margin keeps SunCore off the BMS's own cut-off when the SoC
+         *     reading sags (the maintainer's BMS drops from 10 % to 6-7 %). SunCore never plans to
+         *     discharge below it; ``max_soc_pct`` caps charging (battery care).
+         */
+        BatteryModel: {
+            /**
+             * Bms Drift Margin Pct
+             * @default 5
+             */
+            bms_drift_margin_pct: number;
+            /** Capacity Wh */
+            capacity_wh: number;
+            /**
+             * Charge Efficiency
+             * @default 0.95
+             */
+            charge_efficiency: number;
+            /**
+             * Degradation Cost Per Kwh
+             * @default 0.04
+             */
+            degradation_cost_per_kwh: number;
+            /**
+             * Discharge Efficiency
+             * @default 0.95
+             */
+            discharge_efficiency: number;
+            /**
+             * Grid Charge Margin Per Kwh
+             * @default 0.03
+             */
+            grid_charge_margin_per_kwh: number;
+            /** Max Charge W */
+            max_charge_w: number;
+            /** Max Discharge W */
+            max_discharge_w: number;
+            /**
+             * Max Soc Pct
+             * @default 100
+             */
+            max_soc_pct: number;
+            /**
+             * Reserve Pct
+             * @default 10
+             */
+            reserve_pct: number;
+        };
+        /**
+         * BatterySettings
+         * @description Configuration section ``battery`` (schema v1).
+         *
+         *     ``adapter_template_id = None`` means *observe only*: SunCore reads the battery through
+         *     the ``site`` section and plans with it, but never writes. With an adapter, ``entities``
+         *     maps the template's roles; the battery starts in shadow like every device (the mode
+         *     lives in the ``operation`` section). ``target_by_time`` uses ``goals.battery_target``
+         *     (target SoC and time); reserve and max SoC are part of ``model``.
+         */
+        BatterySettings: {
+            /** Adapter Template Id */
+            adapter_template_id?: string | null;
+            /**
+             * Autarky Weight Per Kwh
+             * @default 0.01
+             */
+            autarky_weight_per_kwh: number;
+            /**
+             * Bridge Next Day
+             * @default true
+             */
+            bridge_next_day: boolean;
+            /**
+             * @default {
+             *       "enabled": false,
+             *       "interval_days": 30,
+             *       "target_soc_pct": 100
+             *     }
+             */
+            calibration: components["schemas"]["CalibrationCharge"];
+            /** Entities */
+            entities?: {
+                [key: string]: components["schemas"]["EntityRef"];
+            };
+            /**
+             * Fallback Measured
+             * @default false
+             */
+            fallback_measured: boolean;
+            /**
+             * @default {
+             *       "enabled": false
+             *     }
+             */
+            grid_charge: components["schemas"]["GridChargePolicy"];
+            modbus?: components["schemas"]["ModbusLink"] | null;
+            model?: components["schemas"]["BatteryModel"] | null;
+            /** Morning Buffer Pct */
+            morning_buffer_pct?: number | null;
+            /** @default cautious */
+            risk: components["schemas"]["RiskLevel"];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** @default self_consumption */
+            strategy: components["schemas"]["BatteryStrategy"];
+        };
+        /**
+         * BatteryStrategy
+         * @description How the planner uses the battery (plan §1 item 5, answers 2026-10-16).
+         * @enum {string}
+         */
+        BatteryStrategy: "self_consumption" | "prefer_full" | "target_by_time";
+        /**
          * BatteryTarget
          * @description Be at ``soc_pct`` by local time ``time`` (``HH:MM``).
          */
@@ -664,11 +1217,177 @@ export interface components {
             time: string;
         };
         /**
+         * BatteryTemplate
+         * @description Battery adapter template (Phase 4, ADR-0006/ADR-0012 kind ``battery``).
+         *
+         *     ``roles`` are the readable and writable entities (e.g. ``soc``, ``power``,
+         *     ``min_soc_number``, ``max_charge_number``, ``max_discharge_number``, ``mode_select``,
+         *     ``force_charge_switch``); ``controls`` says what each *writable* role expresses. A
+         *     role without a control is read only. Writes go through the safety gate only.
+         */
+        BatteryTemplate: {
+            /** Capabilities */
+            capabilities: components["schemas"]["Capability"][];
+            /** Controls */
+            controls?: {
+                [key: string]: components["schemas"]["NumberLimitControl"] | components["schemas"]["ModeSelectControl"] | components["schemas"]["ForceChargeSwitchControl"];
+            };
+            /**
+             * Driver
+             * @default generic
+             * @enum {string}
+             */
+            driver: "generic" | "kostal_plenticore" | "kostal_modbus";
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "battery";
+            /** Min App Version */
+            min_app_version?: string | null;
+            modbus?: components["schemas"]["ModbusRegisterMap"] | null;
+            /** Name */
+            name: string;
+            /** Roles */
+            roles: {
+                [key: string]: components["schemas"]["RoleSpec"];
+            };
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Settle S */
+            settle_s?: number | null;
+            /** Source */
+            source: components["schemas"]["SourceRef"][];
+            /** Tested With */
+            tested_with: components["schemas"]["TestedWith"][];
+            /** Unverified */
+            unverified?: string[];
+        };
+        /**
+         * BlendWeightsView
+         * @description The weights of one horizon bucket (before the per-slot renormalisation over the sources
+         *     that have a value in a slot).
+         */
+        BlendWeightsView: {
+            /** Basis */
+            basis: ("inverse_mae" | "equal_no_history") | null;
+            horizon: components["schemas"]["HorizonBucket"];
+            /** Manual */
+            manual: boolean;
+            /** Weights */
+            weights: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * BlendedView
+         * @description The forecast the planner uses: the sources on the 15-minute grid, bias-calibrated where
+         *     the calibration is active, blended by measured skill (P10/P50/P90 in W).
+         *
+         *     ``uncalibrated_p50_w`` is the blend of the sources as they said it; ``calibrated_p50_w`` the
+         *     blend with every learnt calibration applied, active or not (``None`` while no source has
+         *     learnt anything), so the effect can be compared before it switches on.
+         */
+        BlendedView: {
+            /** Calibrated P50 W */
+            calibrated_p50_w: (number | null)[] | null;
+            /** Calibration */
+            calibration: components["schemas"]["CalibrationView"][];
+            /** Calibration Active */
+            calibration_active: boolean;
+            /** Excluded Sources */
+            excluded_sources: string[];
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "weighted" | "single_source";
+            /** P10 W */
+            p10_w: (number | null)[];
+            /** P50 W */
+            p50_w: (number | null)[];
+            /** P90 W */
+            p90_w: (number | null)[];
+            /** Sources */
+            sources: string[];
+            /** Stale */
+            stale: boolean;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Step S */
+            step_s: number;
+            /** Uncalibrated P50 W */
+            uncalibrated_p50_w: (number | null)[];
+            /** Weights */
+            weights: components["schemas"]["BlendWeightsView"][];
+        };
+        /**
+         * CalibrationCharge
+         * @description Periodic full charge for the BMS's SoC calibration (off by default, question 11).
+         *
+         *     When enabled the planner schedules a charge to ``target_soc_pct`` once every
+         *     ``interval_days`` into a sunny day (from PV; grid only if the policy allows it).
+         */
+        CalibrationCharge: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Interval Days
+             * @default 30
+             */
+            interval_days: number;
+            /**
+             * Target Soc Pct
+             * @default 100
+             */
+            target_soc_pct: number;
+        };
+        /**
+         * CalibrationView
+         * @description The bias calibration of one source.
+         *
+         *     ``reason``: ``active`` (applied), ``collecting`` (learnt and stored but not applied before
+         *     ``min_history_days`` days with data), ``no_history`` (nothing learnt yet),
+         *     ``classifier_changed`` (learnt with the other weather classifier; waits).
+         */
+        CalibrationView: {
+            /** Active */
+            active: boolean;
+            /** Cells */
+            cells: number;
+            /** Days With Data */
+            days_with_data: number;
+            /** Factor Max */
+            factor_max: number | null;
+            /** Factor Min */
+            factor_min: number | null;
+            /** Min History Days */
+            min_history_days: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "active" | "collecting" | "no_history" | "classifier_changed";
+            /** Source Id */
+            source_id: string;
+        };
+        /**
          * Capability
          * @description What a template provides.
          * @enum {string}
          */
-        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule";
+        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback";
         /** CheckItemOut */
         CheckItemOut: {
             reason: components["schemas"]["Reason"];
@@ -779,6 +1498,7 @@ export interface components {
         ControlState: {
             /** Active */
             active: boolean;
+            battery?: components["schemas"]["BatteryControlState"] | null;
             /** Devices */
             devices: components["schemas"]["DeviceControlState"][];
             /** Emergency Stop */
@@ -790,6 +1510,17 @@ export interface components {
             /** Ts */
             ts: string | null;
         };
+        /**
+         * DayType
+         * @enum {string}
+         */
+        DayType: "workday" | "weekend" | "holiday";
+        /**
+         * DayTypeSource
+         * @description Where the day type of a date came from.
+         * @enum {string}
+         */
+        DayTypeSource: "workday_sensor" | "check_date" | "weekday_rule";
         /**
          * Decision
          * @description The safety gate's verdict on an intent, as stored in the decision log.
@@ -803,7 +1534,7 @@ export interface components {
             kind: components["schemas"]["DecisionKind"];
             mode: components["schemas"]["OperatingMode"];
             /** Observed */
-            observed?: (components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"]) | null;
+            observed?: (components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"]) | null;
             /**
              * Reasons
              * @default []
@@ -835,6 +1566,21 @@ export interface components {
              * @enum {string}
              */
             type: "decisions";
+        };
+        /**
+         * DeviceBand
+         * @description Per interval and device: what the controller may do and what the planner prefers.
+         */
+        DeviceBand: {
+            /**
+             * Allowed
+             * @default true
+             */
+            allowed: boolean;
+            /** Max Power W */
+            max_power_w?: number | null;
+            /** @default neutral */
+            preference: components["schemas"]["BandPreference"];
         };
         /**
          * DeviceConfig
@@ -889,6 +1635,8 @@ export interface components {
              *     }
              */
             override_policy: components["schemas"]["OverridePolicy"];
+            /** Planner Value Per Kwh */
+            planner_value_per_kwh?: number | null;
             power_model: components["schemas"]["PowerModel"];
             /**
              * Priority
@@ -1081,6 +1829,31 @@ export interface components {
             active: boolean;
         };
         /**
+         * EnergyDashboardSeries
+         * @description Series read from the WebSocket command ``energy/solar_forecast`` (Phase 4, forecasts only).
+         *
+         *     The command returns ``{config_entry_id: {"wh_hours": {iso_timestamp: Wh}}}`` for the forecast
+         *     integrations linked in the Energy dashboard (Forecast.Solar in Home Assistant core). The
+         *     template names no entity: the user binds the source to a config entry
+         *     (``ForecastSourceConfig.config_entry_id``), or SunCore takes the only entry there is.
+         *     ``fields`` gives only ``value_unit`` (energy per period; no quantiles). The length of a
+         *     period is inferred from the spacing of the timestamps; the template's ``resolution_min``
+         *     is the expected length (used for a series of one point).
+         */
+        EnergyDashboardSeries: {
+            fields: components["schemas"]["SeriesFields"];
+            /**
+             * Missing Is Zero
+             * @default false
+             */
+            missing_is_zero: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            source: "energy_solar_forecast";
+        };
+        /**
          * EnergyPrefsOut
          * @description Energy dashboard import: suggestions only, never applied by the server.
          */
@@ -1093,8 +1866,26 @@ export interface components {
             site: {
                 [key: string]: unknown;
             };
+            /** Solar Forecast Entries */
+            solar_forecast_entries?: string[];
+            /** Solar Forecast Labels */
+            solar_forecast_labels?: {
+                [key: string]: string;
+            };
             /** Suggestions */
             suggestions: components["schemas"]["SuggestionOut"][];
+        };
+        /**
+         * EnergyView
+         * @description P10/P50/P90 energy (Wh) of a window (the slot quantiles summed).
+         */
+        EnergyView: {
+            /** P10 Wh */
+            p10_wh: number;
+            /** P50 Wh */
+            p50_wh: number;
+            /** P90 Wh */
+            p90_wh: number;
         };
         /**
          * EntityCandidateOut
@@ -1240,6 +2031,12 @@ export interface components {
             valid_until?: string | null;
         };
         /**
+         * FetchStatus
+         * @description What a fetch found (rendered as ``forecast.status.<value>`` in the UI).
+         * @enum {string}
+         */
+        FetchStatus: "ok" | "partial" | "no_data" | "not_configured" | "not_linked" | "ambiguous_entry" | "entry_not_found" | "error";
+        /**
          * FlowOut
          * @description A value in W (or % for the state of charge) with its data quality.
          */
@@ -1275,28 +2072,90 @@ export interface components {
             ts: string | null;
         };
         /**
+         * ForceChargeSwitchControl
+         * @description A ``switch`` role: on = force charging (from the grid if PV is short), off = auto.
+         */
+        ForceChargeSwitchControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "force_charge";
+        };
+        /**
+         * ForecastAccuracyView
+         * @description Accuracy per source and horizon bucket.
+         *
+         *     ``bias_w = actual - forecast`` (positive = the source under-forecasts); ``n`` counts
+         *     15-minute daylight intervals (forecast or measurement above 0 W; clipped ones excluded).
+         *     A record with ``n`` below ``min_samples`` is too thin to rely on. ``load_model`` compares the
+         *     KNN load model with the profiles ("ML vs profile"; ``None`` without a load forecast).
+         */
+        ForecastAccuracyView: {
+            load_model?: components["schemas"]["LoadModelView"] | null;
+            /** Min Samples */
+            min_samples: number;
+            /** Sources */
+            sources: components["schemas"]["AccuracySourceView"][];
+        };
+        /**
          * ForecastConfig
-         * @description PV forecast sources: templates and the entities of their roles.
+         * @description PV forecast sources (schema v2: several sources, blending, learning settings) and the
+         *     optional inputs of the load forecast (``load``, added in Phase 4 WP6 without a version
+         *     bump: an absent ``load`` is the default, so every stored v2 document stays valid).
          *
          *     Independent of the tariff so that the wizard can store the choice without prices.
+         *     Forecast uncertainty is handled by the learned risk model and the battery section's
+         *     ``risk`` level, not by a flat discount.
          */
         ForecastConfig: {
-            /** Forecast Entities */
-            forecast_entities?: {
-                [key: string]: components["schemas"]["EntityRef"];
-            };
-            /** Forecast Template Ids */
-            forecast_template_ids?: string[];
+            /**
+             * @default {
+             *       "load_ml_mode": "shadow",
+             *       "min_history_days": 30
+             *     }
+             */
+            learning: components["schemas"]["LearningSettings"];
+            /** @default {} */
+            load: components["schemas"]["LoadForecastConfig"];
             /**
              * Schema Version
-             * @default 1
+             * @default 2
              */
             schema_version: number;
+            /** Sources */
+            sources?: components["schemas"]["ForecastSourceConfig"][];
+        };
+        /**
+         * ForecastSourceConfig
+         * @description One PV forecast source: its template, the entities of its roles and its weight.
+         *
+         *     ``weight_mode = auto`` blends by measured skill (inverse MAE, WP5); ``manual`` uses
+         *     ``weight`` (relative, normalised over all sources by the blender).
+         */
+        ForecastSourceConfig: {
+            /** Config Entry Id */
+            config_entry_id?: string | null;
+            /** Entities */
+            entities?: {
+                [key: string]: components["schemas"]["EntityRef"];
+            };
+            /** Template Id */
+            template_id: string;
+            /** Weight */
+            weight?: number | null;
+            /**
+             * Weight Mode
+             * @default auto
+             * @enum {string}
+             */
+            weight_mode: "auto" | "manual";
         };
         /** ForecastTemplate */
         ForecastTemplate: {
             /** Capabilities */
             capabilities: components["schemas"]["Capability"][];
+            fallback_series?: components["schemas"]["ActionSeries"] | null;
             /**
              * Forecast Kind
              * @enum {string}
@@ -1325,7 +2184,7 @@ export interface components {
              */
             schema_version: 1;
             /** Series */
-            series: components["schemas"]["AttributeSeries"] | components["schemas"]["ActionSeries"];
+            series: components["schemas"]["AttributeSeries"] | components["schemas"]["ActionSeries"] | components["schemas"]["EnergyDashboardSeries"];
             /** Source */
             source: components["schemas"]["SourceRef"][];
             /** Tested With */
@@ -1333,7 +2192,19 @@ export interface components {
             /** Unverified */
             unverified?: string[];
         };
-        /** GoalsConfig */
+        /**
+         * GoalsConfig
+         * @description User goals (schema v2).
+         *
+         *     v2 drops ``grid_charge_night_only`` (answers 2026-10-16, question 7): grid charging is
+         *     allowed by a price level and/or a schedule in the ``battery`` section's
+         *     :class:`~suncore.core.battery.GridChargePolicy`. ``grid_charge_schedule`` carries the
+         *     window a v1 document implied (``True`` -> 22:00-06:00 daily) so the choice is not
+         *     lost; :func:`effective_grid_charge_policy` uses it as the policy's schedule when the
+         *     policy has none. **It never enables grid charging**: that stays off until the user
+         *     enables the policy with a level or a schedule. How cautiously targets are planned is
+         *     the ``battery`` section's ``risk`` level, not a goal.
+         */
         GoalsConfig: {
             battery_target?: components["schemas"]["BatteryTarget"] | null;
             /**
@@ -1341,16 +2212,36 @@ export interface components {
              * @default false
              */
             climate_before_export: boolean;
-            /**
-             * Grid Charge Night Only
-             * @default true
-             */
-            grid_charge_night_only: boolean;
+            grid_charge_schedule?: components["schemas"]["WeeklySchedule"] | null;
             /**
              * Schema Version
-             * @default 1
+             * @default 2
              */
             schema_version: number;
+        };
+        /**
+         * GridChargePolicy
+         * @description When the battery may be charged from the grid (answers 2026-10-16, question 7).
+         *
+         *     Off by default. When enabled, a ``max_price`` (charge only at or below this import
+         *     price) and/or a ``schedule`` (only inside these weekly windows) must be set; both given
+         *     means both must hold. On a dynamic tariff the planner's spread rule
+         *     (:meth:`BatteryModel.grid_charge_pays`) applies in addition.
+         *
+         *     The planner applies :func:`suncore.core.config.effective_grid_charge_policy`: this
+         *     policy wins over ``goals.grid_charge_schedule``, which only fills in a missing schedule
+         *     of an enabled policy and never enables charging. Hence an enabled policy must be
+         *     complete on its own (the validator below), and the goals schedule can only narrow it.
+         */
+        GridChargePolicy: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Max Price */
+            max_price?: number | null;
+            schedule?: components["schemas"]["WeeklySchedule"] | null;
         };
         /**
          * GridConfig
@@ -1374,6 +2265,21 @@ export interface components {
             para14a: boolean;
             para14a_signal?: components["schemas"]["EntityRef"] | null;
             power?: components["schemas"]["EntityRef"] | null;
+        };
+        /**
+         * GridFeeWindow
+         * @description A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3).
+         *
+         *     ``months`` restricts it to some months (module 3 fees are set per quarter, e.g. only
+         *     Q1 and Q4); ``None`` = all year. The month is that of the day the occurrence started
+         *     (see :meth:`TouWindow.occurrence_date`).
+         */
+        GridFeeWindow: {
+            /** Fee */
+            fee: number;
+            /** Months */
+            months?: number[] | null;
+            window: components["schemas"]["TouWindow"];
         };
         /** HealthMessage */
         HealthMessage: {
@@ -1406,6 +2312,12 @@ export interface components {
             /** Section */
             section: string;
         };
+        /**
+         * HorizonBucket
+         * @description Lead-time bucket the accuracy of a forecast is tracked in.
+         * @enum {string}
+         */
+        HorizonBucket: "0_6h" | "6_24h" | "24_48h" | "48h_plus";
         /** ImportResultOut */
         ImportResultOut: {
             /** Imported Sections */
@@ -1414,18 +2326,38 @@ export interface components {
         /**
          * ImportTariff
          * @description How the price of imported energy is obtained.
+         *
+         *     * ``fixed``: one ``fixed_price``.
+         *     * ``dynamic``: a price source (``template_id`` and/or ``price_entity``); ``formula``
+         *       turns a spot-only price into the end price (tariff v3; ``None`` = the source's price
+         *       is used as it is, e.g. Tibber's all-in price).
+         *     * ``tou``: fixed time-of-use prices (HT/NT, seasonal) in ``tou`` (tariff v3).
          */
         ImportTariff: {
+            /** Action Params */
+            action_params?: {
+                [key: string]: string | string[];
+            };
             /** Fixed Price */
             fixed_price?: number | null;
+            formula?: components["schemas"]["PriceFormula"] | null;
             /**
              * Kind
              * @enum {string}
              */
-            kind: "fixed" | "dynamic";
+            kind: "fixed" | "dynamic" | "tou";
             price_entity?: components["schemas"]["EntityRef"] | null;
+            /** Price Includes */
+            price_includes?: ("spot_only" | "all_in") | null;
+            /** Role Entities */
+            role_entities?: {
+                [key: string]: components["schemas"]["EntityRef"];
+            };
+            /** Series Key */
+            series_key?: string | null;
             /** Template Id */
             template_id?: string | null;
+            tou?: components["schemas"]["TouTariff"] | null;
         };
         /** InfoOut */
         InfoOut: {
@@ -1445,7 +2377,7 @@ export interface components {
          */
         Intent: {
             /** Action */
-            action: components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"];
+            action: components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"];
             /** Asset Id */
             asset_id: string;
             /** Id */
@@ -1462,7 +2394,314 @@ export interface components {
              */
             ts: string;
         };
-        LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"] | components["schemas"]["ControlMessage"];
+        /**
+         * IntervalFlows
+         * @description Plan v2: the flows the planner expects in an interval (mean power, W).
+         *
+         *     Signs per ``core/units.py``: import/export are magnitudes, battery + = charging.
+         *     ``pv_p10_w``/``pv_p50_w``/``pv_p90_w`` are the PV forecast's quantiles as forecast data
+         *     (shown in the UI; ``None`` = the source has no quantiles); the objective uses P50.
+         *     Battery targets are *not* planned on P10 PV (plan §0): they use the risk quantile of
+         *     the learnt **net** energy error distribution (PV minus load) per weather class.
+         *     ``net_risk_quantile`` is that quantile (``RiskLevel.quantile``, e.g. 0.1 = cautious)
+         *     and ``net_risk_w`` the net power PV - load at that quantile the target constraints
+         *     used (may be negative; ``None`` = no target constraint in this interval).
+         *     ``soc_pct`` is the planned state of charge at the *end* of the interval (``None`` = no
+         *     battery). ``devices_w`` is the planned draw of the controllable devices (not part of
+         *     ``load_w``, the base load) and ``curtail_w`` the PV the plan does not use (export limit
+         *     or negative export price; informational until the export-limit chain, Phase 6), so
+         *     ``pv_p50_w + import_w + max(-battery_w, 0) = load_w + devices_w + max(battery_w, 0) +
+         *     export_w + curtail_w`` (both additive in plan v2, default 0).
+         */
+        IntervalFlows: {
+            /**
+             * Battery W
+             * @default 0
+             */
+            battery_w: number;
+            /**
+             * Curtail W
+             * @default 0
+             */
+            curtail_w: number;
+            /**
+             * Devices W
+             * @default 0
+             */
+            devices_w: number;
+            /** Export W */
+            export_w: number;
+            /** Import W */
+            import_w: number;
+            /** Load W */
+            load_w: number;
+            /** Net Risk Quantile */
+            net_risk_quantile?: number | null;
+            /** Net Risk W */
+            net_risk_w?: number | null;
+            /** Pv P10 W */
+            pv_p10_w?: number | null;
+            /** Pv P50 W */
+            pv_p50_w: number;
+            /** Pv P90 W */
+            pv_p90_w?: number | null;
+            /** Soc Pct */
+            soc_pct?: number | null;
+        };
+        /**
+         * IntervalPrices
+         * @description Plan v2: end prices (currency/kWh) the planner used; may be negative.
+         */
+        IntervalPrices: {
+            /**
+             * Estimated
+             * @default false
+             */
+            estimated: boolean;
+            /** Export Price */
+            export_price: number;
+            /** Import Price */
+            import_price: number;
+        };
+        /**
+         * LearningSettings
+         * @description What SunCore may learn from history (forecast calibration, load model).
+         *
+         *     Kept in the ``forecast`` section because it governs how forecasts are produced. Before
+         *     ``min_history_days`` of history exist, calibration and the ML load model only collect
+         *     statistics and change nothing. ``load_ml_mode``: ``off``; ``shadow`` (default) = the
+         *     optional ML load model runs in parallel and is only scored and shown for comparison;
+         *     ``auto`` = it is used when it beats the profile forecast in the accuracy statistics -
+         *     it never replaces the profiles otherwise.
+         */
+        LearningSettings: {
+            /**
+             * Load Ml Mode
+             * @default shadow
+             * @enum {string}
+             */
+            load_ml_mode: "off" | "shadow" | "auto";
+            /**
+             * Min History Days
+             * @default 30
+             */
+            min_history_days: number;
+        };
+        LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"] | components["schemas"]["ControlMessage"] | components["schemas"]["PlanMessage"];
+        /**
+         * LoadDayView
+         * @description The day type (and forecast mean temperature) of one local date of the forecast.
+         */
+        LoadDayView: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            day_type: components["schemas"]["DayType"];
+            source: components["schemas"]["DayTypeSource"];
+            /** Temperature C */
+            temperature_c: number | null;
+        };
+        /**
+         * LoadForecastConfig
+         * @description Optional inputs of the load forecast (Phase 4 WP6; additive in ``forecast`` v2).
+         *
+         *     ``workday``: a ``binary_sensor`` of the ``workday`` integration (``on`` = today is a
+         *     workday); with it the day types come from the user's own holiday calendar (today from the
+         *     state, other days through ``workday.check_date``), without it from the weekday (Mon-Fri
+         *     workday, Sat/Sun weekend, no holidays). ``weather``: a ``weather`` entity whose outside
+         *     temperature (state attribute ``temperature``) is recorded and whose hourly forecast
+         *     (``weather.get_forecasts``) drives the temperature term of the load profile.
+         */
+        LoadForecastConfig: {
+            weather?: components["schemas"]["EntityRef"] | null;
+            workday?: components["schemas"]["EntityRef"] | null;
+        };
+        /**
+         * LoadForecastView
+         * @description The base load forecast (W, P10/P50/P90 on the 15-minute grid from the current slot).
+         *
+         *     The base load is the house consumption without the configured (controllable) devices; their
+         *     draw is planned separately. ``quality``: ``ok`` (profiles from history), ``cold_start``
+         *     (fewer than 3 days: a flat line at the recent mean with a wide band) or ``no_history``
+         *     (nothing measured yet: no forecast).
+         */
+        LoadForecastView: {
+            /** Clamped Slots */
+            clamped_slots: number;
+            /** Controlled Devices */
+            controlled_devices: string[];
+            /** Days */
+            days: components["schemas"]["LoadDayView"][];
+            /** Days Of History */
+            days_of_history: number;
+            /** Devices Unmeasured */
+            devices_unmeasured: {
+                [key: string]: number;
+            };
+            /** Fitted At */
+            fitted_at: string | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Hours */
+            hours: number;
+            model?: components["schemas"]["LoadModelView"] | null;
+            /** P10 W */
+            p10_w: (number | null)[];
+            /** P50 W */
+            p50_w: (number | null)[];
+            /** P90 W */
+            p90_w: (number | null)[];
+            quality: components["schemas"]["LoadQuality"];
+            /** Source Id */
+            source_id: string;
+            /** Start */
+            start: string | null;
+            /** Step S */
+            step_s: number;
+            temperature: components["schemas"]["LoadTemperatureView"];
+            /** Unmeasured In Profile */
+            unmeasured_in_profile: components["schemas"]["DayType"][];
+        };
+        /**
+         * LoadModelView
+         * @description Which load model the planner gets: the profiles or the optional KNN model (WP12).
+         *
+         *     ``mode`` is ``forecast.learning.load_ml_mode``; ``reason`` explains ``in_use``
+         *     (``forecast.load_model.*``). The two errors are the paired comparison ``auto`` decides on:
+         *     the 14-day MAE of ``load_profile`` and ``load_ml`` on the same issues and quarter hours
+         *     (``compared_n``), computed by the nightly job at ``compared_at`` (``None``: none yet, or
+         *     older than 36 h). ``ml_days`` counts the usable history days of the KNN model, which
+         *     ``auto`` needs ``min_history_days`` of.
+         */
+        LoadModelView: {
+            /** Compared At */
+            compared_at: string | null;
+            /** Compared N */
+            compared_n: number;
+            /**
+             * In Use
+             * @enum {string}
+             */
+            in_use: "profile" | "ml";
+            /** Min History Days */
+            min_history_days: number;
+            /** Ml Days */
+            ml_days: number;
+            /** Ml Mae W */
+            ml_mae_w: number | null;
+            /** Ml Ready */
+            ml_ready: boolean;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "off" | "shadow" | "auto";
+            /** Profile Mae W */
+            profile_mae_w: number | null;
+            reason: components["schemas"]["Reason"];
+        };
+        /**
+         * LoadQuality
+         * @enum {string}
+         */
+        LoadQuality: "ok" | "cold_start" | "no_history";
+        /**
+         * LoadTemperatureView
+         * @description The temperature term of the load profile.
+         *
+         *     ``reason``: ``active``, ``not_configured`` (no weather entity), ``too_few_days`` (fewer
+         *     than 14 days with a recorded temperature) or ``no_spread`` (the temperatures varied too
+         *     little to learn anything).
+         */
+        LoadTemperatureView: {
+            /** Active */
+            active: boolean;
+            /** Cooling W Per K */
+            cooling_w_per_k: number;
+            /** Days */
+            days: number;
+            /** Heating W Per K */
+            heating_w_per_k: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "active" | "not_configured" | "too_few_days" | "no_spread";
+        };
+        /**
+         * ModbusByteOrder
+         * @description Word order of 32-bit values (Kostal register 5: ``0x00`` little, ``0x01`` big).
+         * @enum {string}
+         */
+        ModbusByteOrder: "little" | "big";
+        /**
+         * ModbusLink
+         * @description How the ``kostal_modbus`` adapter reaches the inverter through ``modbus.write_register``.
+         *
+         *     ``hub`` is the ``name`` of the user's ``modbus:`` YAML hub (HA's default ``modbus_hub``),
+         *     ``slave`` the inverter's unit id (Kostal default 71; the action itself would default to 1,
+         *     so it is mandatory here), ``byte_order`` what register 5 reports (the adapter never guesses
+         *     it). ``fallback_timeout_s`` is written to register 1288 (30-10800 s) and ``heartbeat_s`` is
+         *     the re-write period of 1280/1282; it must be at most a third of the timeout. Research:
+         *     ``docs/research/kostal-plenticore-modbus.md`` §3.5, ``ha-websocket-api.md`` "Modbus write
+         *     action". ``UNVERIFIED`` on hardware (external battery management is not enabled on the
+         *     maintainer's inverter yet).
+         */
+        ModbusLink: {
+            byte_order: components["schemas"]["ModbusByteOrder"];
+            /**
+             * Fallback Timeout S
+             * @default 60
+             */
+            fallback_timeout_s: number;
+            /**
+             * Heartbeat S
+             * @default 20
+             */
+            heartbeat_s: number;
+            /**
+             * Hub
+             * @default modbus_hub
+             */
+            hub: string;
+            /** Slave */
+            slave: number;
+        };
+        /**
+         * ModbusRegisterMap
+         * @description Registers of a limit-with-fallback battery interface (Kostal §3.5, ``kostal_modbus``).
+         *
+         *     Addresses as the vendor document gives them (the HA action writes them verbatim). Powers
+         *     are IEEE 754 float32 in two registers, the timeout an unsigned 32-bit value in two
+         *     registers; the word order comes from the battery configuration (``battery.modbus``).
+         *     ``external_control_value`` is what ``external_control_register`` must read before any
+         *     write (Kostal 1080 = ``0x02``: external battery management via Modbus).
+         */
+        ModbusRegisterMap: {
+            /** External Control Register */
+            external_control_register: number;
+            /** External Control Value */
+            external_control_value: number;
+            /** Fallback Max Charge */
+            fallback_max_charge: number;
+            /** Fallback Max Discharge */
+            fallback_max_discharge: number;
+            /** Fallback Timeout */
+            fallback_timeout: number;
+            /** Fallback Timeout Max S */
+            fallback_timeout_max_s: number;
+            /** Fallback Timeout Min S */
+            fallback_timeout_min_s: number;
+            /** Max Charge */
+            max_charge: number;
+            /** Max Discharge */
+            max_discharge: number;
+        };
         /**
          * Mode
          * @description One mode of a mode-controlled device and the power it draws.
@@ -1509,11 +2748,51 @@ export interface components {
             mode: components["schemas"]["OperatingMode"];
         };
         /**
+         * ModeSelectControl
+         * @description A ``select`` role choosing the battery's operating mode.
+         */
+        ModeSelectControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "mode";
+            /** Options */
+            options: components["schemas"]["BatteryModeOption"][];
+        };
+        /**
          * NegativePriceRule
          * @description Feed-in remuneration during negative spot prices.
          * @enum {string}
          */
         NegativePriceRule: "none" | "no_remuneration" | "curtailment_required";
+        /**
+         * NumberLimitControl
+         * @description A ``number`` role that sets a battery limit.
+         *
+         *     ``min_soc``: discharge floor in ``%`` (discharge lock / reserve); ``max_charge`` and
+         *     ``max_discharge``: power limits; ``grid_charge_power``: forced charging power from the
+         *     grid. ``min``/``max``/``step`` are the entity's range in ``unit`` (``%`` of the
+         *     battery's maximum power for the power kinds).
+         */
+        NumberLimitControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "grid_charge_power" | "max_charge" | "max_discharge" | "min_soc";
+            /** Max */
+            max: number;
+            /** Min */
+            min: number;
+            /** Step */
+            step?: number | null;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "W" | "kW" | "%";
+        };
         /**
          * OnOffControl
          * @description Switch on/off through ``role``.
@@ -1540,6 +2819,8 @@ export interface components {
          *     Devices that are new at ``devices`` put/import time lose any entry here (shadow).
          */
         OperationConfig: {
+            /** @default shadow */
+            battery_mode: components["schemas"]["OperatingMode"];
             /** Device Modes */
             device_modes?: {
                 [key: string]: components["schemas"]["OperatingMode"];
@@ -1600,6 +2881,184 @@ export interface components {
              * @default 04:00:00
              */
             resume_time: string;
+        };
+        /**
+         * Plan
+         * @description The planner's output as the controller consumes it (ADR-0011).
+         *
+         *     Phase 3 only ever uses :meth:`Plan.default`, which has no intervals and therefore
+         *     allows everything; the Phase 4 planner fills ``intervals`` without changing the
+         *     controller. Intervals must not overlap and are kept in start order.
+         *
+         *     Schema v2 (Phase 4 WP2, additive): ``source``, ``stats`` and per interval
+         *     ``expected``/``prices``/``reasons``. A v1 payload loads unchanged (it keeps
+         *     ``schema_version`` 1, ``source = "default"``); :func:`plan_from_payload` stamps v2.
+         */
+        Plan: {
+            /** Assumptions */
+            assumptions?: {
+                [key: string]: string | number | boolean;
+            };
+            /** Created At */
+            created_at?: string | null;
+            /**
+             * Intervals
+             * @default []
+             */
+            intervals: components["schemas"]["PlanInterval"][];
+            /**
+             * Reasons
+             * @default []
+             */
+            reasons: components["schemas"]["Reason"][];
+            /**
+             * Schema Version
+             * @default 2
+             */
+            schema_version: number;
+            /**
+             * Source
+             * @default default
+             * @enum {string}
+             */
+            source: "solver" | "heuristic" | "default";
+            stats?: components["schemas"]["SolverStats"] | null;
+        };
+        /**
+         * PlanInterval
+         * @description One planning interval (15 min grid in Phase 4; any length is accepted).
+         *
+         *     ``expected``, ``prices`` and ``reasons`` are the plan v2 additions for the UI's
+         *     "Why?"; the controller reads only the bands and the import limit.
+         */
+        PlanInterval: {
+            /**
+             * @default {
+             *       "charge_from_surplus": true,
+             *       "discharge_lock": false
+             *     }
+             */
+            battery: components["schemas"]["BatteryBand"] | null;
+            /** Devices */
+            devices?: {
+                [key: string]: components["schemas"]["DeviceBand"];
+            };
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            expected?: components["schemas"]["IntervalFlows"] | null;
+            /** Grid Import Limit W */
+            grid_import_limit_w?: number | null;
+            prices?: components["schemas"]["IntervalPrices"] | null;
+            /**
+             * Reasons
+             * @default []
+             */
+            reasons: components["schemas"]["Reason"][];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /**
+         * PlanMessage
+         * @description A new plan was computed (summary only; fetch ``GET /api/v1/plan`` for the intervals).
+         */
+        PlanMessage: {
+            plan: components["schemas"]["PlanSummary"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "plan";
+        };
+        /**
+         * PlanStatusView
+         * @description ``GET /api/v1/plan/status``: the scheduler's bookkeeping.
+         */
+        PlanStatusView: {
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Earliest Event Run At */
+            earliest_event_run_at: string | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Last Duration S */
+            last_duration_s: number | null;
+            /** Last Finished At */
+            last_finished_at: string | null;
+            /** Last Ok At */
+            last_ok_at: string | null;
+            /** Last Outcome */
+            last_outcome: ("ok" | "failed" | "skipped") | null;
+            /** Last Started At */
+            last_started_at: string | null;
+            /** Last Trigger */
+            last_trigger: ("start" | "schedule" | "prices" | "forecast" | "deviation" | "config" | "override" | "manual") | null;
+            /** Next Scheduled At */
+            next_scheduled_at: string | null;
+            /** Pending */
+            pending?: ("start" | "schedule" | "prices" | "forecast" | "deviation" | "config" | "override" | "manual")[];
+            plan: components["schemas"]["PlanSummary"];
+            reason?: components["schemas"]["Reason"] | null;
+            /** Running */
+            running: boolean;
+        };
+        /**
+         * PlanSummary
+         * @description The live feed's ``plan`` message and the status' short form: no intervals.
+         */
+        PlanSummary: {
+            /** Created At */
+            created_at: string | null;
+            /** Horizon End */
+            horizon_end: string | null;
+            /** In Use */
+            in_use: boolean;
+            /** Intervals */
+            intervals: number;
+            /** Reasons */
+            reasons?: components["schemas"]["Reason"][];
+            /** Solve Time S */
+            solve_time_s: number | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "solver" | "heuristic" | "default";
+            /** Stale */
+            stale: boolean;
+            /** Status */
+            status: string | null;
+        };
+        /**
+         * PlanView
+         * @description ``GET /api/v1/plan``: the current plan and whether the controller follows it.
+         *
+         *     ``plan`` is :meth:`Plan.default` (no intervals, ``source = "default"``) until the first
+         *     plan exists. ``in_use`` is ``False`` when the plan is stale or has run out: the controller
+         *     then runs on Phase 3 rules only (``fallback`` says why, as a catalogue reason).
+         */
+        PlanView: {
+            /** Expired */
+            expired: boolean;
+            fallback?: components["schemas"]["Reason"] | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** In Use */
+            in_use: boolean;
+            plan: components["schemas"]["Plan"];
+            /** Stale */
+            stale: boolean;
         };
         /**
          * PowerEstimate
@@ -1717,6 +3176,176 @@ export interface components {
             items: components["schemas"]["PreviewItemOut"][];
         };
         /**
+         * PriceErrorOut
+         * @description Why the last refresh failed, as a catalogue key.
+         */
+        PriceErrorOut: {
+            /** Args */
+            args?: {
+                [key: string]: string | number | string[];
+            };
+            /** Key */
+            key: string;
+        };
+        /**
+         * PriceFormula
+         * @description Spot price -> end price (BRIEF §4.4).
+         *
+         *     ``end = (spot * spot_multiplier + grid_fee(at) + levies + margin) * (1 + vat_pct/100)``
+         *
+         *     ``grid_fee(at)`` is the fee of the first ``grid_fee_windows`` entry containing ``at``,
+         *     else ``grid_fee``. VAT is applied to the whole sum, as on a German bill; a negative
+         *     spot price can make the end price negative. Only for ``price_includes = spot_only``
+         *     sources - an all-in price never gets the formula on top.
+         */
+        PriceFormula: {
+            /**
+             * Grid Fee
+             * @default 0
+             */
+            grid_fee: number;
+            /**
+             * Grid Fee Windows
+             * @default []
+             */
+            grid_fee_windows: components["schemas"]["GridFeeWindow"][];
+            /**
+             * Levies
+             * @default 0
+             */
+            levies: number;
+            /**
+             * Margin
+             * @default 0
+             */
+            margin: number;
+            /**
+             * Spot Multiplier
+             * @default 1
+             */
+            spot_multiplier: number;
+            /**
+             * Vat Pct
+             * @default 0
+             */
+            vat_pct: number;
+        };
+        /** PriceFreshness */
+        PriceFreshness: {
+            /** Age S */
+            age_s: number | null;
+            /** Fetched At */
+            fetched_at: string | null;
+            /** Known Until */
+            known_until: string | null;
+            last_error: components["schemas"]["PriceErrorOut"] | null;
+            /** Next Refresh At */
+            next_refresh_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "fresh" | "stale" | "missing" | "static";
+        };
+        /** PriceQuality */
+        PriceQuality: {
+            /**
+             * Carried Slots
+             * @default 0
+             */
+            carried_slots: number;
+            /** Dropped Points */
+            dropped_points: number;
+            /** Has Tomorrow */
+            has_tomorrow: boolean;
+            /** Known Slots */
+            known_slots: number;
+            /** Slots */
+            slots: number;
+        };
+        /** PriceReport */
+        PriceReport: {
+            /** Formula Missing */
+            formula_missing: boolean;
+            freshness: components["schemas"]["PriceFreshness"];
+            /**
+             * Price Includes
+             * @enum {string}
+             */
+            price_includes: "spot_only" | "all_in";
+            quality: components["schemas"]["PriceQuality"];
+            /** Slots */
+            slots: components["schemas"]["PriceSlot"][];
+            source: components["schemas"]["PriceSourceInfo"];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * Step Min
+             * @default 15
+             * @constant
+             */
+            step_min: 15;
+            /**
+             * Unit
+             * @default currency/kWh
+             * @constant
+             */
+            unit: "currency/kWh";
+        };
+        /**
+         * PriceSlot
+         * @description One 15-minute interval; a price is ``null`` where no source value covers it.
+         */
+        PriceSlot: {
+            /** Export Price */
+            export_price: number | null;
+            /** Import Price */
+            import_price: number | null;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /** PriceSourceInfo */
+        PriceSourceInfo: {
+            /** Currency */
+            currency: string;
+            /**
+             * Export Kind
+             * @enum {string}
+             */
+            export_kind: "fixed" | "tiered" | "none";
+            /** Export Zeroed Slots */
+            export_zeroed_slots: number;
+            /** Formula Applied */
+            formula_applied: boolean;
+            /**
+             * Import Kind
+             * @enum {string}
+             */
+            import_kind: "dynamic" | "fixed" | "tou";
+            /** Import Source Id */
+            import_source_id: string;
+            /** Native Step Min */
+            native_step_min: number | null;
+            /** Negative Price Rule */
+            negative_price_rule: string;
+            /**
+             * Price Includes
+             * @enum {string}
+             */
+            price_includes: "spot_only" | "all_in";
+            /**
+             * Source Price Includes
+             * @enum {string}
+             */
+            source_price_includes: "spot_only" | "all_in";
+        };
+        /**
          * PvArray
          * @description One PV array (roof plane / inverter input). Everything but ``name`` is optional.
          */
@@ -1732,6 +3361,56 @@ export interface components {
             power?: components["schemas"]["EntityRef"] | null;
             /** Tilt Deg */
             tilt_deg?: number | null;
+        };
+        /** PvForecastView */
+        PvForecastView: {
+            blended: components["schemas"]["BlendedView"] | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Hours */
+            hours: number;
+            /** Sources */
+            sources: components["schemas"]["PvSourceView"][];
+        };
+        /**
+         * PvSeriesView
+         * @description P10/P50/P90 in W on one regular grid: ``p50_w[i]`` covers ``[start + i*step_s, ...)``.
+         */
+        PvSeriesView: {
+            /** P10 W */
+            p10_w: (number | null)[];
+            /** P50 W */
+            p50_w: (number | null)[];
+            /** P90 W */
+            p90_w: (number | null)[];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Step S */
+            step_s: number;
+        };
+        /**
+         * PvSourceView
+         * @description One source: its latest good series and how fresh it is.
+         */
+        PvSourceView: {
+            /** Age S */
+            age_s: number | null;
+            /** Fetched At */
+            fetched_at: string | null;
+            /** Filled Slots */
+            filled_slots: number;
+            series: components["schemas"]["PvSeriesView"] | null;
+            /** Source Id */
+            source_id: string;
+            /** Stale */
+            stale: boolean;
+            status: components["schemas"]["FetchStatus"];
         };
         /**
          * Quality
@@ -1858,6 +3537,136 @@ export interface components {
             kind: "release";
         };
         /**
+         * ReplanAck
+         * @description ``POST /api/v1/plan/replan`` (202): the request is queued, not done.
+         */
+        ReplanAck: {
+            /**
+             * Accepted
+             * @default true
+             */
+            accepted: boolean;
+            /**
+             * Earliest Start At
+             * Format: date-time
+             */
+            earliest_start_at: string;
+        };
+        /**
+         * RiskLevel
+         * @description How sure the plan must be that a battery target is met (forecast/buffer concept).
+         *
+         *     The planner plans the target on a quantile of the net energy forecast (PV minus load):
+         *     ``cautious`` meets it with probability 0.9 (10 % quantile), ``balanced`` 0.75 (25 %),
+         *     ``bold`` 0.5 (median).
+         * @enum {string}
+         */
+        RiskLevel: "cautious" | "balanced" | "bold";
+        /**
+         * RiskTargetView
+         * @description A computed state of charge with its structured reason.
+         */
+        RiskTargetView: {
+            reason: components["schemas"]["Reason"];
+            /** Soc Pct */
+            soc_pct: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "learned" | "source_quantiles" | "default_band";
+        };
+        /**
+         * RiskView
+         * @description The current morning buffer and evening target and what they rest on (Phase 4 WP7).
+         *
+         *     ``status``: ``ok``; ``no_battery_model`` (the ``battery`` section has no model yet: the
+         *     windows are shown, the targets are ``null``); ``no_forecast`` (no load forecast yet).
+         *     ``distribution_source``: ``learned`` once ``min_history_days`` days of measured net errors
+         *     exist, else ``source_quantiles`` (the PV sources' P10/P90 and the load residuals).
+         */
+        RiskView: {
+            /** Bridge Next Day */
+            bridge_next_day: boolean;
+            /**
+             * Distribution Source
+             * @enum {string}
+             */
+            distribution_source: "learned" | "source_quantiles" | "default_band";
+            /** Evening At */
+            evening_at: string | null;
+            evening_target: components["schemas"]["RiskTargetView"] | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** History Days */
+            history_days: number;
+            /** Min History Days */
+            min_history_days: number;
+            morning_buffer: components["schemas"]["RiskTargetView"] | null;
+            /** Pv Forecast */
+            pv_forecast: boolean;
+            /** Quantile */
+            quantile: number;
+            risk: components["schemas"]["RiskLevel"];
+            /** Samples */
+            samples: {
+                [key: string]: number;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "no_battery_model" | "no_forecast";
+            strategy: components["schemas"]["BatteryStrategy"];
+            /** Windows */
+            windows: components["schemas"]["RiskWindowView"][];
+        };
+        /**
+         * RiskWindow
+         * @enum {string}
+         */
+        RiskWindow: "rest_of_night" | "rest_of_today" | "night" | "next_day" | "bridge" | "day_and_night";
+        /**
+         * RiskWindowView
+         * @description One window of the risk model and its net energy (PV - base load) at the risk quantile.
+         */
+        RiskWindowView: {
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            load: components["schemas"]["EnergyView"];
+            /** Net P50 Wh */
+            net_p50_wh: number;
+            /** Net Quantile Wh */
+            net_quantile_wh: number;
+            /** Pooled */
+            pooled: boolean;
+            pv: components["schemas"]["EnergyView"];
+            /** Samples */
+            samples: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "learned" | "source_quantiles" | "default_band";
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * Weather
+             * @enum {string}
+             */
+            weather: "overcast" | "mixed" | "clear" | "night";
+            window: components["schemas"]["RiskWindow"];
+        };
+        /**
          * RoleSpec
          * @description One entity role of a template.
          */
@@ -1876,16 +3685,23 @@ export interface components {
         /**
          * SeriesFields
          * @description Names of the fields of one series point and the unit of its values.
+         *
+         *     ``timestamp_field`` and ``value_field`` are required for a list of point objects
+         *     (``action`` series, ``attribute`` series of shape ``list``) and absent for an
+         *     ``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose
+         *     values are the values.
          */
         SeriesFields: {
+            /** End Field */
+            end_field?: string | null;
             /** P10 Field */
             p10_field?: string | null;
             /** P90 Field */
             p90_field?: string | null;
             /** Timestamp Field */
-            timestamp_field: string;
+            timestamp_field?: string | null;
             /** Value Field */
-            value_field: string;
+            value_field?: string | null;
             /** Value Unit */
             value_unit: string;
         };
@@ -1983,6 +3799,30 @@ export interface components {
             type: "snapshot";
         };
         /**
+         * SolverStats
+         * @description Plan v2: how the plan was computed (the UI explains long solves with it).
+         */
+        SolverStats: {
+            /** Mip Gap */
+            mip_gap?: number | null;
+            /**
+             * N Binaries
+             * @default 0
+             */
+            n_binaries: number;
+            /**
+             * N Vars
+             * @default 0
+             */
+            n_vars: number;
+            /** Objective */
+            objective?: number | null;
+            /** Solve Time S */
+            solve_time_s: number;
+            /** Status */
+            status: string;
+        };
+        /**
          * SourceRef
          * @description Documentation a template (or one of its facts) is based on.
          */
@@ -2063,13 +3903,15 @@ export interface components {
         /**
          * TariffConfig
          * @description Import and export prices (the forecast sources live in :class:`ForecastConfig`).
+         *
+         *     v3 (Phase 4): ``import.formula`` and kind ``tou``; v2 documents are valid v3 bodies.
          */
         TariffConfig: {
             export: components["schemas"]["ExportTariff"];
             import: components["schemas"]["ImportTariff"];
             /**
              * Schema Version
-             * @default 2
+             * @default 3
              */
             schema_version: number;
         };
@@ -2130,7 +3972,7 @@ export interface components {
              */
             origin: "builtin" | "user";
             /** Template */
-            template: components["schemas"]["DeviceTemplate"] | components["schemas"]["TariffTemplate"] | components["schemas"]["ForecastTemplate"] | components["schemas"]["RegionTemplate"];
+            template: components["schemas"]["DeviceTemplate"] | components["schemas"]["TariffTemplate"] | components["schemas"]["ForecastTemplate"] | components["schemas"]["RegionTemplate"] | components["schemas"]["BatteryTemplate"];
         };
         /**
          * TemplateErrorOut
@@ -2164,7 +4006,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "device" | "tariff" | "forecast" | "region";
+            kind: "device" | "tariff" | "forecast" | "region" | "battery";
             /** Name */
             name: string;
             /**
@@ -2236,6 +4078,60 @@ export interface components {
             start: string;
         };
         /**
+         * TouPeriod
+         * @description A price that applies inside ``window``, optionally only in some ``months``.
+         */
+        TouPeriod: {
+            /** Months */
+            months?: number[] | null;
+            /** Price */
+            price: number;
+            window: components["schemas"]["TouWindow"];
+        };
+        /**
+         * TouTariff
+         * @description Fixed time-of-use import tariff (HT/NT, seasonal).
+         *
+         *     The first period in list order that applies wins; outside every period ``base_price``
+         *     applies. Overlaps are therefore allowed and resolved by order (put the special case
+         *     first).
+         */
+        TouTariff: {
+            /** Base Price */
+            base_price: number;
+            /** Periods */
+            periods: components["schemas"]["TouPeriod"][];
+        };
+        /**
+         * TouWindow
+         * @description A local time window on a set of weekdays, e.g. NT Mon-Fri 22:00-06:00.
+         *
+         *     * ``end`` before ``start`` crosses midnight; the part after midnight belongs to the
+         *       weekday the window *started* on (Fri 22:00-06:00 covers Saturday 00:00-06:00, not
+         *       Friday 00:00-06:00).
+         *     * ``start == end`` is the whole day (00:00-00:00 = 24 h).
+         *     * ``start`` is included, ``end`` is excluded.
+         */
+        TouWindow: {
+            /**
+             * Days
+             * @default [
+             *       0,
+             *       1,
+             *       2,
+             *       3,
+             *       4,
+             *       5,
+             *       6
+             *     ]
+             */
+            days: number[];
+            /** End */
+            end: string;
+            /** Start */
+            start: string;
+        };
+        /**
          * ValidationErrorOut
          * @description 422 body of a request that failed validation.
          */
@@ -2258,6 +4154,14 @@ export interface components {
             key: string;
             /** Loc */
             loc: (string | number)[];
+        };
+        /**
+         * WeeklySchedule
+         * @description Union of weekly windows (grid-charge schedule, HT/NT windows, §14a module 3).
+         */
+        WeeklySchedule: {
+            /** Windows */
+            windows: components["schemas"]["TouWindow"][];
         };
         /** WizardState */
         WizardState: {
@@ -2288,6 +4192,68 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_config_battery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatterySettings"] | null;
+                };
+            };
+        };
+    };
+    put_config_battery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatterySettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatterySettings"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
     get_config_devices: {
         parameters: {
             query?: never;
@@ -3142,6 +5108,108 @@ export interface operations {
             };
         };
     };
+    forecast_accuracy_api_v1_forecast_accuracy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastAccuracyView"];
+                };
+            };
+        };
+    };
+    forecast_load_api_v1_forecast_load_get: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoadForecastView"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    forecast_pv_api_v1_forecast_pv_get: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PvForecastView"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    forecast_risk_api_v1_forecast_risk_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskView"];
+                };
+            };
+        };
+    };
     info_api_v1_info_get: {
         parameters: {
             query?: never;
@@ -3158,6 +5226,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InfoOut"];
+                };
+            };
+        };
+    };
+    set_battery_mode_api_v1_operation_battery_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatteryModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description No battery adapter (observe-only) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The battery changed since its identity was read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -3248,6 +5367,104 @@ export interface operations {
             };
         };
     };
+    get_plan: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanView"];
+                };
+            };
+            /** @description The planner is not running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    replan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplanAck"];
+                };
+            };
+            /** @description The planner is not running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    plan_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanStatusView"];
+                };
+            };
+            /** @description The planner is not running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     preview_api_v1_preview_post: {
         parameters: {
             query?: never;
@@ -3288,6 +5505,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_prices: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceReport"];
+                };
+            };
+            /** @description No usable tariff is configured */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -3393,7 +5650,7 @@ export interface operations {
     templates_api_v1_templates_get: {
         parameters: {
             query?: {
-                kind?: ("device" | "tariff" | "forecast" | "region") | null;
+                kind?: ("device" | "tariff" | "forecast" | "region" | "battery") | null;
             };
             header?: never;
             path?: never;

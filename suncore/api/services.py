@@ -22,7 +22,15 @@ from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
+from suncore.forecast.views import (
+    ForecastAccuracyView,
+    LoadForecastView,
+    PvForecastView,
+    RiskView,
+)
+from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import HistoryEntry
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
 
 FATAL_HA_STATES: Final = frozenset({"auth_failed", "closed"})
@@ -164,6 +172,29 @@ class Services(Protocol):
         """Newest first; ``device_id`` filters by the decision's device, ``kinds`` by kind."""
         ...
 
+    # --- forecasts (Phase 4 WP5) ---------------------------------------------------------
+
+    async def pv_forecast(self, hours: int) -> PvForecastView:
+        """The PV forecast of every configured source for the next ``hours`` (W, P10/P50/P90),
+        its freshness, and the blended forecast with its weights and calibration state."""
+        ...
+
+    async def forecast_accuracy(self) -> ForecastAccuracyView:
+        """MAE and bias (actual - forecast) per source and horizon bucket from the nightly job,
+        including the blended forecast (source id ``blended``) and the load forecast (source id
+        ``load_profile``)."""
+        ...
+
+    async def load_forecast(self, hours: int) -> LoadForecastView:
+        """The base load forecast for the next ``hours`` (W, P10/P50/P90) with its day types,
+        temperature term and quality (Phase 4 WP6)."""
+        ...
+
+    async def forecast_risk(self) -> RiskView:
+        """The current morning buffer and evening target with their reasons, the windows of
+        the net energy and the source of the error distribution (Phase 4 WP7)."""
+        ...
+
     # --- control (Phase 3 WP9) ---------------------------------------------------------
 
     def control_state(self) -> ControlState:
@@ -207,8 +238,44 @@ class Services(Protocol):
         :class:`DeviceIdentityChangedError`."""
         ...
 
+    async def set_battery_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        """Set the battery's mode (ADR-0013). Raising it above shadow needs the battery's current
+        identity token (``BatteryControlState.identity``): raises
+        :class:`BatteryNotControllableError` (no adapter), :class:`DeviceIdentityChangedError`."""
+        ...
+
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Call ``listener`` whenever the control state may have changed (tick, decision, mode)."""
+        ...
+
+    async def prices(self, hours: int) -> PriceReport:
+        """The planning prices (15-minute grid) with source and freshness.
+
+        Raises :class:`TariffNotConfiguredError` while no usable tariff exists.
+        """
+        ...
+
+    # --- planner (Phase 4 WP9) -----------------------------------------------------------
+
+    async def plan_view(self, hours: int) -> PlanView:
+        """The current plan (intervals from now to ``hours`` ahead) and whether the controller
+        follows it; ``Plan.default()`` before the first plan."""
+        ...
+
+    async def plan_status(self) -> PlanStatusView:
+        """Last run (time, duration, outcome), pending events and the next scheduled run."""
+        ...
+
+    async def replan(self) -> ReplanAck:
+        """Queue a planner run (debounced); returns at once."""
+        ...
+
+    def plan_summary(self) -> PlanSummary:
+        """The short form of the current plan for the live feed."""
+        ...
+
+    def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` whenever a new plan was handed over."""
         ...
 
     async def export_config(self) -> dict[str, Any]: ...
@@ -240,3 +307,7 @@ class UnknownRoleError(LookupError):
 
 class UnknownTemplateError(LookupError):
     """No template with the requested id is loaded."""
+
+
+class TariffNotConfiguredError(LookupError):
+    """No usable tariff (none stored, no region, or its template is missing)."""

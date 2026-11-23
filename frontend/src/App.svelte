@@ -82,6 +82,7 @@
   <h1 class="brand">{t('app.title')}</h1>
   <nav aria-label={t('nav.label')}>
     <a href="#/" aria-current={router.route === 'now' ? 'page' : undefined}>{t('nav.now')}</a>
+    <a href="#/plan" aria-current={router.route === 'plan' ? 'page' : undefined}>{t('nav.plan')}</a>
     <a href="#/decisions" aria-current={router.route === 'decisions' ? 'page' : undefined}
       >{t('nav.decisions')}</a
     >
@@ -123,6 +124,10 @@
     <Setup />
   {:else if router.route === 'settings'}
     <Settings />
+  {:else if router.route === 'plan'}
+    {#await import('./lib/views/Plan.svelte') then view}
+      <view.default />
+    {/await}
   {:else if router.route === 'decisions'}
     {#await import('./lib/views/Decisions.svelte') then view}
       <view.default />

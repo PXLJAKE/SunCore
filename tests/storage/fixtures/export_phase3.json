@@ -1,0 +1,35 @@
+{
+  "suncore_export": 1,
+  "app_version": "0.3.0-beta.74",
+  "db_schema_version": 3,
+  "sections": {
+    "tariff": {
+      "schema_version": 2,
+      "body": {
+        "schema_version": 2,
+        "import": {"kind": "dynamic", "template_id": "tibber.price", "price_entity": {"entity_id": "sensor.electricity_price", "invert_sign": false}, "fixed_price": null},
+        "export": {"kind": "tiered", "fixed_price": null, "tiers": [{"up_to_kwp": 10.0, "price": 0.0786}, {"up_to_kwp": null, "price": 0.068}]}
+      }
+    },
+    "forecast": {
+      "schema_version": 1,
+      "body": {
+        "schema_version": 1,
+        "forecast_template_ids": ["solcast.pv"],
+        "forecast_entities": {
+          "forecast_today": {"entity_id": "sensor.solcast_pv_forecast_forecast_today", "invert_sign": false},
+          "forecast_tomorrow": {"entity_id": "sensor.solcast_pv_forecast_forecast_tomorrow", "invert_sign": false}
+        }
+      }
+    },
+    "goals": {
+      "schema_version": 1,
+      "body": {
+        "schema_version": 1,
+        "battery_target": {"soc_pct": 80.0, "time": "18:00"},
+        "climate_before_export": true,
+        "grid_charge_night_only": true
+      }
+    }
+  }
+}

@@ -9,6 +9,8 @@ from suncore.ha.candidates import EntityCandidate, entity_candidates
 from suncore.ha.connection import (
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
+    ActionRateLimitedError,
+    ActionRateLimiter,
     AuthError,
     CommandError,
     CommandTimeoutError,
@@ -50,6 +52,7 @@ from suncore.ha.registry import (
     parse_device_registry,
     parse_entity_registry,
 )
+from suncore.ha.solar_forecast import SolarForecast, fetch_solar_forecast
 from suncore.ha.transport import (
     DirectTransport,
     SupervisorTransport,
@@ -64,6 +67,8 @@ __all__ = [
     "REGISTRY_EVENT_TYPES",
     "SITE_ROLES",
     "ActionNotAllowedError",
+    "ActionRateLimitedError",
+    "ActionRateLimiter",
     "AuthError",
     "Backoff",
     "CachedEntity",
@@ -92,6 +97,7 @@ __all__ = [
     "ServiceCallerProvider",
     "ServiceResult",
     "SiteRole",
+    "SolarForecast",
     "StateContext",
     "SupervisorTransport",
     "Transport",
@@ -102,6 +108,7 @@ __all__ = [
     "detect_site_role",
     "detect_template_role",
     "entity_candidates",
+    "fetch_solar_forecast",
     "is_candidate",
     "legacy_entities",
     "parse_area_registry",

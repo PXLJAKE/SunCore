@@ -52,6 +52,10 @@ class DeviceRuntime(BaseModel):
     pending_action: Action | None = None
     """A write whose read-back did not confirm it yet (slow echo); see ``overrides.judge``."""
     pending_ts: AwareDatetime | None = None
+    attempted: tuple[Action, ...] = ()
+    """Battery: the resolved targets of every write SunCore sent or attempted while under
+    control (deduplicated). A release never takes one of these values for the user's own
+    (a late-landing or partly applied write); cleared when control ends."""
     release_due_ts: AwareDatetime | None = None
     """A deferred release (min run/pause) is executed by ``SafetyGate.poll`` at this time."""
     release_due_reason: str | None = None

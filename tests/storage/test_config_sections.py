@@ -12,6 +12,13 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel
 
+from suncore.core.battery import (
+    BatteryModel,
+    BatterySettings,
+    BatteryStrategy,
+    GridChargePolicy,
+    RiskLevel,
+)
 from suncore.core.config import (
     SECTION_MODELS,
     BatteryTarget,
@@ -19,6 +26,7 @@ from suncore.core.config import (
     ExportTariff,
     ExportTier,
     ForecastConfig,
+    ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
     OperationConfig,
@@ -34,7 +42,8 @@ from suncore.core.devices import (
     PowerModel,
     PowerModelKind,
 )
-from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
+from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
+from suncore.core.tariff import NIGHT_WINDOW
 from suncore.storage import (
     ConfigCorruptError,
     ConfigStore,
@@ -99,7 +108,7 @@ async def test_v1_export_file_imports(db: Database) -> None:
     assert site.grid.is_pair
     assert [a.power for a in site.pv] == [EntityRef(entity_id="sensor.pv_total")]
     exported = await store.export_json()
-    assert exported["db_schema_version"] == latest_version() == 3
+    assert exported["db_schema_version"] == latest_version() == 4
     assert exported["sections"]["site"]["schema_version"] == 2
 
 
@@ -219,8 +228,14 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
     ),
     "forecast": st.builds(
         ForecastConfig,
-        forecast_template_ids=st.just(["solcast.pv"]),
-        forecast_entities=st.just({"today": EntityRef(entity_id="sensor.fc_today")}),
+        sources=st.just(
+            [
+                ForecastSourceConfig(
+                    template_id="solcast.pv",
+                    entities={"today": EntityRef(entity_id="sensor.fc_today")},
+                )
+            ]
+        ),
     ),
     "devices": _devices(),
     "goals": st.builds(
@@ -228,12 +243,27 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
         battery_target=st.none()
         | st.builds(BatteryTarget, soc_pct=_pct, time=st.sampled_from(["06:30", "23:59", "00:00"])),
         climate_before_export=st.booleans(),
-        grid_charge_night_only=st.booleans(),
+        grid_charge_schedule=st.sampled_from([None, NIGHT_WINDOW]),
     ),
     "operation": st.builds(
         OperationConfig,
         mode=_modes,
         device_modes=st.dictionaries(_ids.map(lambda i: f"ghost_{i}"), _modes, max_size=3),
+    ),
+    "battery": st.builds(
+        BatterySettings,
+        model=st.none()
+        | st.builds(
+            BatteryModel,
+            capacity_wh=st.floats(1000, 50_000),
+            max_charge_w=st.floats(100, 20_000),
+            max_discharge_w=st.floats(100, 20_000),
+        ),
+        strategy=st.sampled_from(list(BatteryStrategy)),
+        risk=st.sampled_from(list(RiskLevel)),
+        grid_charge=st.sampled_from(
+            [GridChargePolicy(), GridChargePolicy(enabled=True, max_price=0.12)]
+        ),
     ),
     "wizard": st.builds(
         WizardState,
@@ -483,17 +513,21 @@ async def test_tariff_v1_forecast_fields_move_to_the_forecast_section(db: Databa
     # A plain read already drops the moved fields (document migration)...
     tariff = await store.get("tariff")
     assert isinstance(tariff, TariffConfig)
-    assert tariff.schema_version == 2
-    # ...and the start-up migration keeps them in their new section.
+    assert tariff.schema_version == 3
+    # ...and the start-up migration keeps them in their new section (forecast v2).
     assert await store.migrate_legacy_forecast() is True
     forecast = await store.get("forecast")
     assert forecast == ForecastConfig(
-        forecast_template_ids=["solcast.pv"],
-        forecast_entities={"today": EntityRef(entity_id="sensor.fc_today")},
+        sources=[
+            ForecastSourceConfig(
+                template_id="solcast.pv",
+                entities={"today": EntityRef(entity_id="sensor.fc_today")},
+            )
+        ]
     )
     row = await db.fetchone("SELECT schema_version, body FROM config_doc WHERE section='tariff'")
     assert row is not None
-    assert int(str(row[0])) == 2
+    assert int(str(row[0])) == 3
     assert "forecast_entities" not in json.loads(str(row[1]))
     assert [h.schema_version for h in await store.history("tariff")] == [1]
     assert await store.migrate_legacy_forecast() is False  # idempotent
@@ -501,7 +535,7 @@ async def test_tariff_v1_forecast_fields_move_to_the_forecast_section(db: Databa
 
 async def test_legacy_forecast_migration_keeps_an_existing_forecast_section(db: Database) -> None:
     store = ConfigStore(db)
-    mine = ForecastConfig(forecast_template_ids=["other.pv"])
+    mine = ForecastConfig(sources=[ForecastSourceConfig(template_id="other.pv")])
     await store.put("forecast", mine)
     await _store_v1_tariff(db, V1_TARIFF)
     assert await store.migrate_legacy_forecast() is True
@@ -529,7 +563,7 @@ async def test_import_of_a_v1_tariff_export_carries_the_forecast_over(db: Databa
     assert await store.import_json(data) == ["forecast", "tariff"]
     forecast = await store.get("forecast")
     assert isinstance(forecast, ForecastConfig)
-    assert forecast.forecast_template_ids == ["solcast.pv"]
+    assert forecast.template_ids == ["solcast.pv"]
 
 
 def test_section_models_match_the_api_registry() -> None:
@@ -670,3 +704,123 @@ async def test_put_operation_is_stored_as_given(db: Database) -> None:
     assert isinstance(op, OperationConfig)
     assert op.mode is AUTO
     assert op.device_modes == {"a": AUTO}
+
+
+# --- battery identity rule (ADR-0013 decision 6) ---------------------------------------
+
+
+def _battery_settings(entity: str = "number.min_soc") -> BatterySettings:
+    return BatterySettings(
+        adapter_template_id="kostal.plenticore_rest",
+        entities={"min_soc_number": EntityRef(entity_id=entity)},
+    )
+
+
+async def _battery_assisted(store: ConfigStore) -> None:
+    await store.put("site", make_site())
+    await store.put("battery", _battery_settings())
+    await store.put("operation", OperationConfig(battery_mode=OperatingMode.ASSISTED))
+
+
+async def _battery_mode(store: ConfigStore) -> OperatingMode:
+    op = await store.get("operation")
+    assert isinstance(op, OperationConfig)
+    return op.battery_mode
+
+
+async def test_battery_setting_change_keeps_the_battery_mode(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put(
+        "battery", _battery_settings().model_copy(update={"strategy": BatteryStrategy.PREFER_FULL})
+    )
+    assert await _battery_mode(store) is OperatingMode.ASSISTED
+
+
+async def test_battery_remapped_falls_back_to_shadow(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("battery", _battery_settings("number.other"))
+    assert await _battery_mode(store) is OperatingMode.SHADOW
+
+
+async def test_site_battery_entities_are_part_of_the_identity(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("site", make_site("sensor.other_grid"))  # grid only: same battery
+    assert await _battery_mode(store) is OperatingMode.ASSISTED
+    moved = make_site().model_copy(
+        update={
+            "battery": BatteryConfig(
+                power=EntityRef(entity_id="sensor.bat_power_2"),
+                soc=EntityRef(entity_id="sensor.bat_soc"),
+            )
+        }
+    )
+    await store.put("site", moved)
+    assert await _battery_mode(store) is OperatingMode.SHADOW
+
+
+async def test_import_always_resets_the_battery_to_shadow(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    exported = await store.export_json()
+    await store.import_json(exported)
+    assert await _battery_mode(store) is OperatingMode.SHADOW
+
+
+async def test_restore_operation_keeps_the_battery_mode_only_for_the_same_battery(
+    db: Database,
+) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("operation", OperationConfig())  # history: battery assisted
+    (entry,) = [h for h in await store.history("operation") if h.body["battery_mode"] != "shadow"]
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.battery_mode is OperatingMode.ASSISTED
+    # Re-mapped meanwhile: the old grant does not apply to the new battery.
+    await store.put("operation", OperationConfig())
+    await store.put("battery", _battery_settings("number.other"))
+    (entry,) = [
+        h for h in await store.history("operation") if h.body.get("battery_mode") == "assisted"
+    ][:1]
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.battery_mode is OperatingMode.SHADOW
+
+
+async def test_restore_operation_without_a_battery_record_is_conservative(db: Database) -> None:
+    store = ConfigStore(db)
+    await store.put("site", make_site())
+    await store.put("battery", _battery_settings())
+    await db.execute(
+        "INSERT INTO config_history (section, schema_version, body, replaced_at) "
+        "VALUES ('operation', 1, ?, 't')",
+        (OperationConfig(battery_mode=OperatingMode.AUTOMATIC).model_dump_json(),),
+    )
+    (entry,) = await store.history("operation")
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.battery_mode is OperatingMode.SHADOW
+
+
+async def test_restore_operation_for_an_observe_only_battery_is_shadow(db: Database) -> None:
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("operation", OperationConfig())
+    await store.put("battery", BatterySettings())  # observe only now
+    (entry,) = [
+        h for h in await store.history("operation") if h.body.get("battery_mode") == "assisted"
+    ]
+    restored = await store.restore("operation", entry.id)
+    assert isinstance(restored, OperationConfig)
+    assert restored.battery_mode is OperatingMode.SHADOW
+
+
+async def test_marking_the_fallback_measured_drops_the_battery_to_shadow(db: Database) -> None:
+    """Review 4-G minor 5: it lifts the assisted cap - re-confirm with the new identity token."""
+    store = ConfigStore(db)
+    await _battery_assisted(store)
+    await store.put("battery", _battery_settings().model_copy(update={"fallback_measured": True}))
+    assert await _battery_mode(store) is OperatingMode.SHADOW

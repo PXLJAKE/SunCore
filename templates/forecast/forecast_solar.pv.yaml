@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=../schema/forecast.schema.json
+# Forecast.Solar (Home Assistant core, domain `forecast_solar`). The integration has no series
+# attribute; its hourly Wh per period is only available through the Energy dashboard's WebSocket
+# command `energy/solar_forecast`, and only when the integration is linked as the forecast of a
+# solar source there. No P10/P90.
+id: forecast_solar.pv
+kind: forecast
+schema_version: 1
+name: template.forecast_solar.pv.name
+source:
+  - title: "home-assistant/core forecast_solar/energy.py (async_get_solar_forecast, wh_hours, zero filter)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/forecast_solar/energy.py"
+    date: 2026-10-16
+  - title: "home-assistant/core energy/websocket_api.py (energy/solar_forecast: which entries, result keyed by config entry id)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/energy/websocket_api.py"
+    date: 2026-10-16
+  - title: "home-assistant/core energy/types.py (SolarForecastType = {wh_hours})"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/energy/types.py"
+    date: 2026-10-16
+  - title: "home-assistant/core forecast_solar/coordinator.py (update interval hourly, 30 min with an API key)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/forecast_solar/coordinator.py"
+    date: 2026-10-16
+tested_with: []
+capabilities: [pv_curve]
+unverified:
+  - "Read from the integration source (core 5cfe9aad, forecast-solar 5.0.1) only; not observed on a running Home Assistant."
+  - "Whether the vendor API labels `watt_hours_period` keys as period start or end (api.forecast.solar unreachable); the HA library, and so SunCore, treats a key as the start."
+  - "Period length: hourly in the free tier (inferred from the key spacing); finer periods in paid plans are unverified."
+  - "The integration drops only a 0 Wh entry starting exactly at 00:00:00 (`energy.py`: `val != 0 or not midnight`); every other zero is listed."
+  - "A period missing between two known ones is read as 0 Wh (`missing_is_zero`); before the first and after the last entry nothing is assumed."
+  - "Whether the vendor API itself ever omits a non-zero period is unverified."
+  - "Whether the vendor API emits off-grid keys (sunrise/sunset times): such a key is dropped at 0 Wh, else added to its enclosing period."
+  - "Listed by `energy/solar_forecast` only if linked in the Energy dashboard; the user picks the config entry (`config_entry_id`) unless there is exactly one."
+forecast_kind: pv
+series:
+  source: energy_solar_forecast
+  missing_is_zero: true
+  fields:
+    value_unit: Wh
+resolution_min: 60

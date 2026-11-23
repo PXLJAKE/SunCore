@@ -14,8 +14,10 @@ from typing import Final
 READ_ONLY_ACTIONS: Final[frozenset[str]] = frozenset(
     {
         "tibber.get_prices",
+        "nordpool.get_prices_for_date",
         "solcast_solar.query_forecast_data",
         "weather.get_forecasts",
+        "workday.check_date",
     }
 )
 """``<domain>.<service>`` of the actions whose response SunCore may read."""

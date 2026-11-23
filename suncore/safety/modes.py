@@ -23,6 +23,10 @@ class ModeProvider(Protocol):
         """Mode of one device; an unknown device is shadow."""
         ...
 
+    def battery_mode(self) -> OperatingMode:
+        """Mode of the battery asset (ADR-0013); shadow unless the user raised it."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class ModeView:
@@ -46,6 +50,9 @@ class AllShadow:
     def device_mode(self, device_id: str) -> OperatingMode:  # noqa: ARG002 - protocol
         return OperatingMode.SHADOW
 
+    def battery_mode(self) -> OperatingMode:
+        return OperatingMode.SHADOW
+
 
 class StaticModes:
     """A provider over fixed values (tests, demo): ``device_modes`` missing = shadow."""
@@ -54,9 +61,11 @@ class StaticModes:
         self,
         global_mode: OperatingMode = OperatingMode.SHADOW,
         devices: dict[str, OperatingMode] | None = None,
+        battery: OperatingMode = OperatingMode.SHADOW,
     ) -> None:
         self._global = global_mode
         self._devices = dict(devices or {})
+        self._battery = battery
 
     def global_mode(self) -> OperatingMode:
         return self._global
@@ -69,6 +78,12 @@ class StaticModes:
 
     def set_device(self, device_id: str, mode: OperatingMode) -> None:
         self._devices[device_id] = mode
+
+    def battery_mode(self) -> OperatingMode:
+        return self._battery
+
+    def set_battery(self, mode: OperatingMode) -> None:
+        self._battery = mode
 
 
 def view(provider: ModeProvider, device_id: str) -> ModeView:

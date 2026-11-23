@@ -20,9 +20,12 @@ from suncore.templates.matcher import (
 )
 from suncore.templates.models import (
     TEMPLATE_ADAPTER,
+    ActionParam,
     ActionSeries,
     AttributeSeries,
+    BatteryTemplate,
     DeviceTemplate,
+    EnergyDashboardSeries,
     EntityMatcher,
     ForecastTemplate,
     RegionTemplate,
@@ -34,10 +37,13 @@ from suncore.templates.models import (
 
 __all__ = [
     "TEMPLATE_ADAPTER",
+    "ActionParam",
     "ActionSeries",
     "AttributeSeries",
+    "BatteryTemplate",
     "BuiltinTemplateError",
     "DeviceTemplate",
+    "EnergyDashboardSeries",
     "EntityMatcher",
     "ForecastTemplate",
     "RegionTemplate",

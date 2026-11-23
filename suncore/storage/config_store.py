@@ -9,9 +9,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final
 
+import structlog
 from pydantic import BaseModel, ValidationError
 
 from suncore import __version__
+from suncore.core.battery import BatterySettings
 from suncore.core.config import (
     DevicesConfig,
     ForecastConfig,
@@ -20,10 +22,13 @@ from suncore.core.config import (
     RegionConfig,
     TariffConfig,
     WizardState,
+    migrate_forecast_v1_to_v2,
+    migrate_goals_v1_to_v2,
+    migrate_tariff_v2_to_v3,
 )
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
-from suncore.core.identity import device_identity, new_device_ids
+from suncore.core.identity import battery_identity_token, device_identity, new_device_ids
 from suncore.core.site import SiteConfig, migrate_site_v1_to_v2
 from suncore.storage.db import Database, Row, Transaction
 from suncore.storage.errors import (
@@ -33,7 +38,9 @@ from suncore.storage.errors import (
     UnknownSectionError,
 )
 from suncore.storage.migrations import latest_version
-from suncore.storage.runtime import KEY_MODE_IDENTITIES
+from suncore.storage.runtime import KEY_BATTERY_MODE_IDENTITY, KEY_MODE_IDENTITIES
+
+log = structlog.get_logger(__name__)
 
 EXPORT_FORMAT: Final = 1
 """Value of the ``suncore_export`` header field."""
@@ -83,7 +90,9 @@ def migrate_tariff_v1_to_v2(body: Body) -> Body:
 
 
 def legacy_forecast(body: Body) -> Body | None:
-    """The ``forecast`` section body hidden in a tariff v1 body; ``None`` if it had no sources."""
+    """The ``forecast`` section body (schema v1) hidden in a tariff v1 body; ``None`` if it had
+    no sources. Upgrade it with the ``forecast`` migrations (``_upgrade("forecast", 1, ...)``).
+    """
     ids = body.get("forecast_template_ids") or []
     entities = body.get("forecast_entities") or {}
     if not ids and not entities:
@@ -91,15 +100,32 @@ def legacy_forecast(body: Body) -> Body | None:
     return {"forecast_template_ids": ids, "forecast_entities": entities}
 
 
+def migrate_forecast_v1_to_v2_logged(body: Body) -> Body:
+    """:func:`migrate_forecast_v1_to_v2` that warns when v1 entities have no template.
+
+    v1 entities without a template id cannot be assigned to a source; the migration drops
+    them (the user picks the source again in the wizard), which is logged, never silent.
+    """
+    ids = body.get("forecast_template_ids") or []
+    entities = body.get("forecast_entities") or {}
+    if not ids and isinstance(entities, dict) and entities:
+        log.warning(
+            "config.forecast_v1_entities_without_template",
+            roles=sorted(str(role) for role in entities),
+        )
+    return migrate_forecast_v1_to_v2(body)
+
+
 DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "site": SectionSpec(SiteConfig, (migrate_site_v1_to_v2,)),
     "region": SectionSpec(RegionConfig),
-    "tariff": SectionSpec(TariffConfig, (migrate_tariff_v1_to_v2,)),
-    "forecast": SectionSpec(ForecastConfig),
+    "tariff": SectionSpec(TariffConfig, (migrate_tariff_v1_to_v2, migrate_tariff_v2_to_v3)),
+    "forecast": SectionSpec(ForecastConfig, (migrate_forecast_v1_to_v2_logged,)),
     "devices": SectionSpec(DevicesConfig),
-    "goals": SectionSpec(GoalsConfig),
+    "goals": SectionSpec(GoalsConfig, (migrate_goals_v1_to_v2,)),
     "operation": SectionSpec(OperationConfig),
     "wizard": SectionSpec(WizardState),
+    "battery": SectionSpec(BatterySettings),
 }
 
 
@@ -187,7 +213,10 @@ class ConfigStore:
         (STATUS F6/A2, ``core.identity``): putting ``devices`` removes the ``operation`` mode
         entries of devices that are new (id, template or mapped entities changed), so they
         start in shadow. Putting ``operation`` records the identity of every device that
-        holds a non-shadow mode; see :meth:`restore` for the history path.
+        holds a non-shadow mode; see :meth:`restore` for the history path. Battery (ADR-0013
+        decision 6): a ``battery`` or ``site`` put that changes the battery's identity token
+        (``core.identity.battery_identity_token``) drops ``operation.battery_mode`` to shadow; an
+        ``operation`` put with a non-shadow battery mode records the token it was granted to.
         """
         return await self._put(section, model, restoring=False)
 
@@ -213,11 +242,85 @@ class ConfigStore:
                 devices = await self._stored_devices(tx)
                 if restoring:
                     model = await self._drop_changed_identities(tx, model, devices)
+                    model = await self._drop_changed_battery(tx, model)
                 await self._write(tx, section, model, now)
                 await self._record_identities(tx, model, devices, now)
+                await self._record_battery_identity(tx, model, now)
+            elif isinstance(model, BatterySettings | SiteConfig):
+                before = await self._battery_token(tx)
+                await self._write(tx, section, model, now)
+                if await self._battery_token(tx) != before:
+                    await self._shadow_battery(tx, now)
             else:
                 await self._write(tx, section, model, now)
         return model
+
+    # --- battery identity (ADR-0013 decision 6) -----------------------------------------
+
+    async def _battery_token(self, tx: Transaction) -> str | None:
+        """The stored battery's identity token (``None`` = observe-only or not configured)."""
+        battery_row = await tx.fetchone(
+            "SELECT schema_version, body FROM config_doc WHERE section = 'battery'"
+        )
+        site_row = await tx.fetchone(
+            "SELECT schema_version, body FROM config_doc WHERE section = 'site'"
+        )
+        battery = self._try_parse("battery", battery_row)
+        site = self._try_parse("site", site_row)
+        return battery_identity_token(
+            battery if isinstance(battery, BatterySettings) else None,
+            site if isinstance(site, SiteConfig) else None,
+        )
+
+    @staticmethod
+    async def _load_battery_record(tx: Transaction) -> str | None:
+        row = await tx.fetchone(
+            "SELECT value FROM safety_state WHERE key = ?", (KEY_BATTERY_MODE_IDENTITY,)
+        )
+        return None if row is None or not row[0] else str(row[0])
+
+    @staticmethod
+    async def _save_battery_record(tx: Transaction, token: str | None, now: str) -> None:
+        await tx.execute(
+            "INSERT INTO safety_state (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+            "updated_at = excluded.updated_at",
+            (KEY_BATTERY_MODE_IDENTITY, token or "", now),
+        )
+
+    async def _record_battery_identity(
+        self, tx: Transaction, operation: OperationConfig, now: str
+    ) -> None:
+        """A non-shadow battery mode remembers the identity it was granted to (kept after a put
+        back to shadow, like the device record, so a later restore of the same battery works)."""
+        if operation.battery_mode is OperatingMode.SHADOW:
+            return
+        await self._save_battery_record(tx, await self._battery_token(tx), now)
+
+    async def _drop_changed_battery(
+        self, tx: Transaction, operation: OperationConfig
+    ) -> OperationConfig:
+        """Restore path: a battery mode granted to another battery identity (or never recorded,
+        or to an observe-only battery) falls back to shadow."""
+        if operation.battery_mode is OperatingMode.SHADOW:
+            return operation
+        current = await self._battery_token(tx)
+        if current is None or await self._load_battery_record(tx) != current:
+            return operation.without_battery_mode()
+        return operation
+
+    async def _shadow_battery(self, tx: Transaction, now: str) -> None:
+        """The battery's identity changed (``battery`` or ``site`` put/restore): shadow it."""
+        await self._save_battery_record(tx, None, now)
+        row = await tx.fetchone(
+            "SELECT schema_version, body FROM config_doc WHERE section = 'operation'"
+        )
+        operation = self._try_parse("operation", row)
+        if not isinstance(operation, OperationConfig):
+            return
+        cleaned = operation.without_battery_mode()
+        if cleaned is not operation:
+            await self._write(tx, "operation", cleaned, now)
 
     async def _stored_devices(self, tx: Transaction) -> list[DeviceConfig]:
         """Stored devices; a missing or corrupt section counts as "no devices" (all new)."""
@@ -406,8 +509,8 @@ class ConfigStore:
             now = self._clock().isoformat()
             if moved is not None and have is None:
                 try:
-                    forecast = ForecastConfig.model_validate(moved)
-                except ValidationError:
+                    forecast: BaseModel | None = self._upgrade("forecast", 1, moved)
+                except ConfigCorruptError:
                     forecast = None
                 if forecast is not None:
                     await self._write(tx, "forecast", forecast, now)
@@ -510,8 +613,11 @@ class ConfigStore:
                 )
                 record = {k: v for k, v in old_record.items() if k in kept_ids}
             if isinstance(operation, OperationConfig):
-                # An import never carries trust over: the global mode is shadow afterwards.
-                operation = operation.model_copy(update={"mode": OperatingMode.SHADOW})
+                # An import never carries trust over: the global mode is shadow afterwards, and so
+                # is the battery (ADR-0013: an imported battery is never trusted to write).
+                operation = operation.model_copy(
+                    update={"mode": OperatingMode.SHADOW, "battery_mode": OperatingMode.SHADOW}
+                )
                 if isinstance(new_devices, DevicesConfig):
                     operation = operation.without_modes_of(
                         new_device_ids(previous, new_devices.devices)
@@ -524,6 +630,7 @@ class ConfigStore:
                     operation = operation.without_modes_of(frozenset(operation.device_modes))
                 validated["operation"] = operation
             await self._save_identities(tx, record, now)
+            await self._save_battery_record(tx, None, now)
             stored = {name: self._dump(model) for name, model in validated.items()}
             for name, row in old.items():
                 if (int(str(row[0])), str(row[1])) != (

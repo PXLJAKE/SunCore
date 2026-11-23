@@ -44,7 +44,7 @@ test.describe('Settings overview', () => {
   test('history: restore the previous version of a section', async ({ page, request }) => {
     // the demo has `climate_before_export: true`; the replaced version is the one to get back
     await request.put('/api/v1/config/goals', {
-      data: { schema_version: 1, climate_before_export: false, grid_charge_night_only: true },
+      data: { schema_version: 2, climate_before_export: false },
     });
     await page.reload();
     await page.getByLabel('Section').selectOption({ label: 'Goals' });
@@ -67,7 +67,7 @@ test.describe('Settings overview', () => {
     expect(href).toMatch(/api\/v1\/config\/export$/);
     const exported = await (await request.get('/api/v1/config/export')).text();
     await request.put('/api/v1/config/goals', {
-      data: { schema_version: 1, climate_before_export: false, grid_charge_night_only: false },
+      data: { schema_version: 2, climate_before_export: false },
     });
     await page.getByTestId('import-file').setInputFiles({
       name: 'suncore-config.json',

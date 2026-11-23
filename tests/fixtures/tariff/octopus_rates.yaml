@@ -1,0 +1,25 @@
+# Attributes of the Octopus Energy current-day and next-day rate event entities:
+#   docs/research/integrations.md "Octopus Energy" (lines 334-371, Phase 4 verification
+#   2026-10-16); BottlecapDave/HomeAssistant-OctopusEnergy@v19.2.1 utils/__init__.py:149-170
+#   (private_rates_to_public_rates: `start`, `end`, `value_inc_vat`, optional `is_capped`,
+#   `is_intelligent_adjusted`) and core event/entity.py:145-152 (last event data become
+#   attributes next to `event_type`). Rates in GBP/kWh including VAT, 30-minute slots, local
+#   datetimes. Synthetic values.
+entities:
+  - entity_id: event.octopus_energy_electricity_1234_5678_current_day_rates
+    state: "2026-10-16T00:05:00.000+00:00"
+    attributes:
+      event_type: octopus_energy_electricity_current_day_rates
+      min_rate: 0.1245
+      max_rate: 0.3421
+      rates:
+        - {start: "2026-10-16T00:00:00+01:00", end: "2026-10-16T00:30:00+01:00", value_inc_vat: 0.1245}
+        - {start: "2026-10-16T00:30:00+01:00", end: "2026-10-16T01:00:00+01:00", value_inc_vat: 0.1302, is_capped: false}
+        - {start: "2026-10-16T01:00:00+01:00", end: "2026-10-16T01:30:00+01:00", value_inc_vat: 0.1519}
+  - entity_id: event.octopus_energy_electricity_1234_5678_next_day_rates
+    state: "2026-10-16T16:05:00.000+00:00"
+    attributes:
+      event_type: octopus_energy_electricity_next_day_rates
+      rates:
+        - {start: "2026-10-17T00:00:00+01:00", end: "2026-10-17T00:30:00+01:00", value_inc_vat: 0.1010}
+        - {start: "2026-10-17T00:30:00+01:00", end: "2026-10-17T01:00:00+01:00", value_inc_vat: 0.0955}

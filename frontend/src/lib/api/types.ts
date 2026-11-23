@@ -28,12 +28,21 @@ export type EntityCandidate = S['EntityCandidateOut'];
 export type ValidationIssue = S['ValidationIssueOut'];
 
 export type ConfigSectionName =
-  'site' | 'region' | 'tariff' | 'forecast' | 'devices' | 'goals' | 'operation' | 'wizard';
+  | 'site'
+  | 'region'
+  | 'tariff'
+  | 'forecast'
+  | 'devices'
+  | 'goals'
+  | 'operation'
+  | 'wizard'
+  | 'battery';
 export type RegionConfig = S['RegionConfig'];
 export type TariffConfig = S['TariffConfig'];
 export type ForecastConfig = S['ForecastConfig'];
 export type DevicesConfig = S['DevicesConfig'];
 export type GoalsConfig = S['GoalsConfig'];
+export type BatterySettings = S['BatterySettings'];
 export type OperationConfig = S['OperationConfig'];
 export type WizardState = S['WizardState'];
 export type DeviceConfig = S['DeviceConfig'];
@@ -55,7 +64,7 @@ export type Suggestion = S['SuggestionOut'];
 export type ConfigHistoryEntry = S['ConfigHistoryEntryOut'];
 export type ImportResult = S['ImportResultOut'];
 export type HistoryRestore = S['HistoryRestoreOut'];
-export type TemplateKind = 'device' | 'tariff' | 'forecast' | 'region';
+export type TemplateKind = 'device' | 'tariff' | 'forecast' | 'region' | 'battery';
 export type TemplateList = S['TemplateListOut'];
 export type TemplateSummary = S['TemplateSummaryOut'];
 export type TemplateDetail = S['TemplateDetailOut'];
@@ -65,10 +74,47 @@ export type CheckItem = S['CheckItemOut'];
 export type PreviewResult = S['PreviewOut'];
 export type PreviewItem = S['PreviewItemOut'];
 
+export type PlanView = S['PlanView'];
+export type Plan = S['Plan'];
+export type PlanInterval = S['PlanInterval'];
+export type PlanSource = Plan['source'];
+export type PlanSummary = S['PlanSummary'];
+export type PlanStatus = S['PlanStatusView'];
+export type ReplanAck = S['ReplanAck'];
+export type IntervalFlows = S['IntervalFlows'];
+export type BatteryBand = S['BatteryBand'];
+export type PriceReport = S['PriceReport'];
+export type PvForecastView = S['PvForecastView'];
+export type ForecastAccuracyView = S['ForecastAccuracyView'];
+export type LoadModelView = S['LoadModelView'];
+export type AccuracySourceView = S['AccuracySourceView'];
+export type AccuracyRecord = S['AccuracyRecord'];
+export type RiskView = S['RiskView'];
+export type RiskTarget = S['RiskTargetView'];
+export type BlendedView = S['BlendedView'];
+export type CalibrationView = S['CalibrationView'];
+export type BatteryControlState = S['BatteryControlState'];
+export type BatteryAction = S['BatteryAction'];
+export type BatteryModel = S['BatteryModel'];
+export type BatteryStrategy = S['BatteryStrategy'];
+export type RiskLevel = S['RiskLevel'];
+export type GridChargePolicy = S['GridChargePolicy'];
+export type WeeklySchedule = S['WeeklySchedule'];
+export type TouWindow = S['TouWindow'];
+export type TouTariff = S['TouTariff'];
+export type TouPeriod = S['TouPeriod'];
+export type PriceFormula = S['PriceFormula'];
+export type GridFeeWindow = S['GridFeeWindow'];
+export type ModbusLink = S['ModbusLink'];
+export type BatteryTemplate = S['BatteryTemplate'];
+export type ForecastSourceConfig = S['ForecastSourceConfig'];
+export type LoadForecastConfig = S['LoadForecastConfig'];
+
 export type SnapshotMessage = S['SnapshotMessage'];
+export type PlanMessage = S['PlanMessage'];
 export type FlowsMessage = S['FlowsMessage'];
 export type HealthMessage = S['HealthMessage'];
 export type DecisionsMessage = S['DecisionsMessage'];
 export type ControlMessage = S['ControlMessage'];
 export type LiveMessage =
-  SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage;
+  SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage | PlanMessage;

@@ -22,6 +22,7 @@ from suncore.templates.models import (
     TEMPLATE_ADAPTER,
     TEMPLATE_KINDS,
     VERSION_PATTERN,
+    BatteryTemplate,
     DeviceTemplate,
     ForecastTemplate,
     RegionTemplate,
@@ -80,6 +81,9 @@ class TemplateCatalog:
     def regions(self) -> list[RegionTemplate]:
         return [t for t in self.of_kind("region") if isinstance(t, RegionTemplate)]
 
+    def batteries(self) -> list[BatteryTemplate]:
+        return [t for t in self.of_kind("battery") if isinstance(t, BatteryTemplate)]
+
 
 def _format_validation(exc: ValidationError) -> str:
     parts = []
@@ -96,6 +100,7 @@ def _is_union_tag(part: str | int) -> bool:
         "TariffTemplate",
         "ForecastTemplate",
         "RegionTemplate",
+        "BatteryTemplate",
     }
 
 

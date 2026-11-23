@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=../schema/tariff.schema.json
+# Octopus Energy (HACS `BottlecapDave/HomeAssistant-OctopusEnergy`, domain `octopus_energy`).
+# The rate lists are on EVENT entities (`..._current_day_rates`, `..._next_day_rates`), not on
+# the rate sensors: core's EventEntity exposes the last event's data as attributes, so the
+# attribute `rates` holds `[{"start", "end", "value_inc_vat"}]` (local datetimes, GBP/kWh
+# including VAT). SunCore merges the current and the next day by `start`. The slot length is
+# `end - start` (30 minutes for the usual tariffs). Import rates only; export rates have their
+# own `..._export_...` entities and are not a price source of this template.
+id: octopus_energy.rates
+kind: tariff
+schema_version: 1
+name: template.octopus_energy.rates.name
+source:
+  - title: "HomeAssistant-OctopusEnergy v19.2.1 electricity/rates_current_day.py (event entity, rates)"
+    url: "https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy/blob/v19.2.1/custom_components/octopus_energy/electricity/rates_current_day.py"
+    date: 2026-10-16
+  - title: "HomeAssistant-OctopusEnergy v19.2.1 utils/__init__.py (private_rates_to_public_rates: start, end, value_inc_vat)"
+    url: "https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy/blob/v19.2.1/custom_components/octopus_energy/utils/__init__.py"
+    date: 2026-10-16
+  - title: "HomeAssistant-OctopusEnergy v19.2.1 electricity/current_rate.py (GBP/kWh current rate sensor)"
+    url: "https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy/blob/v19.2.1/custom_components/octopus_energy/electricity/current_rate.py"
+    date: 2026-10-16
+  - title: "home-assistant/core event/entity.py (state_attributes: event_type plus last event data)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad/homeassistant/components/event/entity.py"
+    date: 2026-10-16
+tested_with: []
+capabilities: [price_now, price_curve]
+unverified:
+  - Read from the integration source (tag v19.2.1, commit ccfbccc3) only; not observed on a running Home Assistant.
+  - 'Entity ids and translation keys of the event entities: the roles match domain `event` and platform only; current-day, next-day, previous-day and export entities are all candidates.'
+  - The event fires only when the rates changed and is restored after a restart; before the first event the `rates` attribute is missing.
+  - Whether `value_inc_vat` is a complete end price (standing charges, caps) is not stated; SunCore treats it as all-in.
+direction: import
+tariff_type: dynamic
+roles:
+  price:
+    matcher:
+      domain: sensor
+      platforms: [octopus_energy]
+      units: ["GBP/kWh"]
+    description: template.octopus_energy.rates.role.price
+  current_day_rates:
+    matcher:
+      domain: event
+      platforms: [octopus_energy]
+    description: template.octopus_energy.rates.role.current_day_rates
+  next_day_rates:
+    required: false
+    matcher:
+      domain: event
+      platforms: [octopus_energy]
+    description: template.octopus_energy.rates.role.next_day_rates
+price_unit: "GBP/kWh"
+price_includes: all_in
+price_series:
+  source: attribute
+  roles: [current_day_rates, next_day_rates]
+  attribute: rates
+  shape: list
+  fields:
+    timestamp_field: start
+    end_field: end
+    value_field: value_inc_vat
+    value_unit: "GBP/kWh"

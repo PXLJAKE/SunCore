@@ -48,9 +48,9 @@ import contextlib
 import heapq
 import itertools
 import logging
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Any, Final
 
@@ -60,6 +60,8 @@ from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, Sit
 from suncore.ha.connection import (
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
+    ActionRateLimitedError,
+    ActionRateLimiter,
     CommandError,
     ConnectionState,
     EntityListener,
@@ -73,11 +75,15 @@ from suncore.ha.connection import (
     StateContext,
     StateListener,
     Unsubscribe,
+    action_rate_key,
 )
 from suncore.sim import registry
 from suncore.sim.demo_devices import (
     FORECAST_TODAY_ID,
+    FORECAST_TOMORROW_ID,
     SIM_DEVICE_ENTITY_IDS,
+    WEATHER_ID,
+    WORKDAY_ID,
     DemoDevices,
     sim_price,
 )
@@ -90,6 +96,8 @@ from suncore.sim.devices import (
     validate_schema,
 )
 from suncore.sim.house import House, HouseState
+from suncore.sim.inverter import SimInverter
+from suncore.sim.recorder import SimRecorder
 from suncore.sim.scenario import ManualEvent, Scenario, SimSignal
 
 _log = logging.getLogger(__name__)
@@ -150,7 +158,9 @@ def demo_site_config() -> SiteConfig:
     """Site configuration mapping the simulator entities (signed grid, one PV, battery)."""
     return SiteConfig(
         grid=GridConfig(power=EntityRef(entity_id=GRID_ID)),
-        pv=[PvArray(name="PV", power=EntityRef(entity_id=PV_ID))],
+        # The simulator's plant: 8 kWp following sin(elevation), i.e. a horizontal plane
+        # (``PVParams`` defaults; the clear-sky model of the forecast calibration reads this).
+        pv=[PvArray(name="PV", power=EntityRef(entity_id=PV_ID), kwp=8.0, tilt_deg=0.0)],
         battery=BatteryConfig(
             power=EntityRef(entity_id=BATTERY_ID), soc=EntityRef(entity_id=SOC_ID)
         ),
@@ -170,6 +180,25 @@ def _values(state: HouseState) -> dict[str, float]:
 
 def _format(value: float) -> str:
     return f"{value + 0.0:.1f}" if abs(value) >= 0.05 else "0.0"
+
+
+def _solcast_query_window(slots: list[Any], data: Mapping[str, Any] | None) -> list[Any]:
+    """The slots of ``query_forecast_data`` between ``start_date_time`` and ``end_date_time``.
+
+    Both default to *now* in the real action (an empty range); the fake keeps every slot when a
+    bound is absent so older tests that call it without a range still get the day.
+    """
+    if not data:
+        return slots
+    out = slots
+    start, end = data.get("start_date_time"), data.get("end_date_time")
+    if isinstance(start, str):
+        lo = datetime.fromisoformat(start)
+        out = [s for s in out if datetime.fromisoformat(s["period_start"]) >= lo]
+    if isinstance(end, str):
+        hi = datetime.fromisoformat(end)
+        out = [s for s in out if datetime.fromisoformat(s["period_start"]) < hi]
+    return out
 
 
 class FakeHAConnection:
@@ -255,8 +284,24 @@ class FakeHAConnection:
         self._event_time: datetime | None = None
         self._offset_s = 0
         self._unavailable: frozenset[str] = frozenset()
+        self._action_limiter = ActionRateLimiter(
+            clock=lambda: self._clock().timestamp(), sleep=sleep
+        )
         self.call_log: list[CallRecord] = []
         """Every service call seen, oldest first."""
+        self.recorder = SimRecorder(
+            scenario,
+            {
+                GRID_ID: lambda s: s.grid_w,
+                PV_ID: lambda s: s.pv_w,
+                BATTERY_ID: lambda s: s.battery_w,
+                SOC_ID: lambda s: s.soc_pct,
+                HOUSE_ID: lambda s: s.load_w,
+            },
+        )
+        """Hourly statistics behind :meth:`statistics_during_period`."""
+        self.statistics_error: HAError | None = None
+        """Make ``statistics_during_period`` fail (e.g. a proxy that blocks ``recorder/*``)."""
 
     # --- HAConnection ---------------------------------------------------------
 
@@ -388,30 +433,106 @@ class FakeHAConnection:
             except Exception:
                 _log.exception("registry listener failed")
 
+    async def energy_solar_forecast(self) -> Mapping[str, Mapping[str, float]]:
+        """``energy/solar_forecast``: the entries linked in the demo's Energy dashboard.
+
+        ``sim_entry_forecast_solar`` (hourly Wh, a zero at midnight dropped, like Forecast.Solar)
+        and ``sim_entry_solcast_solar`` (half-hourly Wh of the P50). ``{}`` while the dashboard is
+        not configured (:meth:`energy_get_prefs` returns ``None``).
+        """
+        self._require_connected()
+        if self.registry_error is not None:
+            raise self.registry_error
+        if not self._energy_prefs_configured or self._demo is None or self._house_state is None:
+            return {}
+        return self._demo.solar_forecast(self._house_state.time)
+
+    async def statistics_during_period(
+        self,
+        statistic_ids: Sequence[str],
+        start: datetime,
+        end: datetime | None = None,
+        *,
+        period: str = "hour",
+        types: Sequence[str] | None = None,
+        units: Mapping[str, str] | None = None,  # noqa: ARG002 - the fake always answers in W
+    ) -> Mapping[str, Sequence[Mapping[str, Any]]]:
+        """``recorder/statistics_during_period`` from :attr:`recorder` (hourly means in W)."""
+        self._require_connected()
+        if self.statistics_error is not None:
+            raise self.statistics_error
+        if not statistic_ids:
+            return {}
+        return self.recorder.query(statistic_ids, start, end, period, types)
+
     async def call_action_response(
         self,
         domain: str,
         service: str,
-        data: Mapping[str, Any] | None = None,  # noqa: ARG002
+        data: Mapping[str, Any] | None = None,
         *,
-        target: Mapping[str, Any] | None = None,  # noqa: ARG002
+        target: Mapping[str, Any] | None = None,
+        min_interval_s: float | None = None,
+        max_wait_s: float = 0.0,
+        rate_key: str | None = None,
     ) -> dict[str, Any]:
         """Read-only action responses built from the demo data (allowlist like the real one)."""
         if not is_read_only_action(domain, service):
             msg = f"{domain}.{service} is not a read-only action"
             raise ActionNotAllowedError(msg)
         self._require_connected()
+        key = action_rate_key(domain, service, rate_key)
+        if not await self._action_limiter.acquire(key, min_interval_s, max_wait_s=max_wait_s):
+            raise ActionRateLimitedError(key, self._action_limiter.retry_after(key))
         now = self._house_state.time if self._house_state is not None else self._clock()
         if (domain, service) == ("tibber", "get_prices"):
-            start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-            slots = [start + timedelta(minutes=15 * i) for i in range(96)]
-            prices = [{"start_time": t.isoformat(), "price": sim_price(t)} for t in slots]
-            return {"prices": {"Home": prices}}
+            return {"prices": {"Home": self._tibber_prices(now, data)}}
         if (domain, service) == ("solcast_solar", "query_forecast_data"):
-            today = self._published.get(FORECAST_TODAY_ID)
-            slots_data = today.attributes.get("detailedForecast", []) if today else []
-            return {"data": list(slots_data)}
+            slots_data: list[Any] = []
+            for entity_id in (FORECAST_TODAY_ID, FORECAST_TOMORROW_ID):
+                day = self._published.get(entity_id)
+                if day is not None:
+                    slots_data.extend(day.attributes.get("detailedForecast", []))
+            return {"data": _solcast_query_window(slots_data, data)}
+        entity_id = str((target or {}).get("entity_id", ""))
+        demo = self.demo
+        if (domain, service) == ("weather", "get_forecasts") and entity_id == WEATHER_ID:
+            return {entity_id: {"forecast": demo.hourly_weather(now)}}
+        if (domain, service) == ("workday", "check_date") and entity_id == WORKDAY_ID:
+            asked = date.fromisoformat(str((data or {}).get("check_date")))
+            return {entity_id: {"workday": demo.is_workday(asked)}}
         raise CommandError("not_found", f"Service {domain}.{service} not found.")
+
+    def _tibber_prices(self, now: datetime, data: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+        """``tibber.get_prices`` like core's ``services.py`` (re-read 2026-10-16): 15-minute
+        slots ``start <= t < end``, ``start``/``end`` default to local today; tomorrow only
+        exists after ``scenario.prices.tomorrow_after_hour`` local time."""
+
+        def parse(name: str) -> datetime | None:
+            raw = (data or {}).get(name)
+            if not isinstance(raw, str):
+                return None
+            parsed = datetime.fromisoformat(raw)
+            return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=now.tzinfo)
+
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = parse("start") or midnight
+        end = parse("end") or start + timedelta(days=1)
+        if start >= end:
+            end = start + timedelta(days=1)
+        params = self._scenario.prices
+        published_until = midnight + timedelta(
+            days=2 if now.hour >= params.tomorrow_after_hour else 1
+        )
+        end = min(end, published_until)
+        slots: list[dict[str, Any]] = []
+        t = max(start, midnight)
+        t = t.replace(minute=(t.minute // 15) * 15, second=0, microsecond=0)
+        while t < end:
+            if t >= start:
+                slots.append({"start_time": t.isoformat(), "price": sim_price(t, params.profile)})
+            t += timedelta(minutes=15)
+        return slots
 
     def entity_metas(self) -> list[EntityMeta]:
         """Registry entries joined with the published states (what detection ranks)."""
@@ -568,6 +689,16 @@ class FakeHAConnection:
             )
             msg = f"fake HA is {self._state.value}"
             raise NotConnectedError(msg)
+        inverter = self._house.inverter if self._house is not None else None
+        if inverter is not None and self._inverter_call(
+            inverter, now, domain, service, entity_ids, fields
+        ):
+            context = self._new_context(user_id=SUPERVISOR_USER_ID)
+            self._record(
+                CallRecord(now, domain, service, entity_ids, fields, context.id, entity_ids)
+            )
+            self._publish_inverter(emit=True, context=context)
+            return {"context": {"id": context.id, "parent_id": None, "user_id": context.user_id}}
         try:
             clean = validate_schema(domain, service, fields)
             if not any(k in merged for k in TARGET_KEYS):
@@ -615,6 +746,49 @@ class FakeHAConnection:
         if blocking > 0:
             await self._sleep(blocking / self._speed)
         return {"context": {"id": context.id, "parent_id": None, "user_id": context.user_id}}
+
+    def _inverter_call(  # noqa: PLR0917
+        self,
+        inverter: SimInverter,
+        now: datetime,
+        domain: str,
+        service: str,
+        entity_ids: tuple[str, ...],
+        fields: Mapping[str, Any],
+    ) -> bool:
+        """The battery inverter's services (WP10): its numbers and ``modbus.write_register``.
+
+        ``modbus.write_register`` has no target and fails silently (the hub only logs); a number
+        write to an unavailable entity is skipped silently like any other.
+        """
+        if domain == "modbus" and service == "write_register":
+            inverter.write_register(now, dict(fields))
+            return True
+        if (
+            domain == "number"
+            and service == "set_value"
+            and entity_ids
+            and all(inverter.handles(e) for e in entity_ids)
+        ):
+            value = fields.get("value")
+            if not isinstance(value, int | float) or isinstance(value, bool):
+                raise CommandError("invalid_format", "expected float for dictionary value")
+            for entity_id in entity_ids:
+                if entity_id not in self._unavailable:
+                    inverter.set_number(now, entity_id, float(value))
+            return True
+        return False
+
+    def _publish_inverter(self, *, emit: bool, context: StateContext | None = None) -> None:
+        inverter = self._house.inverter if self._house is not None else None
+        if inverter is None:
+            return
+        self._commit(
+            inverter.states(self._sim_now()),
+            context=context,
+            emit=emit,
+            only_changes=False,
+        )
 
     def _plan(
         self,
@@ -878,6 +1052,17 @@ class FakeHAConnection:
                 only_changes=True,
             )
         )
+        inverter = self._house.inverter
+        if inverter is not None:  # the battery inverter's numbers and modbus sensors (WP10)
+            changed.update(
+                self._commit(
+                    inverter.states(house_state.time),
+                    context=None,
+                    emit=False,
+                    faults=faults,
+                    only_changes=False,
+                )
+            )
         if not emit:
             return
         if disconnected:

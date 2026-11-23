@@ -1,0 +1,19 @@
+template: generic.price_list
+sim_scenario: summer_day
+fixture: generic_price_list
+user_input:
+  now: "2026-10-16T10:07:00+02:00"
+  window_start: "2026-10-16T00:00:00+02:00"
+  window_hours: 24
+extra_entities:
+  - {entity_id: sensor.my_price_list, unit: EUR/kWh}
+roles:
+  price:
+    # the demo's price sensor has the same unit: the user picks their template sensor
+    tied: [sensor.my_price_list, sensor.sim_electricity_price]
+    pick: sensor.my_price_list
+    unit: EUR/kWh
+expect:
+  segments: [{step_min: 15, points: 3}]
+  first_price: 0.31
+  includes: all_in

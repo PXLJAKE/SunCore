@@ -22,13 +22,17 @@ from suncore.api import (
     HAUnavailableError,
     HealthReport,
     PeerPolicy,
+    TariffNotConfiguredError,
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import Flow, FlowSnapshot
+from suncore.core.battery import BatterySettings
 from suncore.core.config import SECTION_MODELS, OperationConfig
 from suncore.core.control import DeviceState, PowerEstimate
 from suncore.core.controlstate import (
+    BatteryNotControllableError,
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
@@ -51,12 +55,19 @@ from suncore.core.devices import DeviceKind
 from suncore.core.signals import Quality
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, PreviewTooLargeError
+from suncore.forecast.accuracy import accuracy_view
+from suncore.forecast.load_service import LoadForecastService
+from suncore.forecast.risk import ErrorModel
+from suncore.forecast.risk_learning import risk_view
+from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView, RiskView
+from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import (
     HistoryEntry,
     HistoryEntryNotFoundError,
     ImportRejectedError,
     UnknownSectionError,
 )
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog, load_templates
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates"
@@ -208,6 +219,66 @@ class FakeServices:
         self.proposal_list: list[Decision] = []
         self.operation = OperationConfig()
         self.control_listeners: list[Callable[[], None]] = []
+        self.pv_view = PvForecastView(generated_at=NOW, hours=48, sources=[], blended=None)
+        self.accuracy = accuracy_view([], {})
+        self.pv_hours: list[int] = []
+        self.load_view = LoadForecastService(None, None, clock=lambda: NOW).view(48)
+        self.load_hours: list[int] = []
+        self.risk = risk_view(
+            NOW,
+            pv=None,
+            load=None,
+            settings=BatterySettings(),
+            user_target_pct=None,
+            model=ErrorModel(),
+            min_history_days=30,
+            tz=UTC,
+            plant=None,
+        )
+        self.price_report: PriceReport | None = None
+        self.price_hours: list[int] = []
+
+        async def nothing(now: datetime, previous: object) -> PlanningSnapshot:
+            return PlanningSnapshot(None)
+
+        self.planning = PlanningService(nothing, LiveReading, clock=lambda: NOW)
+
+    async def plan_view(self, hours: int) -> PlanView:
+        self.calls.append(("plan_view", hours))
+        return self.planning.view(hours)
+
+    async def plan_status(self) -> PlanStatusView:
+        return self.planning.status()
+
+    async def replan(self) -> ReplanAck:
+        self.calls.append(("replan", None))
+        return self.planning.request("manual")
+
+    def plan_summary(self) -> PlanSummary:
+        return self.planning.summary()
+
+    def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        return self.planning.add_listener(listener)
+
+    async def pv_forecast(self, hours: int) -> PvForecastView:
+        self.pv_hours.append(hours)
+        return self.pv_view
+
+    async def forecast_accuracy(self) -> ForecastAccuracyView:
+        return self.accuracy
+
+    async def load_forecast(self, hours: int) -> LoadForecastView:
+        self.load_hours.append(hours)
+        return self.load_view
+
+    async def forecast_risk(self) -> RiskView:
+        return self.risk
+
+    async def prices(self, hours: int) -> PriceReport:
+        self.price_hours.append(hours)
+        if self.price_report is None:
+            raise TariffNotConfiguredError
+        return self.price_report
 
     async def health(self) -> HealthReport:
         self.health_calls += 1
@@ -344,6 +415,17 @@ class FakeServices:
             raise DeviceIdentityChangedError(device_id)
         modes = {**self.operation.device_modes, device_id: mode}
         self.operation = self.operation.model_copy(update={"device_modes": modes})
+        return self.operation
+
+    battery_identity: str | None = "bat-current"
+
+    async def set_battery_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        if mode is not OperatingMode.SHADOW:
+            if self.battery_identity is None:
+                raise BatteryNotControllableError("battery")
+            if identity != self.battery_identity:
+                raise DeviceIdentityChangedError("battery")
+        self.operation = self.operation.model_copy(update={"battery_mode": mode})
         return self.operation
 
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:

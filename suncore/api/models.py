@@ -20,6 +20,7 @@ from suncore.core.decisions import Decision, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, worst_severity
+from suncore.planner.views import PlanSummary
 from suncore.storage import HistoryEntry
 from suncore.templates import (
     DeviceTemplate,
@@ -220,7 +221,7 @@ class TemplateSummaryOut(_Model):
     """Gallery entry of a template."""
 
     id: str
-    kind: Literal["device", "tariff", "forecast", "region"]
+    kind: Literal["device", "tariff", "forecast", "region", "battery"]
     name: str
     """i18n key (``template.<id>.name``)."""
     origin: Literal["builtin", "user"]
@@ -315,6 +316,11 @@ class EnergyPrefsOut(_Model):
     notes: list[Reason]
     site: dict[str, Any]
     """The suggestions as a partial site document."""
+    solar_forecast_entries: list[str] = Field(default_factory=list)
+    """Config entry ids linked to the dashboard's solar sources: the choices for a Forecast.Solar
+    source's ``config_entry_id`` (several entries need an explicit choice)."""
+    solar_forecast_labels: dict[str, str] = Field(default_factory=dict)
+    """Readable label per entry id where the device registry names one."""
 
     @classmethod
     def from_core(cls, e: EnergySuggestions) -> EnergyPrefsOut:
@@ -325,6 +331,8 @@ class EnergyPrefsOut(_Model):
             ],
             notes=list(e.notes),
             site=dict(e.site),
+            solar_forecast_entries=list(e.solar_forecast_entries),
+            solar_forecast_labels=dict(e.solar_forecast_labels),
         )
 
 
@@ -425,8 +433,20 @@ class ControlMessage(_Model):
     control: ControlState
 
 
+class PlanMessage(_Model):
+    """A new plan was computed (summary only; fetch ``GET /api/v1/plan`` for the intervals)."""
+
+    type: Literal["plan"] = "plan"
+    plan: PlanSummary
+
+
 LiveMessage = Annotated[
-    SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage,
+    SnapshotMessage
+    | FlowsMessage
+    | HealthMessage
+    | DecisionsMessage
+    | ControlMessage
+    | PlanMessage,
     Field(discriminator="type"),
 ]
 """Everything the server sends on ``/api/v1/live`` (discriminated by ``type``)."""
@@ -453,6 +473,7 @@ __all__ = [
     "InfoOut",
     "LiveMessage",
     "ModeRequest",
+    "PlanMessage",
     "PreviewItemOut",
     "PreviewOut",
     "SnapshotMessage",

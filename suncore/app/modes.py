@@ -33,5 +33,8 @@ class ConfigModes:
     def device_mode(self, device_id: str) -> OperatingMode:
         return self._operation.device_modes.get(device_id, OperatingMode.SHADOW)
 
+    def battery_mode(self) -> OperatingMode:
+        return self._operation.battery_mode
+
 
 __all__ = ["ConfigModes"]

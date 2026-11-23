@@ -31,7 +31,7 @@ export async function resetDemo(
   expect(res.ok(), `import: ${res.status()}`).toBe(true);
   if (opts.wizardDone) return;
   await put(request, 'devices', { schema_version: 1, devices: [] });
-  await put(request, 'goals', { schema_version: 1 });
+  await put(request, 'goals', { schema_version: 2 });
   await put(request, 'operation', { schema_version: 1, mode: 'shadow', device_modes: {} });
   await put(request, 'wizard', {
     schema_version: 1,

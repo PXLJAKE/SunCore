@@ -22,9 +22,10 @@ from dataclasses import dataclass
 from typing import Any, Final, Literal
 
 from suncore.core.balance import FlowSnapshot, compute_flows
-from suncore.core.config import DevicesConfig
+from suncore.core.config import DevicesConfig, TariffConfig
 from suncore.core.decisions import Reason
 from suncore.core.devices import DeviceConfig, DeviceKind
+from suncore.core.series import PriceIncludes
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import ENTITY_ID_PATTERN, EntityRef, SiteConfig
 from suncore.core.units import Dimension, apply_invert, to_base
@@ -333,6 +334,23 @@ def _check_duplicate_units(
                     )
                 )
     return items
+
+
+def check_tariff(
+    tariff: TariffConfig | None, template_includes: PriceIncludes | None
+) -> list[CheckItem]:
+    """Findings about the tariff: a spot-only import price without a price formula.
+
+    ``template_includes`` is the template's ``price_includes`` (``None`` = no template); the
+    user's own statement in the tariff wins. A bare spot price is neither what the household
+    pays nor something the planner may optimise against (Phase 4 plan, 4-F refuses it).
+    """
+    if tariff is None or tariff.import_.kind != "dynamic" or tariff.import_.formula is not None:
+        return []
+    includes = tariff.import_.price_includes or template_includes
+    if includes != "spot_only":
+        return []
+    return [_item("warn", "wizard.check.tariff_spot_without_formula", "tariff")]
 
 
 def run_system_check(

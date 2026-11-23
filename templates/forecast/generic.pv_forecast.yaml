@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../schema/forecast.schema.json
+# Generic PV forecast from the attribute of any sensor (typically a Home Assistant template
+# sensor that exposes a list of points). It describes a contract SunCore defines, not an
+# integration: each point is an object `{start: <ISO 8601 with offset>, power_w: <W>}` and
+# `power_w` is the average power over the `resolution_min` minutes from `start`. For another
+# attribute or other field names copy this file into /data/templates, change `attribute`,
+# `fields`, `shape` (`mapping` for an object {ISO timestamp: value}), `list_path` and
+# `resolution_min`, and give it a new id.
+id: generic.pv_forecast
+kind: forecast
+schema_version: 1
+name: template.generic.pv_forecast.name
+source:
+  - title: "SunCore templates README (series: attribute, shape list or mapping, list_path)"
+    url: "https://github.com/pxljake/suncore/blob/main/templates/README.md"
+    date: 2026-10-16
+tested_with: []
+capabilities: [pv_curve]
+unverified:
+  - "Defines SunCore's own contract (attribute `forecast`, points `{start, power_w}`); it matches no existing integration and is meant as a starting point for a user template."
+forecast_kind: pv
+roles:
+  forecast:
+    matcher:
+      domain: sensor
+      platforms: [template]
+    description: template.generic.pv_forecast.role.forecast
+series:
+  source: attribute
+  roles: [forecast]
+  attribute: forecast
+  fields:
+    timestamp_field: start
+    value_field: power_w
+    value_unit: W
+resolution_min: 30

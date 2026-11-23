@@ -23,6 +23,7 @@
     "verify": "npm run gen:api:check && npm run lint && npm run format:check && npm run check && npm run test && npm run build && npm run size"
   },
   "dependencies": {
+    "echarts": "5.6.0",
     "intl-messageformat": "12.1.2"
   },
   "devDependencies": {

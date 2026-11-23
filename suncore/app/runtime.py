@@ -7,8 +7,8 @@ import asyncio
 import contextlib
 import tempfile
 from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta, tzinfo
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, time, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -23,17 +23,41 @@ from suncore.api.services import (
     HAUnavailableError,
     HealthReport,
     PeerPolicy,
+    TariffNotConfiguredError,
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.app.adapters import (
+    build_load_forecast_service,
+    build_pv_forecast_service,
+    build_tariff_service,
+)
 from suncore.app.cadence import device_cadences, merge_cadences
-from suncore.app.control import ControlStack
+from suncore.app.control import BatteryWiring, ControlStack
+from suncore.app.history import rebuild_history
 from suncore.app.modes import ConfigModes
+from suncore.app.planning import (
+    LiveReading,
+    PlanningService,
+    PlanningSettings,
+    PlanningSnapshot,
+)
+from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
-from suncore.core.config import DevicesConfig, GoalsConfig, OperationConfig, RegionConfig
-from suncore.core.control import ControlSettings
+from suncore.core.battery import BatterySettings, effective_reserve_pct
+from suncore.core.config import (
+    DevicesConfig,
+    ForecastConfig,
+    GoalsConfig,
+    OperationConfig,
+    RegionConfig,
+    TariffConfig,
+    effective_grid_charge_policy,
+)
+from suncore.core.control import ControlSettings, Plan
 from suncore.core.controlstate import (
+    BatteryNotControllableError,
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
@@ -43,13 +67,36 @@ from suncore.core.controlstate import (
     UnknownDeviceError,
     UnknownProposalError,
 )
-from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin
+from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import DeviceConfig
-from suncore.core.identity import identity_token
-from suncore.core.signals import Sample
+from suncore.core.identity import battery_identity_token, identity_token
+from suncore.core.series import QuantileSeries
+from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
-from suncore.core.wizard import CheckItem, PreviewItem, collect_refs, preview, run_system_check
+from suncore.core.wizard import (
+    CheckItem,
+    PreviewItem,
+    check_tariff,
+    collect_refs,
+    preview,
+    run_system_check,
+)
+from suncore.forecast.accuracy import accuracy_view, load_accuracy
+from suncore.forecast.load_service import LoadForecastService
+from suncore.forecast.pv.calibration import load_bias
+from suncore.forecast.pv.clearsky import plant_geometry
+from suncore.forecast.pv.clipping import clip_filter, export_limit_w
+from suncore.forecast.pv.learning import BLENDED_SOURCE_ID, LearningContext, run_nightly
+from suncore.forecast.pv.service import BlendContext, PvForecastService
+from suncore.forecast.risk import ErrorModel
+from suncore.forecast.risk_learning import learn_net_errors, load_error_model, risk_view
+from suncore.forecast.views import (
+    ForecastAccuracyView,
+    LoadForecastView,
+    PvForecastView,
+    RiskView,
+)
 from suncore.ha import (
     SITE_ROLES,
     CommandError,
@@ -65,24 +112,43 @@ from suncore.ha import (
     legacy_entities,
     suggest_from_prefs,
 )
+from suncore.planner import build_inputs
+from suncore.planner import reasons as planner_reasons
+from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck, Trigger
 from suncore.safety.gate import REASON_OVERRIDE_HELD, Clock, SafetyGate
 from suncore.storage import (
     ConfigStore,
     Database,
     DecisionLog,
     HistoryEntry,
+    LearnedParamStore,
+    PlanSnapshotStore,
     PowerModelStateStore,
     SqliteRuntimeStore,
+    TimeseriesStore,
 )
-from suncore.templates import TemplateCatalog
+from suncore.storage.timeseries import META_HISTORY_REBUILT
+from suncore.tariff import ExportConfigError, TariffService
+from suncore.tariff.report import PriceReport
+from suncore.templates import BatteryTemplate, TariffTemplate, TemplateCatalog
 
+PLANNING_SECTIONS = frozenset(
+    {"site", "region", "tariff", "forecast", "battery", "goals", "devices"}
+)
+"""Configuration sections whose change asks for a new plan."""
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
 
 log = structlog.get_logger(__name__)
 
 DB_FILENAME = "suncore.db"
 PRUNE_INTERVAL_S = 3600.0
-"""Decision-log retention runs hourly."""
+"""Decision-log and plan-snapshot retention run hourly."""
+REBUILD_BACKOFF_S = (60.0, 300.0, 900.0, 3600.0)
+"""Retry delays of the statistics rebuild after a timeout or Home Assistant error."""
+MAINTENANCE_WAKE_S = 3600.0
+"""The nightly loop wakes at most this often to re-check the time (zone changes, clock jumps)."""
+MAINTENANCE_TIME = time(3, 30)
+"""Local time of the nightly time-series job (downsample, retention, vacuum if worth it)."""
 
 
 def utc_now() -> datetime:
@@ -116,6 +182,29 @@ class Runtime:
     devices: DevicesConfig | None = None
     region: RegionConfig | None = None
     goals: GoalsConfig | None = None
+    forecast: ForecastConfig | None = None
+    pv_service: PvForecastService | None = None
+    """Refreshes the configured PV forecast sources (``None`` = none configured)."""
+    load_service: LoadForecastService | None = None
+    """The base load forecast (``None`` without ``timeseries.db``)."""
+    _clipped: frozenset[datetime] = frozenset()
+    """Quarter hours the last PV nightly job flagged as clipped (risk learning skips them)."""
+    risk_model: ErrorModel = field(default_factory=ErrorModel)
+    """The learnt net energy errors (WP7), loaded at start and after the nightly job."""
+    tariff_config: TariffConfig | None = None
+    battery_config: BatterySettings | None = None
+    """The ``battery`` section (adapter, model, policy); ``None`` = never stored."""
+    tariff: TariffService | None = None
+    """Keeps the prices fresh (``None``: no tariff, no region or an unusable template)."""
+    timeseries_db: Database | None = None
+    """``timeseries.db``; ``None`` = unavailable (too new, unopenable): control is unaffected."""
+    timeseries: TimeseriesStore | None = None
+    plans: PlanSnapshotStore | None = None
+    learned: LearnedParamStore | None = None
+    recorder: MeasurementRecorder = field(default_factory=lambda: MeasurementRecorder(None))
+    """Batched writer of the controller's measurements (disabled without ``timeseries``)."""
+    flush_interval_s: float = FLUSH_INTERVAL_S
+    maintenance_time: time = MAINTENANCE_TIME
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     prune_interval_s: float = PRUNE_INTERVAL_S
     real_clock: Clock = utc_now
@@ -136,6 +225,19 @@ class Runtime:
     _unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _tempdir: tempfile.TemporaryDirectory[str] | None = None
     _prune_task: asyncio.Task[None] | None = None
+    _flush_task: asyncio.Task[None] | None = None
+    _maintenance_task: asyncio.Task[None] | None = None
+    _history_task: asyncio.Task[None] | None = None
+    _pv_task: asyncio.Task[None] | None = None
+    _load_task: asyncio.Task[None] | None = None
+    _accuracy_task: asyncio.Future[None] | None = None
+    _tariff_task: asyncio.Task[None] | None = None
+    planning: PlanningService | None = None
+    """The planner runtime (built in :meth:`prepare`; the control stack reads its plan)."""
+    _planning_task: asyncio.Task[None] | None = None
+    _plan_unsubscribers: list[Callable[[], None]] = field(default_factory=list)
+    _history_done: bool = False
+    """The statistics rebuild ran (or was not needed) in this process."""
     _stack_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _started: bool = False
@@ -143,6 +245,8 @@ class Runtime:
     _tz_learnt: bool = False
     """Home Assistant's time zone was asked for (or a region makes it irrelevant)."""
     _tz_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _ha_location: tuple[float, float] | None = None
+    """Home Assistant's ``latitude``/``longitude`` (``get_config``), for the PV clear-sky model."""
 
     @property
     def gate(self) -> SafetyGate:
@@ -160,7 +264,13 @@ class Runtime:
         Called by ``build_runtime`` so that the gate exists before :meth:`start`.
         """
         await self._load_live_sections()
+        self.planning = self._new_planning()
         self.stack = self._new_stack()
+        self.pv_service = self._new_pv_service()
+        await self._load_pv_learning()
+        self.load_service = self._new_load_service()
+        await self._load_risk_model()
+        self._build_tariff()
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -182,6 +292,15 @@ class Runtime:
         self.stack.start_ticking()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
         self._prune_task = asyncio.create_task(self._prune_loop(), name="suncore-prune")
+        self._start_pv_task()
+        self._start_load_task()
+        self._start_tariff()
+        self._start_planning()
+        if self.timeseries is not None:
+            self._flush_task = asyncio.create_task(self._flush_loop(), name="suncore-ts-flush")
+            self._maintenance_task = asyncio.create_task(
+                self._maintenance_loop(), name="suncore-ts-maintenance"
+            )
 
     async def _load_live_sections(self) -> None:
         self.site = await self.config.get_site()
@@ -194,6 +313,15 @@ class Runtime:
         goals = await self.config.get("goals")
         assert goals is None or isinstance(goals, GoalsConfig)
         self.goals = goals
+        forecast = await self.config.get("forecast")
+        assert forecast is None or isinstance(forecast, ForecastConfig)
+        self.forecast = forecast
+        tariff = await self.config.get("tariff")
+        assert tariff is None or isinstance(tariff, TariffConfig)
+        self.tariff_config = tariff
+        battery = await self.config.get("battery")
+        assert battery is None or isinstance(battery, BatterySettings)
+        self.battery_config = battery
         await self._load_modes()
 
     async def _load_modes(self) -> None:
@@ -213,12 +341,173 @@ class Runtime:
             log.warning("control.timezone_unknown_using_utc")
         return UTC
 
+    # --- planner runtime (Phase 4 WP9) ---------------------------------------------------------
+
+    def _new_planning(self) -> PlanningService:
+        return PlanningService(
+            self._collect_planning,
+            self._live_reading,
+            clock=self.clock,
+            sleep=self.control_sleep,
+            settings=PlanningSettings(
+                budget_s=self.settings.planner_budget_s, mip_gap=self.settings.planner_mip_gap
+            ),
+            store=self.plans,
+        )
+
+    def _start_planning(self) -> None:
+        if self.planning is not None and self._started and self._planning_task is None:
+            self._planning_task = asyncio.create_task(self.planning.run(), name="suncore-planner")
+
+    def _planning_event(self, trigger: Trigger) -> None:
+        if self.planning is not None:
+            self.planning.request(trigger)
+
+    def _live_reading(self) -> LiveReading:
+        flows = self.flows()
+        if flows is None:
+            return LiveReading()
+        soc, grid = flows.battery_soc_pct, flows.grid_w
+        return LiveReading(
+            soc_pct=soc.value if soc.quality is Quality.OK else None,
+            grid_w=grid.value if grid.quality is Quality.OK else None,
+        )
+
+    async def _collect_planning(self, now: datetime, previous: Plan | None) -> PlanningSnapshot:
+        """The planner's inputs from the services as they are now (``build_inputs``)."""
+        site = self.site
+        if site is None or self.connection.state is not ConnectionState.CONNECTED:
+            return PlanningSnapshot(None, reason=Reason(key=planner_reasons.STATUS_NO_INPUTS))
+        battery = await self._battery_settings()
+        soc = self._live_reading().soc_pct
+        if battery.model is not None and soc is None:
+            return PlanningSnapshot(None, reason=Reason(key=planner_reasons.STATUS_WAITING_SOC))
+        prices = None if self.tariff is None else self.tariff.prices(48.0, now)
+        blended = None if self.pv_service is None else self.pv_service.blended(now)
+        pv = None if blended is None else blended.series
+        load: QuantileSeries | None = None
+        load_reasons: tuple[Reason, ...] = ()
+        if self.load_service is not None:
+            load, choice = self.load_service.selected(now)
+            load_reasons = self.load_service.planning_reasons(choice)
+        risk = self._risk(now, battery, pv, load)
+        devices = [] if self.devices is None else list(self.devices.devices)
+        inputs = build_inputs(
+            now,
+            tz=self._blend_tz(),
+            load=load,
+            pv=pv,
+            prices=prices,
+            battery=battery,
+            soc_pct=soc,
+            goals=self.goals,
+            site_battery=site.battery,
+            morning_buffer=risk.morning_buffer,
+            evening_target=risk.evening_target,
+            evening_at=risk.evening_at,
+            devices=devices,
+            import_limit_w=site.grid.import_limit_w,
+            export_limit_w=export_limit_w(site),
+            previous=previous,
+            load_reasons=load_reasons,
+        )
+        complete = (
+            (prices is None or any(v is not None for v in prices.import_price.values))
+            and (self.pv_service is None or pv is not None)
+            and (self.load_service is None or load is not None)
+        )
+        return PlanningSnapshot(inputs, complete=complete)
+
+    async def plan_view(self, hours: int) -> PlanView:
+        if self.planning is None:
+            msg = "the planner runtime is not built"
+            raise RuntimeError(msg)
+        return self.planning.view(hours)
+
+    async def plan_status(self) -> PlanStatusView:
+        if self.planning is None:
+            msg = "the planner runtime is not built"
+            raise RuntimeError(msg)
+        return self.planning.status()
+
+    async def replan(self) -> ReplanAck:
+        if self.planning is None:
+            msg = "the planner runtime is not built"
+            raise RuntimeError(msg)
+        return self.planning.request("manual")
+
+    def plan_summary(self) -> PlanSummary:
+        assert self.planning is not None
+        return self.planning.summary()
+
+    def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        assert self.planning is not None
+        return self.planning.add_listener(listener)
+
+    # --- tariff (prices) --------------------------------------------------------
+
+    def _build_tariff(self) -> None:
+        """(Re)build the price service from the stored tariff, region and site.
+
+        Without a tariff or a region there is nothing to build; an unusable tariff (missing
+        template, tiered export without the plant size) is logged and leaves the service off.
+        """
+        self.tariff = None
+        tariff, region = self.tariff_config, self.region
+        if tariff is None or region is None:
+            return
+        try:
+            self.tariff = build_tariff_service(
+                tariff,
+                region,
+                self.site,
+                self._timezone(),
+                self.template_catalog,
+                connection=self.connection,
+                cache=self.cache,
+                clock=self.clock,
+                store=self.timeseries,
+                refresh_interval_s=float(self.settings.tariff_refresh_interval_s),
+                tomorrow_after=self.settings.tariff_tomorrow_after,
+                tomorrow_poll_s=float(self.settings.tariff_tomorrow_poll_s),
+            )
+        except ExportConfigError as exc:
+            log.warning("tariff.export_unusable", error=exc.key, detail=exc.detail)
+        if self.tariff is not None:
+            self.tariff.add_listener(lambda: self._planning_event("prices"))
+        if self.tariff is None:
+            log.warning("tariff.service_not_built")
+
+    def _start_tariff(self) -> None:
+        if self.tariff is not None and self._started and self._tariff_task is None:
+            self._tariff_task = asyncio.create_task(
+                self.tariff.run(self.control_sleep), name="suncore-tariff"
+            )
+
+    async def _stop_tariff(self) -> None:
+        task, self._tariff_task = self._tariff_task, None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+
+    async def _rebuild_tariff(self) -> None:
+        """Replace the price service after a ``tariff``, ``region`` or ``site`` change."""
+        await self._stop_tariff()
+        self._build_tariff()
+        self._start_tariff()
+        self._notify()
+
+    async def prices(self, hours: int) -> PriceReport:
+        if self.tariff is None:
+            raise TariffNotConfiguredError
+        return self.tariff.report(hours=float(hours))
+
     def _new_stack(
         self, *, after_handover: bool = False, predecessor: SafetyGate | None = None
     ) -> ControlStack:
         devices = list(self.devices.devices) if self.devices is not None else []
         site = self.site
-        battery = None if site is None else site.battery
         settings = self.control_settings or ControlSettings(
             tick_s=float(self.settings.controller_interval_s)
         )
@@ -234,18 +523,70 @@ class Runtime:
             tz=self._timezone(),
             goals=self.goals,
             import_limit_w=None if site is None else site.grid.import_limit_w,
-            reserve_soc_pct=None if battery is None else battery.min_soc_pct,
+            reserve_soc_pct=self._reserve_soc_pct(),
             cadences=merge_cadences(device_cadences(devices), self.extra_cadences),
             sink=self._record_decision,
+            on_measurements=self.recorder.record,
             cache=self.cache,
             power_store=self.power_store,
             attach=False,
             after_handover=after_handover,
             predecessor=predecessor,
             defer_recover=not self._time_zone_settled(),
+            plan_provider=None if self.planning is None else self.planning.active_plan,
+            battery=self._battery_wiring(),
         )
         stack.add_listener(self._notify_control)
         return stack
+
+    def _battery_policy_changed(self) -> bool:
+        """A goals change moved the battery's effective grid-charge policy (the gate's copy)."""
+        stack, wiring = self.stack, self._battery_wiring()
+        held = None if stack is None else stack.battery_wiring
+        if wiring is None or held is None:
+            return (wiring is None) != (held is None)
+        return wiring.policy != held.policy
+
+    def _reserve_soc_pct(self) -> float | None:
+        """The devices' battery reserve guard: ``core.battery.effective_reserve_pct`` (ADR-0013
+        decision 3) with a battery model, else the site's minimum SoC as before."""
+        site_battery = None if self.site is None else self.site.battery
+        model = None if self.battery_config is None else self.battery_config.model
+        if model is not None:
+            return effective_reserve_pct(site_battery, model)
+        return None if site_battery is None else site_battery.min_soc_pct
+
+    def _live_import_price(self, now: datetime) -> float | None:
+        """The current quarter hour's import price from the tariff service (``None`` = unknown)."""
+        tariff = self.tariff
+        if tariff is None:
+            return None
+        try:
+            values = tariff.prices(0.25, now).import_price.values
+        except Exception:
+            log.exception("battery.price_failed")
+            return None
+        return values[0] if values else None
+
+    def _battery_wiring(self) -> BatteryWiring | None:
+        """The battery as a controlled asset, or ``None`` (observe-only / unusable template)."""
+        settings = self.battery_config
+        if settings is None or settings.adapter_template_id is None or settings.model is None:
+            return None
+        identity = battery_identity_token(settings, self.site)
+        template = self.template_catalog.get(settings.adapter_template_id)
+        if identity is None or not isinstance(template, BatteryTemplate):
+            log.warning("battery.adapter_template_missing", template=settings.adapter_template_id)
+            return None
+        goals = self.goals if self.goals is not None else GoalsConfig()
+        return BatteryWiring(
+            settings=settings,
+            spec=template.adapter_spec(),
+            identity=identity,
+            reserve_pct=self._reserve_soc_pct(),
+            policy=effective_grid_charge_policy(goals, settings),
+            import_price=self._live_import_price,
+        )
 
     async def _rebuild_stack(self) -> None:
         """Replace the control stack after a ``devices``/``site``/``region`` change.
@@ -271,6 +612,7 @@ class Runtime:
                 await new.start()
                 new.start_ticking()
         self._notify_control()
+        self._start_history_rebuild()  # a site configured after the first connect
 
     def _unchanged_devices(self, previous: Mapping[str, DeviceConfig]) -> frozenset[str]:
         """Ids of the devices that are the same device, controlled the same way, after a change."""
@@ -294,10 +636,385 @@ class Runtime:
             log.exception("decision_log.prune_failed")
             return 0
 
+    async def prune_plans(self) -> int:
+        """One retention pass over the plan snapshots; failures are logged, never raised."""
+        if self.plans is None:
+            return 0
+        try:
+            return await self.plans.prune(self.clock())
+        except Exception:
+            log.exception("plan_snapshot.prune_failed")
+            return 0
+
     async def _prune_loop(self) -> None:
         while True:
             await self.prune_decisions()
+            await self.prune_plans()
             await self.sleep(self.prune_interval_s)
+
+    # --- time series (timeseries.db) ---------------------------------------------
+
+    async def _flush_loop(self) -> None:
+        while True:
+            await self.sleep(self.flush_interval_s)
+            await self.recorder.flush()  # logs its own errors
+
+    async def maintain_timeseries(self) -> bool:
+        """The nightly job once: flush, downsample, retention, vacuum if worth it.
+
+        Failures are logged, never raised; returns whether the job ran through.
+        """
+        if self.timeseries is None:
+            return False
+        try:
+            await self.recorder.flush()  # the newest samples are aggregated too
+            await self.timeseries.maintain(self.clock())
+        except Exception:
+            log.exception("timeseries.maintenance_failed")
+            return False
+        self._schedule_forecast_accuracy()
+        return True
+
+    def _schedule_forecast_accuracy(self) -> None:
+        """Run the accuracy statistics in the background (nightly timing unchanged)."""
+        if (
+            not self._started
+            or (self.pv_service is None and self.load_service is None)
+            or (self._accuracy_task is not None and not self._accuracy_task.done())
+        ):
+            return
+        self._accuracy_task = asyncio.ensure_future(self.update_forecast_accuracy())
+
+    async def update_forecast_accuracy(self) -> None:
+        """The nightly forecast learning (never raises): PV (clipping, accuracy of the sources
+        and of the blend, bias tables; the results go straight to the service), then the load
+        forecast (accuracy, refit)."""
+        await self._update_pv_learning()
+        await self._update_load_learning()
+
+    async def _update_load_learning(self) -> None:
+        service = self.load_service
+        if service is None:
+            return
+        try:
+            await service.nightly(self.clock())
+        except Exception:
+            log.exception("forecast.load.nightly_failed")
+            return
+        if self.timeseries is None or self.learned is None:
+            return
+        context = self._blend_context()
+        try:
+            self.risk_model = await learn_net_errors(
+                self.timeseries,
+                self.learned,
+                self.clock(),
+                tz=context.tz,
+                plant=context.plant,
+                base_reader=service.base_load_series,
+                is_clipped=clip_filter(self._clipped),
+            )
+        except Exception:
+            log.exception("forecast.risk.nightly_failed")
+
+    async def _load_risk_model(self) -> None:
+        if self.learned is None:
+            return
+        try:
+            self.risk_model = (await load_error_model(self.learned)).model
+        except Exception:
+            log.exception("forecast.risk.load_failed")
+
+    async def _battery_settings(self) -> BatterySettings:
+        stored = await self.config.get("battery")
+        return stored if isinstance(stored, BatterySettings) else BatterySettings()
+
+    def _risk(
+        self,
+        now: datetime,
+        settings: BatterySettings,
+        pv: QuantileSeries | None,
+        load: QuantileSeries | None,
+    ) -> RiskView:
+        target = None if self.goals is None else self.goals.battery_target
+        context = self._blend_context()
+        return risk_view(
+            now,
+            pv=pv,
+            load=load,
+            settings=settings,
+            user_target_pct=None if target is None else target.soc_pct,
+            site_battery=None if self.site is None else self.site.battery,
+            model=self.risk_model,
+            min_history_days=(
+                30 if self.forecast is None else self.forecast.learning.min_history_days
+            ),
+            tz=context.tz,
+            plant=context.plant,
+        )
+
+    async def forecast_risk(self) -> RiskView:
+        """Morning buffer, evening target and their windows as the planner would get them."""
+        now = self.clock()
+        blended = None if self.pv_service is None else self.pv_service.blended(now)
+        return self._risk(
+            now,
+            await self._battery_settings(),
+            None if blended is None else blended.series,
+            None if self.load_service is None else self.load_service.forecast(now),
+        )
+
+    async def _update_pv_learning(self) -> None:
+        if self.timeseries is None or self.learned is None or self.pv_service is None:
+            return
+        if self._ha_location is None:
+            await self._learn_ha_location()
+        service = self.pv_service
+        context = self._blend_context()
+        try:
+            result = await run_nightly(
+                self.timeseries,
+                self.learned,
+                service.source_ids,
+                self.clock(),
+                LearningContext(
+                    tz=context.tz, plant=context.plant, export_limit_w=export_limit_w(self.site)
+                ),
+            )
+        except Exception:
+            log.exception("forecast.accuracy_failed")
+            return
+        self._clipped = result.clipped
+        if self.pv_service is service:
+            await self._load_pv_learning()
+
+    # --- PV forecast (Phase 4 WP5) ---------------------------------------------------
+
+    def _new_pv_service(self) -> PvForecastService | None:
+        service = self._build_pv_service()
+        if service is not None:
+            service.add_listener(lambda: self._planning_event("forecast"))
+        return service
+
+    def _build_pv_service(self) -> PvForecastService | None:
+        return build_pv_forecast_service(
+            self.forecast,
+            catalog=self.template_catalog,
+            connection=self.connection,
+            cache=self.cache,
+            clock=self.clock,
+            sleep=self.control_sleep,
+            store=self.timeseries,
+            context=self._blend_context,
+        )
+
+    def _blend_context(self) -> BlendContext:
+        """Time zone and plant geometry for the blend (read anew on every use: the site, the
+        region and Home Assistant's location may change while the service runs)."""
+        name = self.region.timezone if self.region is not None else self._ha_timezone
+        tz: tzinfo = UTC
+        if name is not None:
+            with contextlib.suppress(ZoneInfoNotFoundError, ValueError, OSError):
+                tz = ZoneInfo(name)
+        lat, lon = self._ha_location or (None, None)
+        arrays = [] if self.site is None else self.site.pv
+        return BlendContext(tz=tz, plant=plant_geometry(lat, lon, arrays))
+
+    async def _learn_ha_location(self) -> None:
+        """Home Assistant's ``latitude``/``longitude`` from ``get_config`` (verified in
+        ``homeassistant/core_config.py`` ``Config.as_dict``); a failure keeps the fallback."""
+        try:
+            config = await self.connection.get_config()
+        except (HAError, TimeoutError) as exc:
+            log.warning("ha.get_config_failed", error=str(exc))
+            return
+        lat, lon = config.get("latitude"), config.get("longitude")
+        if (
+            isinstance(lat, int | float)
+            and isinstance(lon, int | float)
+            and not isinstance(lat, bool)
+            and not isinstance(lon, bool)
+        ):
+            self._ha_location = (float(lat), float(lon))
+
+    async def _load_pv_learning(self) -> None:
+        """Hand the stored accuracy records and bias tables to the PV service."""
+        service = self.pv_service
+        if service is None or self.learned is None:
+            return
+        try:
+            accuracy = await load_accuracy(self.learned, service.source_ids)
+            bias = await load_bias(self.learned)
+        except Exception:
+            log.exception("forecast.learning_load_failed")
+            return
+        service.set_learning(
+            {k: v.records for k, v in accuracy.items()},
+            {k: v for k, v in bias.items() if k in service.source_ids},
+        )
+
+    # --- load forecast (Phase 4 WP6) ------------------------------------------------
+
+    def _new_load_service(self) -> LoadForecastService | None:
+        service = self._build_load_service()
+        if service is not None:
+            service.add_listener(lambda: self._planning_event("forecast"))
+        return service
+
+    def _build_load_service(self) -> LoadForecastService | None:
+        device_ids = () if self.devices is None else tuple(d.id for d in self.devices.devices)
+        return build_load_forecast_service(
+            self.forecast,
+            device_ids,
+            data=self.timeseries,
+            learned=self.learned,
+            connection=self.connection,
+            cache=self.cache,
+            clock=self.clock,
+            sleep=self.control_sleep,
+            tz=self._blend_tz,
+        )
+
+    def _blend_tz(self) -> tzinfo:
+        return self._blend_context().tz
+
+    def _start_load_task(self) -> None:
+        if self.load_service is not None and (self._load_task is None or self._load_task.done()):
+            self._load_task = asyncio.create_task(
+                self.load_service.run(), name="suncore-load-forecast"
+            )
+
+    async def _rebuild_load_service(self) -> None:
+        """Replace the load forecast after a ``forecast`` or ``devices`` change."""
+        task, self._load_task = self._load_task, None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        self.load_service = self._new_load_service()
+        if self._started:
+            self._start_load_task()
+
+    async def load_forecast(self, hours: int) -> LoadForecastView:
+        if self.load_service is None:
+            return LoadForecastService(None, None, clock=self.clock).view(hours)
+        return self.load_service.view(hours)
+
+    def _start_pv_task(self) -> None:
+        if self.pv_service is not None and (self._pv_task is None or self._pv_task.done()):
+            self._pv_task = asyncio.create_task(self.pv_service.run(), name="suncore-pv-forecast")
+
+    async def _rebuild_pv_service(self) -> None:
+        """Replace the PV forecast service after a ``forecast`` section change."""
+        task, self._pv_task = self._pv_task, None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        self.pv_service = self._new_pv_service()
+        await self._load_pv_learning()
+        if self._started:
+            self._start_pv_task()
+
+    async def pv_forecast(self, hours: int) -> PvForecastView:
+        if self.pv_service is None:
+            return PvForecastView(generated_at=self.clock(), hours=hours, sources=[], blended=None)
+        return self.pv_service.view(hours)
+
+    async def forecast_accuracy(self) -> ForecastAccuracyView:
+        ids = [] if self.pv_service is None else [*self.pv_service.source_ids, BLENDED_SOURCE_ID]
+        if self.load_service is not None:
+            ids.extend(self.load_service.source_ids)
+        stored = {} if self.learned is None else await load_accuracy(self.learned, ids)
+        view = accuracy_view(ids, stored)
+        if self.load_service is None:
+            return view
+        return view.model_copy(update={"load_model": self.load_service.model_view()})
+
+    def next_maintenance_after(self, moment: datetime) -> datetime:
+        """The first ``maintenance_time`` (site time zone, DST safe) strictly after ``moment``."""
+        tz = self._timezone()
+        local = moment.astimezone(tz)
+        target = datetime.combine(local.date(), self.maintenance_time, tzinfo=tz)
+        if target.astimezone(UTC) <= moment.astimezone(UTC):
+            target = datetime.combine(
+                local.date() + timedelta(days=1), self.maintenance_time, tzinfo=tz
+            )
+        return target.astimezone(UTC)
+
+    def seconds_until_maintenance(self) -> float:
+        """Seconds to the next ``maintenance_time`` in the site's time zone."""
+        now = self.clock()
+        return (self.next_maintenance_after(now) - now.astimezone(UTC)).total_seconds()
+
+    async def _maintenance_loop(self) -> None:
+        """Run at start, then at every ``maintenance_time``; wakes at most hourly.
+
+        The target is always "the first 03:30 after the last run" in the *current* time zone, so
+        a zone that becomes known later (Home Assistant's, after the first connect) moves the
+        target instead of leaving a stale sleep, and one run can never happen twice.
+        """
+        await self.maintain_timeseries()
+        last_run = self.clock()
+        while True:
+            remaining = (self.next_maintenance_after(last_run) - self.clock()).total_seconds()
+            if remaining <= 0:
+                await self.maintain_timeseries()
+                last_run = self.clock()
+                continue
+            await self.sleep(min(remaining, MAINTENANCE_WAKE_S))
+
+    def _start_history_rebuild(self) -> None:
+        """Rebuild the 15-minute history from HA's statistics, once, in the background."""
+        if (
+            self._history_done
+            or not self._started
+            or self.timeseries is None
+            or self.site is None
+            or self.connection.state is not ConnectionState.CONNECTED
+            or (self._history_task is not None and not self._history_task.done())
+        ):
+            return
+        self._history_task = asyncio.create_task(self._rebuild_history(), name="suncore-history")
+
+    async def _rebuild_history(self) -> None:
+        """Rebuild until it succeeded once (marker in ``timeseries.db``), with back-off.
+
+        A timeout or Home Assistant error is retried after 1, 5, 15 and then every 60 minutes;
+        ``unknown_command`` (the recorder commands are not available, e.g. a proxy that does not
+        forward them - UNVERIFIED) is final for this process and retried at the next start.
+        """
+        attempt = 0
+        while True:
+            store, site = self.timeseries, self.site
+            if store is None or site is None:
+                return
+            try:
+                if await store.get_meta(META_HISTORY_REBUILT) is None:
+                    devices = () if self.devices is None else self.devices.devices
+                    await rebuild_history(
+                        self.connection, store, site, self.clock(), devices=devices
+                    )
+                    await store.set_meta(META_HISTORY_REBUILT, self.clock().isoformat())
+                    if self.load_service is not None:
+                        self.load_service.request_refit()  # the profiles can use it now
+            except asyncio.CancelledError:
+                raise
+            except CommandError as exc:
+                log.warning("history.rebuild_failed", reason=exc.code, error=str(exc))
+                if exc.code == "unknown_command":
+                    break
+            except (HAError, TimeoutError) as exc:
+                log.warning("history.rebuild_failed", reason=type(exc).__name__, error=str(exc))
+            except Exception:
+                log.exception("history.rebuild_crashed")
+                break
+            else:
+                break
+            delay = REBUILD_BACKOFF_S[min(attempt, len(REBUILD_BACKOFF_S) - 1)]
+            attempt += 1
+            await self.sleep(delay)
+        self._history_done = True
 
     async def _connect(self) -> None:
         try:
@@ -308,6 +1025,8 @@ class Runtime:
             log.error("ha.connect_failed", error_type=type(exc).__name__, error=str(exc))
             return
         await self._prepare_control()
+        await self._learn_ha_location()
+        self._start_history_rebuild()
 
     def _time_zone_settled(self) -> bool:
         return self.region is not None or self._tz_learnt
@@ -354,17 +1073,50 @@ class Runtime:
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
-        for task in (self._connect_task, self._prune_task, self._tz_task):
+        control_tasks = (self._connect_task, self._tz_task)
+        storage_tasks = (
+            self._prune_task,
+            self._flush_task,
+            self._maintenance_task,
+            self._history_task,
+            self._pv_task,
+            self._load_task,
+            self._accuracy_task,
+            self._tariff_task,
+            self._planning_task,
+        )
+        for task in (*control_tasks, *storage_tasks):
             if task is not None:
                 task.cancel()
+        for task in control_tasks:
+            if task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         self._connect_task = self._prune_task = self._tz_task = None
+        self._flush_task = self._maintenance_task = self._history_task = None
+        self._pv_task = self._load_task = None
+        self._tariff_task = None
+        self._planning_task = None
+        # Hardware release comes first: a running downsample or retention statement keeps the
+        # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
+        # The storage tasks are awaited only after the devices are released.
         async with self._stack_lock:
             if self.stack is not None:
                 await self.stack.shutdown()
+        for task in storage_tasks:
+            if task is not None:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+        late, self._accuracy_task = self._accuracy_task, None  # maybe scheduled while stopping
+        if late is not None:
+            late.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await late
         await self.catalogue.stop()
         await self.connection.close()
+        await self.recorder.flush()
+        if self.timeseries_db is not None:
+            await self.timeseries_db.close()
         await self.db.close()
         if self._tempdir is not None:
             self._tempdir.cleanup()
@@ -389,13 +1141,19 @@ class Runtime:
     def _on_entities(self, update: EntityUpdate) -> None:
         self.cache.ingest(update)  # the cache first: the stack reads it
         self._last_update = self.real_clock()
+        if self.pv_service is not None:
+            self.pv_service.on_entities(update.changed)
         if self.stack is not None:
             self.stack.on_update(update)
+        if self.tariff is not None and not self.tariff.watched_entities_isdisjoint(update.changed):
+            self.tariff.notify_changed()
         self._notify()
 
     def _on_state(self, state: ConnectionState) -> None:
         if self.stack is not None:
             self.stack.on_state(state)
+        if state is ConnectionState.CONNECTED and self.tariff is not None:
+            self.tariff.reset_backoff()  # the failures were the missing connection
         if (
             state is ConnectionState.CONNECTED
             and self._started
@@ -403,6 +1161,8 @@ class Runtime:
             and self._tz_task is None
         ):
             self._tz_task = asyncio.ensure_future(self._prepare_control())
+        if state is ConnectionState.CONNECTED and self.pv_service is not None:
+            self.pv_service.wake()  # (re)connected: refresh the forecasts now, not in 30 min
         self._notify()
         for listener in list(self._health_listeners):
             try:
@@ -414,6 +1174,12 @@ class Runtime:
         refs = list(self.site.entity_refs()) if self.site else []
         if self.devices is not None:
             refs.extend(self.devices.entity_refs())
+        if self.forecast is not None:
+            refs.extend(self.forecast.entity_refs())
+        if self.tariff_config is not None:
+            refs.extend(self.tariff_config.entity_refs())
+        if self.battery_config is not None:
+            refs.extend(self.battery_config.entity_refs())
         ids = list(dict.fromkeys(r.entity_id for r in refs))
         try:
             await self.connection.subscribe_entities(ids)
@@ -491,13 +1257,15 @@ class Runtime:
           identity token, so a stale document cannot grant a mode to a device that was re-mapped
           meanwhile (``ModeRaiseRejectedError``). Lowered devices are released.
         """
-        if name in ("operation", "devices"):
+        if name in ("operation", "devices", "battery", "site"):
             # Serialised with the mode changes: the raise check and the identity rule of a
             # devices put judge the modes that are stored when they run.
             async with self._operation_lock:
                 stored = await self._put_section(name, model)
         else:
             stored = await self._put_section(name, model)
+        if name in PLANNING_SECTIONS:
+            self._planning_event("config")
         self._notify()
         return stored
 
@@ -514,7 +1282,15 @@ class Runtime:
             await self._apply_stored(name, stored, before)
         return stored
 
-    async def _apply_stored(
+    def _store_planning_input(self, name: str, stored: BaseModel) -> None:
+        if name == "forecast":
+            assert isinstance(stored, ForecastConfig)
+            self.forecast = stored
+        elif name == "tariff":
+            assert isinstance(stored, TariffConfig)
+            self.tariff_config = stored
+
+    async def _apply_stored(  # noqa: PLR0912 - one branch per section
         self,
         name: str,
         stored: BaseModel,
@@ -535,10 +1311,26 @@ class Runtime:
             self.goals = stored
             if self.stack is not None:
                 self.stack.set_goals(stored)
-        if name in ("site", "devices"):
+        elif name == "battery":
+            assert isinstance(stored, BatterySettings)
+            self.battery_config = stored
+            await self._load_modes()  # the identity rule may have dropped the battery mode
+        else:
+            self._store_planning_input(name, stored)
+        if name == "site":
+            await self._load_modes()  # the site's battery entities are battery identity
+        if name in ("site", "devices", "forecast", "tariff", "battery"):
             await self._resubscribe()
+        if name == "battery" or (name == "goals" and self._battery_policy_changed()):
+            await self._rebuild_stack()  # adapter, reserve or grid-charge policy changed
+        if name == "tariff" or (self.site, self.region) != before[::2]:
+            await self._rebuild_tariff()
         if (self.site, self.devices, self.region) != before:
             await self._rebuild_stack()
+        if name == "forecast":
+            await self._rebuild_pv_service()
+        if name in ("forecast", "devices"):
+            await self._rebuild_load_service()
         if name == "devices":
             await self._sync_modes()
 
@@ -551,6 +1343,8 @@ class Runtime:
         for device_id, mode in new.device_modes.items():
             if mode.rank > current.device_modes.get(device_id, OperatingMode.SHADOW).rank:
                 raise ModeRaiseRejectedError(device_id)
+        if new.battery_mode.rank > current.battery_mode.rank:
+            raise ModeRaiseRejectedError("battery")
 
     async def _sync_modes(self) -> None:
         if self.stack is not None:
@@ -592,6 +1386,24 @@ class Runtime:
                 modes[device_id] = mode
             stored = await self.config.put(
                 "operation", current.model_copy(update={"device_modes": modes})
+            )
+            assert isinstance(stored, OperationConfig)
+            await self._apply_operation(stored)
+        self._notify()
+        return stored
+
+    async def set_battery_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        """The battery's mode (ADR-0013 decision 6): raising it needs its identity token."""
+        async with self._operation_lock:
+            token = battery_identity_token(self.battery_config, self.site)
+            if mode is not OperatingMode.SHADOW:
+                if token is None:
+                    raise BatteryNotControllableError("battery")
+                if identity != token:
+                    raise DeviceIdentityChangedError("battery")
+            current = self.modes.operation
+            stored = await self.config.put(
+                "operation", current.model_copy(update={"battery_mode": mode})
             )
             assert isinstance(stored, OperationConfig)
             await self._apply_operation(stored)
@@ -657,6 +1469,7 @@ class Runtime:
                 )
         else:
             await stack.gate.resume(device_id)
+        self._planning_event("override")
         self._notify_control()
         state = stack.control_state()
         return next(d for d in state.devices if d.device_id == device_id)
@@ -732,8 +1545,8 @@ class Runtime:
     async def restore_section(self, name: str, entry_id: int) -> BaseModel:
         """Restore a history entry; live sections are reloaded like after a normal save."""
         restored = await self.config.restore(name, entry_id)
-        if name in ("site", "devices", "region", "goals", "operation"):
-            await self._reload_live_sections(resubscribe=name in ("site", "devices"))
+        if name in ("site", "devices", "region", "goals", "operation", "forecast"):
+            await self._reload_live_sections(resubscribe=name in ("site", "devices", "forecast"))
         self._notify()
         return restored
 
@@ -749,7 +1562,10 @@ class Runtime:
             raise HAUnavailableError(str(exc)) from exc
         await self.catalogue.ensure_fresh()
         known = self.catalogue.browse.ids() if self.catalogue.has_states else None
-        return suggest_from_prefs(prefs, known_entity_ids=known)
+        result = suggest_from_prefs(prefs, known_entity_ids=known)
+        labels = self.catalogue.entry_labels()
+        wanted = {e: labels[e] for e in result.solar_forecast_entries if e in labels}
+        return replace(result, solar_forecast_labels=wanted) if wanted else result
 
     def _samples(self, entity_ids: Iterable[str]) -> dict[str, Sample]:
         """Live values where subscribed, otherwise the catalogue's browse copy."""
@@ -767,9 +1583,16 @@ class Runtime:
         ids = [r.entity_id for r in site.entity_refs()] if site is not None else []
         await self._browse_if_needed(ids)
         present = await self.config.stored_sections()
-        return run_system_check(
+        items = run_system_check(
             site, self._samples(ids), present, self.devices, self._unit_of_entity
         )
+        template = (
+            self.template_catalog.get(self.tariff_config.import_.template_id)
+            if self.tariff_config is not None and self.tariff_config.import_.template_id
+            else None
+        )
+        includes = template.price_includes if isinstance(template, TariffTemplate) else None
+        return [*items, *check_tariff(self.tariff_config, includes)]
 
     async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
         ids = list(dict.fromkeys(entity_id for _, entity_id, _ in collect_refs(fragment)))
@@ -803,14 +1626,24 @@ class Runtime:
     async def _reload_live_sections(self, *, resubscribe: bool) -> None:
         """After a restore or import: re-read what the control layer runs on and apply it."""
         before = (self.site, self.devices, self.region)
+        forecast_before = self.forecast
+        devices_before = self.devices
+        tariff_before = self.tariff_config
         await self._load_live_sections()
         if resubscribe:
             await self._resubscribe()
+        if self.tariff_config != tariff_before or (self.site, self.region) != before[::2]:
+            await self._rebuild_tariff()
         if (self.site, self.devices, self.region) != before:
             await self._rebuild_stack()
         elif self.stack is not None and self.goals is not None:
             self.stack.set_goals(self.goals)
+        if self.forecast != forecast_before:
+            await self._rebuild_pv_service()
+        if self.forecast != forecast_before or self.devices != devices_before:
+            await self._rebuild_load_service()
         await self._sync_modes()
+        self._planning_event("config")
 
     def add_change_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(listener)

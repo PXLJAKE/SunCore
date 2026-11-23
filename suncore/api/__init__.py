@@ -9,6 +9,7 @@ from suncore.api.services import (
     HealthReport,
     PeerPolicy,
     Services,
+    TariffNotConfiguredError,
     UnknownRoleError,
     UnknownTemplateError,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "HealthReport",
     "PeerPolicy",
     "Services",
+    "TariffNotConfiguredError",
     "UnknownRoleError",
     "UnknownTemplateError",
     "create_app",

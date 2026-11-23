@@ -14,6 +14,7 @@ from typing import Annotated, Literal, Self
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
 
+from suncore.core.battery import BatteryAction
 from suncore.core.control import DeviceState, PowerEstimate
 from suncore.core.decisions import Decision, OperatingMode, Reason
 from suncore.core.devices import DeviceKind
@@ -88,6 +89,37 @@ class SiteControlState(_Frozen):
     soc_pct: float | None
 
 
+class BatteryControlState(_Frozen):
+    """The battery as a controlled asset (Phase 4 WP10, ADR-0013)."""
+
+    identity: str
+    """Opaque battery identity token; send it back when raising the battery's mode."""
+    adapter_template_id: str
+    capabilities: list[str]
+    """What the adapter can execute (``charge_limit``, ``discharge_limit``, ``min_soc``,
+    ``grid_charge``, ``hardware_fallback``)."""
+    global_mode: OperatingMode
+    battery_mode: OperatingMode
+    """The stored mode (``operation.battery_mode``)."""
+    effective_mode: OperatingMode
+    """``min(global, battery)``, capped at assisted while ``mode_capped``."""
+    mode_capped: bool
+    """The adapter's hardware fallback is not measured yet (``battery.fallback_measured``)."""
+    limits: BatteryAction | None
+    """What the adapter's entities show now (``None`` = unknown)."""
+    held: BatteryAction | None
+    """What SunCore holds (``None`` = the battery's own settings)."""
+    baseline: BatteryAction | None
+    """The values found at takeover, restored by a release."""
+    under_control: bool
+    wanted: BatteryAction | None
+    """What the plan asks for now (``None`` = nothing / baseline)."""
+    reasons: list[Reason]
+    """The controller's reasons ("Why?")."""
+    paused: Reason | None
+    last_decision: Decision | None
+
+
 class ControlState(_Frozen):
     """Everything the control layer exposes after a tick."""
 
@@ -101,6 +133,8 @@ class ControlState(_Frozen):
     devices: list[DeviceControlState]
     proposals: list[Decision]
     """Open assisted-mode proposals (``DecisionKind.PROPOSED`` with ``expires_at``)."""
+    battery: BatteryControlState | None = None
+    """``None`` = no battery adapter (observe-only); Phase 4 WP10."""
 
 
 OverrideAction = Literal["boost", "pause", "resume"]
@@ -158,6 +192,29 @@ class DeviceModeRequest(_Frozen):
         return self
 
 
+class BatteryModeRequest(_Frozen):
+    """``PUT /api/v1/operation/battery``: the battery's operating mode (ADR-0013).
+
+    Like a device: raising the mode above shadow needs ``identity``, the token from
+    ``GET /api/v1/control/state`` (``battery.identity``); a re-mapped battery answers 409.
+    """
+
+    mode: OperatingMode
+    identity: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+
+    @model_validator(mode="after")
+    def _identity_for_raise(self) -> Self:
+        if self.mode is not OperatingMode.SHADOW and self.identity is None:
+            raise invalid(
+                "mode_identity_required", "mode: raising a device above shadow needs `identity`"
+            )
+        return self
+
+
+class BatteryNotControllableError(LookupError):
+    """No battery adapter is configured (observe-only): there is no battery mode to raise."""
+
+
 class UnknownDeviceError(LookupError):
     """No configured device has this id."""
 
@@ -184,6 +241,9 @@ class ModeRaiseRejectedError(RuntimeError):
 
 
 __all__ = [
+    "BatteryControlState",
+    "BatteryModeRequest",
+    "BatteryNotControllableError",
     "ControlState",
     "DeviceControlState",
     "DeviceIdentityChangedError",

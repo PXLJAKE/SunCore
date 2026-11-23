@@ -4,21 +4,31 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
 from suncore import __version__
-from suncore.api.services import EntityQuery, HealthReport, PeerPolicy
+from suncore.api.services import EntityQuery, HealthReport, PeerPolicy, TariffNotConfiguredError
+from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import FlowSnapshot
+from suncore.core.battery import BatterySettings
 from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
+from suncore.forecast.accuracy import accuracy_view
+from suncore.forecast.load_service import LoadForecastService
+from suncore.forecast.risk import ErrorModel
+from suncore.forecast.risk_learning import risk_view
+from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView, RiskView
+from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import HistoryEntry
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
 
 
@@ -77,6 +87,28 @@ class StubServices:
     ) -> list[Decision]:
         return []
 
+    async def pv_forecast(self, hours: int) -> PvForecastView:
+        return PvForecastView(generated_at=datetime.now(UTC), hours=hours, sources=[], blended=None)
+
+    async def forecast_accuracy(self) -> ForecastAccuracyView:
+        return accuracy_view([], {})
+
+    async def load_forecast(self, hours: int) -> LoadForecastView:
+        return LoadForecastService(None, None, clock=lambda: datetime.now(UTC)).view(hours)
+
+    async def forecast_risk(self) -> RiskView:
+        return risk_view(
+            datetime.now(UTC),
+            pv=None,
+            load=None,
+            settings=BatterySettings(),
+            user_target_pct=None,
+            model=ErrorModel(),
+            min_history_days=30,
+            tz=UTC,
+            plant=None,
+        )
+
     def control_state(self) -> ControlState:
         return ControlState(
             ts=None,
@@ -118,7 +150,38 @@ class StubServices:
     ) -> OperationConfig:
         return OperationConfig()
 
+    async def set_battery_mode(
+        self,
+        mode: OperatingMode,  # noqa: ARG002
+        identity: str | None,  # noqa: ARG002
+    ) -> OperationConfig:
+        return OperationConfig()
+
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
+        return lambda: None
+
+    async def prices(self, hours: int) -> PriceReport:  # noqa: ARG002
+        raise TariffNotConfiguredError
+
+    def _planning(self) -> PlanningService:
+        async def nothing(now: datetime, previous: object) -> PlanningSnapshot:  # noqa: ARG001
+            return PlanningSnapshot(None)
+
+        return PlanningService(nothing, LiveReading, clock=lambda: datetime.now(UTC))
+
+    async def plan_view(self, hours: int) -> PlanView:
+        return self._planning().view(hours)
+
+    async def plan_status(self) -> PlanStatusView:
+        return self._planning().status()
+
+    async def replan(self) -> ReplanAck:
+        return self._planning().request("manual")
+
+    def plan_summary(self) -> PlanSummary:
+        return self._planning().summary()
+
+    def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
         return lambda: None
 
     async def export_config(self) -> dict[str, Any]:

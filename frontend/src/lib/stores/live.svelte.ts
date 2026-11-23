@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // One WebSocket subscription feeds every view (docs/architecture.md section 9).
 import { liveUrl } from '../api/client';
-import type { ControlState, Decision, Flows, Health, LiveMessage } from '../api/types';
+import type { ControlState, Decision, Flows, Health, LiveMessage, PlanSummary } from '../api/types';
 import { LiveClient, type ConnectionState } from '../api/ws';
 
 export type LinkStatus = 'connecting' | 'live' | 'ha_down' | 'degraded' | 'offline';
@@ -28,6 +28,12 @@ export class LiveStore {
   decisions = $state.raw<Decision[]>([]);
   /** Control layer state (devices, site surplus, proposals). */
   control = $state.raw<ControlState | null>(null);
+  /** Summary of the newest plan announced on the feed (the intervals are fetched on demand). */
+  plan = $state.raw<PlanSummary | null>(null);
+  /** Plan messages received since start: views refetch the plan when it changes. */
+  planUpdates = $state(0);
+  /** Snapshots received since start: one per (re)connect, so views refetch what they cached. */
+  snapshotCount = $state(0);
   connection = $state<ConnectionState>('connecting');
   haveSnapshot = $state(false);
   /** Flow messages received since start (tests and the E2E "values update" check). */
@@ -45,6 +51,7 @@ export class LiveStore {
         this.decisions = msg.decisions;
         this.control = msg.control ?? null;
         this.haveSnapshot = true;
+        this.snapshotCount += 1;
         this.flowUpdates += 1;
         break;
       case 'flows':
@@ -59,6 +66,10 @@ export class LiveStore {
         break;
       case 'control':
         this.control = msg.control;
+        break;
+      case 'plan':
+        this.plan = msg.plan;
+        this.planUpdates += 1;
         break;
     }
   }
