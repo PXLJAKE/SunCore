@@ -147,6 +147,34 @@ def test_a_fixed_tariff_builds_a_fixed_source() -> None:
     assert plan.currency == "EUR"
 
 
+def test_the_remunerate_negative_switch_turns_the_region_rule_off() -> None:
+    tariff = TariffConfig(
+        import_=ImportTariff(kind="fixed", fixed_price=0.3),
+        export=ExportTariff(kind="fixed", fixed_price=0.08, remunerate_negative=True),
+    )
+    plan = build(tariff)
+    assert plan.negative_rule is NegativePriceRule.NONE
+    assert plan.reference_source is None
+
+
+def test_a_reference_entity_builds_a_spot_source_and_is_watched() -> None:
+    tariff = TariffConfig(
+        import_=ImportTariff(kind="fixed", fixed_price=0.3),
+        export=ExportTariff(
+            kind="fixed",
+            fixed_price=0.08,
+            negative_reference_entity=EntityRef(entity_id="sensor.spot"),
+        ),
+    )
+    plan = build(tariff)
+    assert plan.negative_rule is NegativePriceRule.NO_REMUNERATION
+    assert plan.reference_source is not None
+    assert plan.reference_source.watched_entities == ("sensor.spot",)
+    assert tariff.entity_refs() == [EntityRef(entity_id="sensor.spot")]
+    with pytest.raises(ValueError, match="not a sensor"):
+        ExportTariff(kind="none", negative_reference_entity=EntityRef(entity_id="light.kitchen"))
+
+
 def test_a_tou_tariff_builds_a_tou_source() -> None:
     tou = TouTariff(
         base_price=0.35,

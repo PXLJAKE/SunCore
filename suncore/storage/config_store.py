@@ -28,6 +28,7 @@ from suncore.core.config import (
 )
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
+from suncore.core.expert import ExpertConfig
 from suncore.core.identity import battery_identity_token, device_identity, new_device_ids
 from suncore.core.site import SiteConfig, migrate_site_v1_to_v2
 from suncore.storage.db import Database, Row, Transaction
@@ -126,6 +127,7 @@ DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "operation": SectionSpec(OperationConfig),
     "wizard": SectionSpec(WizardState),
     "battery": SectionSpec(BatterySettings),
+    "expert": SectionSpec(ExpertConfig),
 }
 
 

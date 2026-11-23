@@ -2,7 +2,13 @@
 // Tariff section (v3) <-> form: import price (fixed, dynamic with an optional price formula, or
 // fixed time-of-use HT/NT) and feed-in (fixed, tiered, none). Source settings the form has no
 // field for (`action_params`, `series_key`) are carried through unchanged.
-import type { ExportTier, ImportTariff, RegionTemplate, TariffConfig } from '../api/types';
+import type {
+  ExportTariff,
+  ExportTier,
+  ImportTariff,
+  RegionTemplate,
+  TariffConfig,
+} from '../api/types';
 import { emptyRef, fromRef, toRef, type RefField } from './forms';
 import {
   feesFromApi,
@@ -60,6 +66,9 @@ export interface TariffForm {
   /** Carried through unchanged (no form fields yet). */
   actionParams: ImportTariff['action_params'];
   seriesKey: ImportTariff['series_key'];
+  /** Expert parameters of the export side (set on the expert page, kept when the wizard saves). */
+  remunerateNegative: boolean;
+  negativeReferenceEntity: ExportTariff['negative_reference_entity'];
 }
 
 export const emptyFormula = (): FormulaForm => ({
@@ -90,6 +99,8 @@ export function emptyTariffForm(): TariffForm {
     tiers: [{ upToKwp: null, price: null }],
     actionParams: {},
     seriesKey: null,
+    remunerateNegative: false,
+    negativeReferenceEntity: null,
   };
 }
 
@@ -130,6 +141,8 @@ export function tariffFormFromConfig(cfg: TariffConfig | null): TariffForm {
         : [{ upToKwp: null, price: null }],
     actionParams: { ...(imp.action_params ?? {}) },
     seriesKey: imp.series_key ?? null,
+    remunerateNegative: exp.remunerate_negative ?? false,
+    negativeReferenceEntity: exp.negative_reference_entity ?? null,
   };
 }
 
@@ -211,6 +224,8 @@ export function tariffFromForm(form: TariffForm): TariffConfig {
       kind: form.exportKind,
       fixed_price: form.exportKind === 'fixed' ? form.exportFixed : null,
       tiers,
+      remunerate_negative: form.remunerateNegative,
+      negative_reference_entity: form.negativeReferenceEntity,
     },
   };
 }

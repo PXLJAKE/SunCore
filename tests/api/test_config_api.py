@@ -31,6 +31,7 @@ VALID: dict[str, dict[str, Any]] = {
         "model": {"capacity_wh": 10_000, "max_charge_w": 5000, "max_discharge_w": 5000},
         "strategy": "prefer_full",
     },
+    "expert": {"overrides": {"planner.budget_s": 12.0}},
 }
 
 

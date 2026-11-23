@@ -279,6 +279,12 @@ class PlanningService:
     def settings(self) -> PlanningSettings:
         return self._settings
 
+    def update_settings(self, settings: PlanningSettings) -> None:
+        """Take over new settings (expert mode, Phase 5 WP5). Every read of a setting happens
+        when it is used, so a run in progress finishes with the budget it started with and the
+        next one, the debounce and the staleness check use the new values."""
+        self._settings = settings
+
     # --- events --------------------------------------------------------------------------
 
     def request(self, trigger: Trigger) -> ReplanAck:

@@ -112,6 +112,35 @@ class GateInputs:
 # --- settings -----------------------------------------------------------------
 
 
+SAFETY_LIMITS: Final[Mapping[str, tuple[float, float]]] = {
+    "reserve_w": (50.0, 10_000.0),
+    "deficit_delay_s": (5.0, 120.0),
+    "deficit_budget_wh": (0.0, 500.0),
+    "intent_max_age_s": (1.0, 120.0),
+    "inputs_max_age_ticks": (1, 10),
+    "default_settle_s": (1.0, 600.0),
+    "default_max_switches_per_hour": (1, 30),
+    "min_write_interval_s": (1.0, 600.0),
+    "release_deadline_s": (1.0, 60.0),
+    "safe_state_cooldown_s": (30.0, 3600.0),
+    "stale_cadence_factor": (1.0, 5.0),
+    "max_jump_w_per_s": (1_000.0, 50_000.0),
+    "frozen_pv_s": (60.0, 3600.0),
+    "frozen_pv_min_w": (50.0, 1000.0),
+    "balance_tolerance_w": (100.0, 2000.0),
+    "balance_tolerance_pct": (5.0, 50.0),
+}
+"""Hard bounds of the ``ControlSettings`` fields the safety layer relies on (ADR-0015 decision 4).
+
+``field -> (min, max)``, inclusive. The parameter registry (``core/params.py``) reads this
+table for the range of every ``safety``-tagged parameter, so expert mode cannot move a value
+outside it, and ``ExpertConfig`` rejects such a document. The bounds sit *inside* the model's
+own field bounds and contain the defaults. The direction that weakens a protection (a longer
+staleness window, a shorter write interval, more switches per hour, a wider plausibility
+tolerance) stops at the limit; no value disables a check. Per-device minimum run and pause
+times are device configuration, not part of this table."""
+
+
 class ControlSettings(_Frozen):
     """Controller and safety parameters (expert mode, BRIEF §4.12) with Phase 3 defaults.
 
