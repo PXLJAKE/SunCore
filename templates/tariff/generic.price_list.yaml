@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../schema/tariff.schema.json
+# Generic price list: any sensor with an attribute `prices` that is a list of
+# `{"start": <ISO 8601 with offset>, "price": <currency per kWh, end price>}`. This is SunCore's
+# own convention for a template sensor the user writes (no integration is known to produce
+# it); the slot length is derived from the spacing of `start`.
+id: generic.price_list
+kind: tariff
+schema_version: 1
+name: template.generic.price_list.name
+source:
+  - title: "Home Assistant template sensor (attributes option)"
+    url: "https://www.home-assistant.io/integrations/template/"
+    date: 2026-10-16
+tested_with: []
+capabilities: [price_now, price_curve]
+unverified:
+  - "SunCore's own convention, not the shape of an existing integration: the attribute name `prices` and the fields `start` and `price` are defined here."
+  - "The Home Assistant template integration page could not be read in the authoring session (documentation sites unreachable); that template sensors accept attributes is general knowledge, not verified."
+  - "The price is treated as the end price (`all_in`); a spot-only list needs its own template."
+direction: import
+tariff_type: dynamic
+roles:
+  price:
+    matcher:
+      domain: sensor
+      unit_pattern: '^[A-Z]{3}/kWh$'
+    description: template.generic.price_list.role.price
+price_unit: "{currency}/kWh"
+price_includes: all_in
+price_series:
+  source: attribute
+  roles: [price]
+  attribute: prices
+  shape: list
+  fields:
+    timestamp_field: start
+    value_field: price
+    value_unit: "{currency}/kWh"

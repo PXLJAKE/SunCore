@@ -105,12 +105,12 @@ def test_dst_night_is_judged_in_local_time() -> None:
 
 def test_price_formula() -> None:
     f = PriceFormula(grid_fee=0.08, levies=0.03, margin=0.02, vat_pct=19)
-    assert f.apply(0.10, None, BERLIN) == pytest.approx((0.10 + 0.13) * 1.19)
-    assert f.apply(-0.20, None, BERLIN) == pytest.approx(
+    assert f.end_price(0.10, None, BERLIN) == pytest.approx((0.10 + 0.13) * 1.19)
+    assert f.end_price(-0.20, None, BERLIN) == pytest.approx(
         (-0.20 + 0.13) * 1.19
     )  # negative end price
-    assert PriceFormula().apply(0.1, None, BERLIN) == pytest.approx(0.1)
-    assert PriceFormula(spot_multiplier=1.1).apply(0.1, None, BERLIN) == pytest.approx(0.11)
+    assert PriceFormula().end_price(0.1, None, BERLIN) == pytest.approx(0.1)
+    assert PriceFormula(spot_multiplier=1.1).end_price(0.1, None, BERLIN) == pytest.approx(0.11)
 
 
 def test_price_formula_time_variable_grid_fee() -> None:
@@ -118,10 +118,10 @@ def test_price_formula_time_variable_grid_fee() -> None:
     high = GridFeeWindow(window=TouWindow(start="17:00", end="20:00"), fee=0.15)
     f = PriceFormula(grid_fee=0.08, grid_fee_windows=(low, high))
     assert f.grid_fee_at(None, BERLIN) == 0.08
-    assert f.apply(0.1, at(FRI, 3), BERLIN) == pytest.approx(0.12)
-    assert f.apply(0.1, at(FRI, 18), BERLIN) == pytest.approx(0.25)
-    assert f.apply(0.1, at(FRI, 12), BERLIN) == pytest.approx(0.18)
-    assert f.apply(0.1, datetime(2026, 10, 16, 1, tzinfo=UTC), BERLIN) == pytest.approx(0.12)
+    assert f.end_price(0.1, at(FRI, 3), BERLIN) == pytest.approx(0.12)
+    assert f.end_price(0.1, at(FRI, 18), BERLIN) == pytest.approx(0.25)
+    assert f.end_price(0.1, at(FRI, 12), BERLIN) == pytest.approx(0.18)
+    assert f.end_price(0.1, datetime(2026, 10, 16, 1, tzinfo=UTC), BERLIN) == pytest.approx(0.12)
     with pytest.raises(ValidationError):
         PriceFormula(spot_multiplier=0)
     with pytest.raises(ValidationError):
@@ -222,3 +222,8 @@ def test_utc_instant_is_judged_in_the_given_zone_not_its_own() -> None:
     utc_23 = datetime(2026, 10, 16, 21, 30, tzinfo=UTC)  # 23:30 in Berlin
     assert NIGHT_WINDOW.contains(utc_23, BERLIN)
     assert not NIGHT_WINDOW.contains(utc_23, UTC)
+
+
+def test_apply_is_a_deprecated_alias_of_end_price() -> None:
+    f = PriceFormula(grid_fee=0.1, vat_pct=19)
+    assert f.apply(0.2, None, BERLIN) == f.end_price(0.2, None, BERLIN)

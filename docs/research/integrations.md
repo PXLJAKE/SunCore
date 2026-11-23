@@ -266,6 +266,15 @@ exists but is undocumented on the page.
   The action returns the undivided MWh value; the adapter divides by 1000.
   The values are the day-ahead market price per area; VAT, grid fees and levies are not part
   of them (no such field in the source).
+- **Meaning of `date` (zone)**: the action passes `date` as `YYYY-MM-DD` to the library
+  (`home-assistant/core@5cfe9aad7cb428c2c2ebb449719ae81976780de1`
+  `homeassistant/components/nordpool/services.py:112-125`: `datetime.combine(asked_date,
+  dt_util.utcnow().time())`), which only formats it with `strftime("%Y-%m-%d")` as the `date`
+  query parameter of Nord Pool's `DayAheadPrices` (`pynordpool 0.4.0` `__init__.py:106-127`) and
+  keys the raw response by `deliveryDateCET` (`__init__.py:102`). So `date` is read as the **CET
+  delivery day** (Central European rules, i.e. `Europe/Berlin`), not the Home Assistant day; the
+  template sets `date_tz: Europe/Berlin`. Read from source only, the query semantics of the
+  Nord Pool API itself were not seen live (`UNVERIFIED`).
 - **Resolution**: slot length = `end - start` per entry (the sensors compute
   `resolution = entry.end - entry.start`, `sensor.py:58`), 15 or 60 minutes; a
   coordinator tick every 15 minutes (`coordinator.py:57-73`). The adapter must not

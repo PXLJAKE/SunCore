@@ -1,0 +1,19 @@
+template: entsoe.price
+sim_scenario: summer_day
+fixture: entsoe_avg_price
+user_input:
+  now: "2026-10-16T10:07:00+02:00"
+  window_start: "2026-10-16T00:00:00+02:00"
+  window_hours: 24
+extra_entities:
+  - {entity_id: sensor.entsoe_average_electricity_price, platform: entsoe, unit: EUR/kWh}
+  - {entity_id: sensor.entsoe_current_electricity_price, platform: entsoe, unit: EUR/kWh, state: "0.07"}
+roles:
+  price:
+    tied: [sensor.entsoe_average_electricity_price, sensor.entsoe_current_electricity_price]
+    pick: sensor.entsoe_average_electricity_price
+    unit: EUR/kWh
+expect:
+  segments: [{step_min: 60, points: 3}]
+  first_price: 0.0712
+  includes: spot_only

@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=../schema/tariff.schema.json
+# ENTSO-E (HACS `JaccoR/hass-entso-e`, domain `entsoe`). The price list sits on the "Average
+# electricity price" sensor (`avg_price`) in the attribute `prices` (today and tomorrow):
+# `[{"time": "2026-10-16 00:00:00+02:00", "price": 0.123}]`, local `str(datetime)`, slot start.
+# Slot length = the integration's configured period (60 or 15 minutes), derived from the
+# spacing. Unit `<currency>/MWh`: this template is for an installation configured with the
+# `MWh` energy scale (the sensor unit says `<currency>/MWh`); the default scale is
+# `entsoe.price`. The integration adds the user's modifier template and VAT to the price: it
+# is the market price only if the user configured none; say so with `price_includes` in the
+# tariff configuration.
+id: entsoe.price_mwh
+kind: tariff
+schema_version: 1
+name: template.entsoe.price_mwh.name
+source:
+  - title: "hass-entso-e v0.7.5 sensor.py (avg_price sensor with prices, prices_today, prices_tomorrow)"
+    url: "https://github.com/JaccoR/hass-entso-e/blob/v0.7.5/custom_components/entsoe/sensor.py"
+    date: 2026-10-16
+  - title: "hass-entso-e v0.7.5 coordinator.py (entry shape {time, price}, calc_price)"
+    url: "https://github.com/JaccoR/hass-entso-e/blob/v0.7.5/custom_components/entsoe/coordinator.py"
+    date: 2026-10-16
+  - title: "hass-entso-e v0.7.5 const.py (period PT60M or PT15M, energy scale kWh or MWh)"
+    url: "https://github.com/JaccoR/hass-entso-e/blob/v0.7.5/custom_components/entsoe/const.py"
+    date: 2026-10-16
+tested_with: []
+capabilities: [price_now, price_curve]
+unverified:
+  - Read from the integration source (tag v0.7.5, commit cbdf67ac) only; not observed on a running Home Assistant.
+  - 'Entity id and translation key of the `avg_price` sensor: the role matches platform and unit only; pick "Average electricity price", the only sensor with the price list.'
+  - '`spot_only` is right for an installation without modifier template and VAT; otherwise the price is an end price and the user states `price_includes: all_in` (else the formula counts fees twice).'
+  - '`prices` holds today and tomorrow, or yesterday and today while tomorrow is unpublished; SunCore keeps only the future part.'
+direction: import
+tariff_type: dynamic
+roles:
+  price:
+    matcher:
+      domain: sensor
+      platforms: [entsoe]
+      unit_pattern: '^[A-Z]{3}/MWh$'
+    description: template.entsoe.price_mwh.role.price
+price_unit: "{currency}/MWh"
+price_includes: spot_only
+price_series:
+  source: attribute
+  roles: [price]
+  attribute: prices
+  shape: list
+  fields:
+    timestamp_field: time
+    value_field: price
+    value_unit: "{currency}/MWh"

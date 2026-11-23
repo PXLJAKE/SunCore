@@ -20,6 +20,7 @@ from suncore.templates.matcher import (
 )
 from suncore.templates.models import (
     TEMPLATE_ADAPTER,
+    ActionParam,
     ActionSeries,
     AttributeSeries,
     BatteryTemplate,
@@ -35,6 +36,7 @@ from suncore.templates.models import (
 
 __all__ = [
     "TEMPLATE_ADAPTER",
+    "ActionParam",
     "ActionSeries",
     "AttributeSeries",
     "BatteryTemplate",

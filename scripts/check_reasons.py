@@ -8,9 +8,9 @@ Collected from ``suncore/``:
 * string constants starting with ``api.error.`` (the error ``detail`` keys of the API) or
   ``api.validation.`` in ``suncore/api`` (validation issue keys),
 * string constants that are exactly one key with the prefix ``wizard.`` (check and import
-  reasons built from a variable), ``detect.criterion.`` or ``ha.error.`` anywhere
-  in ``suncore/``, and ``controller.`` in ``suncore/controller/reasons.py`` (the
-  controller's key constants).
+  reasons built from a variable), ``detect.criterion.``, ``ha.error.`` or ``tariff.error.``
+  (the tariff adapters' error keys) anywhere in ``suncore/``, and ``controller.`` in
+  ``suncore/controller/reasons.py`` (the controller's key constants).
 
 Each key must be present in ``frontend/src/lib/i18n/locales/en.json`` and ``de.json``.
 Run via ``uv run python scripts/check_reasons.py``; exit code 1 lists the gaps.
@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "suncore"
 LOCALES = ROOT / "frontend" / "src" / "lib" / "i18n" / "locales"
 ERROR_PREFIXES = ("api.error.", "api.validation.")
-KEY_PREFIXES = ("wizard.", "detect.criterion.", "ha.error.")
+KEY_PREFIXES = ("wizard.", "detect.criterion.", "ha.error.", "tariff.error.")
 CONTROLLER_KEYS = Path("controller") / "reasons.py"
 """The controller defines its keys as constants in one module (log event names elsewhere
 may share the ``controller.`` prefix)."""

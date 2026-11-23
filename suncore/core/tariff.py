@@ -175,10 +175,18 @@ class PriceFormula(_Frozen):
                     return entry.fee
         return self.grid_fee
 
-    def apply(self, spot: float, at: datetime | None, tz: tzinfo) -> float:
-        """End price for ``spot`` at ``at`` (``None``: the base grid fee is used)."""
+    def end_price(self, spot: float, at: datetime | None, tz: tzinfo) -> float:
+        """End price for ``spot`` at ``at`` (``None``: the base grid fee is used).
+
+        Callers outside ``core`` use this name: ``.apply(`` is reserved by the architecture
+        boundary test for the actuator write path (``tests/safety/test_boundary.py``, rule 1).
+        """
         net = spot * self.spot_multiplier + self.grid_fee_at(at, tz) + self.levies + self.margin
         return net * (1 + self.vat_pct / 100)
+
+    def apply(self, spot: float, at: datetime | None, tz: tzinfo) -> float:
+        """Deprecated alias of :meth:`end_price` (the 4-A name); new code calls ``end_price``."""
+        return self.end_price(spot, at, tz)
 
 
 # --- HT/NT (time of use) ---------------------------------------------------------------

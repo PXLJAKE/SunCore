@@ -1,0 +1,32 @@
+template: octopus_energy.rates
+sim_scenario: summer_day
+fixture: octopus_rates
+user_input:
+  now: "2026-10-16T10:07:00+01:00"
+  window_start: "2026-10-16T00:00:00+01:00"
+  window_hours: 48
+  timezone: Europe/London
+  currency: GBP
+extra_entities:
+  - {entity_id: sensor.octopus_energy_electricity_1234_5678_current_rate, platform: octopus_energy, unit: GBP/kWh, state: "0.1302"}
+  - {entity_id: event.octopus_energy_electricity_1234_5678_current_day_rates, platform: octopus_energy}
+  - {entity_id: event.octopus_energy_electricity_1234_5678_next_day_rates, platform: octopus_energy}
+roles:
+  price:
+    entity: sensor.octopus_energy_electricity_1234_5678_current_rate
+    unit: GBP/kWh
+    criteria: [domain, platforms, units]
+  current_day_rates:
+    tied:
+      - event.octopus_energy_electricity_1234_5678_current_day_rates
+      - event.octopus_energy_electricity_1234_5678_next_day_rates
+    pick: event.octopus_energy_electricity_1234_5678_current_day_rates
+  next_day_rates:
+    tied:
+      - event.octopus_energy_electricity_1234_5678_current_day_rates
+      - event.octopus_energy_electricity_1234_5678_next_day_rates
+    pick: event.octopus_energy_electricity_1234_5678_next_day_rates
+expect:
+  segments: [{step_min: 30, points: 3}, {step_min: 30, points: 2}]
+  first_price: 0.1245
+  includes: all_in

@@ -228,18 +228,37 @@ def test_segments_from_points_split_on_resolution_change() -> None:
     points = [(T0 + MIN15 * i, float(i)) for i in range(4)] + [
         (T0 + HOUR, 10.0),
         (T0 + 2 * HOUR, 20.0),
+        (T0 + 3 * HOUR, 30.0),
     ]
     segments = segments_from_points(
         points, SeriesUnit.PRICE, expected_step=MIN15, other_steps={HOUR}
     )
-    assert [(s.step, len(s)) for s in segments] == [(MIN15, 4), (HOUR, 2)]
+    assert [(s.step, len(s)) for s in segments] == [(MIN15, 4), (HOUR, 3)]
     assert segments[0].values == (0.0, 1.0, 2.0, 3.0)
-    assert segments[-1].end == T0 + 3 * HOUR
+    assert segments[-1].end == T0 + 4 * HOUR
     single = segments_from_points([(T0, 1.0)], SeriesUnit.W, expected_step=MIN15)
     assert single[0].end == T0 + MIN15
     assert segments_from_points([], SeriesUnit.W, expected_step=MIN15) == ()
     with pytest.raises(ValueError, match="strictly increasing"):
         segments_from_points([(T0, 1.0), (T0, 2.0)], SeriesUnit.W, expected_step=MIN15)
+
+
+def test_a_hole_at_the_end_of_the_list_is_a_gap_not_a_resolution_change() -> None:
+    """Review m4: the last distance has no following distance to confirm an hourly rhythm."""
+    points = [(T0 + MIN15 * i, float(i)) for i in range(3)] + [(T0 + 2 * MIN15 + HOUR, 9.0)]
+    (segment,) = segments_from_points(
+        points, SeriesUnit.PRICE, expected_step=MIN15, other_steps={HOUR}
+    )
+    assert segment.step == MIN15
+    assert segment.values == (0.0, 1.0, 2.0, None, None, None, 9.0)
+    # two further hourly points confirm the rhythm: now it is a change
+    more = [*points, (T0 + 2 * MIN15 + 2 * HOUR, 10.0)]
+    assert [
+        s.step
+        for s in segments_from_points(
+            more, SeriesUnit.PRICE, expected_step=MIN15, other_steps={HOUR}
+        )
+    ] == [MIN15, HOUR]
 
 
 def test_segments_from_points_gap_is_none_not_filled() -> None:

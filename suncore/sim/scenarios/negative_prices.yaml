@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+name: negative_prices
+description: Clear summer weekend in Bavaria, the day-ahead price turns negative around noon.
+start: "2026-06-21T00:00:00+02:00"
+duration_s: 86400
+step_s: 60
+house:
+  seed: 1
+  pv: {kwp: 8.0, latitude: 48.0, longitude: 11.0}
+  load: {noise_fraction: 0.1}
+  battery: {capacity_wh: 10000, initial_soc_pct: 30}
+outdoor: {mean_c: 26.0, amplitude_c: 7.0}
+clouds:
+  - {at_s: 21600, factor: 0.9}
+  - {at_s: 32400, factor: 1.0}
+prices:
+  profile: negative_midday
+  tomorrow_after_hour: 13

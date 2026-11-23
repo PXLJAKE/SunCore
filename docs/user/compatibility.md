@@ -30,7 +30,14 @@ a template only tested in the simulator has never run against real hardware.
 
 | Id | Kind | Name | Integration / platforms | Capabilities | Tested with | Unverified |
 |---|---|---|---|---|---|---|
-| `tibber.price` | tariff | Tibber dynamic price | `tibber` | `price_curve`, `price_now` | not tested on hardware | 4 |
+| `entsoe.price` | tariff | ENTSO-E day-ahead price (kWh) | `entsoe` | `price_curve`, `price_now` | not tested on hardware | 4 |
+| `entsoe.price_mwh` | tariff | ENTSO-E day-ahead price (MWh scale) | `entsoe` | `price_curve`, `price_now` | not tested on hardware | 4 |
+| `epex_spot.market_price` | tariff | EPEX Spot market price | `epex_spot` | `price_curve`, `price_now` | not tested on hardware | 4 |
+| `epex_spot.total_price` | tariff | EPEX Spot total price | `epex_spot` | `price_curve`, `price_now` | not tested on hardware | 4 |
+| `generic.price_list` | tariff | Generic price list (sensor attribute) | any | `price_curve`, `price_now` | not tested on hardware | 3 |
+| `nordpool.price` | tariff | Nord Pool day-ahead price | `nordpool` | `price_curve`, `price_now` | not tested on hardware | 6 |
+| `octopus_energy.rates` | tariff | Octopus Energy rates | `octopus_energy` | `price_curve`, `price_now` | not tested on hardware | 4 |
+| `tibber.price` | tariff | Tibber dynamic price | `tibber` | `price_curve`, `price_now` | not tested on hardware | 6 |
 
 ## PV forecasts
 

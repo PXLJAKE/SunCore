@@ -1,0 +1,11 @@
+# SunCore's own convention for a template sensor (templates/tariff/generic.price_list.yaml):
+# attribute `prices` = list of `{start, price}`. Not the shape of an existing integration.
+entities:
+  - entity_id: sensor.my_price_list
+    state: "0.31"
+    attributes:
+      unit_of_measurement: EUR/kWh
+      prices:
+        - {start: "2026-10-16T00:00:00+02:00", price: 0.31}
+        - {start: "2026-10-16T00:15:00+02:00", price: 0.30}
+        - {start: "2026-10-16T00:30:00+02:00", price: 0.29}
