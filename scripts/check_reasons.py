@@ -10,7 +10,8 @@ Collected from ``suncore/``:
 * string constants that are exactly one key with the prefix ``wizard.`` (check and import
   reasons built from a variable), ``detect.criterion.``, ``ha.error.`` or ``tariff.error.``
   (the tariff adapters' error keys) anywhere in ``suncore/``, and ``controller.`` in
-  ``suncore/controller/reasons.py`` (the controller's key constants).
+  ``suncore/controller/reasons.py`` (the controller's key constants) and ``planner.`` in
+  ``suncore/planner/reasons.py`` (the planner's).
 
 Each key must be present in ``frontend/src/lib/i18n/locales/en.json`` and ``de.json``.
 Run via ``uv run python scripts/check_reasons.py``; exit code 1 lists the gaps.
@@ -32,6 +33,8 @@ KEY_PREFIXES = ("wizard.", "detect.criterion.", "ha.error.", "tariff.error.")
 CONTROLLER_KEYS = Path("controller") / "reasons.py"
 """The controller defines its keys as constants in one module (log event names elsewhere
 may share the ``controller.`` prefix)."""
+PLANNER_KEYS = Path("planner") / "reasons.py"
+"""The planner's keys, also constants in one module (Phase 4 WP8)."""
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 
 
@@ -77,6 +80,8 @@ def collect_keys(source: Path = SOURCE) -> dict[str, list[str]]:
         prefixes = KEY_PREFIXES
         if path == source / CONTROLLER_KEYS:
             prefixes = (*KEY_PREFIXES, "controller.")
+        elif path == source / PLANNER_KEYS:
+            prefixes = (*KEY_PREFIXES, "planner.")
         for node in ast.walk(tree):
             keys: list[str] = []
             if isinstance(node, ast.Call) and _is_reason_call(node):

@@ -18,6 +18,7 @@ BUNDLED = [
     "inverter_hang",
     "manual_override",
     "negative_prices",
+    "planner_in_shadow",
     "sensor_dropout",
     "summer_day",
     "water_heater_steps",

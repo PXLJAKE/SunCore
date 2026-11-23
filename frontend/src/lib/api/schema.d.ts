@@ -526,6 +526,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plan
+         * @description The current plan from now to ``hours`` ahead: per 15-minute interval the expected
+         *     flows, prices, battery and device bands and the reasons; who made it (``solver``,
+         *     ``heuristic`` or ``default`` = none yet), the solver statistics, ``stale`` and whether
+         *     the controller follows it (``in_use``; else ``fallback`` says why).
+         */
+        get: operations["get_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/replan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replan
+         * @description Ask for a new plan. Debounced (at most one event-triggered run per minute) and
+         *     answered at once with the earliest start; the new plan arrives as a ``plan`` message
+         *     on the live feed.
+         */
+        post: operations["replan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plan Status
+         * @description Last run (time, duration, outcome and reason), pending events and the next run.
+         */
+        get: operations["plan_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/preview": {
         parameters: {
             query?: never;
@@ -540,6 +605,28 @@ export interface paths {
          * @description Live values of every entity in an unsaved SiteConfig or DeviceConfig fragment.
          */
         post: operations["preview_api_v1_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prices
+         * @description Import and export prices on the 15-minute grid from now to the end of the known
+         *     prices (at least 24 h where the tariff allows, at most ``hours``), with the source
+         *     and its freshness. A price is ``null`` where no source value covers the interval.
+         */
+        get: operations["get_prices"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -740,10 +827,32 @@ export interface components {
             window_days: number | null;
         };
         /**
+         * ActionParam
+         * @description A field of the action's request that the user's tariff configuration supplies.
+         *
+         *     The value comes from ``tariff.import.action_params[name]`` (Phase 4 WP4), e.g. the
+         *     Nord Pool ``config_entry`` id or ``areas``. SunCore never invents such a value.
+         */
+        ActionParam: {
+            /** Description */
+            description: string;
+            /** Name */
+            name: string;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+        };
+        /**
          * ActionSeries
          * @description Series returned by a read-only action (``return_response`` is implied).
          */
         ActionSeries: {
+            /** Date Field */
+            date_field?: string | null;
+            /** Date Tz */
+            date_tz?: string | null;
             /** Domain */
             domain: string;
             /** End Field */
@@ -751,6 +860,11 @@ export interface components {
             fields: components["schemas"]["SeriesFields"];
             /** Max Horizon H */
             max_horizon_h: number;
+            /**
+             * Params
+             * @default []
+             */
+            params: components["schemas"]["ActionParam"][];
             /** Response Path */
             response_path: string;
             /** Service */
@@ -800,6 +914,12 @@ export interface components {
             source: "attribute";
         };
         /**
+         * BandPreference
+         * @description What the plan would like the controller to do inside an allowed band.
+         * @enum {string}
+         */
+        BandPreference: "neutral" | "prefer_on" | "prefer_off";
+        /**
          * BatteryAction
          * @description Battery limits for the gate (Phase 4 WP2; reviewed by ``control-safety`` in WP10).
          *
@@ -827,6 +947,34 @@ export interface components {
             max_discharge_w?: number | null;
             /** Min Soc Pct */
             min_soc_pct?: number | null;
+        };
+        /**
+         * BatteryBand
+         * @description Battery corridor per interval (Phase 4 writes it; Phase 3 reads only ``reserve``).
+         */
+        BatteryBand: {
+            /**
+             * Charge From Surplus
+             * @default true
+             */
+            charge_from_surplus: boolean;
+            /**
+             * Discharge Lock
+             * @default false
+             */
+            discharge_lock: boolean;
+            /** Grid Charge Max W */
+            grid_charge_max_w?: number | null;
+            /** Max Power W */
+            max_power_w?: number | null;
+            /** Max Soc Pct */
+            max_soc_pct?: number | null;
+            /** Min Power W */
+            min_power_w?: number | null;
+            /** Min Soc Pct */
+            min_soc_pct?: number | null;
+            /** Priority Until Soc Pct */
+            priority_until_soc_pct?: number | null;
         };
         /**
          * BatteryConfig
@@ -1331,6 +1479,21 @@ export interface components {
              * @enum {string}
              */
             type: "decisions";
+        };
+        /**
+         * DeviceBand
+         * @description Per interval and device: what the controller may do and what the planner prefers.
+         */
+        DeviceBand: {
+            /**
+             * Allowed
+             * @default true
+             */
+            allowed: boolean;
+            /** Max Power W */
+            max_power_w?: number | null;
+            /** @default neutral */
+            preference: components["schemas"]["BandPreference"];
         };
         /**
          * DeviceConfig
@@ -2076,6 +2239,10 @@ export interface components {
          *     * ``tou``: fixed time-of-use prices (HT/NT, seasonal) in ``tou`` (tariff v3).
          */
         ImportTariff: {
+            /** Action Params */
+            action_params?: {
+                [key: string]: string | string[];
+            };
             /** Fixed Price */
             fixed_price?: number | null;
             formula?: components["schemas"]["PriceFormula"] | null;
@@ -2085,6 +2252,14 @@ export interface components {
              */
             kind: "fixed" | "dynamic" | "tou";
             price_entity?: components["schemas"]["EntityRef"] | null;
+            /** Price Includes */
+            price_includes?: ("spot_only" | "all_in") | null;
+            /** Role Entities */
+            role_entities?: {
+                [key: string]: components["schemas"]["EntityRef"];
+            };
+            /** Series Key */
+            series_key?: string | null;
             /** Template Id */
             template_id?: string | null;
             tou?: components["schemas"]["TouTariff"] | null;
@@ -2125,6 +2300,75 @@ export interface components {
             ts: string;
         };
         /**
+         * IntervalFlows
+         * @description Plan v2: the flows the planner expects in an interval (mean power, W).
+         *
+         *     Signs per ``core/units.py``: import/export are magnitudes, battery + = charging.
+         *     ``pv_p10_w``/``pv_p50_w``/``pv_p90_w`` are the PV forecast's quantiles as forecast data
+         *     (shown in the UI; ``None`` = the source has no quantiles); the objective uses P50.
+         *     Battery targets are *not* planned on P10 PV (plan §0): they use the risk quantile of
+         *     the learnt **net** energy error distribution (PV minus load) per weather class.
+         *     ``net_risk_quantile`` is that quantile (``RiskLevel.quantile``, e.g. 0.1 = cautious)
+         *     and ``net_risk_w`` the net power PV - load at that quantile the target constraints
+         *     used (may be negative; ``None`` = no target constraint in this interval).
+         *     ``soc_pct`` is the planned state of charge at the *end* of the interval (``None`` = no
+         *     battery). ``devices_w`` is the planned draw of the controllable devices (not part of
+         *     ``load_w``, the base load) and ``curtail_w`` the PV the plan does not use (export limit
+         *     or negative export price; informational until the export-limit chain, Phase 6), so
+         *     ``pv_p50_w + import_w + max(-battery_w, 0) = load_w + devices_w + max(battery_w, 0) +
+         *     export_w + curtail_w`` (both additive in plan v2, default 0).
+         */
+        IntervalFlows: {
+            /**
+             * Battery W
+             * @default 0
+             */
+            battery_w: number;
+            /**
+             * Curtail W
+             * @default 0
+             */
+            curtail_w: number;
+            /**
+             * Devices W
+             * @default 0
+             */
+            devices_w: number;
+            /** Export W */
+            export_w: number;
+            /** Import W */
+            import_w: number;
+            /** Load W */
+            load_w: number;
+            /** Net Risk Quantile */
+            net_risk_quantile?: number | null;
+            /** Net Risk W */
+            net_risk_w?: number | null;
+            /** Pv P10 W */
+            pv_p10_w?: number | null;
+            /** Pv P50 W */
+            pv_p50_w: number;
+            /** Pv P90 W */
+            pv_p90_w?: number | null;
+            /** Soc Pct */
+            soc_pct?: number | null;
+        };
+        /**
+         * IntervalPrices
+         * @description Plan v2: end prices (currency/kWh) the planner used; may be negative.
+         */
+        IntervalPrices: {
+            /**
+             * Estimated
+             * @default false
+             */
+            estimated: boolean;
+            /** Export Price */
+            export_price: number;
+            /** Import Price */
+            import_price: number;
+        };
+        /**
          * LearningSettings
          * @description What SunCore may learn from history (forecast calibration, load model).
          *
@@ -2148,7 +2392,7 @@ export interface components {
              */
             min_history_days: number;
         };
-        LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"] | components["schemas"]["ControlMessage"];
+        LiveMessage: components["schemas"]["SnapshotMessage"] | components["schemas"]["FlowsMessage"] | components["schemas"]["HealthMessage"] | components["schemas"]["DecisionsMessage"] | components["schemas"]["ControlMessage"] | components["schemas"]["PlanMessage"];
         /**
          * LoadDayView
          * @description The day type (and forecast mean temperature) of one local date of the forecast.
@@ -2434,6 +2678,184 @@ export interface components {
             resume_time: string;
         };
         /**
+         * Plan
+         * @description The planner's output as the controller consumes it (ADR-0011).
+         *
+         *     Phase 3 only ever uses :meth:`Plan.default`, which has no intervals and therefore
+         *     allows everything; the Phase 4 planner fills ``intervals`` without changing the
+         *     controller. Intervals must not overlap and are kept in start order.
+         *
+         *     Schema v2 (Phase 4 WP2, additive): ``source``, ``stats`` and per interval
+         *     ``expected``/``prices``/``reasons``. A v1 payload loads unchanged (it keeps
+         *     ``schema_version`` 1, ``source = "default"``); :func:`plan_from_payload` stamps v2.
+         */
+        Plan: {
+            /** Assumptions */
+            assumptions?: {
+                [key: string]: string | number | boolean;
+            };
+            /** Created At */
+            created_at?: string | null;
+            /**
+             * Intervals
+             * @default []
+             */
+            intervals: components["schemas"]["PlanInterval"][];
+            /**
+             * Reasons
+             * @default []
+             */
+            reasons: components["schemas"]["Reason"][];
+            /**
+             * Schema Version
+             * @default 2
+             */
+            schema_version: number;
+            /**
+             * Source
+             * @default default
+             * @enum {string}
+             */
+            source: "solver" | "heuristic" | "default";
+            stats?: components["schemas"]["SolverStats"] | null;
+        };
+        /**
+         * PlanInterval
+         * @description One planning interval (15 min grid in Phase 4; any length is accepted).
+         *
+         *     ``expected``, ``prices`` and ``reasons`` are the plan v2 additions for the UI's
+         *     "Why?"; the controller reads only the bands and the import limit.
+         */
+        PlanInterval: {
+            /**
+             * @default {
+             *       "charge_from_surplus": true,
+             *       "discharge_lock": false
+             *     }
+             */
+            battery: components["schemas"]["BatteryBand"] | null;
+            /** Devices */
+            devices?: {
+                [key: string]: components["schemas"]["DeviceBand"];
+            };
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            expected?: components["schemas"]["IntervalFlows"] | null;
+            /** Grid Import Limit W */
+            grid_import_limit_w?: number | null;
+            prices?: components["schemas"]["IntervalPrices"] | null;
+            /**
+             * Reasons
+             * @default []
+             */
+            reasons: components["schemas"]["Reason"][];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /**
+         * PlanMessage
+         * @description A new plan was computed (summary only; fetch ``GET /api/v1/plan`` for the intervals).
+         */
+        PlanMessage: {
+            plan: components["schemas"]["PlanSummary"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "plan";
+        };
+        /**
+         * PlanStatusView
+         * @description ``GET /api/v1/plan/status``: the scheduler's bookkeeping.
+         */
+        PlanStatusView: {
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Earliest Event Run At */
+            earliest_event_run_at: string | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Last Duration S */
+            last_duration_s: number | null;
+            /** Last Finished At */
+            last_finished_at: string | null;
+            /** Last Ok At */
+            last_ok_at: string | null;
+            /** Last Outcome */
+            last_outcome: ("ok" | "failed" | "skipped") | null;
+            /** Last Started At */
+            last_started_at: string | null;
+            /** Last Trigger */
+            last_trigger: ("start" | "schedule" | "prices" | "forecast" | "deviation" | "config" | "override" | "manual") | null;
+            /** Next Scheduled At */
+            next_scheduled_at: string | null;
+            /** Pending */
+            pending?: ("start" | "schedule" | "prices" | "forecast" | "deviation" | "config" | "override" | "manual")[];
+            plan: components["schemas"]["PlanSummary"];
+            reason?: components["schemas"]["Reason"] | null;
+            /** Running */
+            running: boolean;
+        };
+        /**
+         * PlanSummary
+         * @description The live feed's ``plan`` message and the status' short form: no intervals.
+         */
+        PlanSummary: {
+            /** Created At */
+            created_at: string | null;
+            /** Horizon End */
+            horizon_end: string | null;
+            /** In Use */
+            in_use: boolean;
+            /** Intervals */
+            intervals: number;
+            /** Reasons */
+            reasons?: components["schemas"]["Reason"][];
+            /** Solve Time S */
+            solve_time_s: number | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "solver" | "heuristic" | "default";
+            /** Stale */
+            stale: boolean;
+            /** Status */
+            status: string | null;
+        };
+        /**
+         * PlanView
+         * @description ``GET /api/v1/plan``: the current plan and whether the controller follows it.
+         *
+         *     ``plan`` is :meth:`Plan.default` (no intervals, ``source = "default"``) until the first
+         *     plan exists. ``in_use`` is ``False`` when the plan is stale or has run out: the controller
+         *     then runs on Phase 3 rules only (``fallback`` says why, as a catalogue reason).
+         */
+        PlanView: {
+            /** Expired */
+            expired: boolean;
+            fallback?: components["schemas"]["Reason"] | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** In Use */
+            in_use: boolean;
+            plan: components["schemas"]["Plan"];
+            /** Stale */
+            stale: boolean;
+        };
+        /**
          * PowerEstimate
          * @description A device's power with its uncertainty (BRIEF §4.5: both power paths are equivalent).
          *
@@ -2549,6 +2971,18 @@ export interface components {
             items: components["schemas"]["PreviewItemOut"][];
         };
         /**
+         * PriceErrorOut
+         * @description Why the last refresh failed, as a catalogue key.
+         */
+        PriceErrorOut: {
+            /** Args */
+            args?: {
+                [key: string]: string | number | string[];
+            };
+            /** Key */
+            key: string;
+        };
+        /**
          * PriceFormula
          * @description Spot price -> end price (BRIEF §4.4).
          *
@@ -2590,6 +3024,121 @@ export interface components {
              * @default 0
              */
             vat_pct: number;
+        };
+        /** PriceFreshness */
+        PriceFreshness: {
+            /** Age S */
+            age_s: number | null;
+            /** Fetched At */
+            fetched_at: string | null;
+            /** Known Until */
+            known_until: string | null;
+            last_error: components["schemas"]["PriceErrorOut"] | null;
+            /** Next Refresh At */
+            next_refresh_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "fresh" | "stale" | "missing" | "static";
+        };
+        /** PriceQuality */
+        PriceQuality: {
+            /**
+             * Carried Slots
+             * @default 0
+             */
+            carried_slots: number;
+            /** Dropped Points */
+            dropped_points: number;
+            /** Has Tomorrow */
+            has_tomorrow: boolean;
+            /** Known Slots */
+            known_slots: number;
+            /** Slots */
+            slots: number;
+        };
+        /** PriceReport */
+        PriceReport: {
+            /** Formula Missing */
+            formula_missing: boolean;
+            freshness: components["schemas"]["PriceFreshness"];
+            /**
+             * Price Includes
+             * @enum {string}
+             */
+            price_includes: "spot_only" | "all_in";
+            quality: components["schemas"]["PriceQuality"];
+            /** Slots */
+            slots: components["schemas"]["PriceSlot"][];
+            source: components["schemas"]["PriceSourceInfo"];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * Step Min
+             * @default 15
+             * @constant
+             */
+            step_min: 15;
+            /**
+             * Unit
+             * @default currency/kWh
+             * @constant
+             */
+            unit: "currency/kWh";
+        };
+        /**
+         * PriceSlot
+         * @description One 15-minute interval; a price is ``null`` where no source value covers it.
+         */
+        PriceSlot: {
+            /** Export Price */
+            export_price: number | null;
+            /** Import Price */
+            import_price: number | null;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /** PriceSourceInfo */
+        PriceSourceInfo: {
+            /** Currency */
+            currency: string;
+            /**
+             * Export Kind
+             * @enum {string}
+             */
+            export_kind: "fixed" | "tiered" | "none";
+            /** Export Zeroed Slots */
+            export_zeroed_slots: number;
+            /** Formula Applied */
+            formula_applied: boolean;
+            /**
+             * Import Kind
+             * @enum {string}
+             */
+            import_kind: "dynamic" | "fixed" | "tou";
+            /** Import Source Id */
+            import_source_id: string;
+            /** Native Step Min */
+            native_step_min: number | null;
+            /** Negative Price Rule */
+            negative_price_rule: string;
+            /**
+             * Price Includes
+             * @enum {string}
+             */
+            price_includes: "spot_only" | "all_in";
+            /**
+             * Source Price Includes
+             * @enum {string}
+             */
+            source_price_includes: "spot_only" | "all_in";
         };
         /**
          * PvArray
@@ -2783,6 +3332,22 @@ export interface components {
             kind: "release";
         };
         /**
+         * ReplanAck
+         * @description ``POST /api/v1/plan/replan`` (202): the request is queued, not done.
+         */
+        ReplanAck: {
+            /**
+             * Accepted
+             * @default true
+             */
+            accepted: boolean;
+            /**
+             * Earliest Start At
+             * Format: date-time
+             */
+            earliest_start_at: string;
+        };
+        /**
          * RiskLevel
          * @description How sure the plan must be that a battery target is met (forecast/buffer concept).
          *
@@ -2922,6 +3487,8 @@ export interface components {
          *     values are the values.
          */
         SeriesFields: {
+            /** End Field */
+            end_field?: string | null;
             /** P10 Field */
             p10_field?: string | null;
             /** P90 Field */
@@ -3025,6 +3592,30 @@ export interface components {
              * @enum {string}
              */
             type: "snapshot";
+        };
+        /**
+         * SolverStats
+         * @description Plan v2: how the plan was computed (the UI explains long solves with it).
+         */
+        SolverStats: {
+            /** Mip Gap */
+            mip_gap?: number | null;
+            /**
+             * N Binaries
+             * @default 0
+             */
+            n_binaries: number;
+            /**
+             * N Vars
+             * @default 0
+             */
+            n_vars: number;
+            /** Objective */
+            objective?: number | null;
+            /** Solve Time S */
+            solve_time_s: number;
+            /** Status */
+            status: string;
         };
         /**
          * SourceRef
@@ -4520,6 +5111,104 @@ export interface operations {
             };
         };
     };
+    get_plan: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanView"];
+                };
+            };
+            /** @description The planner is not running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    replan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplanAck"];
+                };
+            };
+            /** @description The planner is not running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    plan_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanStatusView"];
+                };
+            };
+            /** @description The planner is not running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     preview_api_v1_preview_post: {
         parameters: {
             query?: never;
@@ -4560,6 +5249,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_prices: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceReport"];
+                };
+            };
+            /** @description No usable tariff is configured */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

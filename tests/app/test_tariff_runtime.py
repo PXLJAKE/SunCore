@@ -228,6 +228,13 @@ async def test_a_tiered_export_without_the_plant_size_leaves_the_service_off(
 ) -> None:
     from suncore.core.config import ExportTier  # noqa: PLC0415
 
+    site = runtime.site
+    assert site is not None
+    # The demo plant has 8 kWp since the PV forecast (the clear-sky model reads it): drop it.
+    await runtime.put_section(
+        "site",
+        site.model_copy(update={"pv": [a.model_copy(update={"kwp": None}) for a in site.pv]}),
+    )
     await runtime.put_section(
         "tariff",
         TariffConfig(
@@ -235,7 +242,7 @@ async def test_a_tiered_export_without_the_plant_size_leaves_the_service_off(
             export=ExportTariff(kind="tiered", tiers=(ExportTier(price=0.08),)),
         ),
     )
-    assert runtime.tariff is None  # the demo site has no kWp: no rate is guessed
+    assert runtime.tariff is None  # the site has no kWp: no rate is guessed
 
 
 async def test_stop_cancels_the_price_loop(tmp_path: Path) -> None:

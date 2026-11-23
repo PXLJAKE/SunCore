@@ -279,6 +279,7 @@ class PvForecastService:
         self._state = {s.source_id: SourceSnapshot(s.source_id) for s in self._sources}
         self._watched = frozenset().union(*(s.watched_entities for s in self._sources))
         self._woken = False
+        self._listeners: list[Callable[[], None]] = []
         self._sleeper: asyncio.Future[None] | None = None
         self._lock = asyncio.Lock()
         self._last_refresh_at: datetime | None = None
@@ -318,7 +319,25 @@ class PvForecastService:
             for source in self._sources:
                 await self._refresh_one(source, window, now)
             await self._store_blend(now)
+            self._notify()
             return list(self._state.values())
+
+    def add_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` after every refresh pass (forecast data may have changed)."""
+        self._listeners.append(listener)
+
+        def remove() -> None:
+            if listener in self._listeners:
+                self._listeners.remove(listener)
+
+        return remove
+
+    def _notify(self) -> None:
+        for listener in list(self._listeners):
+            try:
+                listener()
+            except Exception:
+                log.exception("forecast.pv.listener_failed")
 
     async def _store_blend(self, now: datetime) -> None:
         try:

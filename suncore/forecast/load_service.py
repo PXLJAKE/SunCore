@@ -190,6 +190,7 @@ class LoadForecastService:
         """Today's recorded outside temperatures (from the fit's read plus every refresh)."""
         self._last_stored_at: datetime | None = None
         self._lock = asyncio.Lock()
+        self._listeners: list[Callable[[], None]] = []
 
     # --- inputs ---------------------------------------------------------------------
 
@@ -474,7 +475,26 @@ class LoadForecastService:
             except Exception:
                 log.exception("forecast.load.refresh_failed")
                 return None
-            return forecast
+        if forecast is not None:
+            self._notify()
+        return forecast
+
+    def add_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` after every successful refresh (the forecast was recomputed)."""
+        self._listeners.append(listener)
+
+        def remove() -> None:
+            if listener in self._listeners:
+                self._listeners.remove(listener)
+
+        return remove
+
+    def _notify(self) -> None:
+        for listener in list(self._listeners):
+            try:
+                listener()
+            except Exception:
+                log.exception("forecast.load.listener_failed")
 
     async def _maybe_store(self, forecast: QuantileSeries, now: datetime) -> None:
         if self._data is None:

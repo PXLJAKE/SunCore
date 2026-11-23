@@ -115,7 +115,13 @@ def battery_share_available(
 
     In this order:
 
-    * a plan band (Phase 4) decides with ``charge_from_surplus`` when given;
+    * a plan band (Phase 4) decides: first its ``priority_until_soc_pct`` against the *live*
+      SoC - battery first (not available) while the SoC is below it or unknown, whatever else
+      the band says - then ``charge_from_surplus``. A band can therefore only move the surplus
+      between battery and consumers; below its priority the consumers never get more than
+      without a plan whose priority is unset (``tests/controller/test_surplus.py``);
+      ``goals.battery_target`` stays a floor under a plan too (review D1): below it, or with
+      an unknown SoC, the battery charges first whatever the band says;
     * a ``battery_target`` the SoC has not reached: the battery charges first - not
       available (an unknown SoC counts as not reached); the target's time of day is left
       to the planner (Phase 4), so the target counts all day;
@@ -127,9 +133,14 @@ def battery_share_available(
 
     Returns ``(available, blocking target in %)``.
     """
-    if band is not None:
-        return (not band.charge_from_surplus, None)
     target = goals.battery_target
+    if band is not None:
+        priority = band.priority_until_soc_pct
+        if priority is not None and (soc_pct is None or soc_pct < priority):
+            return False, priority
+        if target is not None and (soc_pct is None or soc_pct < target.soc_pct):
+            return False, target.soc_pct
+        return (not band.charge_from_surplus, None)
     if target is not None and (soc_pct is None or soc_pct < target.soc_pct):
         return False, target.soc_pct
     if goals.climate_before_export or target is not None:

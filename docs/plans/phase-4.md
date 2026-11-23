@@ -394,6 +394,39 @@ shadow and assisted run is the acceptance test.
    nicht ausführbar. Reicht das, oder soll eine generische „Zwangsladen“-Entität bzw. später ein
    eigener §3.4-ADR kommen?
 
+### Offene Fragen aus PR 4-C (an den Maintainer)
+
+1. **Zusätzliche Tarif-Einstellungen:** Damit Nord Pool (`config_entry`, `areas`), Octopus (zwei
+   Ereignis-Entitäten), mehrere Tibber-Häuser und ENTSO-E mit eigener Preisformel funktionieren,
+   bekommt `tariff.import` vier optionale Felder: `role_entities`, `action_params`, `series_key`,
+   `price_includes` (Aussage des Nutzers, ob die Quelle schon Steuern/Netzentgelte enthält).
+   Alte Dokumente bleiben gültig. Einverstanden?
+2. **Nord Pool `config_entry`:** Die ID des Konfigurationseintrags muss der Nutzer eintragen
+   (Entwicklerwerkzeuge → Aktionen zeigt sie). Ob SunCore sie aus der Entity-Registry lesen kann,
+   ist nicht verifiziert (`UNVERIFIED`). Reicht die manuelle Eingabe für Phase 4?
+3. **Negativpreis-Regel bei All-in-Quellen (Tibber):** Der Spotpreis ist nicht bekannt; als Ersatz
+   gilt der Endpreis (Import) < 0. Das markiert weniger Viertelstunden als die echten
+   Negativ-Spot-Stunden, die Einspeisung wird dann dort noch vergütet gerechnet (`UNVERIFIED`
+   gegen die Praxis). Alternative: zusätzlich die Spot-Quelle (z. B. EPEX Spot Marktpreis) als
+   Referenz konfigurieren (Phase 5). Einverstanden mit dem Ersatzwert?
+4. **`curtailment_required`:** ändert in Phase 4 keinen Preis (Abregelung ist Sache von
+   Planer/Regler, nicht des Preises). Nur `no_remuneration` setzt den Einspeisepreis auf 0.
+5. **Dynamische Einspeisepreise:** keine der verifizierten Quellen liefert welche; der Einspeisepreis
+   kommt aus `tariff.export` (fest, gestaffelt, keiner). Octopus-Export-Entitäten sind nicht
+   angebunden.
+6. **HT/NT-Preis:** pro Viertelstunde zum Beginn der Viertelstunde; Fensterkanten, die nicht auf
+   :00/:15/:30/:45 liegen, wirken ab der nächsten Viertelstunde.
+7. **Veröffentlichung der Preise für morgen:** Standard 13:00 Ortszeit, danach alle 15 min bis die
+   Preise da sind (`UNVERIFIED`; Experten-Umgebungsvariablen `SUNCORE_TARIFF_TOMORROW_AFTER`,
+   `SUNCORE_TARIFF_TOMORROW_POLL_S`, `SUNCORE_TARIFF_REFRESH_INTERVAL_S`, keine App-Optionen,
+   dokumentiert in beiden `DOCS.md`). Bitte an deinem System beobachten.
+8. **§51 EEG und Inbetriebnahmedatum:** Ob bei negativen Preisen vergütet wird, hängt vom
+   Inbetriebnahmedatum der Anlage ab. Die Regel kommt heute nur aus dem Regionsprofil (`de`:
+   `no_remuneration`). Soll es später (Phase 5) pro Anlage eine Abschaltmöglichkeit geben
+   („diese Anlage wird auch bei negativen Preisen vergütet“)?
+9. **Namensabgrenzung:** `PriceFormula.apply` heißt für Aufrufer jetzt `end_price` (der Grenztest
+   reserviert `.apply(` für den Geräteschreibpfad); `apply` bleibt als Alias.
+
 ## Deviations during implementation
 
 - Phase 4 is split into the stacked PRs 4-A…4-I (§3) instead of one PR.
@@ -451,6 +484,87 @@ shadow and assisted run is the acceptance test.
     sensors (`mean`, W); quarter hours with an unmeasured device are left out of a day type's
     profile once it has 7 fully measured days, before that they are kept and flagged.
   - The temperature term shifts a forecast day only with ≥ 20 hours of temperatures (m5).
+- PR 4-F, WP8 (planner):
+  - **Flows**: PV serves the base load first; devices draw only the PV surplus over the base
+    load and the battery discharges only for the base load (never for export, which ADR-0013
+    limits cannot express). "SunCore never imports for a device" therefore holds structurally in
+    the LP, not through a price cap; the automatic device value is the export price + 0.01, an
+    explicit value is capped at `max(import price, export price + 0.01)`.
+  - **No binaries** in Phase 4: with that flow split and free curtailment, simultaneous charge
+    and discharge cannot gain at negative prices; `SolverStats.n_binaries = 0`, the backend
+    accepts integer columns for Phase 6 device models.
+  - **Morning buffer**: a soft SoC target at the earliest time a battery-first day reaches it on
+    P50 (or, when PV cannot, the highest SoC such a day reaches before the coming sunset), plus
+    "battery first" before that time (surplus beyond the battery's charge limit may go elsewhere,
+    more costs the buffer penalty). It never makes the plan hold energy or buy it from the grid by
+    itself. `priority_until_soc_pct` = the buffer until the plan reaches it, at most until the
+    buffer's goal slot.
+  - **Device budget**: before each evening/user target the devices may only take what a
+    battery-first day **on P50** could spare above the target, plus the PV surplus such a day
+    cannot absorb (charge-power and SoC limits) up to the target. The first version used PV at
+    the risk quantile; the PR review replaced it (lead decision D4, plan §0: caution enters only
+    through the WP7 targets). Consequence, measured with a rolling hourly replay of
+    `forecast_too_optimistic` (P10 = 0.25 × P50): the evening target is met when PV comes in at
+    ≥ 0.5 × P50 all day; at 0.4 × P50 it is missed by about 5 %-points, because the WP7 morning
+    buffer's margin does not count the consumers (open question for WP7/the maintainer).
+  - **Targets** are soft (penalty per kWh of shortfall: buffer `2m + 0.5`, evening/user `10m + 1`,
+    `m` = largest absolute price), so the model is always feasible and a shortfall is explained
+    (`planner.battery.target_shortfall`); "relaxed targets" in the fallback chain are therefore
+    built in. A live SoC below the reserve or above max SoC gets a penalised slack instead of an
+    infeasible model.
+  - **Terminal value** of stored energy: `median(import) × discharge efficiency − degradation/2`;
+    degradation is charged half on charge, half on discharge (= the configured cost per charged
+    kWh over a cycle).
+  - **Prices**: missing prices (tomorrow before publication) are filled with the median and
+    reported; grid charging needs a known price; `spot_only` without a formula and no prices at
+    all plan in `flat` mode (self-sufficiency only, nominal import price 1, export from the tariff
+    configuration). On a tariff whose price varies, grid charging needs the spread rule against the
+    best known later price; on a flat tariff the policy alone decides and the LP charges only when
+    a target needs it.
+  - **Inputs are frozen dataclasses**, not Pydantic models (ADR-0003 says "typed Pydantic
+    inputs"): built once per run by a pure function, validated in `__post_init__`; the outputs are
+    the Pydantic plan contracts.
+  - **Plan v2 additions** (additive): `BatteryBand.grid_charge_max_w` / `discharge_lock`
+    (ADR-0013, moved from 4-G to WP8; the controller ignores them until 4-G) and
+    `IntervalFlows.devices_w` / `curtail_w`.
+  - `charge_from_surplus = False` only where the plan gives devices the surplus while no battery
+    target binds; the Phase 3 controller already reads this flag once a plan is wired (WP9).
+- PR 4-F review (2026-10-24), lead decisions by the plan's defaults:
+  - **D1** `goals.battery_target` stays a floor in the controller under a plan:
+    `battery_share_available` keeps the battery first while the live SoC is unknown or below the
+    target, after the band's priority check (property: below `max(priority, target)` a plan never
+    gives consumers more than Phase 3).
+  - **D2** no grid charging without a known price: flat mode and unpublished prices give an
+    allowance of 0, also under a schedule-only policy.
+  - **D3** where the region's negative-price rule zeroed the export price (proxy: export price
+    ≤ 0 while the known import price is negative), export costs 0.001/kWh more than curtailment,
+    so the plan curtails (informational until Phase 6); `planner.export.negative_price_avoided`
+    only where export is ≈ 0 or at most half the surplus.
+  - **D4** device budget on P50 plus overflow (above).
+  - Further: an early-charge tie-breaker (0.0001/kWh falling over the horizon) removes the
+    late-charging degeneracy; an evening target at max SoC is due at the start of the evening
+    deficit; the morning-buffer reason names the reachable SoC and `priority_until_soc_pct` ends
+    with the buffer's goal slot; without a load forecast the plan uses a flat 500 W (or a recent
+    mean passed by the runtime) and plans no consumers; median-filled prices are flagged
+    (`IntervalPrices.estimated`, additive) and never cited as "later price"; `violations()`
+    checks the flow split and the import limit; a slot the previous plan throttled stays tight
+    within 3 %-points / 100 Wh (band hysteresis); without a planner battery
+    `PlanInterval.battery` is `None` (contract: now optional) and the goal rules stay in charge;
+    `GET /api/v1/plan` and `/plan/status` answer 409 without a planner; a plan's age counts from
+    its hand-over; HiGHS releases the GIL while solving (measured: the event loop's largest gap
+    stays far below the solve time, slow test), `UNVERIFIED` on aarch64.
+- WP4: ENTSO-E and EPEX Spot get two templates each where the unit or the price content differs
+  (`entsoe.price`/`_mwh`, `epex_spot.total_price`/`market_price`): a template holds one value unit
+  and one `price_includes`. Octopus is included (its source was verified in 4-A).
+- WP9: the solve runs in a daemon thread (`run_in_daemon_thread`), not `asyncio.to_thread`: an
+  abandoned or hanging solver call must not keep the default executor (and with it the process
+  shutdown) waiting; a hung thread is never joined and blocks only further planner runs.
+- WP9: a plan older than 2 h is *stale* and the controller gets `Plan.default()` from then on
+  (instead of following it until its intervals run out after up to 48 h): stale or missing plan =
+  Phase 3 behaviour. The API still serves it, flagged. Deviation thresholds (10 %-points SoC,
+  1500 W for 30 min) are the documented first values, not tuned.
+- WP9: the controller applies a plan's battery band only while an interval covers `now`, and judges
+  `priority_until_soc_pct` against the live SoC.
 
 ## 7. Out of scope for Phase 4
 

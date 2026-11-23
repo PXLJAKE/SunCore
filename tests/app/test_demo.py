@@ -35,7 +35,7 @@ from suncore.core.devices import (
 from suncore.core.site import EntityRef
 from suncore.ha.connection import CommandTimeoutError
 from suncore.sim.demo_config import WIZARD_STEPS
-from suncore.sim.demo_devices import AC_ID
+from suncore.sim.demo_devices import AC_ID, PRICE_ID
 from suncore.sim.fake_ha import SIM_ENTITY_IDS, FakeHAConnection, demo_site_config
 from suncore.templates import DeviceTemplate
 from tests.api.conftest import client_for, serving
@@ -126,8 +126,11 @@ DEMO_FORECAST_ENTITIES = frozenset(
     }
 )
 """The configured PV forecast sources' day sensors (Phase 4 WP5) and the load forecast's workday
-sensor and weather entity (WP6) are subscribed too."""
-DEMO_SUBSCRIBED = frozenset(SIM_ENTITY_IDS) | DEMO_DEVICE_ENTITIES | DEMO_FORECAST_ENTITIES
+sensor and weather entity (WP6) are subscribed too, and the price sensor of the tariff (it tells
+the price service when to look again)."""
+DEMO_SUBSCRIBED = (
+    frozenset(SIM_ENTITY_IDS) | DEMO_DEVICE_ENTITIES | DEMO_FORECAST_ENTITIES | {PRICE_ID}
+)
 
 
 async def test_demo_starts_fully_configured(demo_runtime: Runtime) -> None:
@@ -221,7 +224,9 @@ async def test_put_site_survives_subscribe_timeout(
             r = await client.put("/api/v1/config/site", json=reduced.model_dump(mode="json"))
     assert r.status_code == 200
     assert (await demo_runtime.config.get_site()) == reduced  # persisted
-    assert [e["event"] for e in logs if e["log_level"] == "warning"] == ["ha.subscribe_failed"]
+    # (the fixture's wall clock is not the simulator's, so the price service may warn as well)
+    warnings = [e["event"] for e in logs if e["log_level"] == "warning"]
+    assert [e for e in warnings if not e.startswith("tariff.")] == ["ha.subscribe_failed"]
 
 
 async def test_put_site_notifies_live_listeners(demo_runtime: Runtime) -> None:
@@ -376,6 +381,7 @@ async def test_put_devices_resubscribes_and_shadows_new_ones(demo_runtime: Runti
     assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) | DEMO_FORECAST_ENTITIES | {
         "switch.heater",
         "sensor.heater_power",
+        PRICE_ID,
     }
     assert await demo_runtime.get_section("devices") == stored
 
@@ -408,4 +414,4 @@ async def test_import_reloads_devices(demo_runtime: Runtime) -> None:
     exported["sections"]["devices"]["body"]["devices"] = []
     await demo_runtime.import_config(exported)
     assert demo_runtime.devices == DevicesConfig()
-    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) | DEMO_FORECAST_ENTITIES
+    assert conn.subscriptions[-1] == frozenset(SIM_ENTITY_IDS) | DEMO_FORECAST_ENTITIES | {PRICE_ID}

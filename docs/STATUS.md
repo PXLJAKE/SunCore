@@ -3,10 +3,12 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-22 · **Phase:** 4 in progress – PR 4-A contracts, PR 4-B storage, PR 4-D PV
-forecast, PR 4-E load forecast and risk model; Phase 3 (3-A `phase-3/a-safety`, 3-B
-`phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the maintainer's shadow test ·
-**Branch:** `phase-4/e-load-risk` (stacked on `phase-4/d-pv-forecast`)
+**Last update:** 2026-10-24 · **Phase:** 4 in progress – PR 4-A contracts, 4-B storage, 4-C
+tariffs, 4-D PV forecast, 4-E load forecast and risk model, 4-F planner and runtime (WP8, WP9;
+battery control WP10 next); Phase 3 (3-A
+`phase-3/a-safety`, 3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) implemented, waiting for the
+maintainer's shadow test · **Branch:** `phase-4/f-planner` (stacked on `phase-4/e-load-risk`, merged
+with `phase-4/c-tariff`)
 
 ## Done
 
@@ -96,6 +98,93 @@ forecast, PR 4-E load forecast and risk model; Phase 3 (3-A `phase-3/a-safety`, 
     (grid ≈ 0 W also without curtailment); only the inverter-plateau rule applies.
   - Follow-ups: the weights come from the *uncalibrated* sources' MAE (a calibrated source is
     under-weighted until a calibrated accuracy is scored); no UI yet (4-H).
+
+- **Phase 4 – PR 4-F, part WP8 planner (branch `phase-4/f-planner`, on 4-E merged with 4-C)**:
+  - `suncore/planner/` (depends on `core` only; boundary test extended; `mypy --strict`):
+    `inputs.py` (`build_inputs`: pure snapshot on the 15-minute grid now → +48 h from the
+    tariff, PV and base-load forecasts, the risk model's morning buffer and evening target,
+    `goals.battery_target` as a timed goal on every day, devices with window masks; `spot_only`
+    prices without a formula are refused → `price_mode = flat` + `planner.fallback.spot_without_formula`;
+    missing prices filled with the median and reported), `model.py` (sparse LP for HiGHS behind
+    the `SolverBackend` protocol, `HighsBackend`; PV serves the base load first, devices draw only
+    PV surplus - "no import for devices" holds structurally; soft targets with penalties; no
+    binaries in Phase 4), `heuristic.py` (rule-based fallback on the same flows), `explain.py`
+    (reasons per interval from binding targets and price comparisons), `run.py` (`plan()`/`run()`:
+    heuristic first as fallback and yardstick, solver within the budget, warm start from the
+    previous plan, fallback chain timeout/infeasible/error/invalid/solver missing → heuristic).
+    `highspy` 1.15.1 (+ NumPy 2.5.4) are runtime dependencies now.
+  - Plan v2, additive: `BatteryBand.grid_charge_max_w` / `discharge_lock` (ADR-0013; set by the
+    planner, the controller still ignores them until 4-G - tested), `IntervalFlows.devices_w` /
+    `curtail_w` (so the expected flows balance).
+  - Device budget: before every evening/user target devices may only take what a battery-first
+    day on P50 could spare plus the PV overflow it cannot absorb (review D4).
+  - Tests: hypothesis properties (balance, SoC corridor, bounds, grid charging only inside the
+    policy, no export at a negative export price, devices ≤ PV surplus, objective LP ≤ heuristic
+    under one cost function, missed targets only when infeasible - checked by a max-SoC LP, every
+    interval has catalogued reasons), scenarios `sunny_day`, `mixed_clouds`, `two_poor_days`,
+    `forecast_too_optimistic` (rolling replay), `negative_prices`, `price_spike`,
+    `grid_charge_price_level`, `prefer_full`, `reference_house` (`suncore/sim/planner_scenarios.py`),
+    fallback chain with fake backends; planner coverage 95 %.
+  - Benchmark `scripts/bench_planner.py` (reference house: 17 kWp east-west, 29.6 kWh/10 kW,
+    13.5 kW export limit, Tibber-like 48 h, blended EEG, two climate devices; 193 slots, 2318
+    variables, 413 rows, 0 binaries): session container amd64 (CPython 3.13) median of 7 runs -
+    HiGHS solve 4 ms cold (244 simplex iterations) / 4 ms warm (141), heuristic 1 ms, whole
+    `run()` incl. explanations 29 ms, inputs incl. risk targets 14 ms. After the review fixes
+    (2026-10-24): solve 3.8 ms cold (284 iterations) / 4.0 ms warm (207), heuristic 0.9 ms,
+    `run()` 24 ms, inputs 10 ms. Slow test: < 3 s on CI. aarch64 not measured yet (`UNVERIFIED`).
+  - Review fixes (2026-10-24, lead decisions D1-D4 and the reviewer/`control-safety` findings,
+    plan §"Deviations" "PR 4-F review"): target floor under a plan in the controller, no grid
+    charging without a known price, curtailment in negative-rule slots, device budget on P50 plus
+    overflow, early-charge tie-breaker, full evening target at the evening deficit, buffer reason
+    and priority bounded to the buffer's day, flat 500 W without a load forecast,
+    `IntervalPrices.estimated`, optional `PlanInterval.battery`, band hysteresis, 409 for
+    `GET /plan` and `/plan/status`, plan age from the hand-over, flapping-band and shadow tests,
+    GIL test, flaky 0.1 s timeout test fixed, NumPy declared.
+  - The runtime, scheduler and API followed in WP9 (next entry).
+
+- **Phase 4 – PR 4-F, part WP9 planner runtime (branch `phase-4/f-planner`)**:
+  - `suncore/app/planning.py` `PlanningService` (time injected twice: `clock`, `sleep`; polled every
+    5 s): first run once prices and forecasts exist (or `first_run_grace_s` = 300 s after the first
+    connection, the gaps are plan reasons; without the battery SoC no plan at all), then every
+    quarter hour + 20 s, and on events - new prices (tariff listener), forecast update (new
+    listeners on the PV and load services), configuration change (`site`, `region`, `tariff`,
+    `forecast`, `battery`, `goals`, `devices`), user override, manual replan, **deviation**: live
+    SoC differs from the plan's SoC at `now` (linear inside the interval) by > 10 %-points, or the
+    grid power differs from the planned net power by > 1500 W for 30 min (10-minute exponential
+    average, so a cloud does not count; a new plan restarts the count). Event runs are debounced
+    (>= 60 s between starts, merged into one run), single flight, the solve runs in a **daemon
+    thread** with budget 8 s (`SUNCORE_PLANNER_BUDGET_S`, `SUNCORE_PLANNER_MIP_GAP`), warm start
+    from the previous plan, a run is abandoned after budget + 30 s (no second thread starts while
+    the first lives). Inputs: `Runtime._collect_planning` -> `build_inputs` (tariff prices, blended
+    PV, base-load forecast, `RiskView` buffer/target/`evening_at`, battery section, live SoC from
+    the flows, `export_limit_w(site)`, `grid.import_limit_w`, devices). A plan snapshot is stored
+    per run (`PlanSnapshotStore`).
+  - Hand-over: `ControlStack(plan_provider=planning.active_plan)` (`set_plan` for static use),
+    read once per tick; the provider survives stack rebuilds. A failed or skipped run keeps the last
+    good plan; **after 2 h it is stale** (flagged in the API) **and the controller gets
+    `Plan.default()`**, as it does when every interval is in the past.
+  - Controller (for the `control-safety` review): `battery_share_available` judges
+    `BatteryBand.priority_until_soc_pct` against the live SoC every tick (battery first while the
+    SoC is below it or unknown, before `charge_from_surplus`); a band applies only while a plan
+    interval covers `now` (before: a non-default plan outside its intervals used the empty default
+    band). Nothing else changed: device bands only restrict (`allowed`, `max_power_w`),
+    `preference` is ignored, no `BatteryAction` is ever proposed and the gate still rejects it.
+    Tests: `tests/controller/test_plan_handover.py` (hypothesis: bands never raise a device above
+    the plan-less controller, below the priority no more surplus for consumers),
+    `tests/sim/test_planner_shadow.py` (scenario `planner_in_shadow`: plan every quarter hour, bands
+    followed, nothing written, gate rejects `BatteryAction` with a plan present).
+  - API: `GET /api/v1/plan?hours=` (`PlanView`: plan, `stale`, `expired`, `in_use`, `fallback`),
+    `GET /api/v1/plan/status` (`PlanStatusView`), `POST /api/v1/plan/replan` (202, `ReplanAck`,
+    409 `api.error.planning_unavailable`), live message `{type: "plan"}` (summary only). New
+    catalogue keys `planner.status.*` and `api.error.planning_unavailable` (en/de); OpenAPI and
+    frontend types regenerated, no UI (4-H).
+  - Runtime: created in `prepare()`, started after the stack, cancelled with the storage tasks and
+    awaited **after** `stack.shutdown()` (a hanging planner never delays the release - tested).
+    Demo: the planner runs on the simulated Tibber prices, Solcast/Open-Meteo/Forecast.Solar and the
+    cold-start load profile (`/api/v1/plan` shows a real plan; the same inputs give the same plan).
+  - Not done / follow-ups: the stored snapshots are not read back at start (the first run after a
+    restart plans cold); device `max_w` comes from the configuration, not the learned power models;
+    `UNVERIFIED`: planner run time on aarch64 and under the full demo load.
 
 - **Phase 4 – PR 4-E (WP6 load forecast, WP7 risk model; branch `phase-4/e-load-risk`, stacked on
   4-D)**:
@@ -424,9 +513,37 @@ forecast, PR 4-E load forecast and risk model; Phase 3 (3-A `phase-3/a-safety`, 
   (WP3) → 4-C tariffs (WP4) and 4-D PV forecast (WP5) → 4-E load + risk (WP6, WP7) → 4-F planner and
   runtime (WP8, WP9) → 4-G battery control (WP10) → 4-H frontend + docs (WP11, WP13); 4-I ML load
   (WP12, optional, after 4-E). Merge only after the Phase 3 acceptance.
-- **ADR-0013 must be accepted before WP10** (4-G). Its contract changes (`BatteryAction` `None` =
-  baseline, `BatteryBand.grid_charge_max_w`/`discharge_lock`, `effective_reserve_pct`,
-  `battery_identity`) land at the start of 4-G, after the maintainer accepted it.
+- **ADR-0013 must be accepted before WP10** (4-G). Its contract changes `BatteryBand.grid_charge_max_w`
+  / `discharge_lock` landed with WP8 (additive, planner-only, the controller ignores them);
+  `BatteryAction` `None` = baseline and `battery_identity` land at the start of 4-G.
+- **WP9 done** (4-F, see Done); next: 4-G battery control (WP10, ADR-0013 first).
+- **PR 4-C (WP4, branch `phase-4/c-tariff`)**: `suncore/tariff/` - a template-driven price adapter
+  (`engine.py`: action or attribute source, list or mapping shape, per-MWh conversion, native grid
+  from `end - start` or the timestamp spacing, 15/60-minute mixes as segments, gaps `None`, DST
+  safe; a kWh/MWh unit mismatch between sensor and template is refused), fixed and HT/NT sources,
+  `PriceFormula` on spot-only sources only, export fixed/tiered/none, the region's
+  `no_remuneration` rule (export price 0 in slots with a negative spot price; for all-in sources the
+  import end price is the proxy), `TariffService` (refresh hourly, on entity change for attribute
+  sources, every 15 min from 13:00 local until tomorrow's prices arrive, back-off after failures,
+  throttled calls are not failures, good data is never replaced by an empty or failed fetch,
+  prices stored in `timeseries.db`) and `GET /api/v1/prices?hours=48`. Templates `tibber.price`
+  (updated), `nordpool.price`, `entsoe.price` (+`_mwh`), `epex_spot.total_price`/`market_price`,
+  `octopus_energy.rates`, `generic.price_list`; schema changes are additive (templates README
+  changelog). Wiring in `suncore/app/adapters.py`; demo and simulator: the fake answers
+  `tibber.get_prices` through the same template path, scenario `negative_prices`.
+  `PriceFormula.end_price` is the 4-A `apply` under a name the actuator boundary test does not
+  reserve. `UNVERIFIED`: see the price rows in the table below.
+  Review fixes: a failing attribute source backs off; a fetch without a known price fails and keeps
+  the old data (unknown slots are carried over, `quality.carried_slots`); the old tail never overlaps
+  new data; Nord Pool `date` is the CET delivery day (`date_tz`, research note in
+  `research/integrations.md`) and "tomorrow covered" ends at the market's day end; a source in
+  another currency than the region is refused; `segments_from_points` (4-A) treats a multiple-step
+  hole at the list end as a gap. A spot-only price without a formula is a system-check warning and
+  `GET /api/v1/prices` says `formula_missing: true` with the top-level `price_includes`.
+  **For 4-F: the planner must refuse `spot_only` import prices without a formula (it must not
+  plan with bare market prices).** Known: the error argument `available` of
+  `tariff.error.ambiguous_series` carries the home names/areas of the response (shown to the user,
+  they are needed to choose one).
 - Maintainer questions from 4-A: plan §6 "Offene Fragen aus PR 4-A" (grid-charge schedule
   precedence, VAT on negative spot prices, export tiers, grid charging on the Kostal).
 
@@ -622,6 +739,7 @@ forecast, PR 4-E load forecast and risk model; Phase 3 (3-A `phase-3/a-safety`, 
 | Supervisor proxy forwards `recorder/statistics_during_period` (the 4-B rebuild logs a warning and retries) | `suncore/ha/statistics.py` | first run on HA OS |
 | `change`/`sum` rows of real energy counters (the rebuild reads them as verified from source, not tested against live counters); `backup_exclude` accepts the glob `timeseries.db.corrupt*` | `suncore/ha/statistics.py`, `addon/*/config.yaml` | maintainer's HA with an energy counter; a backup on HA OS |
 | Publication time of next-day prices (Tibber, Nord Pool, ENTSO-E, EPEX) | `research/integrations.md` | observe on the maintainer's HA |
+| Nord Pool `config_entry` id source, sensor translation keys, publication time; Octopus/ENTSO-E/EPEX entity matchers (platform and unit only, no translation keys); `start`/`end` sent to `tibber.get_prices` as ISO with offset; negative-price rule proxy for all-in sources | `templates/tariff/*.yaml`, `suncore/tariff/pricing.py` | live check on a system with the integration |
 | VAT applied to negative spot prices | `suncore/core/tariff.py` | maintainer's bill / supplier terms |
 | KNN load model performance on aarch64 | plan WP12 | CI arm runner benchmark |
 | Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
@@ -642,7 +760,9 @@ forecast, PR 4-E load forecast and risk model; Phase 3 (3-A `phase-3/a-safety`, 
 | Forecast.Solar `wh_hours`/`watt_hours_period` keys read as period *start* (vendor API unreachable) | `templates/forecast/forecast_solar.pv.yaml`, `suncore/forecast/pv/parsing.py` | live comparison with the integration's sensors |
 | Supervisor proxy forwards `energy/solar_forecast` | `suncore/ha/` (`fetch_solar_forecast`) | first run on HA OS |
 | PV calibration constants (classes kt 0.3/0.65, shrink k = 16, decay 0.98, factor 0.5–1.5) and the clipping thresholds (plateau ±0.3 % for ≥ 1 h on ≥ 2 days; export within max(3 %, 50 W)) are reasoned, not fitted to real data | `suncore/forecast/pv/` | 30+ days of the maintainer's data |
-| Solve times on Raspberry Pi 4 | ADR-0003 | Phase 4 benchmark |
+| Planner solve times on aarch64 (Raspberry Pi 4, HA Green); amd64: 4 ms solve, 24 ms whole run for the reference house; HiGHS releasing the GIL on aarch64 (measured on amd64) | ADR-0003, `scripts/bench_planner.py`, `tests/planner/test_gil.py` | run the benchmark and the slow tests on a Pi / the CI arm runner |
+| Negative-price rule slots in the planner use a proxy (export price ≤ 0 and import price < 0); a spot-only source with a formula whose end price stays positive is not detected | `suncore/planner/inputs.py` | tariff service exposes the rule's slots (Phase 5) |
+| Planner weights and rules: target penalties (10 × max price + 1, buffer 2 × + 0.5), terminal value (median import × discharge efficiency − degradation/2), device budget on P50 plus overflow (a day far below P50 can miss the evening target, review D4), flat 500 W base load without a load forecast, automatic device value export + 0.01 | `suncore/planner/model.py`, `inputs.py` | shadow plans on the maintainer's system |
 | `weather.get_forecasts` `hourly` support of the maintainer's weather integration (the `temperature_unit` attribute and the conversion of the forecast to it are verified from source, `research/ha-websocket-api.md`) | `suncore/app/adapters.py` (`HaLoadReader`) | maintainer's HA |
 | `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (the `days_offset` handling is verified from source; a changed country/holiday list is not visible in the attributes, so the day-type cache only resets on a changed entity, `workdays`, `excludes` or offset) | `suncore/app/adapters.py`, `suncore/forecast/load_service.py` | maintainer maps a Workday sensor |
 | Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, 7 clean days, degree-day bases 15/22 °C, coverage 75 %/90 %, 20 h temperature days, anchors sunrise + 1 h / sunset − 1 h, sunrise threshold 2 %/20 W) and the default PV bands per weather class (clear 0.85/1.10, mixed 0.55/1.35, overcast 0.35/1.70) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |

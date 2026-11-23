@@ -55,6 +55,7 @@ from suncore.core.control import (
     TEMPERATURE_ROLE,
     ControlSettings,
     DeviceState,
+    Plan,
     PowerEstimate,
     has_heat_limit,
 )
@@ -109,6 +110,8 @@ DeviceActuator = StatefulActuator
 """What ``create_driver`` returns, structurally: the gate's actuator plus ``device_state``."""
 
 StateChangeListener = Callable[[], None]
+PlanProvider = Callable[[datetime], Plan]
+"""``now -> plan`` for the tick (the planner runtime's ``active_plan``)."""
 MeasurementSink = Callable[[datetime, Mapping[str, float | None]], None]
 """Receives ``(tick time, {measurement key: value or None})`` after every tick."""
 
@@ -183,6 +186,8 @@ class ControlStack:
             measurements of that tick (``suncore.core.measurements`` keys; ``None`` = no valid
             value). Synchronous and cheap by contract; an exception is logged and swallowed -
             recording can never disturb the control loop.
+        plan_provider: ``now -> Plan`` read once per tick (``PlanningService.active_plan``); without
+            it the plan given to :meth:`set_plan` (default ``Plan.default()``) is used.
         defer_recover: wait for :meth:`allow_recover` before ``gate.recover()`` (the runtime
             first learns Home Assistant's time zone, whose change would rebuild the stack in
             the middle of the recovery).
@@ -213,9 +218,12 @@ class ControlStack:
         after_handover: bool = False,
         predecessor: SafetyGate | None = None,
         defer_recover: bool = False,
+        plan_provider: PlanProvider | None = None,
         on_measurements: MeasurementSink | None = None,
     ) -> None:
         self._connection = connection
+        self._plan_provider = plan_provider
+        self._plan = Plan.default()
         self._on_measurements = on_measurements
         self._recover_allowed = not defer_recover
         self._after_handover = after_handover
@@ -385,6 +393,25 @@ class ControlStack:
 
     def set_goals(self, goals: GoalsConfig) -> None:
         self._goals = goals
+
+    def set_plan(self, plan: Plan) -> None:
+        """Hand a plan to the controller (one reference assignment, read once per tick).
+
+        Ignored while a ``plan_provider`` is installed (the provider decides then).
+        """
+        self._plan = plan
+
+    def current_plan(self, now: datetime) -> Plan:
+        """The plan for this tick: the provider's, else the one set; ``Plan.default()`` if the
+        provider fails (the Phase 3 behaviour is the safe fallback)."""
+        provider = self._plan_provider
+        if provider is None:
+            return self._plan
+        try:
+            return provider(now)
+        except Exception:
+            log.exception("control.plan_provider_failed")
+            return Plan.default()
 
     def add_listener(self, listener: StateChangeListener) -> Unsubscribe:
         """Call ``listener`` whenever the control state may have changed (tick, decision)."""
@@ -700,6 +727,7 @@ class ControlStack:
             import_limit_w=self._import_limit_w,
             reserve_soc_pct=self._reserve_soc_pct,
             goals=self._goals,
+            plan=self.current_plan(now),
         )
         self.estimates = estimates
         self.states = states

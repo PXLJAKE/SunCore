@@ -22,9 +22,11 @@ from suncore.api import (
     HAUnavailableError,
     HealthReport,
     PeerPolicy,
+    TariffNotConfiguredError,
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import Flow, FlowSnapshot
 from suncore.core.battery import BatterySettings
 from suncore.core.config import SECTION_MODELS, OperationConfig
@@ -57,12 +59,14 @@ from suncore.forecast.load_service import LoadForecastService
 from suncore.forecast.risk import ErrorModel
 from suncore.forecast.risk_learning import risk_view
 from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView, RiskView
+from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import (
     HistoryEntry,
     HistoryEntryNotFoundError,
     ImportRejectedError,
     UnknownSectionError,
 )
+from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog, load_templates
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates"
@@ -230,6 +234,30 @@ class FakeServices:
             tz=UTC,
             plant=None,
         )
+        self.price_report: PriceReport | None = None
+        self.price_hours: list[int] = []
+
+        async def nothing(now: datetime, previous: object) -> PlanningSnapshot:
+            return PlanningSnapshot(None)
+
+        self.planning = PlanningService(nothing, LiveReading, clock=lambda: NOW)
+
+    async def plan_view(self, hours: int) -> PlanView:
+        self.calls.append(("plan_view", hours))
+        return self.planning.view(hours)
+
+    async def plan_status(self) -> PlanStatusView:
+        return self.planning.status()
+
+    async def replan(self) -> ReplanAck:
+        self.calls.append(("replan", None))
+        return self.planning.request("manual")
+
+    def plan_summary(self) -> PlanSummary:
+        return self.planning.summary()
+
+    def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        return self.planning.add_listener(listener)
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
         self.pv_hours.append(hours)
@@ -244,6 +272,12 @@ class FakeServices:
 
     async def forecast_risk(self) -> RiskView:
         return self.risk
+
+    async def prices(self, hours: int) -> PriceReport:
+        self.price_hours.append(hours)
+        if self.price_report is None:
+            raise TariffNotConfiguredError
+        return self.price_report
 
     async def health(self) -> HealthReport:
         self.health_calls += 1
