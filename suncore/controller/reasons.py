@@ -42,8 +42,23 @@ NO_SURPLUS: Final = "controller.no_surplus"
 IDLE: Final = "controller.idle"
 HEAT_LIMIT: Final = "controller.heat_limit"
 HEAT_TEMPERATURE_UNKNOWN: Final = "controller.heat_temperature_unknown"
+# Phase 4 WP10: the battery band of the plan as battery intents (``controller.battery``).
+BATTERY_GRID_CHARGE: Final = "controller.battery.grid_charge"
+BATTERY_DISCHARGE_LOCK: Final = "controller.battery.discharge_lock"
+BATTERY_RELEASE: Final = "controller.battery.release"
+BATTERY_GRID_CHARGE_UNSUPPORTED: Final = "controller.battery.grid_charge_unsupported"
+BATTERY_DISCHARGE_LOCK_UNSUPPORTED: Final = "controller.battery.discharge_lock_unsupported"
+BATTERY_NO_PLAN: Final = "controller.battery.no_plan"
+BATTERY_BLOCKED: Final = "controller.battery.blocked"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
+    BATTERY_GRID_CHARGE,
+    BATTERY_DISCHARGE_LOCK,
+    BATTERY_RELEASE,
+    BATTERY_GRID_CHARGE_UNSUPPORTED,
+    BATTERY_DISCHARGE_LOCK_UNSUPPORTED,
+    BATTERY_NO_PLAN,
+    BATTERY_BLOCKED,
     HEAT_LIMIT,
     HEAT_TEMPERATURE_UNKNOWN,
     SURPLUS_ON,

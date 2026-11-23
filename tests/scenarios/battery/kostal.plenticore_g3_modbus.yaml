@@ -1,0 +1,43 @@
+template: kostal.plenticore_g3_modbus
+sim_scenario: summer_day
+# `modbus:` YAML sensors of the §3.5 registers (platform modbus); the power sensors tie, so the
+# user picks the register for each role in the wizard.
+extra_entities:
+  - { entity_id: sensor.kostal_5_byte_order, platform: modbus, state: "0" }
+  - { entity_id: sensor.kostal_1080_battery_management, platform: modbus, state: "2" }
+  - { entity_id: sensor.kostal_1280_max_charge, platform: modbus, unit: W, state: "10000" }
+  - { entity_id: sensor.kostal_1282_max_discharge, platform: modbus, unit: W, state: "10000" }
+  - { entity_id: sensor.kostal_1284_fallback_charge, platform: modbus, unit: W, state: "10000" }
+  - { entity_id: sensor.kostal_1286_fallback_discharge, platform: modbus, unit: W, state: "10000" }
+  - { entity_id: sensor.kostal_1288_fallback_time, platform: modbus, unit: s, state: "60" }
+  - { entity_id: sensor.kostal_1076_battery_charge_limit, platform: modbus, unit: W, state: "10000" }
+  - { entity_id: sensor.kostal_1078_battery_discharge_limit, platform: modbus, unit: W, state: "10000" }
+roles:
+  byte_order:
+    tied: [sensor.kostal_5_byte_order, sensor.kostal_1080_battery_management, sensor.kostal_1280_max_charge, sensor.kostal_1282_max_discharge, sensor.kostal_1284_fallback_charge, sensor.kostal_1286_fallback_discharge, sensor.kostal_1288_fallback_time, sensor.kostal_1076_battery_charge_limit, sensor.kostal_1078_battery_discharge_limit]
+    pick: sensor.kostal_5_byte_order
+  external_control:
+    tied: [sensor.kostal_5_byte_order, sensor.kostal_1080_battery_management, sensor.kostal_1280_max_charge, sensor.kostal_1282_max_discharge, sensor.kostal_1284_fallback_charge, sensor.kostal_1286_fallback_discharge, sensor.kostal_1288_fallback_time, sensor.kostal_1076_battery_charge_limit, sensor.kostal_1078_battery_discharge_limit]
+    pick: sensor.kostal_1080_battery_management
+  charge_limit:
+    tied: [sensor.kostal_1280_max_charge, sensor.kostal_1282_max_discharge, sensor.kostal_1284_fallback_charge, sensor.kostal_1286_fallback_discharge, sensor.kostal_1076_battery_charge_limit, sensor.kostal_1078_battery_discharge_limit]
+    pick: sensor.kostal_1280_max_charge
+  discharge_limit:
+    tied: [sensor.kostal_1280_max_charge, sensor.kostal_1282_max_discharge, sensor.kostal_1284_fallback_charge, sensor.kostal_1286_fallback_discharge, sensor.kostal_1076_battery_charge_limit, sensor.kostal_1078_battery_discharge_limit]
+    pick: sensor.kostal_1282_max_discharge
+  fallback_charge_limit:
+    tied: [sensor.kostal_1280_max_charge, sensor.kostal_1282_max_discharge, sensor.kostal_1284_fallback_charge, sensor.kostal_1286_fallback_discharge, sensor.kostal_1076_battery_charge_limit, sensor.kostal_1078_battery_discharge_limit]
+    pick: sensor.kostal_1284_fallback_charge
+  fallback_discharge_limit:
+    tied: [sensor.kostal_1280_max_charge, sensor.kostal_1282_max_discharge, sensor.kostal_1284_fallback_charge, sensor.kostal_1286_fallback_discharge, sensor.kostal_1076_battery_charge_limit, sensor.kostal_1078_battery_discharge_limit]
+    pick: sensor.kostal_1286_fallback_discharge
+  own_charge_limit:
+    tied: [sensor.kostal_1280_max_charge, sensor.kostal_1282_max_discharge, sensor.kostal_1284_fallback_charge, sensor.kostal_1286_fallback_discharge, sensor.kostal_1076_battery_charge_limit, sensor.kostal_1078_battery_discharge_limit]
+    pick: sensor.kostal_1076_battery_charge_limit
+  own_discharge_limit:
+    tied: [sensor.kostal_1280_max_charge, sensor.kostal_1282_max_discharge, sensor.kostal_1284_fallback_charge, sensor.kostal_1286_fallback_discharge, sensor.kostal_1076_battery_charge_limit, sensor.kostal_1078_battery_discharge_limit]
+    pick: sensor.kostal_1078_battery_discharge_limit
+  fallback_timeout:
+    entity: sensor.kostal_1288_fallback_time
+    criteria: [domain, platforms, units]
+capabilities: [charge_limit, discharge_limit, hardware_fallback]

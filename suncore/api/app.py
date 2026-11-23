@@ -77,6 +77,8 @@ from suncore.core.config import (
     missing_action_params,
 )
 from suncore.core.controlstate import (
+    BatteryModeRequest,
+    BatteryNotControllableError,
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
@@ -136,6 +138,7 @@ ERR_DEVICE_IDENTITY_CHANGED: Final = "api.error.device_identity_changed"
 ERR_MODE_RAISE_REJECTED: Final = "api.error.mode_raise_rejected"
 ERR_TARIFF_NOT_CONFIGURED: Final = "api.error.tariff_not_configured"
 ERR_PLANNING_UNAVAILABLE: Final = "api.error.planning_unavailable"
+ERR_BATTERY_NOT_CONTROLLABLE: Final = "api.error.battery_not_controllable"
 BODY_MAX_BYTES: Final = 64 * 1024
 """Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
 SECTION_MAX_BYTES: Final = 256 * 1024
@@ -497,6 +500,28 @@ def _register_control(app: FastAPI, services: Services) -> None:
             return await services.set_device_mode(device_id, body.mode, body.identity)
         except UnknownDeviceError as exc:
             raise HTTPException(status_code=404, detail=ERR_UNKNOWN_DEVICE) from exc
+        except DeviceIdentityChangedError as exc:
+            raise HTTPException(status_code=409, detail=ERR_DEVICE_IDENTITY_CHANGED) from exc
+
+    @app.put(
+        f"{API_PREFIX}/operation/battery",
+        response_model=OperationConfig,
+        responses={
+            404: {"model": ErrorOut, "description": "No battery adapter (observe-only)"},
+            409: {
+                "model": ErrorOut,
+                "description": "The battery changed since its identity was read",
+            },
+        },
+    )
+    async def set_battery_mode(body: BatteryModeRequest) -> OperationConfig:
+        """Set the battery's mode (ADR-0013). Anything above shadow needs the battery's
+        ``identity`` token from the control state; shadow never does. An adapter whose hardware
+        fallback is not measured runs at most assisted whatever is stored."""
+        try:
+            return await services.set_battery_mode(body.mode, body.identity)
+        except BatteryNotControllableError as exc:
+            raise HTTPException(status_code=404, detail=ERR_BATTERY_NOT_CONTROLLABLE) from exc
         except DeviceIdentityChangedError as exc:
             raise HTTPException(status_code=409, detail=ERR_DEVICE_IDENTITY_CHANGED) from exc
 

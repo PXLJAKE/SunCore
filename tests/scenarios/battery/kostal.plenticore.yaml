@@ -1,0 +1,17 @@
+template: kostal.plenticore
+sim_scenario: summer_day
+# Registry metadata as the kostal_plenticore integration creates it (number.py / select.py of
+# HA core 5cfe9aad): the min-SoC number in %, the two power numbers in W, the usage-mode select.
+extra_entities:
+  - { entity_id: number.scb_battery_min_soc, platform: kostal_plenticore, unit: "%", state: "5" }
+  - { entity_id: number.scb_battery_min_home_consumption, platform: kostal_plenticore, unit: W, state: "50" }
+  - { entity_id: number.scb_active_power_limitation, platform: kostal_plenticore, unit: W, state: "10000" }
+  - { entity_id: select.scb_battery_charging_usage_mode, platform: kostal_plenticore, state: "None" }
+roles:
+  min_soc_number:
+    entity: number.scb_battery_min_soc
+    criteria: [domain, platforms, units]
+  charge_mode:
+    entity: select.scb_battery_charging_usage_mode
+    criteria: [domain, platforms]
+capabilities: [min_soc]

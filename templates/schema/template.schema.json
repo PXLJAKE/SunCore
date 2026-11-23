@@ -277,6 +277,16 @@
           "title": "Controls",
           "type": "object"
         },
+        "driver": {
+          "default": "generic",
+          "enum": [
+            "generic",
+            "kostal_plenticore",
+            "kostal_modbus"
+          ],
+          "title": "Driver",
+          "type": "string"
+        },
         "id": {
           "maxLength": 64,
           "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
@@ -300,6 +310,17 @@
           ],
           "default": null,
           "title": "Min App Version"
+        },
+        "modbus": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModbusRegisterMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "maxLength": 120,
@@ -395,7 +416,8 @@
         "charge_limit",
         "discharge_limit",
         "grid_charge",
-        "battery_modes"
+        "battery_modes",
+        "hardware_fallback"
       ],
       "title": "Capability",
       "type": "string"
@@ -1108,6 +1130,77 @@
         "resolution_min"
       ],
       "title": "ForecastTemplate",
+      "type": "object"
+    },
+    "ModbusRegisterMap": {
+      "additionalProperties": false,
+      "description": "Registers of a limit-with-fallback battery interface (Kostal §3.5, ``kostal_modbus``).\n\nAddresses as the vendor document gives them (the HA action writes them verbatim). Powers\nare IEEE 754 float32 in two registers, the timeout an unsigned 32-bit value in two\nregisters; the word order comes from the battery configuration (``battery.modbus``).\n``external_control_value`` is what ``external_control_register`` must read before any\nwrite (Kostal 1080 = ``0x02``: external battery management via Modbus).",
+      "properties": {
+        "external_control_register": {
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "External Control Register",
+          "type": "integer"
+        },
+        "external_control_value": {
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "External Control Value",
+          "type": "integer"
+        },
+        "fallback_max_charge": {
+          "maximum": 65534,
+          "minimum": 0,
+          "title": "Fallback Max Charge",
+          "type": "integer"
+        },
+        "fallback_max_discharge": {
+          "maximum": 65534,
+          "minimum": 0,
+          "title": "Fallback Max Discharge",
+          "type": "integer"
+        },
+        "fallback_timeout": {
+          "maximum": 65534,
+          "minimum": 0,
+          "title": "Fallback Timeout",
+          "type": "integer"
+        },
+        "fallback_timeout_max_s": {
+          "minimum": 1,
+          "title": "Fallback Timeout Max S",
+          "type": "integer"
+        },
+        "fallback_timeout_min_s": {
+          "minimum": 1,
+          "title": "Fallback Timeout Min S",
+          "type": "integer"
+        },
+        "max_charge": {
+          "maximum": 65534,
+          "minimum": 0,
+          "title": "Max Charge",
+          "type": "integer"
+        },
+        "max_discharge": {
+          "maximum": 65534,
+          "minimum": 0,
+          "title": "Max Discharge",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_charge",
+        "max_discharge",
+        "fallback_max_charge",
+        "fallback_max_discharge",
+        "fallback_timeout",
+        "fallback_timeout_min_s",
+        "fallback_timeout_max_s",
+        "external_control_register",
+        "external_control_value"
+      ],
+      "title": "ModbusRegisterMap",
       "type": "object"
     },
     "Mode": {

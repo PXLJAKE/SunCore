@@ -238,6 +238,12 @@ class Services(Protocol):
         :class:`DeviceIdentityChangedError`."""
         ...
 
+    async def set_battery_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        """Set the battery's mode (ADR-0013). Raising it above shadow needs the battery's current
+        identity token (``BatteryControlState.identity``): raises
+        :class:`BatteryNotControllableError` (no adapter), :class:`DeviceIdentityChangedError`."""
+        ...
+
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Call ``listener`` whenever the control state may have changed (tick, decision, mode)."""
         ...

@@ -96,6 +96,7 @@ from suncore.sim.devices import (
     validate_schema,
 )
 from suncore.sim.house import House, HouseState
+from suncore.sim.inverter import SimInverter
 from suncore.sim.recorder import SimRecorder
 from suncore.sim.scenario import ManualEvent, Scenario, SimSignal
 
@@ -688,6 +689,16 @@ class FakeHAConnection:
             )
             msg = f"fake HA is {self._state.value}"
             raise NotConnectedError(msg)
+        inverter = self._house.inverter if self._house is not None else None
+        if inverter is not None and self._inverter_call(
+            inverter, now, domain, service, entity_ids, fields
+        ):
+            context = self._new_context(user_id=SUPERVISOR_USER_ID)
+            self._record(
+                CallRecord(now, domain, service, entity_ids, fields, context.id, entity_ids)
+            )
+            self._publish_inverter(emit=True, context=context)
+            return {"context": {"id": context.id, "parent_id": None, "user_id": context.user_id}}
         try:
             clean = validate_schema(domain, service, fields)
             if not any(k in merged for k in TARGET_KEYS):
@@ -735,6 +746,49 @@ class FakeHAConnection:
         if blocking > 0:
             await self._sleep(blocking / self._speed)
         return {"context": {"id": context.id, "parent_id": None, "user_id": context.user_id}}
+
+    def _inverter_call(  # noqa: PLR0917
+        self,
+        inverter: SimInverter,
+        now: datetime,
+        domain: str,
+        service: str,
+        entity_ids: tuple[str, ...],
+        fields: Mapping[str, Any],
+    ) -> bool:
+        """The battery inverter's services (WP10): its numbers and ``modbus.write_register``.
+
+        ``modbus.write_register`` has no target and fails silently (the hub only logs); a number
+        write to an unavailable entity is skipped silently like any other.
+        """
+        if domain == "modbus" and service == "write_register":
+            inverter.write_register(now, dict(fields))
+            return True
+        if (
+            domain == "number"
+            and service == "set_value"
+            and entity_ids
+            and all(inverter.handles(e) for e in entity_ids)
+        ):
+            value = fields.get("value")
+            if not isinstance(value, int | float) or isinstance(value, bool):
+                raise CommandError("invalid_format", "expected float for dictionary value")
+            for entity_id in entity_ids:
+                if entity_id not in self._unavailable:
+                    inverter.set_number(now, entity_id, float(value))
+            return True
+        return False
+
+    def _publish_inverter(self, *, emit: bool, context: StateContext | None = None) -> None:
+        inverter = self._house.inverter if self._house is not None else None
+        if inverter is None:
+            return
+        self._commit(
+            inverter.states(self._sim_now()),
+            context=context,
+            emit=emit,
+            only_changes=False,
+        )
 
     def _plan(
         self,
@@ -998,6 +1052,17 @@ class FakeHAConnection:
                 only_changes=True,
             )
         )
+        inverter = self._house.inverter
+        if inverter is not None:  # the battery inverter's numbers and modbus sensors (WP10)
+            changed.update(
+                self._commit(
+                    inverter.states(house_state.time),
+                    context=None,
+                    emit=False,
+                    faults=faults,
+                    only_changes=False,
+                )
+            )
         if not emit:
             return
         if disconnected:

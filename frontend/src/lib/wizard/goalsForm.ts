@@ -49,10 +49,16 @@ export interface OperationForm {
   mode: OperatingMode;
   /** Explicit mode per device id; a missing entry is shadow (new devices always start there). */
   deviceModes: Record<string, OperatingMode>;
+  /** The battery's mode is carried through unchanged (raised only with its identity token). */
+  batteryMode: OperatingMode;
 }
 
 export function operationFormFromConfig(cfg: OperationConfig | null): OperationForm {
-  return { mode: cfg?.mode ?? 'shadow', deviceModes: { ...(cfg?.device_modes ?? {}) } };
+  return {
+    mode: cfg?.mode ?? 'shadow',
+    deviceModes: { ...(cfg?.device_modes ?? {}) },
+    batteryMode: cfg?.battery_mode ?? 'shadow',
+  };
 }
 
 /** Only non-shadow entries of existing devices are stored (a missing entry means shadow). */
@@ -65,7 +71,7 @@ export function operationFromForm(
     const mode = form.deviceModes[id];
     if (mode && mode !== 'shadow') device_modes[id] = mode;
   }
-  return { schema_version: 1, mode: form.mode, device_modes };
+  return { schema_version: 1, mode: form.mode, device_modes, battery_mode: form.batteryMode };
 }
 
 export const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;

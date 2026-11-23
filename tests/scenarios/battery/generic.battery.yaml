@@ -1,0 +1,22 @@
+template: generic.battery
+sim_scenario: summer_day
+# A battery integration exposing its limits as number entities (not part of the demo house).
+extra_entities:
+  - { entity_id: number.battery_min_soc, platform: acme_battery, unit: "%", state: "10" }
+  - { entity_id: number.battery_max_charge, platform: acme_battery, unit: W, state: "5000" }
+  - { entity_id: number.battery_max_discharge, platform: acme_battery, unit: W, state: "5000" }
+  - { entity_id: number.battery_grid_charge, platform: acme_battery, unit: W, state: "0" }
+roles:
+  min_soc_number:
+    entity: number.battery_min_soc
+    criteria: [domain, units]
+  max_charge_number:
+    tied: [number.battery_max_charge, number.battery_max_discharge, number.battery_grid_charge, number.sim_heating_rod_limit]
+    pick: number.battery_max_charge
+  max_discharge_number:
+    tied: [number.battery_max_charge, number.battery_max_discharge, number.battery_grid_charge, number.sim_heating_rod_limit]
+    pick: number.battery_max_discharge
+  grid_charge_number:
+    tied: [number.battery_max_charge, number.battery_max_discharge, number.battery_grid_charge, number.sim_heating_rod_limit]
+    pick: number.battery_grid_charge
+capabilities: [charge_limit, discharge_limit, grid_charge, min_soc]

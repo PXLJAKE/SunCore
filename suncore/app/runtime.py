@@ -33,7 +33,7 @@ from suncore.app.adapters import (
     build_tariff_service,
 )
 from suncore.app.cadence import device_cadences, merge_cadences
-from suncore.app.control import ControlStack
+from suncore.app.control import BatteryWiring, ControlStack
 from suncore.app.history import rebuild_history
 from suncore.app.modes import ConfigModes
 from suncore.app.planning import (
@@ -45,7 +45,7 @@ from suncore.app.planning import (
 from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.core.balance import FlowSnapshot, compute_flows
-from suncore.core.battery import BatterySettings
+from suncore.core.battery import BatterySettings, effective_reserve_pct
 from suncore.core.config import (
     DevicesConfig,
     ForecastConfig,
@@ -53,9 +53,11 @@ from suncore.core.config import (
     OperationConfig,
     RegionConfig,
     TariffConfig,
+    effective_grid_charge_policy,
 )
 from suncore.core.control import ControlSettings, Plan
 from suncore.core.controlstate import (
+    BatteryNotControllableError,
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
@@ -68,7 +70,7 @@ from suncore.core.controlstate import (
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import DeviceConfig
-from suncore.core.identity import identity_token
+from suncore.core.identity import battery_identity_token, identity_token
 from suncore.core.series import QuantileSeries
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
@@ -129,7 +131,7 @@ from suncore.storage import (
 from suncore.storage.timeseries import META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
-from suncore.templates import TariffTemplate, TemplateCatalog
+from suncore.templates import BatteryTemplate, TariffTemplate, TemplateCatalog
 
 PLANNING_SECTIONS = frozenset(
     {"site", "region", "tariff", "forecast", "battery", "goals", "devices"}
@@ -191,6 +193,8 @@ class Runtime:
     risk_model: ErrorModel = field(default_factory=ErrorModel)
     """The learnt net energy errors (WP7), loaded at start and after the nightly job."""
     tariff_config: TariffConfig | None = None
+    battery_config: BatterySettings | None = None
+    """The ``battery`` section (adapter, model, policy); ``None`` = never stored."""
     tariff: TariffService | None = None
     """Keeps the prices fresh (``None``: no tariff, no region or an unusable template)."""
     timeseries_db: Database | None = None
@@ -316,6 +320,9 @@ class Runtime:
         tariff = await self.config.get("tariff")
         assert tariff is None or isinstance(tariff, TariffConfig)
         self.tariff_config = tariff
+        battery = await self.config.get("battery")
+        assert battery is None or isinstance(battery, BatterySettings)
+        self.battery_config = battery
         await self._load_modes()
 
     async def _load_modes(self) -> None:
@@ -497,7 +504,6 @@ class Runtime:
     ) -> ControlStack:
         devices = list(self.devices.devices) if self.devices is not None else []
         site = self.site
-        battery = None if site is None else site.battery
         settings = self.control_settings or ControlSettings(
             tick_s=float(self.settings.controller_interval_s)
         )
@@ -513,7 +519,7 @@ class Runtime:
             tz=self._timezone(),
             goals=self.goals,
             import_limit_w=None if site is None else site.grid.import_limit_w,
-            reserve_soc_pct=None if battery is None else battery.min_soc_pct,
+            reserve_soc_pct=self._reserve_soc_pct(),
             cadences=merge_cadences(device_cadences(devices), self.extra_cadences),
             sink=self._record_decision,
             on_measurements=self.recorder.record,
@@ -524,9 +530,59 @@ class Runtime:
             predecessor=predecessor,
             defer_recover=not self._time_zone_settled(),
             plan_provider=None if self.planning is None else self.planning.active_plan,
+            battery=self._battery_wiring(),
         )
         stack.add_listener(self._notify_control)
         return stack
+
+    def _battery_policy_changed(self) -> bool:
+        """A goals change moved the battery's effective grid-charge policy (the gate's copy)."""
+        stack, wiring = self.stack, self._battery_wiring()
+        held = None if stack is None else stack.battery_wiring
+        if wiring is None or held is None:
+            return (wiring is None) != (held is None)
+        return wiring.policy != held.policy
+
+    def _reserve_soc_pct(self) -> float | None:
+        """The devices' battery reserve guard: ``core.battery.effective_reserve_pct`` (ADR-0013
+        decision 3) with a battery model, else the site's minimum SoC as before."""
+        site_battery = None if self.site is None else self.site.battery
+        model = None if self.battery_config is None else self.battery_config.model
+        if model is not None:
+            return effective_reserve_pct(site_battery, model)
+        return None if site_battery is None else site_battery.min_soc_pct
+
+    def _live_import_price(self, now: datetime) -> float | None:
+        """The current quarter hour's import price from the tariff service (``None`` = unknown)."""
+        tariff = self.tariff
+        if tariff is None:
+            return None
+        try:
+            values = tariff.prices(0.25, now).import_price.values
+        except Exception:
+            log.exception("battery.price_failed")
+            return None
+        return values[0] if values else None
+
+    def _battery_wiring(self) -> BatteryWiring | None:
+        """The battery as a controlled asset, or ``None`` (observe-only / unusable template)."""
+        settings = self.battery_config
+        if settings is None or settings.adapter_template_id is None or settings.model is None:
+            return None
+        identity = battery_identity_token(settings, self.site)
+        template = self.template_catalog.get(settings.adapter_template_id)
+        if identity is None or not isinstance(template, BatteryTemplate):
+            log.warning("battery.adapter_template_missing", template=settings.adapter_template_id)
+            return None
+        goals = self.goals if self.goals is not None else GoalsConfig()
+        return BatteryWiring(
+            settings=settings,
+            spec=template.adapter_spec(),
+            identity=identity,
+            reserve_pct=self._reserve_soc_pct(),
+            policy=effective_grid_charge_policy(goals, settings),
+            import_price=self._live_import_price,
+        )
 
     async def _rebuild_stack(self) -> None:
         """Replace the control stack after a ``devices``/``site``/``region`` change.
@@ -1115,6 +1171,8 @@ class Runtime:
             refs.extend(self.forecast.entity_refs())
         if self.tariff_config is not None:
             refs.extend(self.tariff_config.entity_refs())
+        if self.battery_config is not None:
+            refs.extend(self.battery_config.entity_refs())
         ids = list(dict.fromkeys(r.entity_id for r in refs))
         try:
             await self.connection.subscribe_entities(ids)
@@ -1192,7 +1250,7 @@ class Runtime:
           identity token, so a stale document cannot grant a mode to a device that was re-mapped
           meanwhile (``ModeRaiseRejectedError``). Lowered devices are released.
         """
-        if name in ("operation", "devices"):
+        if name in ("operation", "devices", "battery", "site"):
             # Serialised with the mode changes: the raise check and the identity rule of a
             # devices put judge the modes that are stored when they run.
             async with self._operation_lock:
@@ -1225,7 +1283,7 @@ class Runtime:
             assert isinstance(stored, TariffConfig)
             self.tariff_config = stored
 
-    async def _apply_stored(
+    async def _apply_stored(  # noqa: PLR0912 - one branch per section
         self,
         name: str,
         stored: BaseModel,
@@ -1246,10 +1304,18 @@ class Runtime:
             self.goals = stored
             if self.stack is not None:
                 self.stack.set_goals(stored)
+        elif name == "battery":
+            assert isinstance(stored, BatterySettings)
+            self.battery_config = stored
+            await self._load_modes()  # the identity rule may have dropped the battery mode
         else:
             self._store_planning_input(name, stored)
-        if name in ("site", "devices", "forecast", "tariff"):
+        if name == "site":
+            await self._load_modes()  # the site's battery entities are battery identity
+        if name in ("site", "devices", "forecast", "tariff", "battery"):
             await self._resubscribe()
+        if name == "battery" or (name == "goals" and self._battery_policy_changed()):
+            await self._rebuild_stack()  # adapter, reserve or grid-charge policy changed
         if name == "tariff" or (self.site, self.region) != before[::2]:
             await self._rebuild_tariff()
         if (self.site, self.devices, self.region) != before:
@@ -1270,6 +1336,8 @@ class Runtime:
         for device_id, mode in new.device_modes.items():
             if mode.rank > current.device_modes.get(device_id, OperatingMode.SHADOW).rank:
                 raise ModeRaiseRejectedError(device_id)
+        if new.battery_mode.rank > current.battery_mode.rank:
+            raise ModeRaiseRejectedError("battery")
 
     async def _sync_modes(self) -> None:
         if self.stack is not None:
@@ -1311,6 +1379,24 @@ class Runtime:
                 modes[device_id] = mode
             stored = await self.config.put(
                 "operation", current.model_copy(update={"device_modes": modes})
+            )
+            assert isinstance(stored, OperationConfig)
+            await self._apply_operation(stored)
+        self._notify()
+        return stored
+
+    async def set_battery_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        """The battery's mode (ADR-0013 decision 6): raising it needs its identity token."""
+        async with self._operation_lock:
+            token = battery_identity_token(self.battery_config, self.site)
+            if mode is not OperatingMode.SHADOW:
+                if token is None:
+                    raise BatteryNotControllableError("battery")
+                if identity != token:
+                    raise DeviceIdentityChangedError("battery")
+            current = self.modes.operation
+            stored = await self.config.put(
+                "operation", current.model_copy(update={"battery_mode": mode})
             )
             assert isinstance(stored, OperationConfig)
             await self._apply_operation(stored)

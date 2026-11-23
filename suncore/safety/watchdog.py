@@ -232,6 +232,13 @@ class Watchdog:
         """Force a scope into the safe state (e.g. repeated write failures)."""
         self._update(scope, (Fault(FaultKind.INVALID, scope, reason),), now)
 
+    def report(self, scope: str, reasons: tuple[Reason, ...], now: datetime) -> tuple[Fault, ...]:
+        """Feed the result of an external check of ``scope`` (the battery watch, WP10): faults
+        put it into the safe state, an empty result starts the cool-down like a device check."""
+        faults = tuple(Fault(FaultKind.FROZEN, scope, r) for r in reasons)
+        self._update(scope, faults, now)
+        return faults
+
     # --- state ----------------------------------------------------------------------
 
     def state(self, scope: str, now: datetime) -> ScopeState:

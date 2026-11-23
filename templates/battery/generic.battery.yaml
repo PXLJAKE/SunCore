@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=../schema/battery.schema.json
+# Any battery whose limits Home Assistant exposes as `number` entities (a min-SoC floor, charge
+# and discharge power caps, a forced grid-charge power). Every role is optional: SunCore can only
+# do what the mapped roles express (the adapter's capabilities follow the mapping). The battery's
+# state of charge and power come from the site configuration, not from this template.
+# Copy into /data/templates/battery/ and adapt `controls` (unit W, kW or %, min, max, step) to
+# the integration; a `mode` select (meanings auto / no_discharge / no_charge / force_charge /
+# other) or a `force_charge` switch are possible as well (see templates/README.md).
+id: generic.battery
+kind: battery
+schema_version: 1
+name: template.generic.battery.name
+source:
+  - title: "home-assistant/core number/__init__.py and const.py (set_value, value, min, max, step; branch dev)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/number/__init__.py"
+    date: 2026-10-13
+  - title: "ADR-0013 Battery as a controlled asset (limits, None = baseline, capabilities)"
+    url: "https://github.com/pxljake/SunCore/blob/main/docs/adr/0013-battery-as-controlled-asset.md"
+    date: 2026-10-24
+tested_with: []
+capabilities: [min_soc_limit, charge_limit, discharge_limit, grid_charge]
+unverified:
+  - "Generic template, exercised in the simulator only; no real battery has been driven through it."
+  - "min, max and step are placeholders; the live entity's min/max/step attributes are used where they are narrower."
+  - "Whether an integration applies a number immediately or only after its next poll is integration specific: set settle_s accordingly."
+driver: generic
+settle_s: 10
+roles:
+  min_soc_number:
+    required: false
+    matcher:
+      domain: number
+      units: ["%"]
+    description: template.generic.battery.role.min_soc_number
+  max_charge_number:
+    required: false
+    matcher:
+      domain: number
+      units: [W, kW]
+    description: template.generic.battery.role.max_charge_number
+  max_discharge_number:
+    required: false
+    matcher:
+      domain: number
+      units: [W, kW]
+    description: template.generic.battery.role.max_discharge_number
+  grid_charge_number:
+    required: false
+    matcher:
+      domain: number
+      units: [W, kW]
+    description: template.generic.battery.role.grid_charge_number
+controls:
+  min_soc_number: { kind: min_soc, unit: "%", min: 0, max: 100, step: 1 }
+  max_charge_number: { kind: max_charge, unit: W, min: 0, max: 30000 }
+  max_discharge_number: { kind: max_discharge, unit: W, min: 0, max: 30000 }
+  grid_charge_number: { kind: grid_charge_power, unit: W, min: 0, max: 30000 }

@@ -11,7 +11,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum, unique
 from typing import Annotated, Any, Final, Literal, Self
 
@@ -387,6 +387,26 @@ class Plan(_Frozen):
         return interval.battery
 
 
+PLAN_FRESH_INTERVALS: Final = 2
+"""ADR-0013: a plan allows battery actions while it was created at most this many of its
+intervals before ``now``."""
+
+
+def battery_band_now(plan: Plan, at: datetime) -> tuple[BatteryBand | None, bool]:
+    """The battery band of the interval covering ``at`` and whether the plan is still fresh.
+
+    Fresh = created at most :data:`PLAN_FRESH_INTERVALS` intervals (of the covering interval's
+    length) before ``at``. ``Plan.default()`` (no intervals, no ``created_at``) gives no band.
+    Shared by the controller (it asks only what a fresh plan allows) and the gate (B3/B4).
+    """
+    interval = plan.interval_at(at)
+    if interval is None or plan.created_at is None:
+        return None, False
+    length = interval.end - interval.start
+    fresh = timedelta(0) <= at - plan.created_at <= PLAN_FRESH_INTERVALS * length
+    return interval.battery, fresh
+
+
 def plan_from_payload(payload: Mapping[str, Any]) -> Plan:
     """Load a stored plan of any known schema version (v1 rows are stamped v2).
 
@@ -438,6 +458,7 @@ def heat_capped(device: DeviceConfig, state: DeviceState | None) -> bool:
 __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single constant)
     "DEFAULT_BAND",
     "DEFAULT_BATTERY_BAND",
+    "PLAN_FRESH_INTERVALS",
     "PLAN_SCHEMA_VERSION",
     "RESUME_TIME_DEFAULT",
     "TEMPERATURE_ROLE",
@@ -454,6 +475,7 @@ __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single cons
     "PlanSource",
     "PowerEstimate",
     "SolverStats",
+    "battery_band_now",
     "has_heat_limit",
     "heat_capped",
     "plan_from_payload",

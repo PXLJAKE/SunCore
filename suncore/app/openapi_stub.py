@@ -150,6 +150,13 @@ class StubServices:
     ) -> OperationConfig:
         return OperationConfig()
 
+    async def set_battery_mode(
+        self,
+        mode: OperatingMode,  # noqa: ARG002
+        identity: str | None,  # noqa: ARG002
+    ) -> OperationConfig:
+        return OperationConfig()
+
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
         return lambda: None
 

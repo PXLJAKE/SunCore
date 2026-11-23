@@ -30,6 +30,16 @@ from pydantic import (
 )
 
 from suncore.core.actions import ERR_ACTION_NOT_ALLOWED, is_read_only_action
+from suncore.core.battery_adapter import (
+    KOSTAL_MODBUS_ROLES,
+    BatteryAdapterSpec,
+    BatteryDriverKind,
+    BatteryModeMeaning,
+    ModbusRegisterSpec,
+    ModeOptionSpec,
+    ModeSelectSpec,
+    NumberLimitSpec,
+)
 from suncore.core.capabilities import Capability
 from suncore.core.config import REGION_ID_PATTERN
 from suncore.core.decisions import REASON_KEY_PATTERN
@@ -749,20 +759,6 @@ class NumberLimitControl(_Frozen):
         return self
 
 
-@unique
-class BatteryModeMeaning(StrEnum):
-    """What selecting a battery mode option does."""
-
-    AUTO = "auto"
-    """The inverter's own control (the release baseline)."""
-    FORCE_CHARGE = "force_charge"
-    """Charge, also from the grid."""
-    NO_DISCHARGE = "no_discharge"
-    NO_CHARGE = "no_charge"
-    OTHER = "other"
-    """Any other option; SunCore never selects it."""
-
-
 OptionValue = Annotated[str, StringConstraints(min_length=1, max_length=200)]
 """A select option exactly as the entity lists it (whitespace is significant)."""
 
@@ -814,6 +810,45 @@ _CONTROL_DOMAINS: Final = {
 }
 
 
+class ModbusRegisterMap(_Frozen):
+    """Registers of a limit-with-fallback battery interface (Kostal §3.5, ``kostal_modbus``).
+
+    Addresses as the vendor document gives them (the HA action writes them verbatim). Powers
+    are IEEE 754 float32 in two registers, the timeout an unsigned 32-bit value in two
+    registers; the word order comes from the battery configuration (``battery.modbus``).
+    ``external_control_value`` is what ``external_control_register`` must read before any
+    write (Kostal 1080 = ``0x02``: external battery management via Modbus).
+    """
+
+    max_charge: Annotated[int, Field(ge=0, le=65_534)]
+    max_discharge: Annotated[int, Field(ge=0, le=65_534)]
+    fallback_max_charge: Annotated[int, Field(ge=0, le=65_534)]
+    fallback_max_discharge: Annotated[int, Field(ge=0, le=65_534)]
+    fallback_timeout: Annotated[int, Field(ge=0, le=65_534)]
+    fallback_timeout_min_s: Annotated[int, Field(ge=1)]
+    fallback_timeout_max_s: Annotated[int, Field(ge=1)]
+    external_control_register: Annotated[int, Field(ge=0, le=65_535)]
+    external_control_value: Annotated[int, Field(ge=0, le=65_535)]
+
+    @model_validator(mode="after")
+    def _registers(self) -> Self:
+        words = [
+            self.max_charge,
+            self.max_discharge,
+            self.fallback_max_charge,
+            self.fallback_max_discharge,
+            self.fallback_timeout,
+        ]
+        cells = [w + i for w in words for i in (0, 1)]
+        if len(set(cells)) != len(cells):
+            msg = "modbus: the two-register values overlap"
+            raise ValueError(msg)
+        if self.fallback_timeout_min_s > self.fallback_timeout_max_s:
+            msg = "modbus: fallback_timeout_min_s above fallback_timeout_max_s"
+            raise ValueError(msg)
+        return self
+
+
 class BatteryTemplate(TemplateHeader):
     """Battery adapter template (Phase 4, ADR-0006/ADR-0012 kind ``battery``).
 
@@ -830,6 +865,13 @@ class BatteryTemplate(TemplateHeader):
     )
     settle_s: Annotated[int, Field(ge=0, le=600)] | None = None
     """Delay before the read-back after a write."""
+    driver: BatteryDriverKind = "generic"
+    """The adapter (WP10): ``generic`` (the ``controls`` above), ``kostal_plenticore`` (the core
+    integration: only a ``min_soc`` control, read-back after a forced refresh), ``kostal_modbus``
+    (§3.5 limits through ``modbus.write_register``; needs ``modbus`` and the roles of
+    :data:`KOSTAL_MODBUS_ROLES`)."""
+    modbus: ModbusRegisterMap | None = None
+    """``kostal_modbus`` only: the register map."""
 
     @model_validator(mode="after")
     def _battery(self) -> Self:
@@ -837,6 +879,7 @@ class BatteryTemplate(TemplateHeader):
             msg = "id: must be `<vendor>.<model>`"
             raise ValueError(msg)
         _check_roles(self.roles)
+        self._driver()
         kinds: list[str] = []
         for role, control in self.controls.items():
             if role not in self.roles:
@@ -853,8 +896,31 @@ class BatteryTemplate(TemplateHeader):
         self._capabilities(set(kinds))
         return self
 
+    def _driver(self) -> None:
+        kinds = {c.kind for c in self.controls.values()}
+        if self.driver == "kostal_modbus":
+            if self.modbus is None:
+                msg = "driver `kostal_modbus` needs a `modbus` register map"
+                raise ValueError(msg)
+            missing = [r for r in KOSTAL_MODBUS_ROLES if r not in self.roles]
+            if missing:
+                msg = f"driver `kostal_modbus` needs the roles {', '.join(missing)}"
+                raise ValueError(msg)
+            if self.controls:
+                msg = "driver `kostal_modbus` writes registers, it takes no `controls`"
+                raise ValueError(msg)
+            return
+        if self.modbus is not None:
+            msg = "`modbus` belongs to driver `kostal_modbus` only"
+            raise ValueError(msg)
+        if self.driver == "kostal_plenticore" and kinds != {"min_soc"}:
+            msg = "driver `kostal_plenticore` has exactly one control, `min_soc` (no set-point)"
+            raise ValueError(msg)
+
     def _capabilities(self, kinds: set[str]) -> None:
         caps = self.capabilities
+        modbus = self.driver == "kostal_modbus"
+        _need(caps, Capability.HARDWARE_FALLBACK, modbus, "no driver with a hardware fallback")
         classes = {r.matcher.device_class for r in self.roles.values()}
         modes = {
             o.meaning
@@ -869,9 +935,17 @@ class BatteryTemplate(TemplateHeader):
             caps, Capability.POWER_MEASURED, "power" in classes, "no role with device_class power"
         )
         _need(caps, Capability.MIN_SOC_LIMIT, "min_soc" in kinds, "no `min_soc` control")
-        _need(caps, Capability.CHARGE_LIMIT, "max_charge" in kinds, "no `max_charge` control")
         _need(
-            caps, Capability.DISCHARGE_LIMIT, "max_discharge" in kinds, "no `max_discharge` control"
+            caps,
+            Capability.CHARGE_LIMIT,
+            modbus or "max_charge" in kinds or BatteryModeMeaning.NO_CHARGE in modes,
+            "no `max_charge` control",
+        )
+        _need(
+            caps,
+            Capability.DISCHARGE_LIMIT,
+            modbus or "max_discharge" in kinds or BatteryModeMeaning.NO_DISCHARGE in modes,
+            "no `max_discharge` control",
         )
         _need(
             caps,
@@ -884,6 +958,44 @@ class BatteryTemplate(TemplateHeader):
 
     def message_keys(self) -> list[str]:
         return [self.name, *(r.description for r in self.roles.values())]
+
+    def adapter_spec(self) -> BatteryAdapterSpec:
+        """The template as the battery adapters see it (core data, ``suncore.devices`` imports
+        no template model)."""
+        numbers: list[NumberLimitSpec] = []
+        mode: ModeSelectSpec | None = None
+        switch: str | None = None
+        for role, control in self.controls.items():
+            if isinstance(control, NumberLimitControl):
+                numbers.append(
+                    NumberLimitSpec(
+                        role=role,
+                        kind=control.kind,
+                        unit=control.unit,
+                        min=control.min,
+                        max=control.max,
+                        step=control.step,
+                    )
+                )
+            elif isinstance(control, ModeSelectControl):
+                mode = ModeSelectSpec(
+                    role=role,
+                    options=tuple(ModeOptionSpec(o.value, o.meaning) for o in control.options),
+                )
+            else:
+                switch = role
+        registers = None
+        if self.modbus is not None:
+            registers = ModbusRegisterSpec(**self.modbus.model_dump())
+        return BatteryAdapterSpec(
+            template_id=self.id,
+            driver=self.driver,
+            settle_s=None if self.settle_s is None else float(self.settle_s),
+            numbers=tuple(numbers),
+            mode=mode,
+            force_switch_role=switch,
+            modbus=registers,
+        )
 
 
 Template = Annotated[
@@ -908,6 +1020,7 @@ KIND_MODELS: Final[dict[str, type[BaseModel]]] = {
 
 __all__ = [
     "KIND_MODELS",
+    "KOSTAL_MODBUS_ROLES",
     "PRICE_ENERGY_FACTORS",
     "PRICE_UNIT_PATTERN",
     "REGION_ID_PATTERN",
@@ -919,6 +1032,7 @@ __all__ = [
     "ActionSeries",
     "AttributeSeries",
     "BatteryControl",
+    "BatteryDriverKind",
     "BatteryModeMeaning",
     "BatteryModeOption",
     "BatteryTemplate",
@@ -930,6 +1044,7 @@ __all__ = [
     "ForceChargeSwitchControl",
     "ForecastSeriesSource",
     "ForecastTemplate",
+    "ModbusRegisterMap",
     "ModeSelectControl",
     "NegativePriceRule",
     "NumberLimitControl",

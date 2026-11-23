@@ -1207,7 +1207,7 @@ def test_n1_a_deferred_release_is_not_re_deferred_on_every_tick() -> None:
     assert rt.release_pending
 
 
-# --- battery actions (Phase 4 WP2): explicitly unsupported until WP10 --------------------
+# --- battery actions without a battery adapter: rejected (WP10 keeps this for the rest) ---
 
 
 @pytest.mark.parametrize("mode", [OperatingMode.SHADOW, OperatingMode.ASSISTED, AUTO])
