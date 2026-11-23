@@ -16,6 +16,8 @@ table                     content                                 kept
 ``measurement_15m``       mean/min/max/n per quarter hour         unlimited
 ``forecast``              P10/P50/P90 per slot, per issue time    45 days (slots)
 ``price``                 import/export price per slot            400 days
+``day_summary``           frozen daily flows, KPIs, cost (WP3)    unlimited
+``accuracy_day``          daily forecast error per source (WP3)   unlimited
 ========================  ======================================  =============
 
 Conventions: timestamps are integer seconds since the UNIX epoch (UTC); a gap in a measurement
@@ -55,6 +57,7 @@ from suncore.core.series import (
 from suncore.storage.db import Database, Row, SqlParam
 from suncore.storage.errors import MigrationError, SchemaTooNewError
 from suncore.storage.migrations import Migration, load_migrations
+from suncore.storage.summaries import AccuracyDayStore, DaySummaryStore
 
 log = structlog.get_logger(__name__)
 
@@ -62,6 +65,9 @@ TS_FILENAME: Final = "timeseries.db"
 
 META_HISTORY_REBUILT: Final = "history_rebuilt_at"
 """Set (ISO time) once the rebuild from HA's statistics succeeded; it dies with the file."""
+
+META_HISTORY_BACKFILLED: Final = "history_backfilled_at"
+"""Set (ISO time) once the backfill beyond the 28-day rebuild (up to 365 days) succeeded."""
 
 RAW_KEEP: Final = timedelta(hours=48)
 MINUTE_KEEP: Final = timedelta(days=30)
@@ -71,6 +77,17 @@ PRICE_KEEP: Final = timedelta(days=400)
 VACUUM_MIN_FREE_BYTES: Final = 8 * 1024 * 1024
 VACUUM_MIN_FREE_FRACTION: Final = 0.25
 """``VACUUM`` rewrites the file; it runs only if at least this much (and this share) is free."""
+
+SIZE_TABLES: Final = (
+    "measurement",
+    "measurement_1m",
+    "measurement_15m",
+    "forecast",
+    "price",
+    "day_summary",
+    "accuracy_day",
+)
+"""Tables whose row counts the size report lists."""
 
 MINUTE_S: Final = 60
 QUARTER_S: Final = 900
@@ -284,6 +301,16 @@ class TimeseriesStore:
     @property
     def database(self) -> Database:
         return self._db
+
+    @property
+    def day_summaries(self) -> DaySummaryStore:
+        """The frozen daily summaries (Phase 5)."""
+        return DaySummaryStore(self._db)
+
+    @property
+    def accuracy_days(self) -> AccuracyDayStore:
+        """The daily forecast accuracy (Phase 5)."""
+        return AccuracyDayStore(self._db)
 
     # --- measurements -----------------------------------------------------------
 
@@ -579,6 +606,30 @@ class TimeseriesStore:
                 segments.append([row])
         return [_price_segment(source_id, segment) for segment in segments]
 
+    async def price_source_ids(self, window: TimeRange) -> list[str]:
+        """The sources that stored prices in ``window``, the one with most slots first."""
+        rows = await self._db.fetchall(
+            "SELECT source_id, COUNT(*) AS n FROM price "
+            "WHERE slot_start < ? AND slot_start + step_s > ? "
+            "GROUP BY source_id ORDER BY n DESC, source_id",
+            (_ceil_epoch(window.end), _epoch(window.start)),
+        )
+        return [str(r[0]) for r in rows]
+
+    async def first_quarter(self, key: str) -> datetime | None:
+        """Start of the oldest stored quarter hour of ``key`` (``None`` if there is none)."""
+        row = await self._db.fetchone("SELECT MIN(ts) FROM measurement_15m WHERE key = ?", (key,))
+        return None if row is None or row[0] is None else _from_epoch(_int(row[0]))
+
+    async def derived_quarters(self, key: str, window: TimeRange) -> int:
+        """Quarter hours of ``key`` in ``window`` that were rebuilt from HA's statistics."""
+        row = await self._db.fetchone(
+            "SELECT COUNT(*) FROM measurement_15m "
+            "WHERE key = ? AND derived = 1 AND ts >= ? AND ts < ?",
+            (key, _epoch(window.start), _ceil_epoch(window.end)),
+        )
+        return 0 if row is None else _int(row[0])
+
     # --- maintenance --------------------------------------------------------------
 
     async def downsample(self, now: datetime) -> DownsampleReport:
@@ -672,7 +723,7 @@ class TimeseriesStore:
         path = Path(self._db.path)
         free, _total = await self._free_and_total()
         rows: dict[str, int] = {}
-        for table in ("measurement", "measurement_1m", "measurement_15m", "forecast", "price"):
+        for table in SIZE_TABLES:
             row = await self._db.fetchone(f"SELECT COUNT(*) FROM {table}")
             rows[table] = _int(row[0]) if row else 0
         return TimeseriesSize(
@@ -775,6 +826,7 @@ def _price_segment(source_id: str, segment: Sequence[Row]) -> PriceSeries:
 
 __all__ = [
     "FORECAST_KEEP",
+    "META_HISTORY_BACKFILLED",
     "META_HISTORY_REBUILT",
     "MINUTE_KEEP",
     "PRICE_KEEP",

@@ -34,28 +34,28 @@ async def test_v3_database_upgrades_to_v4_and_keeps_data(tmp_path: Path) -> None
         await conn.execute("INSERT INTO learned VALUES ('k', '1', 't')")
         await conn.execute("INSERT INTO safety_state VALUES ('emergency_stop', '0', 't')")
     async with await Database.open(path) as db:
-        assert await db.user_version() == latest_version() == 4
+        assert await db.user_version() == latest_version() >= 4
         assert await db.fetchone("SELECT value FROM learned") == ("1",)
         assert await db.fetchone("SELECT value FROM safety_state") == ("0",)
         tables = {r[0] for r in await db.fetchall("SELECT name FROM sqlite_master")}
     assert {"plan_snapshot", "learned_param"} <= tables
 
 
-async def test_fresh_database_has_schema_4(tmp_path: Path) -> None:
+async def test_fresh_database_has_the_latest_schema(tmp_path: Path) -> None:
     async with await Database.open(tmp_path / "s.db") as db:
-        assert await db.user_version() == 4
+        assert await db.user_version() == latest_version() == 5
 
 
-async def test_reader_of_schema_3_refuses_schema_4(tmp_path: Path) -> None:
+async def test_reader_of_schema_3_refuses_a_newer_schema(tmp_path: Path) -> None:
     path = tmp_path / "v4.db"
     async with await Database.open(path):
         pass
     async with aiosqlite.connect(path, isolation_level=None) as conn:
         with pytest.raises(SchemaTooNewError) as info:
             await run_migrations(conn, load_migrations()[:3])
-    assert (info.value.db_version, info.value.code_version) == (4, 3)
+    assert (info.value.db_version, info.value.code_version) == (latest_version(), 3)
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone() == (4,)
+    assert con.execute("PRAGMA user_version").fetchone() == (latest_version(),)
     con.close()
 
 

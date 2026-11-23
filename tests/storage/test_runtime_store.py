@@ -44,7 +44,7 @@ async def test_v2_database_migrates_to_v3_and_keeps_data(tmp_path: Path) -> None
         assert await run_migrations(conn, migrations) == 2
         await conn.execute("INSERT INTO learned VALUES ('k', '1', 't')")
     async with await Database.open(path) as db:
-        assert await db.user_version() == latest_version() == 4
+        assert await db.user_version() == latest_version() >= 4
         assert await db.fetchone("SELECT value FROM learned") == ("1",)
         tables = {r[0] for r in await db.fetchall("SELECT name FROM sqlite_master")}
     assert {"device_runtime", "safety_state", "power_model_state"} <= tables

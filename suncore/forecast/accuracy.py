@@ -185,15 +185,23 @@ async def compute_accuracy(
     is_clipped: ClipFilter = no_clipping,
     kind: ForecastKind = "pv",
     actual_reader: ActualReader | None = None,
+    start: datetime | None = None,
 ) -> list[AccuracyRecord]:
     """The records of one source for the last ``window_days`` complete days (buckets with data).
+
+    ``start`` replaces ``now - window_days`` as the window's beginning (one local day of 23 or
+    25 hours for the daily statistics: ``now`` = the day's end).
 
     ``kind`` and ``actual_reader`` select what is scored: by default the PV forecast against
     ``site.pv_w`` on daylight intervals; the load forecast passes ``kind="load"`` and a reader
     of the measured base load, and then every interval counts (a night is load too).
     """
     end = floor_to_step(now, PLANNING_STEP)
-    start = end - timedelta(days=window_days)
+    start = (
+        floor_to_step(start, PLANNING_STEP)
+        if start is not None
+        else end - timedelta(days=window_days)
+    )
     window = TimeRange(start=start, end=end)
     if actual_reader is None:
         actual = await data.read_series(SITE_PV_W, window, "15m", SeriesUnit.W)
