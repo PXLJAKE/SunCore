@@ -14,7 +14,7 @@ from hypothesis import strategies as st
 from pydantic import BaseModel, ValidationError
 
 from suncore.core.config import SECTION_MODELS, ExportTariff, TariffConfig
-from suncore.core.control import SAFETY_LIMITS, ControlSettings
+from suncore.core.control import INPUTS_MAX_AGE_LIMIT_S, SAFETY_LIMITS, ControlSettings
 from suncore.core.expert import ExpertConfig
 from suncore.core.params import (
     GROUPS,
@@ -31,6 +31,7 @@ from suncore.core.params import (
     overrides_for,
     plan_write,
     reset_keys,
+    sanitise_stored_overrides,
     spec,
 )
 
@@ -145,13 +146,13 @@ def test_config_param_defaults_are_the_model_defaults() -> None:
 def test_check_rejects_out_of_range_wrong_type_and_non_finite() -> None:
     parameter = spec("controller.min_write_interval_s")
     assert parameter.check(10) == 10.0
-    for bad in (0.5, 601, True, "5", None, math.nan, math.inf):
+    for bad in (0.5, 61, True, "5", None, math.nan, math.inf):
         with pytest.raises(ParamError):
             parameter.check(bad)
     with pytest.raises(ParamError) as info:
         parameter.check(0.5)
     assert info.value.code == "param_out_of_range"
-    assert info.value.context == {"min": 1.0, "max": 600.0}
+    assert info.value.context == {"min": 1.0, "max": 60.0}
 
 
 def test_check_int_accepts_integral_floats_only() -> None:
@@ -355,3 +356,72 @@ def test_current_value_falls_back_to_the_default_without_a_section() -> None:
     parameter = spec("forecast.learning.min_history_days")
     assert current_value(parameter, {"forecast": None}) == 30
     assert current_value(spec("controller.tick_s"), {}) == 5.0
+
+
+# --- control-safety review of PR 5-E ---------------------------------------------------------
+
+
+def test_the_input_staleness_window_cannot_exceed_its_hard_bound() -> None:
+    """``inputs_max_age_ticks * tick_s`` is how old the gate's flows may be (import limit,
+    battery lease); both overrides together may not push it past 180 s."""
+    with pytest.raises(ValidationError):
+        ExpertConfig(overrides={"controller.tick_s": 60, "controller.inputs_max_age_ticks": 10})
+    ExpertConfig(overrides={"controller.tick_s": 18, "controller.inputs_max_age_ticks": 10})
+    # The tick of the app option is unknown to the document: the resolution reduces instead.
+    expert = ExpertConfig(overrides={"controller.inputs_max_age_ticks": 10})
+    assert apply_controller(ControlSettings(tick_s=60.0), expert).inputs_max_age_ticks == 3
+    assert apply_controller(ControlSettings(tick_s=5.0), expert).inputs_max_age_ticks == 10
+
+
+def test_apply_controller_validates_the_result() -> None:
+    """``model_copy`` would skip validation; a forced override outside the model's own bounds
+    must not reach the stack (the clamp keeps it inside, the validation is the backstop)."""
+    forced = ExpertConfig.model_construct(overrides={"controller.tick_s": "fast"})
+    with pytest.raises(ValidationError):
+        apply_controller(ControlSettings(), forced)
+
+
+@given(data=st.data(), tick=st.integers(2, 60))
+def test_any_accepted_document_keeps_every_safety_bound_at_any_app_tick(
+    data: st.DataObject, tick: int
+) -> None:
+    """The ADR-0015 property over whole documents (several keys at once) and every app option
+    tick: the safety fields stay in ``SAFETY_LIMITS`` and the staleness window in 180 s."""
+    chosen = data.draw(st.lists(st.sampled_from(NUMERIC), unique=True, max_size=8))
+    overrides: dict[str, float] = {}
+    for parameter in chosen:
+        if parameter.group != "controller":
+            continue
+        assert parameter.minimum is not None
+        assert parameter.maximum is not None
+        if parameter.kind == "int":
+            overrides[parameter.key] = data.draw(
+                st.integers(int(parameter.minimum), int(parameter.maximum))
+            )
+        else:
+            overrides[parameter.key] = data.draw(
+                st.floats(parameter.minimum, parameter.maximum, allow_nan=False)
+            )
+    try:
+        expert = ExpertConfig(overrides=overrides)
+    except ValidationError:
+        tick_s = overrides["controller.tick_s"]
+        assert overrides["controller.inputs_max_age_ticks"] * tick_s > INPUTS_MAX_AGE_LIMIT_S
+        return
+    settings = apply_controller(ControlSettings(tick_s=float(tick)), expert)
+    for name, (lo, hi) in SAFETY_LIMITS.items():
+        assert lo <= getattr(settings, name) <= hi, name
+    assert settings.inputs_max_age_ticks * settings.tick_s <= INPUTS_MAX_AGE_LIMIT_S
+
+
+@given(value=st.one_of(st.floats(allow_nan=True, allow_infinity=True), st.integers(), st.text()))
+def test_the_load_repair_never_yields_a_value_outside_the_registry(value: object) -> None:
+    for parameter in REGISTRY.values():
+        if parameter.store != "expert":
+            continue
+        repaired, fixed = sanitise_stored_overrides({parameter.key: value})
+        if parameter.key in repaired:
+            assert parameter.check(repaired[parameter.key]) == repaired[parameter.key]
+        else:
+            assert fixed == [parameter.key]
+        ExpertConfig(overrides=repaired)  # always loadable

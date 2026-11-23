@@ -34,7 +34,12 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticCustomError
 
 from suncore.core.config import ExportTariff, LearningSettings
-from suncore.core.control import SAFETY_LIMITS, ControlSettings
+from suncore.core.control import (
+    INPUTS_MAX_AGE_LIMIT_S,
+    SAFETY_LIMITS,
+    ControlSettings,
+    inputs_max_age_ticks_within,
+)
 from suncore.core.expert import ExpertConfig
 from suncore.core.validation import invalid
 
@@ -341,7 +346,72 @@ def normalise_overrides(overrides: Mapping[str, object]) -> dict[str, bool | int
             raise exc.to_pydantic() from exc
         assert checked is not None
         out[key] = checked
+    try:
+        check_inputs_window(out)
+    except ParamError as exc:
+        raise exc.to_pydantic() from exc
     return out
+
+
+TICK_KEY: Final = "controller.tick_s"
+INPUTS_AGE_KEY: Final = "controller.inputs_max_age_ticks"
+
+
+def check_inputs_window(overrides: Mapping[str, object]) -> None:
+    """Both overrides set: ``ticks * tick_s`` may not exceed ``INPUTS_MAX_AGE_LIMIT_S``. With
+    the tick from the app option only :func:`apply_controller` can check it (it reduces)."""
+    tick, ticks = overrides.get(TICK_KEY), overrides.get(INPUTS_AGE_KEY)
+    if not isinstance(tick, int | float) or not isinstance(ticks, int | float):
+        return
+    if ticks * tick > INPUTS_MAX_AGE_LIMIT_S:
+        raise ParamError(
+            "param_out_of_range",
+            INPUTS_AGE_KEY,
+            min=1.0,
+            max=float(inputs_max_age_ticks_within(float(tick), int(ticks))),
+        )
+
+
+def sanitise_stored_overrides(
+    overrides: Mapping[str, object],
+) -> tuple[dict[str, bool | int | float | str], list[str]]:
+    """Make a *stored* ``expert`` map loadable after the registry changed (load path only).
+
+    A document written by an older release can name a key that no longer exists or hold a
+    value outside a range that was tightened since. Rejecting it would fail the start-up (no
+    control stack, no crash recovery that releases devices). Instead: an unknown or
+    mistyped key is dropped (= its default), a number outside its range is clamped to the
+    nearest bound, which is inside the safety envelope. Returns the map and the keys that
+    were changed (the caller logs them). The API and the import keep rejecting such values.
+    """
+    out: dict[str, bool | int | float | str] = {}
+    fixed: list[str] = []
+    for key, value in overrides.items():
+        parameter = REGISTRY.get(key)
+        if parameter is None or parameter.store != "expert":
+            fixed.append(key)
+            continue
+        candidate = _clamped(parameter, value) if _is_number(value) else value
+        try:
+            checked = parameter.check(candidate)
+        except ParamError:
+            fixed.append(key)
+            continue
+        assert checked is not None
+        if checked != value or type(checked) is not type(value):
+            fixed.append(key)
+        out[key] = checked
+    tick, ticks = out.get(TICK_KEY), out.get(INPUTS_AGE_KEY)
+    if isinstance(tick, int | float) and isinstance(ticks, int) and not isinstance(ticks, bool):
+        within = inputs_max_age_ticks_within(float(tick), ticks)
+        if within != ticks:
+            out[INPUTS_AGE_KEY] = within
+            fixed.append(INPUTS_AGE_KEY)
+    return out, fixed
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 def expert_value(expert: ExpertConfig | None, key: str) -> ParamValue:
@@ -356,8 +426,8 @@ def overrides_for(expert: ExpertConfig | None, group: str) -> dict[str, Any]:
     """``{field name: value}`` of the overrides of ``group`` (``controller`` or ``planner``).
 
     Values are clamped to the hard range once more (defence in depth: the document model
-    already rejects anything outside, this protects the start-up path from a hand-patched
-    database row that bypassed the model).
+    already rejects anything outside and the store sanitises a stored document at load, this
+    protects against a model built without validation).
     """
     if expert is None:
         return {}
@@ -371,11 +441,14 @@ def overrides_for(expert: ExpertConfig | None, group: str) -> dict[str, Any]:
 
 
 def _clamped(parameter: ParamSpec, value: object) -> object:
-    if parameter.kind not in ("int", "float") or isinstance(value, bool):
+    if parameter.kind not in ("int", "float") or not isinstance(value, int | float):
+        return value  # not a number: the validation of the result refuses it
+    if isinstance(value, bool):
         return value
-    assert isinstance(value, int | float)
     lo, hi = parameter.minimum, parameter.maximum
     number = float(value)
+    if math.isnan(number):
+        return parameter.default  # no nearest bound; the default is inside the range
     if lo is not None:
         number = max(number, lo)
     if hi is not None:
@@ -384,9 +457,23 @@ def _clamped(parameter: ParamSpec, value: object) -> object:
 
 
 def apply_controller(base: ControlSettings, expert: ExpertConfig | None) -> ControlSettings:
-    """``base`` with the expert overrides of the ``controller`` group (clamped)."""
+    """``base`` with the expert overrides of the ``controller`` group (clamped).
+
+    The result is validated as a whole (``model_copy`` would skip the model's own bounds),
+    and ``inputs_max_age_ticks`` is reduced so that ``ticks * tick_s`` stays within
+    :data:`~suncore.core.control.INPUTS_MAX_AGE_LIMIT_S` also when the tick comes from the
+    app option (control-safety review of PR 5-E).
+    """
     changes = overrides_for(expert, "controller")
-    return base.model_copy(update=changes) if changes else base
+    if not changes:
+        return base
+    merged = ControlSettings.model_validate({**base.model_dump(), **changes})
+    if INPUTS_AGE_KEY.removeprefix("controller.") not in changes:
+        return merged
+    ticks = inputs_max_age_ticks_within(merged.tick_s, merged.inputs_max_age_ticks)
+    if ticks == merged.inputs_max_age_ticks:
+        return merged
+    return merged.model_copy(update={"inputs_max_age_ticks": ticks})
 
 
 # --- reading and writing the values -----------------------------------------------------
@@ -496,6 +583,7 @@ def plan_write(
             culprit = next(k for k in checked if REGISTRY[k].section == name)
             raise ParamError("param_invalid", culprit) from exc
     if touched_expert:
+        check_inputs_window(overrides)  # ParamError (422), not a ValidationError (500)
         result.append(ParamChange("expert", ExpertConfig(overrides=overrides)))
     return result
 
@@ -543,6 +631,7 @@ __all__ = [
     "ParamValue",
     "SectionMissingError",
     "apply_controller",
+    "check_inputs_window",
     "current_value",
     "expert_safety_diff",
     "expert_value",
@@ -551,6 +640,7 @@ __all__ = [
     "plan_write",
     "reset_keys",
     "safety_keys_changed",
+    "sanitise_stored_overrides",
     "section_available",
     "sections_needed",
     "spec",

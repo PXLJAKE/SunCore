@@ -100,7 +100,7 @@ async def test_put_out_of_range_args_name_the_hard_range(services: FakeServices)
     issue = response.json()["issues"][0]
     assert issue["key"] == "api.validation.param_out_of_range"
     assert issue["args"]["min"] == 1.0
-    assert issue["args"]["max"] == 600.0
+    assert issue["args"]["max"] == 60.0
     assert issue["args"]["param"] == "controller.min_write_interval_s"
 
 
@@ -276,3 +276,30 @@ async def test_put_rejects_malformed_bodies(services: FakeServices, body: dict[s
     async with client_for(create_app(services)) as client:
         response = await client.put(URL, json=body)
     assert response.status_code == 422
+
+
+async def test_put_rejects_a_staleness_window_beyond_its_hard_bound(services: FakeServices) -> None:
+    """``inputs_max_age_ticks * tick_s`` > 180 s is a 422 naming the largest allowed value,
+    with or without confirmation, also when the two keys arrive in separate requests."""
+    async with client_for(create_app(services)) as client:
+        both = await client.put(
+            URL,
+            json={
+                "changes": {"controller.tick_s": 60, "controller.inputs_max_age_ticks": 10},
+                "confirm_safety": True,
+            },
+        )
+        first = await client.put(URL, json={"changes": {"controller.tick_s": 60}})
+        second = await client.put(
+            URL,
+            json={"changes": {"controller.inputs_max_age_ticks": 10}, "confirm_safety": True},
+        )
+    assert both.status_code == 422, both.text
+    issue = both.json()["issues"][0]
+    assert issue["key"] == "api.validation.param_out_of_range"
+    assert issue["args"]["max"] == 3.0
+    assert first.status_code == 200
+    assert second.status_code == 422
+    stored = services.sections["expert"]
+    assert isinstance(stored, ExpertConfig)
+    assert stored.overrides == {"controller.tick_s": 60.0}
