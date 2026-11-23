@@ -39,6 +39,9 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
     non-negative, on the grid, deterministic, every `auto` rule), `test_load_ml_service.py`
     (shadow/off/auto, fallback, window, nightly bookkeeping, stored scores), API, runtime, planner
     pass-through, Vitest panel and form.
+  - Review fixes (M1, M2, minors) complete; `./scripts/check.sh` green (4709 tests). Screenshots
+    `plan-tablet-*` and `wizard-pv-tablet-light-*` regenerated with the ML load model panel (the
+    phone `plan-*` images are not used by the docs and were left as they were).
 
 - **Phase 4 – PR 4-A (plan, WP1, WP2; branch `claude/zealous-mayer-j5oda9`)**:
   - Plan `docs/plans/phase-4.md` **revision 2 approved** (2026-10-16), incl. the merged concept
