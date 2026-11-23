@@ -1575,7 +1575,7 @@ class Runtime:
     async def restore_section(self, name: str, entry_id: int) -> BaseModel:
         """Restore a history entry; live sections are reloaded like after a normal save."""
         restored = await self.config.restore(name, entry_id)
-        if name in ("site", "devices", "region", "goals", "operation", "forecast"):
+        if name in ("site", "devices", "region", "goals", "operation", "forecast", "expert"):
             await self._reload_live_sections(resubscribe=name in ("site", "devices", "forecast"))
         self._notify()
         return restored
@@ -1659,12 +1659,19 @@ class Runtime:
         forecast_before = self.forecast
         devices_before = self.devices
         tariff_before = self.tariff_config
+        controller_before = overrides_for(self.expert, "controller")
         await self._load_live_sections()
         if resubscribe:
             await self._resubscribe()
         if self.tariff_config != tariff_before or (self.site, self.region) != before[::2]:
             await self._rebuild_tariff()
-        if (self.site, self.devices, self.region) != before:
+        if self.planning is not None:
+            self.planning.update_settings(self._planning_settings())
+        # A restored or imported ``expert`` section takes effect through the same hand-over as
+        # a ``PUT`` (control-safety review of PR 5-E): never only at the next restart.
+        if (self.site, self.devices, self.region) != before or overrides_for(
+            self.expert, "controller"
+        ) != controller_before:
             await self._rebuild_stack()
         elif self.stack is not None and self.goals is not None:
             self.stack.set_goals(self.goals)

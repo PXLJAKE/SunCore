@@ -134,3 +134,40 @@ async def test_the_remunerate_negative_switch_keeps_the_export_price_at_negative
     assert report.source.negative_price_rule == "none"
     assert report.source.export_zeroed_slots == 0
     assert all(s.export_price == 0.08 for s in report.slots if s.import_price is not None)
+
+
+async def test_a_restored_expert_section_takes_effect_through_the_hand_over(
+    runtime: Runtime,
+) -> None:
+    """Review of PR 5-E: a history restore of ``expert`` applies at once (stack rebuilt, planner
+    updated), never silently only at the next restart."""
+    await runtime.put_section(
+        "expert",
+        ExpertConfig(overrides={"controller.min_write_interval_s": 9.0, "planner.mip_gap": 0.05}),
+    )
+    await runtime.put_section("expert", ExpertConfig())
+    assert runtime.stack is not None
+    assert runtime.stack.settings.min_write_interval_s == ControlSettings().min_write_interval_s
+    entry = (await runtime.config.history("expert"))[0]
+    before = runtime.stack
+    await runtime.restore_section("expert", entry.id)
+    assert runtime.stack is not before
+    assert runtime.stack is not None
+    assert runtime.stack.settings.min_write_interval_s == 9.0
+    assert runtime.planning is not None
+    assert runtime.planning.settings.mip_gap == 0.05
+
+
+async def test_an_imported_expert_section_takes_effect_through_the_hand_over(
+    runtime: Runtime,
+) -> None:
+    await runtime.put_section(
+        "expert", ExpertConfig(overrides={"controller.default_settle_s": 20.0})
+    )
+    exported = await runtime.export_config()
+    await runtime.put_section("expert", ExpertConfig())
+    before = runtime.stack
+    await runtime.import_config(exported)
+    assert runtime.stack is not before
+    assert runtime.stack is not None
+    assert runtime.stack.settings.default_settle_s == 20.0
