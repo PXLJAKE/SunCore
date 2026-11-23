@@ -2,9 +2,9 @@
 
 Declarative device, tariff, forecast and region templates (ADR-0006, ADR-0012, schema v1).
 Layout: `templates/<kind>/<id>.yaml` with `kind` in `device`, `tariff`, `forecast`,
-`region`; user templates in `/data/templates/<kind>/` override built-in ones by `id`.
-A `*.yaml` file in any other sub directory (for example `battery/` before that kind exists)
-is reported as an error. The JSON Schemas in `schema/` are generated from the Pydantic
+`region`, `battery`; user templates in `/data/templates/<kind>/` override built-in ones by
+`id`. A `*.yaml` file in any other sub directory is reported as an error.
+The JSON Schemas in `schema/` are generated from the Pydantic
 models in `suncore/templates/models.py` and `suncore/core/devices.py` – never edit them by
 hand (`uv run python scripts/gen_schemas.py`; CI fails on drift).
 
@@ -60,7 +60,8 @@ unverified: []                     # facts you could not verify; required if tes
 - `capabilities` is a closed list: `power_measured`, `energy_counter`, `on_off`,
   `power_setpoint`, `temperature_setpoint`, `hvac_modes`, `preset_modes`, `fan_modes`,
   `price_now`, `price_curve`, `pv_curve`, `pv_quantiles`, `feed_in_tiers`,
-  `negative_price_rule`. Where a validator can check the claim (for example
+  `negative_price_rule`, and for batteries `battery_soc`, `min_soc_limit`, `charge_limit`,
+  `discharge_limit`, `grid_charge`, `battery_modes`. Where a validator can check the claim (for example
   `pv_quantiles` needs `p10_field` and `p90_field`) an unfounded one is an error.
 - Devices write through the role(s) named by `defaults.control` (`on_off`, `steps`,
   `relays` (1–3 switches), `continuous` in W/A/%, `setpoint` with a maximum shift, `mode`). Mode of operation
@@ -73,7 +74,17 @@ unverified: []                     # facts you could not verify; required if tes
   `solcast_solar.query_forecast_data`, `weather.get_forecasts`) are accepted; any other
   service is refused at load time with the key `template.error.action_not_allowed`.
   Power units in a forecast mean the average power over the slot, energy units the energy
-  per slot.
+  per slot. When the attribute is a mapping, `list_path` (dotted) leads to the list of
+  points; the period of a point is `resolution_min`.
+- Battery templates (`kind: battery`) list the readable and writable roles (for example
+  `soc`, `power`, `min_soc_number`, `max_charge_number`, `max_discharge_number`,
+  `mode_select`, `force_charge_switch`) and in `controls` what each writable role
+  expresses: `min_soc` (number in %), `max_charge` / `max_discharge` /
+  `grid_charge_power` (number in W, kW or %), `mode` (select; every option has a
+  `meaning`: `auto` - exactly one, the release baseline -, `force_charge`,
+  `no_discharge`, `no_charge`, `other`) or `force_charge` (switch). The control kind
+  fixes the entity domain (`number`, `select`, `switch`). Every write goes through the
+  safety gate; a battery starts in shadow mode like every device.
 - Do not invent attributes, services or registers. Cite the integration source or vendor
   document in `source`, otherwise list the fact under `unverified`.
 - Every template needs a simulator conformance scenario under
@@ -116,3 +127,4 @@ Every addition is recorded below with the SunCore version that introduced it.
 | 0.3.0 (unreleased, Phase 2) | Initial schema v1 after the ADR-0012 review: matcher with `platforms`, `translation_key_pattern`, `unit_pattern`, digits in `domain`; `RoleSpec.same_device_as`; `PowerModelDefault` without required `nominal_w`, `counter_update_s`; `defaults.control` as `ControlSpec` (`on_off`, `steps`, `continuous`, `setpoint`, `mode`); `hysteresis_w`, `hysteresis_delay_s`, `settle_s`; `series` (`attribute` or `action`) for tariff and forecast, `price_includes`, optional `resolution_min` for tariffs; closed `capabilities` vocabulary; `min_app_version`; loader lint for unknown kind directories. |
 | 0.3.0 (unreleased, Phase 2) | `region.currency` is optional for `country: generic` (`None` = currency of the Home Assistant configuration). |
 | 0.4.0 (unreleased, Phase 3) | New `defaults.control` kind `relays` (additive union member, ADR-0012 policy): 1–3 switch roles (`roles`) and `steps`, each step naming the relays that are on (`relays`) and the power it draws (`power_w`, strictly increasing, relay sets distinct). `DeviceConfig` accepts the same control. Used by `generic.water_heater_relays`. |
+| 0.5.0 (unreleased, Phase 4) | New template kind `battery` (`battery.schema.json`): `roles`, `controls` (union on `kind`: `min_soc`, `max_charge`, `max_discharge`, `grid_charge_power` numbers; `mode` select with option meanings; `force_charge` switch), optional `settle_s`. New capabilities `battery_soc`, `min_soc_limit`, `charge_limit`, `discharge_limit`, `grid_charge`, `battery_modes`. `series` of `source: attribute` takes an optional `list_path` for the generic attribute adapter and an optional `shape` (`list` default, or `mapping` for `{iso_timestamp: value}` attributes such as Forecast.Solar `wh_hours` and Open-Meteo Solar Forecast `wh_period_15m`; `fields` then holds only `value_unit`, so `fields.timestamp_field`/`value_field` became optional and are required only for lists of point objects). Tariff `price_unit` and `price_series.fields.value_unit` may be per MWh (`{currency}/MWh`, `EUR/MWh`); the value unit's currency must match `price_unit`'s (or be `{currency}`), and adapters convert to currency/kWh (`price_unit_factor`: MWh / 1000). Battery mode option `value` is kept verbatim (no whitespace stripping). HT/NT needs no template change: time windows and prices are contract data in the `tariff` configuration section (v3). |

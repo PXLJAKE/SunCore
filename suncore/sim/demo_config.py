@@ -12,11 +12,13 @@ from __future__ import annotations
 
 from typing import Final
 
+from suncore.core.battery import BatterySettings
 from suncore.core.config import (
     BatteryTarget,
     DevicesConfig,
     ExportTariff,
     ForecastConfig,
+    ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
     OperationConfig,
@@ -172,11 +174,15 @@ async def seed_demo_config(config: ConfigStore, catalog: TemplateCatalog) -> Non
     await config.put(
         "forecast",
         ForecastConfig(
-            forecast_template_ids=["solcast.pv"],
-            forecast_entities={
-                "forecast_today": EntityRef(entity_id=FORECAST_TODAY_ID),
-                "forecast_tomorrow": EntityRef(entity_id=FORECAST_TOMORROW_ID),
-            },
+            sources=[
+                ForecastSourceConfig(
+                    template_id="solcast.pv",
+                    entities={
+                        "forecast_today": EntityRef(entity_id=FORECAST_TODAY_ID),
+                        "forecast_tomorrow": EntityRef(entity_id=FORECAST_TOMORROW_ID),
+                    },
+                )
+            ],
         ),
     )
     await config.put("devices", demo_devices(catalog))
@@ -188,4 +194,6 @@ async def seed_demo_config(config: ConfigStore, catalog: TemplateCatalog) -> Non
         ),
     )
     await config.put("operation", OperationConfig(mode=OperatingMode.SHADOW))
+    # Observe only: the demo battery is read, never written; the model follows with WP8.
+    await config.put("battery", BatterySettings())
     await config.put("wizard", WizardState(completed=True, completed_steps=list(WIZARD_STEPS)))

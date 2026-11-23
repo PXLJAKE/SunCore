@@ -1,0 +1,513 @@
+{
+  "$defs": {
+    "BatteryModeMeaning": {
+      "description": "What selecting a battery mode option does.",
+      "enum": [
+        "auto",
+        "force_charge",
+        "no_discharge",
+        "no_charge",
+        "other"
+      ],
+      "title": "BatteryModeMeaning",
+      "type": "string"
+    },
+    "BatteryModeOption": {
+      "additionalProperties": false,
+      "properties": {
+        "meaning": {
+          "$ref": "#/$defs/BatteryModeMeaning"
+        },
+        "value": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "meaning"
+      ],
+      "title": "BatteryModeOption",
+      "type": "object"
+    },
+    "Capability": {
+      "description": "What a template provides.",
+      "enum": [
+        "power_measured",
+        "energy_counter",
+        "on_off",
+        "power_setpoint",
+        "temperature_setpoint",
+        "hvac_modes",
+        "preset_modes",
+        "fan_modes",
+        "price_now",
+        "price_curve",
+        "pv_curve",
+        "pv_quantiles",
+        "feed_in_tiers",
+        "negative_price_rule",
+        "battery_soc",
+        "min_soc_limit",
+        "charge_limit",
+        "discharge_limit",
+        "grid_charge",
+        "battery_modes"
+      ],
+      "title": "Capability",
+      "type": "string"
+    },
+    "EntityMatcher": {
+      "additionalProperties": false,
+      "description": "Role matcher; every given criterion must match, ``domain`` is mandatory.\n\n``units`` lists acceptable ``unit_of_measurement`` strings (exact, case-sensitive);\n``unit_pattern`` is a regular expression matched with ``re.fullmatch`` on the stripped\nunit. ``translation_key`` / ``translation_key_pattern`` likewise. Exact and pattern\nforms exclude each other.",
+      "properties": {
+        "device_class": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Class"
+        },
+        "domain": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Domain",
+          "type": "string"
+        },
+        "platforms": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 48,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Platforms"
+        },
+        "state_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Class"
+        },
+        "translation_key": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translation Key"
+        },
+        "translation_key_pattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translation Key Pattern"
+        },
+        "unit_pattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit Pattern"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "title": "EntityMatcher",
+      "type": "object"
+    },
+    "ForceChargeSwitchControl": {
+      "additionalProperties": false,
+      "description": "A ``switch`` role: on = force charging (from the grid if PV is short), off = auto.",
+      "properties": {
+        "kind": {
+          "const": "force_charge",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ForceChargeSwitchControl",
+      "type": "object"
+    },
+    "ModeSelectControl": {
+      "additionalProperties": false,
+      "description": "A ``select`` role choosing the battery's operating mode.",
+      "properties": {
+        "kind": {
+          "const": "mode",
+          "title": "Kind",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/BatteryModeOption"
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "options"
+      ],
+      "title": "ModeSelectControl",
+      "type": "object"
+    },
+    "NumberLimitControl": {
+      "additionalProperties": false,
+      "description": "A ``number`` role that sets a battery limit.\n\n``min_soc``: discharge floor in ``%`` (discharge lock / reserve); ``max_charge`` and\n``max_discharge``: power limits; ``grid_charge_power``: forced charging power from the\ngrid. ``min``/``max``/``step`` are the entity's range in ``unit`` (``%`` of the\nbattery's maximum power for the power kinds).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "min_soc",
+            "max_charge",
+            "max_discharge",
+            "grid_charge_power"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "max": {
+          "exclusiveMinimum": 0,
+          "title": "Max",
+          "type": "number"
+        },
+        "min": {
+          "minimum": 0,
+          "title": "Min",
+          "type": "number"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        },
+        "unit": {
+          "enum": [
+            "W",
+            "kW",
+            "%"
+          ],
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "unit",
+        "min",
+        "max"
+      ],
+      "title": "NumberLimitControl",
+      "type": "object"
+    },
+    "RoleSpec": {
+      "additionalProperties": false,
+      "description": "One entity role of a template.",
+      "properties": {
+        "description": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Description",
+          "type": "string"
+        },
+        "matcher": {
+          "$ref": "#/$defs/EntityMatcher"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "same_device_as": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Same Device As"
+        }
+      },
+      "required": [
+        "matcher",
+        "description"
+      ],
+      "title": "RoleSpec",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "Documentation a template (or one of its facts) is based on.",
+      "properties": {
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 500,
+          "pattern": "^https?://\\S+$",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "date"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "TestedWith": {
+      "additionalProperties": false,
+      "description": "Integration version the template was verified against.",
+      "properties": {
+        "integration": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Integration",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "integration",
+        "version"
+      ],
+      "title": "TestedWith",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/pxljake/suncore/main/templates/schema/battery.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Battery adapter template (Phase 4, ADR-0006/ADR-0012 kind ``battery``).\n\n``roles`` are the readable and writable entities (e.g. ``soc``, ``power``,\n``min_soc_number``, ``max_charge_number``, ``max_discharge_number``, ``mode_select``,\n``force_charge_switch``); ``controls`` says what each *writable* role expresses. A\nrole without a control is read only. Writes go through the safety gate only.",
+  "properties": {
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/Capability"
+      },
+      "maxItems": 32,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "controls": {
+      "maxProperties": 8,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,31}$": {
+          "discriminator": {
+            "mapping": {
+              "force_charge": "#/$defs/ForceChargeSwitchControl",
+              "grid_charge_power": "#/$defs/NumberLimitControl",
+              "max_charge": "#/$defs/NumberLimitControl",
+              "max_discharge": "#/$defs/NumberLimitControl",
+              "min_soc": "#/$defs/NumberLimitControl",
+              "mode": "#/$defs/ModeSelectControl"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NumberLimitControl"
+            },
+            {
+              "$ref": "#/$defs/ModeSelectControl"
+            },
+            {
+              "$ref": "#/$defs/ForceChargeSwitchControl"
+            }
+          ]
+        }
+      },
+      "title": "Controls",
+      "type": "object"
+    },
+    "id": {
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "battery",
+      "title": "Kind",
+      "type": "string"
+    },
+    "min_app_version": {
+      "anyOf": [
+        {
+          "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min App Version"
+    },
+    "name": {
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "title": "Name",
+      "type": "string"
+    },
+    "roles": {
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,31}$": {
+          "$ref": "#/$defs/RoleSpec"
+        }
+      },
+      "title": "Roles",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "settle_s": {
+      "anyOf": [
+        {
+          "maximum": 600,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Settle S"
+    },
+    "source": {
+      "items": {
+        "$ref": "#/$defs/SourceRef"
+      },
+      "minItems": 1,
+      "title": "Source",
+      "type": "array"
+    },
+    "tested_with": {
+      "items": {
+        "$ref": "#/$defs/TestedWith"
+      },
+      "title": "Tested With",
+      "type": "array"
+    },
+    "unverified": {
+      "items": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Unverified",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "schema_version",
+    "name",
+    "source",
+    "tested_with",
+    "capabilities",
+    "kind",
+    "roles"
+  ],
+  "title": "BatteryTemplate",
+  "type": "object"
+}

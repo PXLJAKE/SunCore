@@ -49,7 +49,7 @@
   // Every role of a chosen forecast template gets a field, also when it was stored without one.
   $effect(() => {
     for (const id of wizard.forecast.templateIds) {
-      ensureRoleFields(wizard.forecast, Object.keys(details[id]?.roles ?? {}));
+      ensureRoleFields(wizard.forecast, id, Object.keys(details[id]?.roles ?? {}));
     }
   });
 
@@ -165,12 +165,12 @@
         {/if}
         {#if on}
           {#each Object.entries(details[tpl.id]?.roles ?? {}) as [role, spec] (role)}
-            {#if wizard.forecast.entities[role]}
+            {#if wizard.forecast.entities[tpl.id]?.[role]}
               <RolePicker
                 label={tDynamic(spec.description, undefined, 'reason.unknown')}
                 {role}
                 template={tpl.id}
-                bind:field={wizard.forecast.entities[role]}
+                bind:field={wizard.forecast.entities[tpl.id]![role]!}
                 optional={!spec.required}
               />
             {/if}

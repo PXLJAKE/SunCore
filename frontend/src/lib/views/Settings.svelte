@@ -12,7 +12,8 @@
   import { STEPS, type StepId } from '../wizard/steps';
 
   const uid = $props.id();
-  const SECTIONS: Exclude<ConfigSectionName, 'wizard'>[] = [
+  // The battery section gets its settings page in Phase 4 WP10.
+  const SECTIONS: Exclude<ConfigSectionName, 'wizard' | 'battery'>[] = [
     'site',
     'region',
     'tariff',

@@ -336,7 +336,7 @@ The service device is named **"Solcast PV Forecast"**, manufacturer `BJReplay`,
 |---|---|---|---|---|---|
 | `total_kwh_forecast_today` | Forecast Today | kWh | energy | total | day total, attributes below |
 | `total_kwh_forecast_tomorrow` | Forecast Tomorrow | kWh | energy | total | attributes below |
-| `total_kwh_forecast_d3` … `_d7` | Forecast Day 3 … | kWh | energy | total | number controlled by the "advanced day entities" option; `UNVERIFIED` default |
+| `total_kwh_forecast_d3` … `_d7` | Forecast Day 3 … | kWh | energy | total | number controlled by the advanced option `forecast_day_entities` (min 8, max 14, default 8, i.e. `d3`..`d7` by default; verified 2026-10-16 at tag `v4.6.1`, see `integrations.md`) |
 | `power_now` | Power Now | W | power | measurement | |
 | `power_now_30m`, `power_now_1hr` | Power in 30 Minutes / 1 Hour | W | power | measurement | |
 | `peak_w_today`, `peak_w_tomorrow` | Peak Forecast Today / Tomorrow | W | power | measurement | |

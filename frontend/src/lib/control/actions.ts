@@ -28,5 +28,7 @@ export function describeAction(action: Action, power: (w: number) => string): Ac
       return { key: 'action.mode', args: { mode: action.mode } };
     case 'release':
       return { key: 'action.release', args: {} };
+    case 'battery':
+      return { key: 'action.battery', args: {} };
   }
 }

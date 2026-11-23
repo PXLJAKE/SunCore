@@ -31,6 +31,7 @@ import {
 import { num, slugify, uniqueId } from './forms';
 import {
   goalsFormFromConfig,
+  NIGHT_SCHEDULE,
   goalsFromForm,
   operationFormFromConfig,
   operationFromForm,
@@ -128,29 +129,78 @@ describe('region form', () => {
 });
 
 describe('forecast form', () => {
+  const learning = { min_history_days: 30, load_ml_mode: 'shadow' as const };
   it('round-trips a stored forecast without any tariff', () => {
     const cfg: ForecastConfig = {
-      schema_version: 1,
-      forecast_template_ids: ['solcast.pv'],
-      forecast_entities: { forecast_today: ref('sensor.today') },
+      schema_version: 2,
+      sources: [
+        {
+          template_id: 'solcast.pv',
+          entities: { forecast_today: ref('sensor.today') },
+          weight_mode: 'manual',
+          weight: 0.5,
+        },
+      ],
+      learning: { min_history_days: 14, load_ml_mode: 'off' },
     };
     expect(forecastFromForm(forecastFormFromConfig(cfg))).toEqual(cfg);
     expect(forecastFromForm(forecastFormFromConfig(null))).toEqual({
-      schema_version: 1,
-      forecast_template_ids: [],
-      forecast_entities: {},
+      schema_version: 2,
+      sources: [],
+      learning,
     });
+  });
+  it('gives each source the entities of its own roles', () => {
+    const form = emptyForecastForm();
+    setForecastTemplate(form, 'a.pv', true, ['today']);
+    setForecastTemplate(form, 'b.pv', true, ['b_today']);
+    form.entities['a.pv']!.today = ref('sensor.a');
+    form.entities['b.pv']!.b_today = ref('sensor.b');
+    const sources = forecastFromForm(form).sources!;
+    expect(sources.map((s) => Object.keys(s.entities ?? {}))).toEqual([['today'], ['b_today']]);
+  });
+  it('keeps the entities of two sources that share a role name apart', () => {
+    const cfg: ForecastConfig = {
+      schema_version: 2,
+      sources: [
+        {
+          template_id: 'solcast.pv',
+          entities: { today: ref('sensor.solcast_today') },
+          weight_mode: 'auto',
+          weight: null,
+        },
+        {
+          template_id: 'forecast_solar.pv',
+          entities: { today: ref('sensor.fs_today') },
+          weight_mode: 'auto',
+          weight: null,
+        },
+      ],
+      learning,
+    };
+    const form = forecastFormFromConfig(cfg);
+    expect(form.entities['solcast.pv']!.today).not.toBe(form.entities['forecast_solar.pv']!.today);
+    form.entities['forecast_solar.pv']!.today = ref('sensor.fs_today_new');
+    const sources = forecastFromForm(form).sources!;
+    expect(sources.map((s) => s.entities?.today?.entity_id)).toEqual([
+      'sensor.solcast_today',
+      'sensor.fs_today_new',
+    ]);
+    setForecastTemplate(form, 'solcast.pv', false, ['today']);
+    expect(forecastFromForm(form).sources!.map((s) => s.entities?.today?.entity_id)).toEqual([
+      'sensor.fs_today_new',
+    ]);
   });
   it('drops forecast entities of a template that is switched off', () => {
     const form = emptyForecastForm();
     setForecastTemplate(form, 'solcast.pv', true, ['forecast_today']);
-    ensureRoleFields(form, ['forecast_today', 'forecast_tomorrow']);
-    form.entities.forecast_today = ref('sensor.today');
-    expect(Object.keys(forecastFromForm(form).forecast_entities!)).toEqual(['forecast_today']);
+    ensureRoleFields(form, 'solcast.pv', ['forecast_today', 'forecast_tomorrow']);
+    form.entities['solcast.pv']!.forecast_today = ref('sensor.today');
+    expect(Object.keys(forecastFromForm(form).sources![0]!.entities!)).toEqual(['forecast_today']);
     setForecastTemplate(form, 'solcast.pv', false, ['forecast_today', 'forecast_tomorrow']);
     expect(form.templateIds).toEqual([]);
     expect(form.entities).toEqual({});
-    expect(forecastFromForm(form).forecast_entities).toEqual({});
+    expect(forecastFromForm(form).sources).toEqual([]);
   });
 });
 
@@ -162,8 +212,15 @@ describe('tariff form', () => {
     form.exportKind = 'none';
     expect(isTariffComplete(form)).toBe(true);
     expect(tariffFromForm(form)).toEqual({
-      schema_version: 2,
-      import: { kind: 'fixed', template_id: null, price_entity: null, fixed_price: 0.32 },
+      schema_version: 3,
+      import: {
+        kind: 'fixed',
+        template_id: null,
+        price_entity: null,
+        fixed_price: 0.32,
+        formula: null,
+        tou: null,
+      },
       export: { kind: 'none', fixed_price: null, tiers: [] },
     });
   });
@@ -181,6 +238,8 @@ describe('tariff form', () => {
       template_id: 'tibber.price',
       price_entity: ref('sensor.tibber'),
       fixed_price: null,
+      formula: null,
+      tou: null,
     });
     expect(isTariffComplete(form)).toBe(true);
   });
@@ -212,12 +271,21 @@ describe('tariff form', () => {
   });
   it('round-trips a stored tariff', () => {
     const cfg: TariffConfig = {
-      schema_version: 2,
+      schema_version: 3,
       import: {
         kind: 'dynamic',
         template_id: 'tibber.price',
         price_entity: ref('sensor.t'),
         fixed_price: null,
+        formula: {
+          spot_multiplier: 1,
+          grid_fee: 0.1,
+          grid_fee_windows: [],
+          levies: 0.02,
+          margin: 0.01,
+          vat_pct: 19,
+        },
+        tou: null,
       },
       export: {
         kind: 'tiered',
@@ -229,6 +297,27 @@ describe('tariff form', () => {
       },
     };
     expect(tariffFromForm(tariffFormFromConfig(cfg))).toEqual(cfg);
+  });
+  it('carries a time-of-use tariff through unchanged', () => {
+    const tou = {
+      base_price: 0.3,
+      periods: [{ window: { days: [0, 1, 2, 3, 4], start: '22:00', end: '06:00' }, price: 0.2 }],
+    };
+    const cfg: TariffConfig = {
+      schema_version: 3,
+      import: {
+        kind: 'tou',
+        template_id: null,
+        price_entity: null,
+        fixed_price: null,
+        formula: null,
+        tou,
+      },
+      export: { kind: 'none', fixed_price: null, tiers: [] },
+    };
+    const form = tariffFormFromConfig(cfg);
+    expect(isTariffComplete(form)).toBe(true);
+    expect(tariffFromForm(form)).toEqual(cfg);
   });
   it('offers region tiers as rows', () => {
     expect(
@@ -767,6 +856,21 @@ describe('priority reducer', () => {
 });
 
 describe('goals and operation', () => {
+  it('passes a stored custom grid-charge schedule through until the checkbox toggles', () => {
+    const custom = { windows: [{ days: [5, 6], start: '00:00', end: '00:00' }] };
+    const form = goalsFormFromConfig({
+      schema_version: 2,
+      climate_before_export: false,
+      grid_charge_schedule: custom,
+    });
+    expect(form.gridChargeNightOnly).toBe(true);
+    expect(goalsFromForm(form).grid_charge_schedule).toEqual(custom);
+    form.gridChargeNightOnly = false;
+    expect(goalsFromForm(form).grid_charge_schedule).toBeNull();
+    const fresh = goalsFormFromConfig(goalsFromForm(form));
+    fresh.gridChargeNightOnly = true;
+    expect(goalsFromForm(fresh).grid_charge_schedule).toEqual(NIGHT_SCHEDULE);
+  });
   it('maps goals both ways', () => {
     const form = goalsFormFromConfig(null);
     expect(form).toMatchObject({
@@ -775,6 +879,11 @@ describe('goals and operation', () => {
       climateBeforeExport: false,
     });
     expect(goalsFromForm(form).battery_target).toBeNull();
+    expect(goalsFromForm(form).grid_charge_schedule).toEqual(NIGHT_SCHEDULE);
+    expect(goalsFromForm(form)).not.toHaveProperty('conservative_planning');
+    form.gridChargeNightOnly = false;
+    expect(goalsFromForm(form).grid_charge_schedule).toBeNull();
+    expect(goalsFormFromConfig(goalsFromForm(form)).gridChargeNightOnly).toBe(false);
     form.targetEnabled = true;
     form.targetSoc = 90;
     form.targetTime = '17:30';

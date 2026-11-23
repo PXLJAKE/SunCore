@@ -75,7 +75,10 @@ Exit: climate surplus control runs in shadow mode on the maintainer's
 system with plausible "would have" entries; maintainer switches one device
 to automatic. ⏸ waiting for the maintainer (shadow run on HA OS, then one device to automatic).
 
-## Phase 4 – Forecasts, tariffs, planner, battery ⬜
+## Phase 4 – Forecasts, tariffs, planner, battery 🟨
+
+In progress in stacked PRs 4-A…4-I ([`plans/phase-4.md`](plans/phase-4.md)); PR 4-A
+(contracts) first. Battery control (WP10) waits for ADR-0013.
 
 | Milestone | Acceptance |
 |---|---|

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Tariff section <-> form: import price (fixed or dynamic) and feed-in (fixed, tiered, none).
-import type { ExportTier, RegionTemplate, TariffConfig } from '../api/types';
+// Tariff v3 (price formula, HT/NT kind `tou`) has no form fields yet (Phase 4 WP10): the values
+// are carried through unchanged so that saving the form never drops them.
+import type { ExportTier, ImportTariff, RegionTemplate, TariffConfig } from '../api/types';
 import { emptyRef, fromRef, toRef, type RefField } from './forms';
 
-export type ImportKind = 'fixed' | 'dynamic';
+export type ImportKind = 'fixed' | 'dynamic' | 'tou';
 export type DynamicSource = 'template' | 'entity';
 export type ExportKind = 'fixed' | 'tiered' | 'none';
 
@@ -22,6 +24,9 @@ export interface TariffForm {
   exportKind: ExportKind;
   exportFixed: number | null;
   tiers: TierRow[];
+  /** Carried through unchanged (no form fields yet). */
+  importFormula: ImportTariff['formula'];
+  importTou: ImportTariff['tou'];
 }
 
 export function emptyTariffForm(): TariffForm {
@@ -34,6 +39,8 @@ export function emptyTariffForm(): TariffForm {
     exportKind: 'fixed',
     exportFixed: null,
     tiers: [{ upToKwp: null, price: null }],
+    importFormula: null,
+    importTou: null,
   };
 }
 
@@ -53,17 +60,21 @@ export function tariffFormFromConfig(cfg: TariffConfig | null): TariffForm {
       exp.tiers && exp.tiers.length > 0
         ? exp.tiers.map((t) => ({ upToKwp: t.up_to_kwp ?? null, price: t.price }))
         : [{ upToKwp: null, price: null }],
+    importFormula: imp.formula ?? null,
+    importTou: imp.tou ?? null,
   };
 }
 
 /** Enough to store the tariff section (the backend requires import and export). */
 export function isTariffComplete(form: TariffForm): boolean {
   const importOk =
-    form.importKind === 'fixed'
-      ? form.importFixed != null
-      : form.dynamicSource === 'template'
-        ? form.importTemplateId !== ''
-        : toRef(form.priceEntity) !== null;
+    form.importKind === 'tou'
+      ? form.importTou != null
+      : form.importKind === 'fixed'
+        ? form.importFixed != null
+        : form.dynamicSource === 'template'
+          ? form.importTemplateId !== ''
+          : toRef(form.priceEntity) !== null;
   const exportOk =
     form.exportKind === 'none' ||
     (form.exportKind === 'fixed' && form.exportFixed != null) ||
@@ -85,12 +96,14 @@ export function tariffFromForm(form: TariffForm): TariffConfig {
         }))
       : [];
   return {
-    schema_version: 2,
+    schema_version: 3,
     import: {
       kind: form.importKind,
       template_id: byTemplate ? form.importTemplateId : null,
       price_entity: dynamic ? toRef(form.priceEntity) : null,
-      fixed_price: dynamic ? null : form.importFixed,
+      fixed_price: form.importKind === 'fixed' ? form.importFixed : null,
+      formula: dynamic ? (form.importFormula ?? null) : null,
+      tou: form.importKind === 'tou' ? (form.importTou ?? null) : null,
     },
     export: {
       kind: form.exportKind,

@@ -90,6 +90,7 @@ describe('describeAction', () => {
     expect(describeAction({ kind: 'step', step: 2 }, w).key).toBe('action.step');
     expect(describeAction({ kind: 'mode', mode: 'eco' }, w).key).toBe('action.mode');
     expect(describeAction({ kind: 'release' }, w).key).toBe('action.release');
+    expect(describeAction({ kind: 'battery', min_soc_pct: 20 }, w).key).toBe('action.battery');
   });
 });
 

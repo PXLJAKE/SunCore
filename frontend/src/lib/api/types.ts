@@ -28,12 +28,21 @@ export type EntityCandidate = S['EntityCandidateOut'];
 export type ValidationIssue = S['ValidationIssueOut'];
 
 export type ConfigSectionName =
-  'site' | 'region' | 'tariff' | 'forecast' | 'devices' | 'goals' | 'operation' | 'wizard';
+  | 'site'
+  | 'region'
+  | 'tariff'
+  | 'forecast'
+  | 'devices'
+  | 'goals'
+  | 'operation'
+  | 'wizard'
+  | 'battery';
 export type RegionConfig = S['RegionConfig'];
 export type TariffConfig = S['TariffConfig'];
 export type ForecastConfig = S['ForecastConfig'];
 export type DevicesConfig = S['DevicesConfig'];
 export type GoalsConfig = S['GoalsConfig'];
+export type BatterySettings = S['BatterySettings'];
 export type OperationConfig = S['OperationConfig'];
 export type WizardState = S['WizardState'];
 export type DeviceConfig = S['DeviceConfig'];
@@ -55,7 +64,7 @@ export type Suggestion = S['SuggestionOut'];
 export type ConfigHistoryEntry = S['ConfigHistoryEntryOut'];
 export type ImportResult = S['ImportResultOut'];
 export type HistoryRestore = S['HistoryRestoreOut'];
-export type TemplateKind = 'device' | 'tariff' | 'forecast' | 'region';
+export type TemplateKind = 'device' | 'tariff' | 'forecast' | 'region' | 'battery';
 export type TemplateList = S['TemplateListOut'];
 export type TemplateSummary = S['TemplateSummaryOut'];
 export type TemplateDetail = S['TemplateDetailOut'];

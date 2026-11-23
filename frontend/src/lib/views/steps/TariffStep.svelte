@@ -90,6 +90,9 @@
         </label>
       {/each}
     </div>
+    {#if f.importKind === 'tou'}
+      <p class="hint" role="status">{t('tariff.import.tou_stored')}</p>
+    {/if}
     {#if f.importKind === 'fixed'}
       <NumberField
         label={t('tariff.price_per_kwh', { currency })}

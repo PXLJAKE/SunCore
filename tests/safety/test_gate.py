@@ -21,12 +21,14 @@ from suncore.core.balance import Flow, FlowSnapshot
 from suncore.core.control import ControlSettings, DeviceState
 from suncore.core.decisions import (
     Action,
+    BatteryAction,
     Decision,
     DecisionKind,
     Intent,
     OperatingMode,
     Origin,
     PowerSetpointAction,
+    Reason,
     ReleaseAction,
     SetpointAction,
     SwitchAction,
@@ -1203,3 +1205,90 @@ def test_n1_a_deferred_release_is_not_re_deferred_on_every_tick() -> None:
     rt = h.gate.runtime_of("pool")
     assert rt is not None
     assert rt.release_pending
+
+
+# --- battery actions (Phase 4 WP2): explicitly unsupported until WP10 --------------------
+
+
+@pytest.mark.parametrize("mode", [OperatingMode.SHADOW, OperatingMode.ASSISTED, AUTO])
+def test_battery_action_is_rejected_and_never_written(mode: OperatingMode) -> None:
+    h = make_harness(global_mode=mode, device_mode=mode)
+    d = asyncio.run(h.gate.submit(make_intent(BatteryAction(grid_charge_w=3000))))
+    assert d.kind is DecisionKind.REJECTED
+    assert [r.key for r in d.reasons] == ["safety.battery_not_supported"]
+    assert h.apply_calls == 0
+    assert h.gate.proposals() == ()
+
+
+@st.composite
+def battery_actions(draw: st.DrawFn) -> BatteryAction:
+    power = st.none() | st.floats(0, 20_000, allow_nan=False)
+    max_charge = draw(power)
+    grid = draw(power)
+    if grid is not None and max_charge is not None and grid > max_charge:
+        grid = max_charge
+    values = {
+        "max_charge_w": max_charge,
+        "max_discharge_w": draw(power),
+        "min_soc_pct": draw(st.none() | st.floats(0, 100, allow_nan=False)),
+        "grid_charge_w": grid,
+    }
+    if all(v is None for v in values.values()):
+        values["min_soc_pct"] = 20.0
+    return BatteryAction.model_validate(values)
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    action=battery_actions(),
+    origin=st.sampled_from(Origin),
+    global_mode=st.sampled_from(OperatingMode),
+    device_mode=st.sampled_from(OperatingMode),
+    stopped=st.booleans(),
+    asset_id=st.sampled_from(("pool", "ac", "ghost")),
+)
+def test_battery_action_is_always_rejected_without_side_effects(  # noqa: PLR0917
+    action: BatteryAction,
+    origin: Origin,
+    global_mode: OperatingMode,
+    device_mode: OperatingMode,
+    stopped: bool,
+    asset_id: str,
+) -> None:
+    """Every origin x mode x emergency stop: REJECTED, no write, no release, no state."""
+    h = make_harness(global_mode=global_mode, device_mode=device_mode)
+
+    async def scenario() -> tuple[Decision, int, tuple[DeviceRuntime, ...]]:
+        if stopped:
+            await h.gate.emergency_stop()  # releases what it owns before the battery intent
+        releases = h.release_calls
+        before = tuple(await h.store.all_runtimes())
+        decision = await h.gate.submit(make_intent(action, asset_id=asset_id, origin=origin))
+        assert tuple(await h.store.all_runtimes()) == before  # runtime store unchanged
+        return decision, releases, before
+
+    decision, releases, _ = asyncio.run(scenario())
+    assert decision.kind is DecisionKind.REJECTED
+    assert not decision.wrote_hardware
+    expected = REASON_EMERGENCY_STOP if stopped else Reason(key="safety.battery_not_supported")
+    assert decision.reasons == (expected,)
+    assert h.apply_calls == 0
+    assert h.release_calls == releases  # the battery intent released nothing
+    if not stopped:
+        assert releases == 0
+    assert h.gate.proposals() == ()
+    assert h.gate.emergency_stopped is stopped
+
+
+def test_invariant_helpers_treat_battery_actions_as_no_device_change() -> None:
+    from suncore.safety.invariants import (  # noqa: PLC0415
+        action_matches_state,
+        action_turns_on,
+        expected_power_w,
+    )
+
+    action = BatteryAction(min_soc_pct=20)
+    device = switch_device()
+    assert action_turns_on(action, device) is None
+    assert expected_power_w(action, device, None) is None
+    assert action_matches_state(action, DeviceState(on=True)) is False

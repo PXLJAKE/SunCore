@@ -66,7 +66,12 @@ from suncore.api.services import (
     UnknownTemplateError,
 )
 from suncore.api.validation import validation_exception_handler
-from suncore.core.config import SECTION_MODELS, OperationConfig
+from suncore.core.config import (
+    SECTION_MODELS,
+    OperationConfig,
+    TariffConfig,
+    formula_on_all_in_source,
+)
 from suncore.core.controlstate import (
     ControlState,
     DeviceControlState,
@@ -87,7 +92,8 @@ from suncore.storage.errors import (
     ImportRejectedError,
     UnknownSectionError,
 )
-from suncore.templates.models import TemplateKind
+from suncore.templates import TemplateCatalog
+from suncore.templates.models import TariffTemplate, TemplateKind
 
 log = logging.getLogger(__name__)
 
@@ -383,6 +389,8 @@ def _register_section(app: FastAPI, services: Services, name: str, model: type[B
             assert isinstance(body, SiteConfig)
             await services.put_site(body)
             return body
+        if isinstance(body, TariffConfig):
+            _check_tariff_against_catalog(body, services.templates())
         try:
             return await services.put_section(name, body)
         except ModeRaiseRejectedError as exc:
@@ -414,6 +422,25 @@ def _register_section(app: FastAPI, services: Services, name: str, model: type[B
         operation_id=f"put_config_{name}",
         summary=f"Replace the {name} section",
     )
+
+
+def _check_tariff_against_catalog(tariff: TariffConfig, catalog: TemplateCatalog) -> None:
+    """Checks a tariff needs the template catalogue for (same 422 body as model validation)."""
+    template_id = tariff.import_.template_id
+    template = catalog.get(template_id) if template_id is not None else None
+    includes = template.price_includes if isinstance(template, TariffTemplate) else None
+    error = formula_on_all_in_source(tariff, includes)
+    if error is not None:
+        raise RequestValidationError(
+            [
+                {
+                    "type": error.type,
+                    "loc": ("body", "import", "formula"),
+                    "msg": error.message(),
+                    "ctx": error.context or {},
+                }
+            ]
+        )
 
 
 def _history_error(exc: Exception) -> HTTPException:

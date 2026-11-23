@@ -136,7 +136,7 @@ test.describe('setup wizard', () => {
       import: { kind: 'fixed', fixed_price: 0.32 },
       export: { kind: 'fixed', fixed_price: 0.08 },
     });
-    expect(await get('forecast')).toMatchObject({ forecast_template_ids: ['solcast.pv'] });
+    expect(await get('forecast')).toMatchObject({ sources: [{ template_id: 'solcast.pv' }] });
     const devices = (await get('devices')).devices;
     expect(devices).toHaveLength(1);
     expect(devices[0]).toMatchObject({ template_id: 'generic.switch', priority: 0 });
