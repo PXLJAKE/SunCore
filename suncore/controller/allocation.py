@@ -55,6 +55,15 @@ from datetime import datetime, timedelta, tzinfo
 from typing import Final
 
 from suncore.controller import reasons as rs
+from suncore.controller.grid import (
+    NO_HOLDS,
+    CapInput,
+    GridCaps,
+    GridHolds,
+    GridInputs,
+    grid_caps,
+    shed_order,
+)
 from suncore.controller.hysteresis import DeviceMachine, Phase, Transition
 from suncore.controller.levels import (
     LevelTable,
@@ -72,7 +81,7 @@ from suncore.core.control import (
     heat_capped,
 )
 from suncore.core.decisions import Decision, DecisionKind, Intent, Origin, Reason, SetpointAction
-from suncore.core.devices import DeviceConfig, SetpointControl, TimeWindow
+from suncore.core.devices import THERMAL_KINDS, DeviceConfig, SetpointControl, TimeWindow
 from suncore.core.signals import Quality
 
 POOR_ESTIMATE_REL: Final = 0.5
@@ -274,6 +283,14 @@ class AllocationInputs:
     plan: Plan
     reserve_soc_pct: float | None
     import_limit_w: float | None = None
+    grid: GridInputs | None = None
+    """Island, §14a, peak and fuse limits (PR 6-F); ``None`` = only ``import_limit_w``."""
+    grid_holds: GridHolds = NO_HOLDS
+    """The cool-down after island/§14a as the controller mirrors it (G6)."""
+
+    @property
+    def grid_inputs(self) -> GridInputs:
+        return self.grid if self.grid is not None else GridInputs.from_limit(self.import_limit_w)
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,7 +419,9 @@ class Allocator:
         self._tz = tz
         self._machines: dict[str, DeviceMachine] = {}
         self._order: list[str] = []
+        self._shed_order: list[str] = []
         self._deficit = DeficitTracker()
+        self._caps = GridCaps()
 
     # --- devices ---------------------------------------------------------------------
 
@@ -422,6 +441,7 @@ class Allocator:
             keep[device.id] = machine
         self._machines = keep
         self._order = [d.id for d in ordered]
+        self._shed_order = shed_order(ordered)
 
     @property
     def machines(self) -> Mapping[str, DeviceMachine]:
@@ -461,6 +481,7 @@ class Allocator:
         out.total_w = site.total_w(reserve)
         out.free_w = site.free_w(reserve, sum(committed.values()))
 
+        self._caps = self._grid_caps(synced, inputs, out.draws)
         backoff = self._deficit_backoff(now, site, synced, committed, inputs, out)
 
         wanted_by_id: dict[str, Wanted] = {}
@@ -489,6 +510,43 @@ class Allocator:
 
     def _ordered(self) -> list[DeviceMachine]:
         return [self._machines[i] for i in self._order]
+
+    @property
+    def caps(self) -> GridCaps:
+        """The grid caps of the latest tick (island, §14a, cool-down)."""
+        return self._caps
+
+    def _grid_caps(
+        self,
+        synced: Sequence[DeviceMachine],
+        inputs: AllocationInputs,
+        draws: Mapping[str, DeviceDraw],
+    ) -> GridCaps:
+        grid = inputs.grid_inputs
+        fixed: float | None = 0.0
+        synced_ids = {m.device.id for m in synced}
+        for m in self._ordered():
+            if not m.device.para14a or m.device.id in synced_ids:
+                continue
+            estimate = inputs.estimates.get(m.device.id)
+            if estimate is None or not _known(estimate):
+                fixed = None
+                break
+            assert fixed is not None
+            fixed += estimate.upper_w
+        devices = [
+            CapInput(
+                device_id=m.device.id,
+                table=m.table,
+                level=m.level,
+                draw_w=draws[m.device.id].committed_w if m.device.id in draws else 0.0,
+                hysteresis_w=m.hysteresis_w,
+                para14a=m.device.para14a,
+            )
+            for m in synced
+            if m.table is not None
+        ]
+        return grid_caps(devices, grid, inputs.grid_holds, para14a_fixed_w=fixed)
 
     # --- steps -----------------------------------------------------------------------------
 
@@ -617,6 +675,9 @@ class Allocator:
         heat = _heat_cap_reason(device, inputs.states.get(device.id))
         if heat is not None:
             cap, cap_reason = 0, heat
+        grid_cap = self._caps.get(device.id)
+        if grid_cap is not None and grid_cap.level < cap:
+            cap, cap_reason = grid_cap.level, grid_cap.reason
         return Candidate(
             device_id=device.id,
             table=m.table,
@@ -710,7 +771,7 @@ class Allocator:
         if remaining > 0:
             m.reasons = (transition.reason, rs.waiting_delay(remaining))
             return
-        blocked = m.blocked_by_protection(now, transition.level)
+        blocked = m.blocked_by_protection(now, transition.level, waive_run=transition.fuse_shed)
         if blocked is not None:
             m.reasons = (transition.reason, blocked)
             return
@@ -765,7 +826,7 @@ class Allocator:
 
     # --- deficit -----------------------------------------------------------------------------
 
-    def _deficit_backoff(  # noqa: PLR0917
+    def _deficit_backoff(  # noqa: PLR0912, PLR0917 - one branch per back-off rule
         self,
         now: datetime,
         site: SiteSurplus,
@@ -792,9 +853,9 @@ class Allocator:
             return {}
         elapsed = (now - self._deficit.since).total_seconds()
         reserve = inputs.reserve_soc_pct
-        limit = inputs.import_limit_w
-        if limit is not None and site.grid_w is not None and site.grid_w > limit:
-            reason = rs.import_limit(site.grid_w, limit)
+        over_limit, fuse, limit_reason = _limit_breach(site, inputs.grid_inputs)
+        if limit_reason is not None:
+            reason = limit_reason
         elif _at_reserve(site, reserve):
             reason = rs.battery_reserve(site.soc_pct or 0.0, reserve or 0.0)
         elif self._deficit.wh >= self._settings.deficit_budget_wh:
@@ -805,7 +866,14 @@ class Allocator:
             return {}
         if self._deficit.holding(now):
             return {}  # the previous step has not shown its effect yet
-        for m in reversed(active):  # lowest priority first
+        if over_limit:
+            # ADR-0018 decision 2: the shedding order (continuous first, shed_rank, reverse
+            # priority) instead of plain reverse priority.
+            by_id = {m.device.id: m for m in active}
+            order = [by_id[i] for i in self._shed_order if i in by_id]
+        else:
+            order = list(reversed(active))  # lowest priority first
+        for m in order:
             assert m.table is not None
             if m.in_flight_id is not None:
                 continue
@@ -813,12 +881,15 @@ class Allocator:
                 m.level - 1,
                 _fall_level(m.table, m.level, committed.get(m.device.id, 0.0), attributable),
             )
-            protection = m.blocked_by_protection(now, target)
+            waive = fuse and m.device.kind not in THERMAL_KINDS and not m.table.level(target).on
+            protection = m.blocked_by_protection(now, target, waive_run=waive)
             if protection is not None:
                 m.reasons = (reason, protection)
                 continue
             self._deficit.restart(now, m.settle_s + self._settings.tick_s)
-            return {m.device.id: Transition(target, reason, forced=True, deficit=True)}
+            return {
+                m.device.id: Transition(target, reason, forced=True, deficit=True, fuse_shed=waive)
+            }
         return {}
 
     @staticmethod
@@ -871,6 +942,24 @@ def _attributable_deficit(
     if site.grid_w is not None and site.grid_w > 0:
         deficit = max(deficit, site.grid_w)
     return min(deficit, active_draw)
+
+
+def _limit_breach(site: SiteSurplus, grid: GridInputs) -> tuple[bool, bool, Reason | None]:
+    """``(over the effective limit, over the fuse limit, the reason)`` of an import breach.
+
+    Above the fuse (connection) limit the shedding skips min run of non-thermal kinds (G2) and
+    needs a trusted reading; above a lower peak limit it is plain shedding.
+    """
+    limit, fuse_limit, grid_w = grid.import_limit_w, grid.fuse_limit_w, site.grid_w
+    if limit is None or grid_w is None or grid_w <= limit:
+        return False, False, None
+    fuse = fuse_limit is not None and site.trusted and grid_w > fuse_limit
+    if fuse:
+        assert fuse_limit is not None
+        return True, True, rs.grid_shed(grid_w, fuse_limit, fuse=True)
+    if fuse_limit is not None and limit < fuse_limit:
+        return True, False, rs.grid_shed(grid_w, limit, fuse=False)
+    return True, False, rs.import_limit(grid_w, limit)
 
 
 def _at_reserve(site: SiteSurplus, reserve_soc_pct: float | None) -> bool:

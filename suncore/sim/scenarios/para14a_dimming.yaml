@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: Apache-2.0
+name: para14a_dimming
+description: §14a EnWG dimming (PR 6-F) - a sunny day; a heating rod (continuous, 0-3000 W, priority 10) and a second load standing in for a wallbox (switch, 2000 W, priority 20) are flagged as §14a devices and run on surplus. From 12:30 to 13:30 the grid operator's binary signal reduces them to 2500 W together; SunCore dims the lower-priority device first and keeps the sum within the budget, also under cloud flicker (12:40-13:20). From 14:00 to 14:10 the signal is unavailable (no increase of the flagged devices, G5). After each end the cool-down applies before increases resume (G6). SunCore only respects the signal - it is not the certified control path.
+start: "2026-06-21T12:00:00+02:00"
+duration_s: 10800
+step_s: 5
+house:
+  seed: 14
+  pv: {kwp: 10.0}
+  load:
+    noise_fraction: 0.03
+    hourly_w: [400, 400, 400, 400, 400, 400, 500, 600, 600, 600, 500, 500, 500, 500, 500, 500, 600, 700, 800, 800, 700, 600, 500, 400]
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 24.0, amplitude_c: 4.0}
+clouds:
+  - {at_s: 0, factor: 0.95}
+  - {at_s: 2400, factor: 0.75}
+  - {at_s: 2490, factor: 0.95}
+  - {at_s: 2580, factor: 0.75}
+  - {at_s: 2670, factor: 0.95}
+  - {at_s: 2760, factor: 0.75}
+  - {at_s: 2850, factor: 0.95}
+  - {at_s: 2940, factor: 0.75}
+  - {at_s: 3030, factor: 0.95}
+  - {at_s: 3120, factor: 0.75}
+  - {at_s: 3210, factor: 0.95}
+  - {at_s: 3300, factor: 0.75}
+  - {at_s: 3390, factor: 0.95}
+  - {at_s: 3480, factor: 0.75}
+  - {at_s: 3570, factor: 0.95}
+  - {at_s: 3660, factor: 0.75}
+  - {at_s: 3750, factor: 0.95}
+  - {at_s: 3840, factor: 0.75}
+  - {at_s: 3930, factor: 0.95}
+  - {at_s: 4020, factor: 0.75}
+  - {at_s: 4110, factor: 0.95}
+  - {at_s: 4200, factor: 0.75}
+  - {at_s: 4290, factor: 0.95}
+  - {at_s: 4380, factor: 0.75}
+  - {at_s: 4470, factor: 0.95}
+  - {at_s: 4560, factor: 0.75}
+  - {at_s: 4650, factor: 0.95}
+  - {at_s: 4740, factor: 0.75}
+  - {at_s: 4800, factor: 0.95}
+  - {at_s: 7200, factor: 0.4}
+  - {at_s: 7500, factor: 0.95}
+control:
+  import_limit_w: 11000
+grid:
+  para14a: true
+  para14a_signal_kind: binary
+  para14a_limit_w: 2500
+  para14a_windows:
+    - {from_s: 1800, to_s: 5400}
+faults:
+  - {kind: unavailable, target: binary_sensor.sim_para14a, from_s: 7200, to_s: 7800}
+devices:
+  - id: rod
+    template: generic.number_load
+    physics: {kind: number, max: 3000, step: 100, power_sensor: true}
+    control:
+      priority: 10
+      para14a: true
+      power_model: {kind: measured, power_role: power, nominal_w: 3000}
+  - id: charger
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 2000, power_sensor: true}
+    control:
+      priority: 20
+      para14a: true
+      min_run_s: 300
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 2000}

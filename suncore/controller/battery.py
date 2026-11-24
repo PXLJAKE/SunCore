@@ -33,6 +33,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from suncore.controller.grid import GridHolds, GridInputs
 from suncore.controller.reasons import (
     BATTERY_BLOCKED,
     BATTERY_DISCHARGE_LOCK,
@@ -41,6 +42,9 @@ from suncore.controller.reasons import (
     BATTERY_GRID_CHARGE_UNSUPPORTED,
     BATTERY_NO_PLAN,
     BATTERY_RELEASE,
+    GRID_BATTERY_ISLAND,
+    GRID_BATTERY_NO_GRID_CHARGE,
+    GRID_BATTERY_SUPPORT,
 )
 from suncore.core.battery import (
     BATTERY_ASSET_ID,
@@ -59,6 +63,7 @@ from suncore.core.decisions import (
     Reason,
     ReleaseAction,
 )
+from suncore.core.grid import GridState, Para14aStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +160,42 @@ class BatteryIntents:
             return None, (Reason(key=BATTERY_DISCHARGE_LOCK_UNSUPPORTED),)
         return None, ()
 
+    @staticmethod
+    def grid_override(  # noqa: PLR0917
+        wanted: BatteryAction | None,
+        reasons: tuple[Reason, ...],
+        grid: GridInputs | None,
+        holds: GridHolds,
+        deficit_w: float | None,
+        reserve_w: float,
+    ) -> tuple[BatteryAction | None, tuple[Reason, ...], bool]:
+        """The grid's say on the wanted state (PR 6-F); the flag marks an urgent release.
+
+        * island: SunCore keeps nothing on the battery (no grid to charge from, a lock would
+          leave the house without supply) - the inverter's own management carries the house;
+        * §14a active or unknown, or a cool-down after island/§14a: no grid charging (G3/G6);
+        * battery support (ADR-0018 decision 2): a discharge lock is lifted while the house
+          deficit without the battery comes within ``reserve_w`` of the import limit, or is
+          unknown.
+        """
+        if wanted is None or grid is None:
+            return wanted, reasons, False
+        if grid.grid_state is GridState.ISLAND:
+            return None, (Reason(key=GRID_BATTERY_ISLAND),), True
+        if (wanted.grid_charge_w or 0.0) > 0 and (
+            grid.para14a.status is not Para14aStatus.INACTIVE
+            or holds.island_s > 0
+            or holds.para14a_s > 0
+        ):
+            return None, (Reason(key=GRID_BATTERY_NO_GRID_CHARGE), *reasons), True
+        limit = grid.import_limit_w
+        lock = (wanted.grid_charge_w or 0.0) <= 0 and (
+            wanted.max_discharge_w is not None or wanted.min_soc_pct is not None
+        )
+        if lock and limit is not None and (deficit_w is None or deficit_w >= limit - reserve_w):
+            return None, (Reason(key=GRID_BATTERY_SUPPORT, args={"limit_w": round(limit)}),), True
+        return wanted, reasons, False
+
     def _grid_power(self, planned_w: float, inputs: BatteryControlInputs) -> float | None:
         allowed = inputs.ranges.grid_charge_w
         if BatteryCapability.GRID_CHARGE not in inputs.capabilities or allowed is None:
@@ -192,6 +233,11 @@ class BatteryIntents:
         plan: Plan,
         inputs: BatteryControlInputs | None,
         soc_pct: float | None,
+        *,
+        grid: GridInputs | None = None,
+        holds: GridHolds | None = None,
+        deficit_w: float | None = None,
+        reserve_w: float = 0.0,
     ) -> Intent | None:
         """The battery intent of this tick (``None`` = nothing to submit)."""
         if inputs is None:
@@ -207,6 +253,9 @@ class BatteryIntents:
         ):
             self._pending = None
         wanted, reasons = self.wanted(now, plan, inputs, soc_pct)
+        wanted, reasons, urgent = self.grid_override(
+            wanted, reasons, grid, holds or GridHolds(), deficit_w, reserve_w
+        )
         action: BatteryAction | ReleaseAction | None = wanted
         if wanted is None:
             action = ReleaseAction() if inputs.under_control else None
@@ -215,7 +264,12 @@ class BatteryIntents:
         elif inputs.under_control and inputs.held == wanted:
             action = None  # the gate holds exactly this
         self.view = BatteryView(wanted, reasons, last_decision=self._last_kind)
-        if action is None or self._pending is not None or not self._due(now, action):
+        if action is None or self._pending is not None:
+            return None
+        # A grid release (island, §14a, battery support) goes out at once - once: a repeat
+        # follows the normal spacing, so a refused release does not flood the log.
+        first_urgent = urgent and isinstance(action, ReleaseAction) and action != self._last_action
+        if not first_urgent and not self._due(now, action):
             return None
         self._seq += 1
         intent = Intent(

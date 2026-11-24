@@ -42,6 +42,7 @@ from typing import Final, cast
 
 import structlog
 
+from suncore.app.grid import GridMonitor
 from suncore.controller import (
     CallableQuantiser,
     Controller,
@@ -50,6 +51,7 @@ from suncore.controller import (
     DeviationEvent,
 )
 from suncore.controller.battery import BatteryControlInputs
+from suncore.controller.grid import GridInputs, resolve_grid_inputs
 from suncore.controller.loop import TickResult
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.battery import (
@@ -76,6 +78,7 @@ from suncore.core.controlstate import (
 )
 from suncore.core.decisions import Action, Decision, Reason
 from suncore.core.devices import DeviceConfig, control_roles
+from suncore.core.grid import GridState
 from suncore.core.identity import identity_token
 from suncore.core.measurements import (
     SITE_BATTERY_W,
@@ -263,8 +266,13 @@ class ControlStack:
         plan_provider: PlanProvider | None = None,
         on_measurements: MeasurementSink | None = None,
         battery: BatteryWiring | None = None,
+        grid_monitor: GridMonitor | None = None,
     ) -> None:
         self._connection = connection
+        self.grid_monitor = grid_monitor if grid_monitor is not None else GridMonitor(tz)
+        """Monthly peak and grid events (PR 6-F); in memory unless the runtime gives a store."""
+        self.grid: GridInputs | None = None
+        """The grid situation of the latest tick (island, §14a, effective import limit)."""
         self._plan_provider = plan_provider
         self._plan = Plan.default()
         self._on_measurements = on_measurements
@@ -530,6 +538,7 @@ class ControlStack:
             self._unsubscribe.append(self._connection.add_entity_listener(self.on_update))
             self._unsubscribe.append(self._connection.add_state_listener(self.on_state))
             await self._connection.subscribe_entities(self.entity_ids)
+        await self.grid_monitor.load(self._clock())
         if self._connection.state is ConnectionState.CONNECTED:
             await self.recover()
 
@@ -807,24 +816,71 @@ class ControlStack:
             model.observe(now, state, dev_samples)
             states[device_id] = state
             estimates[device_id] = model.estimate(now, state, dev_samples)
+        grid = self._grid_inputs(now)
+        self.grid = grid
+        # Island: the planner's plan assumes a grid; the controller runs on the island caps and
+        # the Phase 3 rules alone (ADR-0018 decision 6, "planner paused").
+        plan = Plan.default() if grid.grid_state is GridState.ISLAND else self.current_plan(now)
         inputs = ControllerInputs(
             flows=flows,
             states=states,
             estimates=estimates,
             blocked=self._blocked(now),
-            import_limit_w=self._import_limit_w,
+            import_limit_w=grid.import_limit_w,
             reserve_soc_pct=self._reserve_soc_pct,
             goals=self._goals,
-            plan=self.current_plan(now),
+            plan=plan,
             battery=await self._battery_inputs(now),
+            grid=grid,
         )
         self.estimates = estimates
         self.states = states
         self._record_measurements(now, flows, estimates, states)
         self.last = await self.loop.tick(now, inputs)
+        self._observe_grid(now, flows, grid)
         self._maybe_save_models(now)
         self._notify()
         return self.last
+
+    def _state_text(self, entity_id: str | None) -> str | None:
+        if entity_id is None:
+            return None
+        state = self._lookup(entity_id)
+        return None if state is None else state.state
+
+    def _grid_inputs(self, now: datetime) -> GridInputs:
+        """The tick's grid situation through ``core.grid`` (one resolver for every layer)."""
+        site = self._site
+        if site is None:
+            return GridInputs.from_limit(self._import_limit_w)
+        config = site.grid
+        if config.import_limit_w != self._import_limit_w:
+            config = config.model_copy(update={"import_limit_w": self._import_limit_w})
+        try:
+            return resolve_grid_inputs(
+                config,
+                month_peak_w=self.grid_monitor.month_peak_w(now),
+                para14a_state=self._state_text(
+                    None if config.para14a_signal is None else config.para14a_signal.entity_id
+                ),
+                backup_state=self._state_text(
+                    None if config.backup is None else config.backup.entity_id
+                ),
+                total_kwp=site.total_kwp,
+            )
+        except Exception:
+            # Never without a limit: the fuse limit alone, the gate rejects what it cannot judge.
+            log.exception("control.grid_inputs_failed")
+            return GridInputs.from_limit(self._import_limit_w)
+
+    def _observe_grid(self, now: datetime, flows: FlowSnapshot | None, grid: GridInputs) -> None:
+        try:
+            self.grid_monitor.observe(now, flows, grid)
+        except Exception:
+            log.exception("control.grid_monitor_failed")
+            return
+        if self.grid_monitor.pending or self.grid_monitor.pending_peaks:
+            self._spawn(self.grid_monitor.flush())
 
     def _battery_blocked(self, now: datetime) -> Reason | None:
         runtime = self.gate.runtime_of(BATTERY_ASSET_ID)

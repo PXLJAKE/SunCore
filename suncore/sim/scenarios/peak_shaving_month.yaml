@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+name: peak_shaving_month
+description: Peak shaving across a month boundary (PR 6-F, capacity tariffs) - from the afternoon of 31 July to the early morning of 1 August. Peak shaving is on with a 2500 W floor below an 11 kW connection. A heating rod (continuous) and a pool pump (switch, 30 min minimum run) run on surplus. At 17:00 the user switches a 3000 W oven on for 30 minutes; the import would rise above the peak limit, so SunCore sheds in the shedding order (the rod first) without waiving the pump's minimum run (only the fuse limit does that). The month's peak is tracked from 15-minute means and starts again at local midnight on 1 August.
+start: "2026-07-31T14:00:00+02:00"
+duration_s: 43200
+step_s: 10
+house:
+  seed: 77
+  pv: {kwp: 8.0}
+  load:
+    noise_fraction: 0.03
+    hourly_w: [400, 400, 400, 400, 400, 400, 500, 600, 600, 600, 500, 500, 500, 500, 500, 500, 600, 600, 800, 800, 700, 600, 500, 400]
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 24.0, amplitude_c: 4.0}
+clouds:
+  - {at_s: 0, factor: 0.9}
+control:
+  import_limit_w: 11000
+grid:
+  peak_shaving: {enabled: true, peak_floor_w: 2500, capacity_price_per_kw_month: 4.0}
+devices:
+  - id: rod
+    template: generic.number_load
+    physics: {kind: number, max: 3000, step: 100, power_sensor: true}
+    control:
+      priority: 10
+      power_model: {kind: measured, power_role: power, nominal_w: 3000}
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 20
+      min_run_s: 1800
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 750}
+  - id: oven
+    physics: {kind: switch, nominal_w: 3000, power_sensor: true}
+manual:
+  - {at_s: 10800, device: oven, action: turn_on}
+  - {at_s: 12600, device: oven, action: turn_off}

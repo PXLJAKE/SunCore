@@ -59,12 +59,19 @@ from suncore.core.decisions import (
 )
 from suncore.core.devices import DeviceConfig, step_power_w
 from suncore.core.identity import battery_identity_token
+from suncore.core.site import SiteConfig
 from suncore.ha.connection import RateLimiter
 from suncore.safety.modes import StaticModes
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
 from suncore.sim.demo_devices import sim_price
 from suncore.sim.devices import SimClimate, SimDevice, SimWaterHeater
-from suncore.sim.fake_ha import FakeHAConnection, demo_site_config
+from suncore.sim.fake_ha import (
+    BACKUP_ID,
+    PARA14A_BINARY_ID,
+    PARA14A_POWER_ID,
+    FakeHAConnection,
+    demo_site_config,
+)
 from suncore.sim.inverter import MODBUS_HUB, MODBUS_SLAVE, SimInverter
 from suncore.sim.scenario import Scenario, SimDeviceSpec
 from suncore.sim.stack import ControlStack
@@ -226,6 +233,8 @@ class StepLog:
     devices_w: float
     true_soc_pct: float | None = None
     """The battery's true SoC (BMS drift; ``None`` without the inverter model)."""
+    island: bool = False
+    unserved_w: float = 0.0
 
 
 @dataclass(slots=True)
@@ -446,7 +455,7 @@ class ScenarioRunner:
         assert tz is not None
         return ControlStack(
             self.conn,
-            site=demo_site_config(),
+            site=self.site_config(),
             devices=list(self.configs.values()),
             clock=self.vt.clock,
             sleep=self.vt.sleep,
@@ -462,6 +471,31 @@ class ScenarioRunner:
             plan_provider=self.plan_provider,
             battery=self.battery_wiring(),
         )
+
+    def site_config(self) -> SiteConfig:
+        """The simulator's site with the scenario's grid connection (PR 6-F)."""
+        site = demo_site_config()
+        grid = self.scenario.grid
+        if grid is None:
+            return site
+        body = site.grid.model_dump(mode="json", exclude_none=True)
+        body["import_limit_w"] = self.scenario.control.import_limit_w
+        body["peak_shaving"] = grid.peak_shaving.model_dump(mode="json")
+        if grid.para14a:
+            signal = PARA14A_BINARY_ID if grid.para14a_signal_kind == "binary" else PARA14A_POWER_ID
+            body.update(
+                para14a=True,
+                para14a_signal={"entity_id": signal},
+                para14a_signal_kind=grid.para14a_signal_kind,
+                para14a_limit_w=grid.para14a_limit_w,
+            )
+        if grid.backup:
+            body["backup"] = {
+                "entity_id": BACKUP_ID,
+                "island_states": ["island"],
+                "keep_devices": list(grid.keep_devices),
+            }
+        return site.model_copy(update={"grid": type(site.grid).model_validate(body)})
 
     @property
     def inverter(self) -> SimInverter | None:
@@ -574,6 +608,8 @@ class ScenarioRunner:
                 house.soc_pct,
                 house.devices_w,
                 house.true_soc_pct,
+                house.island,
+                house.unserved_w,
             )
         )
         for device_id, device in self.sim_devices.items():

@@ -90,8 +90,14 @@ from suncore.core.devices import (
     SgReadyControl,
     behaviour_mode_capped,
 )
+from suncore.core.grid import (
+    GridMemory,
+    advance_grid_memory,
+    island_hold_s,
+    para14a_hold_s,
+)
 from suncore.core.identity import identity_token
-from suncore.core.signals import Sample
+from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.safety import overrides
 from suncore.safety.actuator import Actuator
@@ -111,6 +117,7 @@ from suncore.safety.battery import (
     same_state,
     user_changed_fields,
 )
+from suncore.safety.grid import GridSafety
 from suncore.safety.invariants import (
     InvariantContext,
     action_matches,
@@ -290,6 +297,10 @@ class SafetyGate:
         # Load increases let through against one GateInputs snapshot (key: its ts).
         self._claims_ts: datetime | None = None
         self._claims: dict[str, float] = {}
+        # Island and §14a history for the cool-down (G6); kept across a configuration change.
+        self._grid_memory: GridMemory = (
+            predecessor._grid_memory if predecessor is not None else GridMemory()
+        )
 
     # --- read-only views ----------------------------------------------------------
 
@@ -466,6 +477,7 @@ class SafetyGate:
         """Execute deferred releases whose protection time has elapsed (call every tick); renew
         or end the battery's lease (its heartbeat) and check a battery release (WP10)."""
         now = self._now()
+        self._observe_grid()
         decisions: list[Decision] = []
         for device_id in list(self._runtimes):
             runtime = self._runtimes[device_id]
@@ -904,6 +916,7 @@ class SafetyGate:
             reserve_w=self._settings.reserve_w,
             now=now,
             baseline=base,
+            grid=self._grid_safety(inputs, now, None),
         )
 
     async def _battery_write(  # noqa: PLR0911, PLR0912, PLR0915 - one return per verdict
@@ -1888,6 +1901,63 @@ class SafetyGate:
             import_limit_w=inputs.import_limit_w,
             reserve_soc_pct=inputs.reserve_soc_pct,
             claimed_w=self._claimed_w() if inputs.ts is not None else 0.0,
+            grid=self._grid_safety(inputs, now, device),
+        )
+
+    # --- grid (PR 6-F, ``safety.grid``) ------------------------------------------------------
+
+    @property
+    def grid_memory(self) -> GridMemory:
+        """The island and §14a history the cool-down (G6) is judged with."""
+        return self._grid_memory
+
+    def seed_grid_memory(self, memory: GridMemory) -> None:
+        """Start from a remembered island/§14a history (the app restores it from grid events)."""
+        self._grid_memory = memory
+
+    def _observe_grid(self) -> None:
+        """Advance the island/§14a memory with the newest snapshot (idempotent per snapshot)."""
+        inputs = self._inputs()
+        if inputs is None or inputs.ts is None:
+            return
+        self._grid_memory = advance_grid_memory(
+            self._grid_memory, inputs.ts, inputs.grid_state, inputs.para14a_status
+        )
+
+    def _grid_safety(
+        self, inputs: GateInputs, now: datetime, device: DeviceConfig | None
+    ) -> GridSafety:
+        """The grid situation an intent is judged with (G2-G6).
+
+        The §14a sum of the *other* flagged devices takes the upper bound of each estimate and,
+        conservatively, every increase already let through against the same snapshot; an
+        unknown estimate makes the sum unknown (no increase of a flagged device while dimmed).
+        """
+        self._observe_grid()
+        max_age = timedelta(seconds=self._settings.inputs_max_age_ticks * self._settings.tick_s)
+        fresh = inputs.ts is not None and now - inputs.ts <= max_age
+        others: float | None = 0.0
+        for device_id in inputs.para14a_devices:
+            if device is not None and device_id == device.id:
+                continue
+            estimate = inputs.estimates.get(device_id)
+            if estimate is None or estimate.quality not in (Quality.OK, Quality.STALE):
+                others = None
+                break
+            assert others is not None
+            others += estimate.upper_w
+        if others is not None and inputs.ts is not None:
+            others += self._claimed_w()
+        cooldown = self._settings.safe_state_cooldown_s
+        return GridSafety(
+            grid_state=inputs.grid_state,
+            para14a_status=inputs.para14a_status,
+            para14a_budget_w=inputs.para14a_budget_w,
+            para14a_others_w=others,
+            island_hold_s=island_hold_s(self._grid_memory, now, cooldown),
+            para14a_hold_s=para14a_hold_s(self._grid_memory, now, cooldown),
+            fuse_limit_w=inputs.fuse_limit_w,
+            inputs_fresh=fresh,
         )
 
     def _settle_s(self, device: DeviceConfig | None) -> float:

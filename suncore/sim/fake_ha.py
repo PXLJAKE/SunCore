@@ -109,6 +109,11 @@ SOC_ID: Final = "sensor.sim_battery_soc"
 HOUSE_ID: Final = "sensor.sim_house_power"
 
 SIM_ENTITY_IDS: Final[tuple[str, ...]] = (GRID_ID, PV_ID, BATTERY_ID, SOC_ID, HOUSE_ID)
+BACKUP_ID: Final = "sensor.sim_backup_state"
+"""PR 6-F: the simulated backup switch (``island`` / ``on_grid``; the state names are the
+simulator's own - a real backup device's are ``UNVERIFIED``)."""
+PARA14A_BINARY_ID: Final = "binary_sensor.sim_para14a"
+PARA14A_POWER_ID: Final = "sensor.sim_para14a_power"
 
 ALL_SIM_ENTITY_IDS: Final[tuple[str, ...]] = (*SIM_ENTITY_IDS, *SIM_DEVICE_ENTITY_IDS)
 """The site sensors plus the demo devices, price, forecast and energy counters."""
@@ -978,9 +983,36 @@ class FakeHAConnection:
         when = self._house.time
         self.run_events_until(when)
         self._demo.advance_devices(when)
-        state = self._house.step(self._demo.devices_power_w())
+        grid = self._scenario.grid
+        island = grid is not None and grid.island_at(self._house.index * self._scenario.step_s)
+        state = self._house.step(self._demo.devices_power_w(), island=island)
         self._demo.step(state)
         return state
+
+    def _grid_rows(self, offset_s: int) -> list[tuple[str, str, dict[str, Any]]]:
+        """The backup and §14a entities of a scenario with ``grid`` (PR 6-F)."""
+        grid = self._scenario.grid
+        if grid is None:
+            return []
+        rows: list[tuple[str, str, dict[str, Any]]] = []
+        if grid.backup:
+            state = "island" if grid.island_at(offset_s) else "on_grid"
+            rows.append((BACKUP_ID, state, {"friendly_name": "Sim backup state"}))
+        if grid.para14a:
+            window = grid.para14a_at(offset_s)
+            if grid.para14a_signal_kind == "binary":
+                state = "on" if window is not None else "off"
+                rows.append((PARA14A_BINARY_ID, state, {"friendly_name": "Sim §14a signal"}))
+            else:
+                value = 0.0 if window is None else (window.power_w or 0.0)
+                rows.append(
+                    (
+                        PARA14A_POWER_ID,
+                        _format(value),
+                        {"unit_of_measurement": "W", "friendly_name": "Sim §14a power"},
+                    )
+                )
+        return rows
 
     def _faults_at(
         self, offset_s: int
@@ -1029,6 +1061,7 @@ class FakeHAConnection:
                 "friendly_name": name,
             }
             rows.append((entity_id, _format(value), attributes))
+        rows.extend(self._grid_rows(offset_s))
         changed = self._commit(rows, context=None, emit=False, faults=faults, only_changes=False)
         device_ids = self._demo.device_entity_ids()
         demo_rows = [(e.entity_id, e.state, e.attributes) for e in self._demo.entities()]

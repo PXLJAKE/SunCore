@@ -44,6 +44,12 @@ from suncore.core.devices import (
     step_power_w,
 )
 from suncore.core.signals import Quality
+from suncore.safety.grid import (
+    NO_GRID_SAFETY,
+    GridSafety,
+    device_grid_violation,
+    fuse_shed_waiver,
+)
 from suncore.safety.runtime import DeviceRuntime
 
 HVAC_OFF: Final = "off"
@@ -77,6 +83,8 @@ class InvariantContext:
     """Load increases the gate already let through against the same ``GateInputs``
     snapshot (other intents of the same tick, a confirmed proposal): not yet visible in
     ``surplus`` or ``flows``, so the grid check subtracts them (review 3-B, G1)."""
+    grid: GridSafety = NO_GRID_SAFETY
+    """Island, §14a, cool-down and the fuse limit (PR 6-F, ``safety.grid``)."""
 
 
 # --- helpers ------------------------------------------------------------------
@@ -259,13 +267,15 @@ def check_comfort(ctx: InvariantContext) -> Reason | None:
     return None
 
 
-def check_min_run_pause(ctx: InvariantContext) -> Reason | None:
+def check_min_run_pause(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911
     """Minimum run time before a switch-off, minimum pause before a switch-on."""
     if isinstance(ctx.action, ReleaseAction):
         return None
     if not is_switch_transition(ctx.action, ctx.device, ctx.state):
         return None
     target = action_turns_on(ctx.action, ctx.device)
+    if target is False and _fuse_shed(ctx):
+        return None  # G2: shedding above the fuse limit (non-thermal kinds)
     if target is True:
         since, limit = ctx.runtime.last_off_ts, ctx.device.min_pause_s
     else:
@@ -287,6 +297,8 @@ def check_switch_rate(ctx: InvariantContext) -> Reason | None:
         return None
     if not is_switch_transition(ctx.action, ctx.device, ctx.state):
         return None
+    if action_turns_on(ctx.action, ctx.device) is False and _fuse_shed(ctx):
+        return None  # G2: shedding above the fuse limit (non-thermal kinds)
     limit = ctx.device.max_switches_per_hour
     if limit is None:
         limit = ctx.settings.default_max_switches_per_hour
@@ -387,6 +399,36 @@ def check_heat_limit(ctx: InvariantContext) -> Reason | None:
     )
 
 
+def _fuse_shed(ctx: InvariantContext) -> bool:
+    return fuse_shed_waiver(ctx.device.kind, True, ctx.flows, ctx.grid)
+
+
+def is_load_increase(ctx: InvariantContext) -> bool:
+    """The action may add load: not a release, not a switch-off, and a positive or unknown
+    added demand (an unknown one counts as an increase - the conservative direction)."""
+    if isinstance(ctx.action, ReleaseAction | BatteryAction):
+        return False
+    if action_turns_on(ctx.action, ctx.device) is False:
+        return False
+    delta = power_delta_w(ctx)
+    return delta is None or delta > POWER_TOLERANCE_W
+
+
+def check_grid_situation(ctx: InvariantContext) -> Reason | None:
+    """G3-G6 (``safety.grid``): island, §14a budget, cool-down and unknown grid inputs."""
+    increase = is_load_increase(ctx)
+    if not increase:
+        return None
+    return device_grid_violation(
+        kind=ctx.device.kind,
+        flagged=ctx.device.para14a,
+        increase=increase,
+        after_w=expected_power_w(ctx.action, ctx.device, ctx.estimate),
+        flows=ctx.flows,
+        grid=ctx.grid,
+    )
+
+
 ALL_CHECKS: Final = (
     check_climate_switch_on,
     check_comfort,
@@ -396,6 +438,7 @@ ALL_CHECKS: Final = (
     check_switch_rate,
     check_write_rate,
     check_grid,
+    check_grid_situation,
     check_battery_reserve,
 )
 
@@ -469,12 +512,14 @@ __all__ = [
     "check_climate_switch_on",
     "check_comfort",
     "check_grid",
+    "check_grid_situation",
     "check_min_run_pause",
     "check_switch_rate",
     "check_write_rate",
     "device_is_on",
     "evaluate",
     "expected_power_w",
+    "is_load_increase",
     "is_switch_transition",
     "power_delta_w",
 ]

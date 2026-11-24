@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+name: import_limit_fuse_shed
+description: Extends grid_limit (PR 6-F) - a sunny noon with a 3000 W connection (fuse) limit. A heating rod (continuous, 0-3000 W) and a pool pump (switch, 30 min minimum run) run on surplus. At 12:30 a cloud front arrives and the user switches a 3000 W oven on; the import jumps far above the fuse limit. SunCore sheds in the shedding order - the continuous rod first, then the pool pump, whose minimum run time is waived above the fuse limit (G2) - and raises nothing until there is surplus again.
+start: "2026-06-21T12:00:00+02:00"
+duration_s: 7200
+step_s: 5
+house:
+  seed: 61
+  pv: {kwp: 8.0}
+  load:
+    noise_fraction: 0.03
+    hourly_w: [400, 400, 400, 400, 400, 400, 500, 600, 600, 600, 500, 500, 500, 500, 500, 500, 600, 700, 800, 800, 700, 600, 500, 400]
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 24.0, amplitude_c: 4.0}
+clouds:
+  - {at_s: 0, factor: 0.95}
+  - {at_s: 1800, factor: 0.15}
+  - {at_s: 3600, factor: 0.95}
+control:
+  import_limit_w: 3000
+devices:
+  - id: rod
+    template: generic.number_load
+    physics: {kind: number, max: 3000, step: 100, power_sensor: true}
+    control:
+      priority: 10
+      power_model: {kind: measured, power_role: power, nominal_w: 3000}
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 20
+      min_run_s: 1800
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 750}
+  - id: oven
+    physics: {kind: switch, nominal_w: 3000, power_sensor: true}
+manual:
+  - {at_s: 1800, device: oven, action: turn_on}
+  - {at_s: 2700, device: oven, action: turn_off}

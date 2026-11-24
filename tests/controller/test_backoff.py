@@ -156,7 +156,8 @@ def test_above_the_import_limit_the_back_off_is_immediate() -> None:
 
     asyncio.run(go())
     off = [d for d in after(sim, DROP_S) if d.intent.action == SwitchAction(on=False)]
-    assert [d.intent.reasons[0] for d in off] == [rs.import_limit(1300.0, 1000.0)]
+    # Without a peak limit the configured limit is the fuse limit: shedding above it (PR 6-F, G2).
+    assert [d.intent.reasons[0] for d in off] == [rs.grid_shed(1300.0, 1000.0, fuse=True)]
     assert off[0].ts == T0 + timedelta(seconds=DROP_S)
 
 

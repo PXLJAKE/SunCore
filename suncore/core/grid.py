@@ -241,21 +241,94 @@ def para14a_budget_w(  # noqa: PLR0911 - one return per signal state
     return Para14aBudget(Para14aStatus.ACTIVE, min(allowed, limit_w))
 
 
+# --- cool-down memory (invariant G6, PR 6-F) -----------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class GridMemory:
+    """What the grid looked like before, for the cool-down after island and §14a (G6).
+
+    Pure and immutable: :func:`advance_grid_memory` returns the next memory. The gate and the
+    controller each keep one (the gate's is the authority; the controller mirrors it so it does
+    not propose increases the gate would reject).
+
+    * ``island_seen``: island was observed and no definite connected state since. An
+      ``unknown`` state after island keeps it set: no island *shedding* (unknown = connected,
+      plan §8 H1) but no increase either until the grid is confirmed back and the cool-down ran
+      (the safer action wins).
+    * ``para14a_seen``: §14a was active or unknown and not inactive since.
+    """
+
+    island_seen: bool = False
+    island_ended_at: datetime | None = None
+    para14a_seen: bool = False
+    para14a_ended_at: datetime | None = None
+    ts: datetime | None = None
+    """The snapshot time of the newest observation (an older or equal one is ignored)."""
+
+
+def advance_grid_memory(
+    memory: GridMemory, now: datetime, grid_state: GridState, para14a_status: Para14aStatus
+) -> GridMemory:
+    """The memory after one observation at ``now`` (idempotent for an already seen ``now``)."""
+    if memory.ts is not None and now <= memory.ts:
+        return memory
+    island_seen, island_ended = memory.island_seen, memory.island_ended_at
+    if grid_state is GridState.ISLAND:
+        island_seen, island_ended = True, None
+    elif grid_state is not GridState.UNKNOWN and island_seen:
+        island_seen, island_ended = False, now
+    para_seen, para_ended = memory.para14a_seen, memory.para14a_ended_at
+    if para14a_status is Para14aStatus.INACTIVE:
+        if para_seen:
+            para_seen, para_ended = False, now
+    else:
+        para_seen, para_ended = True, None
+    return GridMemory(island_seen, island_ended, para_seen, para_ended, now)
+
+
+def island_hold_s(memory: GridMemory, now: datetime, cooldown_s: float) -> float:
+    """Seconds every load increase must still wait after island (``inf`` while not over)."""
+    if memory.island_seen:
+        return math.inf
+    return _remaining(memory.island_ended_at, now, cooldown_s)
+
+
+def para14a_hold_s(memory: GridMemory, now: datetime, cooldown_s: float) -> float:
+    """Seconds increases of §14a devices must still wait after the dimming ended.
+
+    0 while §14a is active or unknown: then the budget (G3) and the unknown rule (G5) apply.
+    """
+    if memory.para14a_seen:
+        return 0.0
+    return _remaining(memory.para14a_ended_at, now, cooldown_s)
+
+
+def _remaining(ended: datetime | None, now: datetime, cooldown_s: float) -> float:
+    if ended is None:
+        return 0.0
+    return max(0.0, cooldown_s - (now - ended).total_seconds())
+
+
 __all__ = [
     "PARA14A_DEFAULT_LIMIT_W",
     "PARA14A_INACTIVE",
     "BackupConfig",
+    "GridMemory",
     "GridState",
     "Para14aBudget",
     "Para14aSignalKind",
     "Para14aStatus",
     "PeakShaving",
+    "advance_grid_memory",
     "effective_export_limit_w",
     "effective_import_limit_w",
     "grid_state_from",
+    "island_hold_s",
     "month_bounds",
     "month_key",
     "para14a_budget_w",
+    "para14a_hold_s",
     "peak_limit_w",
     "static_export_limit_w",
     "updated_month_peak_w",

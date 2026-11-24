@@ -44,6 +44,7 @@ from suncore.core.control import PLAN_FRESH_INTERVALS, BatteryBand, Plan, batter
 from suncore.core.decisions import Action, Reason
 from suncore.core.signals import Quality
 from suncore.safety.actuator import Actuator
+from suncore.safety.grid import NO_GRID_SAFETY, GridSafety, check_battery_grid
 
 POWER_TOLERANCE_W: Final = 1.0
 """Read-back and bound tolerance for battery powers (the adapters write whole watts)."""
@@ -218,6 +219,8 @@ class BatteryContext:
     """``ControlSettings.reserve_w``: kept free below the import limit."""
     now: datetime
     baseline: BatteryAction | None = None
+    grid: GridSafety = NO_GRID_SAFETY
+    """Island, §14a and the cool-down after them (PR 6-F, ``safety.grid``)."""
 
 
 def plan_band(plan: Plan, now: datetime) -> tuple[BatteryBand | None, bool]:
@@ -468,7 +471,16 @@ def check_import_limit(ctx: BatteryContext) -> Reason | None:
     return None
 
 
+def check_grid_situation(ctx: BatteryContext) -> Reason | None:
+    """G3/G4/G6: no grid charging under §14a or in a cool-down; in island nothing that can cause
+    import (``safety.grid.check_battery_grid``)."""
+    return check_battery_grid(
+        grid_charge=grid_charge_w(ctx) > 0, can_cause_import=can_cause_import(ctx), grid=ctx.grid
+    )
+
+
 STATE_CHECKS: Final = (
+    check_grid_situation,
     check_capabilities,
     check_model,
     check_min_soc,
@@ -672,6 +684,7 @@ __all__ = [
     "check_capabilities",
     "check_discharge_lock",
     "check_grid_charge",
+    "check_grid_situation",
     "check_import_limit",
     "check_min_soc",
     "check_model",

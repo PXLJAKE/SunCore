@@ -69,6 +69,7 @@ from suncore.controller.battery import (
     BatteryIntents,
     BatteryView,
 )
+from suncore.controller.grid import GridHolds, GridInputs, situation_reasons
 from suncore.controller.levels import ConfigQuantiser, Quantiser
 from suncore.controller.surplus import SiteSurplus, SurplusTracker
 from suncore.core.balance import FlowSnapshot
@@ -76,6 +77,7 @@ from suncore.core.config import GoalsConfig
 from suncore.core.control import ControlSettings, DeviceState, GateInputs, Plan, PowerEstimate
 from suncore.core.decisions import Decision, Intent, Reason
 from suncore.core.devices import DeviceConfig
+from suncore.core.grid import GridMemory, advance_grid_memory, island_hold_s, para14a_hold_s
 from suncore.core.signals import Quality
 
 log = structlog.get_logger(__name__)
@@ -105,6 +107,22 @@ class ControllerInputs:
     battery: BatteryControlInputs | None = None
     """The battery adapter's capabilities, ranges and what the gate holds (``None`` = no battery
     adapter: the battery is only observed, no battery intents; Phase 4 WP10)."""
+    grid: GridInputs | None = None
+    """PR 6-F: effective import limit (fuse and peak), §14a, island
+    (``controller.grid.resolve_grid_inputs``); ``None`` = only ``import_limit_w`` (Phase 3)."""
+
+    @property
+    def grid_inputs(self) -> GridInputs:
+        return self.grid if self.grid is not None else GridInputs.from_limit(self.import_limit_w)
+
+
+@dataclass(frozen=True, slots=True)
+class GridView:
+    """The grid situation of a tick for the API and the "Why?" view (PR 6-F)."""
+
+    inputs: GridInputs
+    reasons: tuple[Reason, ...]
+    holds: GridHolds
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +141,7 @@ class TickResult:
     attributable_deficit_w: float
     battery: BatteryView | None = None
     """The battery decision of the tick (``None`` without a battery adapter)."""
+    grid: GridView | None = None
 
 
 class Controller:
@@ -152,6 +171,8 @@ class Controller:
         self._surplus = SurplusTracker(self._settings.smoothing_s)
         self._allocator = Allocator(self._settings, quantiser, tz=tz)
         self._allocator.set_devices(devices)
+        self._para14a_ids = frozenset(d.id for d in devices if d.para14a)
+        self._grid_memory = GridMemory()
 
     @property
     def settings(self) -> ControlSettings:
@@ -167,6 +188,11 @@ class Controller:
         if self._config_quantiser is not None:
             self._config_quantiser.update({d.id: d for d in devices})
         self._allocator.set_devices(devices)
+        self._para14a_ids = frozenset(d.id for d in devices if d.para14a)
+
+    @property
+    def grid_memory(self) -> GridMemory:
+        return self._grid_memory
 
     def step(self, now: datetime, inputs: ControllerInputs) -> TickResult:
         """One deterministic tick."""
@@ -177,13 +203,24 @@ class Controller:
         # default plan) leaves the Phase 3 goal rules in charge, never the empty default band.
         interval = inputs.plan.interval_at(now)
         band = None if interval is None else interval.battery
+        grid = inputs.grid_inputs
+        self._grid_memory = advance_grid_memory(
+            self._grid_memory, now, grid.grid_state, grid.para14a.status
+        )
+        cooldown = self._settings.safe_state_cooldown_s
+        holds = GridHolds(
+            island_s=island_hold_s(self._grid_memory, now, cooldown),
+            para14a_s=para14a_hold_s(self._grid_memory, now, cooldown),
+        )
         allocation = AllocationInputs(
             states=inputs.states,
             estimates=inputs.estimates,
             blocked=inputs.blocked,
             plan=inputs.plan,
             reserve_soc_pct=inputs.reserve_soc_pct,
-            import_limit_w=inputs.import_limit_w,
+            import_limit_w=grid.import_limit_w,
+            grid=grid,
+            grid_holds=holds,
         )
         outcome = self._allocator.prepare(now, allocation)
         held = None if inputs.battery is None else inputs.battery.held
@@ -202,15 +239,30 @@ class Controller:
         soc_flow = None if inputs.flows is None else inputs.flows.battery_soc_pct
         # Only an OK reading counts (review 4-G minor 7): a stale SoC never sets a floor.
         soc = soc_flow.value if soc_flow is not None and soc_flow.quality is Quality.OK else None
-        battery_intent = self._battery.step(now, inputs.plan, inputs.battery, soc)
+        battery_intent = self._battery.step(
+            now,
+            inputs.plan,
+            inputs.battery,
+            soc,
+            grid=grid,
+            holds=holds,
+            deficit_w=_house_deficit_w(inputs.flows),
+            reserve_w=self._settings.reserve_w,
+        )
         intents = (*outcome.intents, battery_intent) if battery_intent else tuple(outcome.intents)
         gate_inputs = GateInputs(
             flows=inputs.flows,
             surplus=surplus,
             estimates=dict(inputs.estimates),
-            import_limit_w=inputs.import_limit_w,
+            import_limit_w=grid.import_limit_w,
             reserve_soc_pct=inputs.reserve_soc_pct,
             ts=now,
+            export_limit_w=grid.export_limit_w,
+            para14a_budget_w=grid.para14a.budget_w,
+            para14a_status=grid.para14a.status,
+            grid_state=grid.grid_state,
+            fuse_limit_w=grid.fuse_limit_w,
+            para14a_devices=self._para14a_ids,
         )
         return TickResult(
             ts=now,
@@ -224,6 +276,7 @@ class Controller:
             allocated_draw_w=outcome.allocated_draw_w,
             attributable_deficit_w=outcome.attributable_deficit_w,
             battery=self._battery.view,
+            grid=GridView(grid, situation_reasons(grid), holds),
         )
 
     def report(self, decision: Decision) -> bool:
@@ -235,6 +288,18 @@ class Controller:
     @property
     def battery(self) -> BatteryIntents:
         return self._battery
+
+
+def _house_deficit_w(flows: FlowSnapshot | None) -> float | None:
+    """``max(0, house - pv)`` from ``OK`` readings: what the grid must cover without the battery."""
+    if flows is None:
+        return None
+    house, pv = flows.house_w, flows.pv_w
+    if house.value is None or pv.value is None:
+        return None
+    if house.quality is not Quality.OK or pv.quality is not Quality.OK:
+        return None
+    return max(0.0, house.value - pv.value)
 
 
 class ControllerLoop:
@@ -316,6 +381,7 @@ __all__ = [
     "ControllerInputs",
     "ControllerLoop",
     "DeviationSink",
+    "GridView",
     "IntentSubmitter",
     "Poller",
     "TickResult",

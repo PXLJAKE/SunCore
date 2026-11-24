@@ -50,8 +50,41 @@ BATTERY_GRID_CHARGE_UNSUPPORTED: Final = "controller.battery.grid_charge_unsuppo
 BATTERY_DISCHARGE_LOCK_UNSUPPORTED: Final = "controller.battery.discharge_lock_unsupported"
 BATTERY_NO_PLAN: Final = "controller.battery.no_plan"
 BATTERY_BLOCKED: Final = "controller.battery.blocked"
+# Phase 6 PR 6-F: import side, §14a, island (``controller.grid``).
+GRID_ISLAND_SHED: Final = "controller.grid.island_shed"
+GRID_ISLAND_KEEP: Final = "controller.grid.island_keep"
+GRID_COOLDOWN: Final = "controller.grid.cooldown"
+GRID_PARA14A_DIM: Final = "controller.grid.para14a_dim"
+GRID_PARA14A_UNKNOWN: Final = "controller.grid.para14a_unknown"
+GRID_PARA14A_COOLDOWN: Final = "controller.grid.para14a_cooldown"
+GRID_PARA14A_NO_SIGNAL: Final = "controller.grid.para14a_no_signal"
+GRID_BACKUP_UNKNOWN: Final = "controller.grid.backup_unknown"
+GRID_ISLAND: Final = "controller.grid.island"
+GRID_PARA14A_ACTIVE: Final = "controller.grid.para14a_active"
+GRID_SHED: Final = "controller.grid.shed"
+GRID_FUSE_SHED: Final = "controller.grid.fuse_shed"
+GRID_PEAK_LIMIT: Final = "controller.grid.peak_limit"
+GRID_BATTERY_SUPPORT: Final = "controller.grid.battery_support"
+GRID_BATTERY_ISLAND: Final = "controller.grid.battery_island"
+GRID_BATTERY_NO_GRID_CHARGE: Final = "controller.grid.battery_no_grid_charge"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
+    GRID_ISLAND_SHED,
+    GRID_ISLAND_KEEP,
+    GRID_COOLDOWN,
+    GRID_PARA14A_DIM,
+    GRID_PARA14A_UNKNOWN,
+    GRID_PARA14A_COOLDOWN,
+    GRID_PARA14A_NO_SIGNAL,
+    GRID_BACKUP_UNKNOWN,
+    GRID_ISLAND,
+    GRID_PARA14A_ACTIVE,
+    GRID_SHED,
+    GRID_FUSE_SHED,
+    GRID_PEAK_LIMIT,
+    GRID_BATTERY_SUPPORT,
+    GRID_BATTERY_ISLAND,
+    GRID_BATTERY_NO_GRID_CHARGE,
     BATTERY_GRID_CHARGE,
     BATTERY_DISCHARGE_LOCK,
     BATTERY_RELEASE,
@@ -171,6 +204,24 @@ def waiting_delay(remaining_s: float) -> Reason:
 
 def no_surplus(surplus_w: float, need_w: float) -> Reason:
     return Reason(key=NO_SURPLUS, args={"surplus_w": round(surplus_w), "need_w": round(need_w)})
+
+
+def grid_shed(grid_w: float, limit_w: float, *, fuse: bool) -> Reason:
+    """Shedding above the import limit (``fuse``: above the connection limit, G2)."""
+    key = GRID_FUSE_SHED if fuse else GRID_SHED
+    return Reason(key=key, args={"grid_w": round(grid_w), "limit_w": round(limit_w)})
+
+
+def para14a_dim(budget_w: float) -> Reason:
+    return Reason(key=GRID_PARA14A_DIM, args={"budget_w": round(budget_w)})
+
+
+def grid_cooldown(remaining_s: float) -> Reason:
+    return Reason(key=GRID_COOLDOWN, args={"remaining_s": _ceil(min(remaining_s, 3600.0))})
+
+
+def para14a_cooldown(remaining_s: float) -> Reason:
+    return Reason(key=GRID_PARA14A_COOLDOWN, args={"remaining_s": _ceil(remaining_s)})
 
 
 def plain(key: str) -> Reason:

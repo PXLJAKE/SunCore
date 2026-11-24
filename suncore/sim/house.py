@@ -113,6 +113,10 @@ class HouseState(BaseModel):
     """Draw of the simulated devices (already part of ``load_w``)."""
     true_soc_pct: float | None = None
     """The battery's true SoC when it differs from the reported one (BMS drift, WP10)."""
+    island: bool = False
+    """Grid outage (PR 6-F): the grid power is 0; the battery and PV carry the house."""
+    unserved_w: float = 0.0
+    """Island: the load neither PV nor the battery could cover (a brown-out in reality)."""
 
 
 def sin_elevation(when: datetime, latitude: float, longitude: float) -> float:
@@ -232,11 +236,13 @@ class House:
         self._soc_pct = min(b.soc_max_pct, max(b.soc_min_pct, self._soc_pct))
         return power
 
-    def step(self, extra_load_w: float = 0.0) -> HouseState:
+    def step(self, extra_load_w: float = 0.0, *, island: bool = False) -> HouseState:
         """Simulate one step and advance the clock.
 
         ``extra_load_w`` is the draw of the simulated devices on top of the base load
         profile: ``grid = base + devices + battery - pv`` (the balance still closes).
+        ``island``: no grid - the battery covers the deficit within its limits, surplus PV
+        the battery cannot take is curtailed, the rest of the load is ``unserved_w``.
         """
         if extra_load_w < 0:
             msg = "extra_load_w must not be negative"
@@ -252,16 +258,26 @@ class House:
             true_soc = self.inverter.soc_pct
         else:
             battery_w = self._dispatch(pv_w - load_w)
+        grid_w = load_w + battery_w - pv_w
+        unserved = 0.0
+        if island:
+            if grid_w < 0:
+                pv_w += grid_w  # curtailed: nowhere to go
+            else:
+                unserved = grid_w
+            grid_w = 0.0
         state = HouseState(
             time=when,
             pv_w=pv_w,
             load_w=load_w,
             battery_w=battery_w,
             soc_pct=self._soc_pct,
-            grid_w=load_w + battery_w - pv_w,
+            grid_w=grid_w,
             cloud_factor=cloud,
             devices_w=extra_load_w,
             true_soc_pct=true_soc,
+            island=island,
+            unserved_w=unserved,
         )
         self._index += 1
         return state

@@ -120,6 +120,13 @@ class GateInputs:
     grid_state: GridState = GridState.NOT_CONFIGURED
     """Connected, island, unknown (backup entity unavailable: not island, with a warning) or
     not configured (no backup entity). Only ``island`` applies island rules (from 6-F)."""
+    # PR 6-F (additive): what the grid invariants G2/G3 need beyond the 6-B fields.
+    fuse_limit_w: float | None = None
+    """The connection/fuse import limit (``GridConfig.import_limit_w``); ``import_limit_w`` is
+    the *effective* one (min of fuse and peak). Above the fuse limit shedding of non-thermal
+    kinds skips min run (G2)."""
+    para14a_devices: frozenset[str] = frozenset()
+    """Ids of the devices flagged ``para14a`` (the gate sums their power against the budget)."""
 
 
 # --- settings -----------------------------------------------------------------

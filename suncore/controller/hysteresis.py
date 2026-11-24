@@ -67,6 +67,9 @@ class Transition:
     deficit: bool = False
     need_w: float = 0.0
     """Added power of a rise (checked against the free surplus before submitting)."""
+    fuse_shed: bool = False
+    """A switch-off above the fuse limit of a non-thermal kind: min run and the switch limit
+    are waived (invariant G2, PR 6-F)."""
 
 
 @dataclass
@@ -187,13 +190,21 @@ class DeviceMachine:
         elapsed = (now - self.pending_since).total_seconds()
         return max(0.0, self.hysteresis_delay_s - elapsed)
 
-    def blocked_by_protection(self, now: datetime, target: int) -> Reason | None:
-        """Min run / min pause / switches per hour for a move to ``target``."""
+    def blocked_by_protection(  # noqa: PLR0911 - one return per rule
+        self, now: datetime, target: int, *, waive_run: bool = False
+    ) -> Reason | None:
+        """Min run / min pause / switches per hour for a move to ``target``.
+
+        ``waive_run``: a switch-off above the fuse limit (G2) skips min run and the switch
+        limit; it never waives min pause (a switch-on).
+        """
         if self.table is None or not self.table.switchable:
             return None
         before = self.table.level(self.level).on
         after = self.table.level(target).on
         if before == after:
+            return None
+        if waive_run and not after:
             return None
         if after:
             if self.last_off_ts is not None and self.device.min_pause_s > 0:

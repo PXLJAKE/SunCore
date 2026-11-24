@@ -29,6 +29,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 
 from suncore.core.battery import GridChargePolicy
 from suncore.core.decisions import OperatingMode
+from suncore.core.grid import PARA14A_DEFAULT_LIMIT_W, Para14aSignalKind, PeakShaving
 from suncore.sim.devices import DeviceParams
 from suncore.sim.house import House, HouseParams
 
@@ -186,6 +187,56 @@ class SimBatteryControl(BaseModel):
     fallback_timeout_s: int = Field(default=60, ge=30, le=10_800)
 
 
+class SimWindow(BaseModel):
+    """A time window ``[from_s, to_s)`` after the scenario start."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    from_s: int = Field(ge=0)
+    to_s: int = Field(gt=0)
+    power_w: float | None = Field(default=None, ge=0)
+    """§14a ``power_w`` signal: the allowed power the control box reports (``None`` = 0 W)."""
+
+    @model_validator(mode="after")
+    def _ordered(self) -> SimWindow:
+        if self.to_s <= self.from_s:
+            msg = "to_s must be greater than from_s"
+            raise ValueError(msg)
+        return self
+
+    def covers(self, offset_s: float) -> bool:
+        return self.from_s <= offset_s < self.to_s
+
+
+class SimGrid(BaseModel):
+    """The grid connection of a scenario (PR 6-F): peak shaving, §14a and backup power.
+
+    The fake HA publishes ``sensor.sim_backup_state`` (``island`` / ``on_grid``) when
+    ``backup`` is set and the §14a signal (``binary_sensor.sim_para14a`` ``on``/``off``, or
+    ``sensor.sim_para14a_power`` in W, 0 = not dimmed) when ``para14a`` is set; the runner maps
+    them into the site's ``GridConfig``. During an ``outage`` the house runs in island: the
+    grid power is 0, the battery covers the deficit within its limits, PV beyond what the house
+    and the battery take is curtailed.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    peak_shaving: PeakShaving = PeakShaving()
+    para14a: bool = False
+    para14a_signal_kind: Para14aSignalKind = "binary"
+    para14a_limit_w: float = Field(default=PARA14A_DEFAULT_LIMIT_W, gt=0)
+    para14a_windows: tuple[SimWindow, ...] = ()
+    backup: bool = False
+    keep_devices: tuple[str, ...] = ()
+    outages: tuple[SimWindow, ...] = ()
+
+    def island_at(self, offset_s: float) -> bool:
+        return any(w.covers(offset_s) for w in self.outages)
+
+    def para14a_at(self, offset_s: float) -> SimWindow | None:
+        return next((w for w in self.para14a_windows if w.covers(offset_s)), None)
+
+
 class Scenario(BaseModel):
     """A complete simulator scenario."""
 
@@ -206,6 +257,8 @@ class Scenario(BaseModel):
     prices: PriceParams = PriceParams()
     battery: SimBatteryControl | None = None
     """WP10: SunCore controls the battery through ``house.inverter`` (``None`` = observe)."""
+    grid: SimGrid | None = None
+    """PR 6-F: peak shaving, §14a signal and grid outages (``None`` = a plain connection)."""
 
     @model_validator(mode="after")
     def _check(self) -> Scenario:

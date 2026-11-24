@@ -36,6 +36,7 @@ from suncore.app.adapters import (
 )
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import BatteryWiring, ControlStack
+from suncore.app.grid import GridMonitor
 from suncore.app.history import backfill_history, rebuild_history
 from suncore.app.modes import ConfigModes
 from suncore.app.planning import (
@@ -81,6 +82,7 @@ from suncore.core.controlstate import (
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import DeviceConfig
+from suncore.core.grid import month_key
 from suncore.core.identity import battery_identity_token, identity_token
 from suncore.core.series import QuantileSeries
 from suncore.core.signals import Quality, Sample
@@ -138,6 +140,7 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
+from suncore.storage.grid import GridStore
 from suncore.storage.summaries import DaySummaryRow
 from suncore.storage.timeseries import META_HISTORY_BACKFILLED, META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
@@ -547,9 +550,24 @@ class Runtime:
             defer_recover=not self._time_zone_settled(),
             plan_provider=None if self.planning is None else self.planning.active_plan,
             battery=self._battery_wiring(),
+            grid_monitor=self._grid_monitor(),
         )
         stack.add_listener(self._notify_control)
         return stack
+
+    def _grid_monitor(self) -> GridMonitor:
+        """Monthly peak and grid events (PR 6-F): persisted in ``timeseries.db`` when it is open;
+        a rebuilt stack keeps the month's peak of the one it replaces."""
+        tz = self._timezone()
+        store = None if self.timeseries_db is None else GridStore(self.timeseries_db)
+        monitor = GridMonitor(tz, store=store)
+        previous = self.stack
+        if previous is not None:
+            now = self.clock()
+            peak = previous.grid_monitor.month_peak_w(now)
+            if peak is not None:
+                monitor.seed(month_key(now, tz), peak)
+        return monitor
 
     def _battery_policy_changed(self) -> bool:
         """A goals change moved the battery's effective grid-charge policy (the gate's copy)."""
