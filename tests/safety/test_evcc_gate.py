@@ -287,3 +287,47 @@ def test_a2_lowering_and_off_are_never_blocked_by_the_import_limit() -> None:
     )
     h.clock.advance(10)  # the write rate
     assert submit(h, LoadpointAction(mode="off", max_current_a=8.0)).kind is DecisionKind.ACCEPTED
+
+
+def test_r2_a_failed_emergency_stop_release_is_retried_by_poll_with_backoff() -> None:
+    """The first attempt is immediate; on failure (echo timeout) `poll` retries with back-off."""
+    h = make(mode=EvMode.PV)
+    assert submit(h, LoadpointAction(mode="smart", max_current_a=16.0)).kind is (
+        DecisionKind.ACCEPTED
+    )
+    h.spy.fail_release = RuntimeError("echo timeout")
+    asyncio.run(h.gate.emergency_stop())
+    assert h.spy.released == []
+    runtime = asyncio.run(h.store.load_runtime("lp"))
+    assert runtime is not None
+    assert runtime.under_control
+    assert runtime.release_due_ts is not None  # rescheduled, not forgotten
+    assert runtime.release_due_reason == REASON_EMERGENCY_STOP.key
+    asyncio.run(h.gate.poll())  # not due yet: no second attempt
+    assert h.spy.released == []
+    h.spy.fail_release = None
+    h.clock.advance(31)  # first back-off step
+    decisions = asyncio.run(h.gate.poll())
+    assert [d.kind for d in decisions] == [DecisionKind.ACCEPTED]
+    assert len(h.spy.released) == 1
+    runtime = asyncio.run(h.store.load_runtime("lp"))
+    assert runtime is not None
+    assert not runtime.under_control
+    assert runtime.release_due_ts is None
+
+
+def test_r1_off_and_on_count_as_switches_but_off_is_never_blocked() -> None:
+    h = make(mode=EvMode.PV)  # evcc shows `off`
+    assert submit(h, LoadpointAction(mode="smart", max_current_a=16.0)).kind is (
+        DecisionKind.ACCEPTED
+    )
+    runtime = asyncio.run(h.store.load_runtime("lp"))
+    assert runtime is not None
+    assert runtime.switches_in_window(h.clock.now) == 1  # off -> smart is a switch
+    h.states["lp"] = DeviceState(mode="smart", max_current_a=16.0, connected=True, on=True)
+    h.spy.observed = LoadpointAction(mode="smart", max_current_a=16.0)
+    h.clock.advance(10)
+    assert submit(h, LoadpointAction(mode="off")).kind is DecisionKind.ACCEPTED
+    runtime = asyncio.run(h.store.load_runtime("lp"))
+    assert runtime is not None
+    assert runtime.switches_in_window(h.clock.now) == 2

@@ -237,7 +237,9 @@ def test_a_charger_rejects_every_action_but_charge_and_release(
 @pytest.mark.parametrize("action", [*NEW_ACTIONS, *LOADPOINT_ACTIONS], ids=repr)
 def test_invariant_helpers_treat_new_kinds_explicitly(action: Action) -> None:
     device = switch_device()
-    assert action_turns_on(action, device) is None
+    # a loadpoint's mode is a switch (off <-> on) since the 6-J re-review (R1)
+    expected = action.mode != "off" if isinstance(action, LoadpointAction) else None
+    assert action_turns_on(action, device) is expected
     assert expected_power_w(action, device, None) is None
     assert action_matches_state(action, DeviceState(on=True), device) is False
 

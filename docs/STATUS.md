@@ -35,6 +35,10 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     `maxCurrent` only in the echo), G1/peak check for a raise to `smart` plus an import-cut
     path in the controller (scenario `evcc_plan`), release retries with back-off, the link
     starts for a loadpoint added after start-up, liveness and E6 warnings in template and docs.
+  - Re-review: import cut with hysteresis (off after 60 s over, back on after 300 s with 1 A
+    margin; loadpoint off/on counts as a switch, off never blocked; scenario `evcc_flicker`),
+    failed emergency-stop/recovery releases retried by `poll` with back-off. Residual risk:
+    the smart import check is reactive (overshoot up to about 1 min).
   - Deviations, safety self-review and questions: plan section 8 (6-J).
 
 - **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;

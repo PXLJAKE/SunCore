@@ -189,7 +189,9 @@ settings and never writes a vehicle plan. Things to know:
   falsely; and a clock in evcc that runs ahead makes an old stored timestamp look fresh.
 - **Import limit:** `smart` follows the PV surplus, but evcc can import by its own rules (its
   vehicle plan, a smart-cost limit, "always charge"). SunCore lowers evcc's maximum current (or
-  switches it off) when the measured grid import is over your limit while the car charges.
+  switches it off) when the measured grid import is over your limit while the car charges. It
+  reacts after a few seconds, so a short overshoot is possible. To avoid flapping it switches
+  off only after a minute over the limit and back on only after five minutes with some room.
 - **Home battery:** in `smart` SunCore has **no discharge lock** for the home battery: evcc's own
   battery rules (for example the buffer SoC) can discharge it into the car. Keep them neutral
   in evcc. Only `now` and planned grid charging wait for SunCore's lock.

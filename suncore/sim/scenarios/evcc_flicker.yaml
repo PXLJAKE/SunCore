@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: Apache-2.0
+name: evcc_flicker
+description: >-
+  PR 6-J re-review R1. evcc charges by its own plan (`always_charge`) and the room left under
+  the import limit hovers around evcc's 6 A minimum while clouds and house load flicker. The
+  import cut must not flap between `off` and `smart`: off only after 60 s over the limit, back
+  on only after 300 s and with 1 A of margin, and every off <-> on counts as a switch.
+start: "2026-05-10T12:00:00+02:00"
+duration_s: 3600
+step_s: 5
+house:
+  seed: 43
+  pv: {kwp: 2.0}
+  load: {noise_fraction: 0.3}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 12.0, amplitude_c: 4.0}
+control:
+  import_limit_w: 3300
+  site_battery: false
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 30, factor: 0.15}
+  - {at_s: 60, factor: 1.0}
+  - {at_s: 90, factor: 0.15}
+  - {at_s: 120, factor: 1.0}
+  - {at_s: 150, factor: 0.15}
+  - {at_s: 180, factor: 1.0}
+  - {at_s: 210, factor: 0.15}
+  - {at_s: 240, factor: 1.0}
+  - {at_s: 270, factor: 0.15}
+  - {at_s: 300, factor: 1.0}
+  - {at_s: 330, factor: 0.15}
+  - {at_s: 360, factor: 1.0}
+  - {at_s: 390, factor: 0.15}
+  - {at_s: 420, factor: 1.0}
+  - {at_s: 450, factor: 0.15}
+  - {at_s: 480, factor: 1.0}
+  - {at_s: 510, factor: 0.15}
+  - {at_s: 540, factor: 1.0}
+  - {at_s: 570, factor: 0.15}
+  - {at_s: 600, factor: 1.0}
+  - {at_s: 630, factor: 0.15}
+  - {at_s: 660, factor: 1.0}
+  - {at_s: 690, factor: 0.15}
+  - {at_s: 720, factor: 1.0}
+  - {at_s: 750, factor: 0.15}
+  - {at_s: 780, factor: 1.0}
+  - {at_s: 810, factor: 0.15}
+  - {at_s: 840, factor: 1.0}
+  - {at_s: 870, factor: 0.15}
+  - {at_s: 900, factor: 1.0}
+  - {at_s: 930, factor: 0.15}
+  - {at_s: 960, factor: 1.0}
+  - {at_s: 990, factor: 0.15}
+  - {at_s: 1020, factor: 1.0}
+  - {at_s: 1050, factor: 0.15}
+  - {at_s: 1080, factor: 1.0}
+  - {at_s: 1110, factor: 0.15}
+  - {at_s: 1140, factor: 1.0}
+  - {at_s: 1170, factor: 0.15}
+  - {at_s: 1200, factor: 1.0}
+  - {at_s: 1230, factor: 0.15}
+  - {at_s: 1260, factor: 1.0}
+  - {at_s: 1290, factor: 0.15}
+  - {at_s: 1320, factor: 1.0}
+  - {at_s: 1350, factor: 0.15}
+  - {at_s: 1380, factor: 1.0}
+  - {at_s: 1410, factor: 0.15}
+  - {at_s: 1440, factor: 1.0}
+  - {at_s: 1470, factor: 0.15}
+  - {at_s: 1500, factor: 1.0}
+  - {at_s: 1530, factor: 0.15}
+  - {at_s: 1560, factor: 1.0}
+  - {at_s: 1590, factor: 0.15}
+  - {at_s: 1620, factor: 1.0}
+  - {at_s: 1650, factor: 0.15}
+  - {at_s: 1680, factor: 1.0}
+  - {at_s: 1710, factor: 0.15}
+  - {at_s: 1740, factor: 1.0}
+  - {at_s: 1770, factor: 0.15}
+  - {at_s: 1800, factor: 1.0}
+  - {at_s: 1830, factor: 0.15}
+  - {at_s: 1860, factor: 1.0}
+  - {at_s: 1890, factor: 0.15}
+  - {at_s: 1920, factor: 1.0}
+  - {at_s: 1950, factor: 0.15}
+  - {at_s: 1980, factor: 1.0}
+  - {at_s: 2010, factor: 0.15}
+  - {at_s: 2040, factor: 1.0}
+  - {at_s: 2070, factor: 0.15}
+  - {at_s: 2100, factor: 1.0}
+  - {at_s: 2130, factor: 0.15}
+  - {at_s: 2160, factor: 1.0}
+  - {at_s: 2190, factor: 0.15}
+  - {at_s: 2220, factor: 1.0}
+  - {at_s: 2250, factor: 0.15}
+  - {at_s: 2280, factor: 1.0}
+  - {at_s: 2310, factor: 0.15}
+  - {at_s: 2340, factor: 1.0}
+  - {at_s: 2370, factor: 0.15}
+  - {at_s: 2400, factor: 1.0}
+  - {at_s: 2430, factor: 0.15}
+  - {at_s: 2460, factor: 1.0}
+  - {at_s: 2490, factor: 0.15}
+  - {at_s: 2520, factor: 1.0}
+  - {at_s: 2550, factor: 0.15}
+  - {at_s: 2580, factor: 1.0}
+  - {at_s: 2610, factor: 0.15}
+  - {at_s: 2640, factor: 1.0}
+  - {at_s: 2670, factor: 0.15}
+  - {at_s: 2700, factor: 1.0}
+  - {at_s: 2730, factor: 0.15}
+  - {at_s: 2760, factor: 1.0}
+  - {at_s: 2790, factor: 0.15}
+  - {at_s: 2820, factor: 1.0}
+  - {at_s: 2850, factor: 0.15}
+  - {at_s: 2880, factor: 1.0}
+  - {at_s: 2910, factor: 0.15}
+  - {at_s: 2940, factor: 1.0}
+  - {at_s: 2970, factor: 0.15}
+  - {at_s: 3000, factor: 1.0}
+  - {at_s: 3030, factor: 0.15}
+  - {at_s: 3060, factor: 1.0}
+  - {at_s: 3090, factor: 0.15}
+  - {at_s: 3120, factor: 1.0}
+  - {at_s: 3150, factor: 0.15}
+  - {at_s: 3180, factor: 1.0}
+  - {at_s: 3210, factor: 0.15}
+  - {at_s: 3240, factor: 1.0}
+  - {at_s: 3270, factor: 0.15}
+  - {at_s: 3300, factor: 1.0}
+  - {at_s: 3330, factor: 0.15}
+  - {at_s: 3360, factor: 1.0}
+  - {at_s: 3390, factor: 0.15}
+  - {at_s: 3420, factor: 1.0}
+  - {at_s: 3450, factor: 0.15}
+  - {at_s: 3480, factor: 1.0}
+  - {at_s: 3510, factor: 0.15}
+  - {at_s: 3540, factor: 1.0}
+  - {at_s: 3570, factor: 0.15}
+devices:
+  - id: evcc_lp
+    template: evcc.loadpoint
+    physics:
+      kind: loadpoint
+      initial_mode: "off"
+      initial_max_current_a: 10
+      initial_soc_pct: 20
+      capacity_wh: 60000
+      always_charge: true
+    control:
+      behaviour_confirmed: true
+    ev_mode: pv

@@ -471,7 +471,7 @@ class SafetyGate:
                 for d, rt in self._runtimes.items()
                 if rt.release_due_ts is None or rt.release_due_ts <= now
             ]
-        await self._release_all(REASON_RECOVERY, origin=Origin.SAFETY, only=only)
+        await self._release_all(REASON_RECOVERY, origin=Origin.SAFETY, only=only, reschedule=True)
 
     async def shutdown(self) -> None:
         """Release every device under control within ``release_deadline_s``."""
@@ -520,6 +520,7 @@ class SafetyGate:
             REASON_EMERGENCY_STOP,
             origin=Origin.USER,
             deadline_s=self._settings.release_deadline_s,
+            reschedule=True,
         )
 
     async def clear_emergency_stop(self) -> None:
@@ -597,13 +598,15 @@ class SafetyGate:
     async def connection_restored(self) -> None:
         """Back online: release what was under control (the user may have changed things)."""
         self._watchdog.connection_restored(self._now())
-        await self._release_all(REASON_CONNECTION_LOST, origin=Origin.SAFETY, urgent=False)
+        await self._release_all(
+            REASON_CONNECTION_LOST, origin=Origin.SAFETY, urgent=False, reschedule=True
+        )
         self._site_tripped = self._watchdog.state(SITE_SCOPE, self._now()) is ScopeState.SAFE
 
     async def _after_site_check(self, now: datetime, faults: tuple[Fault, ...]) -> None:
         tripped = self._watchdog.state(SITE_SCOPE, now) is ScopeState.SAFE
         if tripped and not self._site_tripped and faults:
-            await self._release_all(faults[0].reason, origin=Origin.SAFETY)
+            await self._release_all(faults[0].reason, origin=Origin.SAFETY, reschedule=True)
         self._site_tripped = tripped
 
     # --- overrides -----------------------------------------------------------------
@@ -1954,7 +1957,11 @@ class SafetyGate:
         deadline_s: float | None = None,
         urgent: bool = True,
         only: Collection[str] | None = None,
+        reschedule: bool = False,
     ) -> None:
+        """Release every device under control. The first attempt is immediate; with
+        ``reschedule`` a failure is retried by :meth:`poll` with back-off (R2). Hand-over and
+        shutdown keep the plain behaviour: their successor retries at once."""
         ids = [
             d
             for d, rt in self._runtimes.items()
@@ -1963,7 +1970,9 @@ class SafetyGate:
         if not ids:
             return
         tasks = {
-            asyncio.ensure_future(self.release_device(d, reason, origin=origin, urgent=urgent)): d
+            asyncio.ensure_future(
+                self.release_device(d, reason, origin=origin, urgent=urgent, backoff=reschedule)
+            ): d
             for d in ids
         }
         done, pending = await asyncio.wait(tasks, timeout=deadline_s)

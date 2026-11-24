@@ -152,7 +152,9 @@ def action_turns_on(action: Action, device: DeviceConfig) -> bool | None:  # noq
         case ReleaseAction() | BatteryAction():  # battery: judged by safety.battery (WP10)
             return None
         case LoadpointAction():
-            return None  # a mode is no on/off switch: evcc decides when the car draws (L2/L3)
+            # off <-> on/smart/now is a switch of the loadpoint (R1: counted, min run/pause);
+            # whether the car draws is evcc's decision (L2/L3), so this follows the mode only
+            return action.mode != "off"
         case InverterLimitAction():
             return None  # rejected by the gate before the invariants (6-B, not supported)
     return None  # pragma: no cover - exhaustive
@@ -163,6 +165,10 @@ def is_switch_transition(action: Action, device: DeviceConfig, state: DeviceStat
     target = action_turns_on(action, device)
     if target is None:
         return False
+    if isinstance(action, LoadpointAction):
+        if state is None or not state.known or state.mode is None:
+            return True
+        return (state.mode != "off") != target
     current = device_is_on(state)
     return current is None or current != target
 
@@ -431,6 +437,8 @@ def check_min_run_pause(ctx: InvariantContext) -> Reason | None:  # noqa: PLR091
     target = action_turns_on(ctx.action, ctx.device)
     if target is False and _fuse_shed(ctx):
         return None  # G2: shedding above the fuse limit (non-thermal kinds)
+    if target is False and isinstance(ctx.action, LoadpointAction):
+        return None  # off is the safe direction for a loadpoint (counted, never blocked)
     if target is True:
         since, limit = ctx.runtime.last_off_ts, ctx.device.min_pause_s
     else:
@@ -452,8 +460,10 @@ def check_switch_rate(ctx: InvariantContext) -> Reason | None:
         return None
     if not is_switch_transition(ctx.action, ctx.device, ctx.state):
         return None
-    if action_turns_on(ctx.action, ctx.device) is False and _fuse_shed(ctx):
-        return None  # G2: shedding above the fuse limit (non-thermal kinds)
+    if action_turns_on(ctx.action, ctx.device) is False and (
+        _fuse_shed(ctx) or isinstance(ctx.action, LoadpointAction)
+    ):
+        return None  # G2 shedding; a loadpoint's off is counted but never blocked (R1)
     limit = ctx.device.max_switches_per_hour
     if limit is None:
         limit = ctx.settings.default_max_switches_per_hour

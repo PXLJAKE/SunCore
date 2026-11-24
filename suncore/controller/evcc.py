@@ -53,6 +53,11 @@ INTENT_PREFIX: Final = "evcc:"
 RETRY_S: Final = 60.0
 """A wanted state that is not on the device yet is sent again no sooner than this."""
 RAISE_STEP_A: Final = 2.0
+#: Import cut hysteresis (R1): switch off only after this long over the limit, and back on only
+#: after ``MIN_OFF_S`` with ``REENABLE_MARGIN_A`` more than evcc's minimum of headroom.
+OFF_AFTER_S: Final = 60.0
+MIN_OFF_S: Final = 300.0
+REENABLE_MARGIN_A: Final = 1.0
 """``maxCurrent`` is raised only when the wanted value is at least this much higher."""
 IEC_MIN_CURRENT_A: Final = 6.0
 CURRENT_TOLERANCE_A: Final = 0.05
@@ -107,6 +112,12 @@ class EvccIntents:
     seq: int = 0
     cuts: set[str] = field(default_factory=set)
     """Loadpoints whose current the import limit holds down (see ``_import_cut``)."""
+    over_since: dict[str, datetime] = field(default_factory=dict)
+    """Since when the import is continuously over the limit while the car draws (R1)."""
+    off_since: dict[str, datetime] = field(default_factory=dict)
+    """When the import cut switched the loadpoint off (re-enable only after ``MIN_OFF_S``)."""
+    clock: datetime | None = None
+    """The tick time (set by ``step``; ``wanted`` called alone keeps the last one)."""
 
     # --- the tick -----------------------------------------------------------------------
 
@@ -115,8 +126,11 @@ class EvccIntents:
         live = {t.device.id for t in ticks}
         for gone in [d for d in self.sent if d not in live]:
             del self.sent[gone]
+        self.clock = now
         for gone in [d for d in self.cuts if d not in live]:
             self.cuts.discard(gone)
+            self.over_since.pop(gone, None)
+            self.off_since.pop(gone, None)
         self.views = {}
         for tick in ticks:
             view = self.wanted(tick)
@@ -193,7 +207,7 @@ class EvccIntents:
             self._no_raise_cut(tick, state, wanted, reasons), tuple(reasons), lock_wanted
         )
 
-    def _import_cut(
+    def _import_cut(  # noqa: PLR0911 - one return per verdict
         self, tick: LoadpointTick, state: DeviceState, per_amp: float, max_a: float
     ) -> float | None:
         """The ``maxCurrent`` the import limit allows while evcc charges (L3 reducing path).
@@ -208,16 +222,39 @@ class EvccIntents:
         limit, imported = tick.grid.import_limit_w, tick.import_w
         if limit is None or imported is None:
             return None
+        now = self.clock
         draw = state.value or 0.0
         over = imported > limit and draw > 0
+        if over:
+            if now is not None:
+                self.over_since.setdefault(device_id, now)
+        else:
+            self.over_since.pop(device_id, None)
         if not over and device_id not in self.cuts:
             return None
         headroom = math.floor(max(0.0, limit - imported + draw) / per_amp + EPS)
         if not over and headroom >= max_a:
             self.cuts.discard(device_id)
+            self.off_since.pop(device_id, None)
             return None
         self.cuts.add(device_id)
-        return float(headroom) if headroom >= IEC_MIN_CURRENT_A else 0.0
+        off_at = self.off_since.get(device_id)
+        if off_at is not None:
+            # off by the cut: back on only after MIN_OFF_S and with a margin above evcc's minimum
+            waited = now is None or (now - off_at).total_seconds() >= MIN_OFF_S
+            if not waited or headroom < IEC_MIN_CURRENT_A + REENABLE_MARGIN_A:
+                return 0.0
+            del self.off_since[device_id]
+        if headroom >= IEC_MIN_CURRENT_A:
+            return float(headroom)
+        # Below evcc's minimum: off only after N s continuously over (cloud/load flicker),
+        # until then hold the minimum.
+        since = self.over_since.get(device_id)
+        if now is not None and since is not None and (now - since).total_seconds() < OFF_AFTER_S:
+            return float(IEC_MIN_CURRENT_A)
+        if now is not None:
+            self.off_since[device_id] = now
+        return 0.0
 
     def _allowance(self, tick: LoadpointTick, control: LoadpointControl) -> tuple[float, str]:
         """The grid power the mode permits (mirrors ``safety.evcc.loadpoint_allowance_w``)."""

@@ -966,8 +966,10 @@ detection; CO₂ weighting.
 - **Release retries (review B1/C1):** a release that fails on a device trip or in `poll`
   is rescheduled with the battery's back-off (30 s doubling to 10 min, `release_due_ts`,
   writing blocked meanwhile) instead of one `failed` decision per 5 s tick; the first retry
-  after evcc is back restores the baseline. Other release callers (recovery, hand-over,
-  reconnect, emergency stop) are unchanged.
+  after evcc is back restores the baseline. Since the re-review (R2) the emergency stop,
+  recovery, reconnect and a site trip reschedule a failed first attempt the same way (the
+  first attempt stays immediate); hand-over and shutdown keep the plain behaviour because
+  their successor retries at once.
 - **Behaviour cap:** an unconfirmed loadpoint stays capped at assisted (E8); the scenario sets
   `behaviour_confirmed: true`, `test_an_unconfirmed_loadpoint_stays_at_assisted` covers the
   cap.
@@ -1055,6 +1057,33 @@ The independent review rejected the PR until A1 and A2 were fixed; all items are
 - **C3 (done):** warning in the template, the user guide (en/de) and as a reason
   (`controller.evcc.battery_warning`, shown with `smart` next to a home battery without a
   lock): `smart` has no E6 lock, evcc's `bufferSoc` rules can discharge the battery into the car.
+
+#### Re-review 6-J (control-safety, commit 4b1d51a)
+
+A1, B1, B2 and C1-C3 are confirmed fixed; A2 is partly fixed. Two new items, both fixed.
+
+- **Residual risk (A2):** the G1/peak check for `smart` is reactive. evcc may import by its own
+  plan until the controller has seen the measured import and the cut is written and echoed:
+  an overshoot of up to about one minute (scenario `evcc_plan`: over the limit for 20 s). The
+  gate cannot prevent it, because it only sees what evcc *may* do (the worst case of a raise),
+  not what evcc's plan does afterwards. Accepted; the installed fuse (G2) and the grid
+  operator's limit stay with the user's own protection.
+- **R1 (done, blocking):** the import cut flapped between `off` and `smart` (off and re-enable
+  on the same threshold, the headroom adds the charge power back; the reviewer measured 47
+  mode changes in 120 ticks). Now: off only after 60 s continuously over the limit (until then
+  the minimum of 6 A is held), back on only after 300 s with at least 1 A above evcc's minimum
+  (`OFF_AFTER_S`, `MIN_OFF_S`, `REENABLE_MARGIN_A` in `controller/evcc.py`). In the gate,
+  `action_turns_on` now follows the loadpoint mode (off <-> on/smart/now), so every such
+  change counts toward the switch counter, minimum run/pause and the switch rate apply to
+  switching on; **off is counted but never blocked** (the safe direction). Tests:
+  `test_r1_*` (controller, gate), scenario `evcc_flicker` (clouds and load flicker around the
+  threshold: at most 2 off <-> on changes and 4 switches per hour).
+- **R2 (done):** a failed emergency-stop release (echo timeout with evcc reachable) was never
+  retried. `_release_all(..., reschedule=True)` (emergency stop, recovery, reconnect, site
+  trip): the first attempt is immediate, a failure sets `release_due_ts` with back-off and
+  `release_due_reason`, and `poll` retries. Hand-over and shutdown are unchanged, so
+  `recover(after_handover=True)` and `tests/safety/test_release_paths.py` hold. Test:
+  `test_r2_a_failed_emergency_stop_release_is_retried_by_poll_with_backoff`.
 
 ### 6-C (MQTT base and backend ICU)
 

@@ -250,3 +250,18 @@ def test_a2_an_evcc_plan_that_imports_is_cut_to_the_import_limit() -> None:
     tail = result.steps[len(result.steps) // 2 :]
     assert all(s.grid_w <= limit for s in tail)
     assert all(t in ALLOWED_TOPICS for t, _ in runner.evcc.sent)
+
+
+def test_r1_flicker_near_the_threshold_switches_a_bounded_number_of_times() -> None:
+    """Clouds and load flicker around evcc's 6 A minimum: off <-> on does not flap."""
+    result, runner = run_named("evcc_flicker")
+    modes = [
+        d.intent.action.mode
+        for d in result.accepted("evcc_lp")
+        if isinstance(d.intent.action, LoadpointAction)
+    ]
+    changes = sum(1 for a, b in itertools.pairwise(modes) if (a == "off") != (b == "off"))
+    assert changes <= 2
+    assert result.switches_in_window("evcc_lp", window_s=3600) <= 4
+    assert result.of_kind(DecisionKind.REJECTED) == []
+    assert all(t in ALLOWED_TOPICS for t, _ in runner.evcc.sent)

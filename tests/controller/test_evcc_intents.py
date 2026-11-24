@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import itertools
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -345,3 +346,58 @@ def test_c3_smart_next_to_an_unlocked_battery_carries_the_warning() -> None:
     assert "controller.evcc.battery_warning" in [r.key for r in view.reasons]
     view = EvccIntents().wanted(tick(battery_locked=True))
     assert "controller.evcc.battery_warning" not in [r.key for r in view.reasons]
+
+
+def run_flicker(import_series: list[float], *, step_s: int = 5) -> list[str]:
+    """Drive `EvccIntents` through a flickering house load; returns the mode per tick."""
+    controller = EvccIntents()
+    mode, current = "smart", 16.0
+    modes: list[str] = []
+    for i, house in enumerate(import_series):
+        draw = 0.0 if mode == "off" else current * PER_A
+        # the house imports `house` W without the car; the car adds its own draw
+        tk = over_limit(
+            state=state(mode, current, value=draw),
+            import_w=house + draw,
+            grid=GridInputs(import_limit_w=6_000.0),
+        )
+        controller.clock = T0 + timedelta(seconds=i * step_s)
+        view = controller.wanted(tk)
+        assert view.wanted is not None
+        mode = view.wanted.mode
+        current = view.wanted.max_current_a or current
+        modes.append(mode)
+    return modes
+
+
+def test_r1_flicker_near_the_threshold_does_not_flap_between_off_and_smart() -> None:
+    # the room left for the car hovers around evcc's 6 A minimum (4140 W): 1850 +- 40 W house
+    series = [1850.0 + (40.0 if i % 2 else -40.0) for i in range(120)]
+    modes = run_flicker(series)
+    changes = sum(1 for a, b in itertools.pairwise(modes) if a != b)
+    assert changes <= 2  # 47 in 120 ticks without hysteresis
+
+
+def test_r1_a_short_overload_only_holds_the_minimum() -> None:
+    series = [1850.0] * 4 + [2300.0] * 6 + [1850.0] * 20  # 30 s over, below OFF_AFTER_S
+    assert set(run_flicker(series)) == {"smart"}
+
+
+def test_r1_off_after_a_long_overload_and_back_on_only_after_the_minimum_off_time() -> None:
+    controller = EvccIntents()
+    grid = GridInputs(import_limit_w=6_000.0)
+    # 7000 W import with the car at 6 A (4140 W): headroom 3140 W = 4 A -> hold 6 A first
+    charging = {"state": state("smart", 6.0, value=4_140.0), "import_w": 7_000.0, "grid": grid}
+    controller.clock = T0
+    first = controller.wanted(over_limit(**charging))
+    assert first.wanted == LoadpointAction(mode="smart", max_current_a=6.0)
+    controller.clock = T0 + timedelta(seconds=61)
+    assert controller.wanted(over_limit(**charging)).wanted == LoadpointAction(mode="off")
+    idle = {"state": state("off", 6.0, value=0.0), "import_w": 1_000.0, "grid": grid}
+    for gap in (62, 200, 340):  # room for 5000 W, but evcc was switched off < 300 s ago
+        controller.clock = T0 + timedelta(seconds=gap)
+        assert controller.wanted(over_limit(**idle)).wanted == LoadpointAction(mode="off")
+    controller.clock = T0 + timedelta(seconds=61 + 301)
+    back = controller.wanted(over_limit(**idle))
+    assert back.wanted is not None
+    assert back.wanted.mode == "smart"

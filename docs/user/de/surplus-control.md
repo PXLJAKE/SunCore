@@ -202,7 +202,9 @@ schreibt nie einen Fahrzeugplan. Gut zu wissen:
 - **Bezugsgrenze:** `smart` folgt dem PV-Überschuss, aber evcc kann nach eigenen Regeln aus dem
   Netz laden (Fahrzeugplan, Smart-Cost-Limit, „immer laden“). SunCore senkt den maximalen Strom
   von evcc (oder schaltet ihn aus), wenn der gemessene Netzbezug über deiner Grenze liegt,
-  während das Auto lädt.
+  während das Auto lädt. Das geschieht nach wenigen Sekunden, ein kurzes Überschreiten ist also
+  möglich. Gegen Flattern schaltet es erst nach einer Minute über der Grenze aus und erst nach
+  fünf Minuten mit etwas Spielraum wieder ein.
 - **Hausbatterie:** In `smart` hat SunCore **keine Entladesperre** für die Hausbatterie: Die
   eigenen Batterieregeln von evcc (z. B. der Puffer-SoC) können sie ins Auto entladen. Halte sie
   in evcc neutral. Nur `now` und geplantes Laden aus dem Netz warten auf die Sperre von SunCore.
