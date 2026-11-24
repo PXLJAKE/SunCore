@@ -458,6 +458,29 @@
             "title": "Params",
             "type": "object"
           },
+          "params_requested": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Params Requested",
+            "type": "object"
+          },
           "schema_version": {
             "default": 1,
             "title": "Schema Version",
@@ -11402,7 +11425,7 @@
                 }
               }
             },
-            "description": "Invalid window or overlay"
+            "description": "Window not past, or overlay unusable"
           },
           "503": {
             "content": {

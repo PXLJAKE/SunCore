@@ -17,8 +17,11 @@ from suncore.api.models import ErrorOut
 from suncore.api.services import BacktestService, Services
 from suncore.core.decisions import Reason
 from suncore.sim.backtest_models import (
+    OVERLAY_INVALID,
+    OVERLAY_NO_BATTERY,
     BacktestBusyError,
     BacktestJobView,
+    BacktestOverlayError,
     BacktestRequest,
     BacktestResult,
     BacktestStatus,
@@ -31,6 +34,10 @@ ERR_BACKTEST_UNAVAILABLE: Final = "api.error.backtest_unavailable"
 ERR_BACKTEST_BUSY: Final = "api.error.backtest_busy"
 ERR_BACKTEST_NOT_FOUND: Final = "api.error.backtest_not_found"
 ERR_BACKTEST_WINDOW: Final = "api.error.backtest_window_not_past"
+OVERLAY_ERRORS: Final = {
+    OVERLAY_INVALID: "api.error.backtest_overlay_invalid",
+    OVERLAY_NO_BATTERY: "api.error.backtest_overlay_no_battery",
+}
 
 RunId = Annotated[int, Path(ge=1)]
 
@@ -98,7 +105,7 @@ def register_backtests(app: FastAPI, services: Services) -> None:
         operation_id="start_backtest",
         responses={
             409: {"model": ErrorOut, "description": "A run or the planner is active"},
-            422: {"model": ErrorOut, "description": "Invalid window or overlay"},
+            422: {"model": ErrorOut, "description": "Window not past, or overlay unusable"},
             503: {"model": ErrorOut, "description": "No history or no site configuration"},
         },
     )
@@ -112,6 +119,9 @@ def register_backtests(app: FastAPI, services: Services) -> None:
             view = await jobs.start(body)
         except BacktestWindowError as exc:
             raise HTTPException(status_code=422, detail=ERR_BACKTEST_WINDOW) from exc
+        except BacktestOverlayError as exc:
+            detail = OVERLAY_ERRORS.get(exc.key, OVERLAY_ERRORS[OVERLAY_INVALID])
+            raise HTTPException(status_code=422, detail=detail) from exc
         except BacktestBusyError as exc:
             raise HTTPException(status_code=409, detail=ERR_BACKTEST_BUSY) from exc
         except BacktestUnavailableError as exc:

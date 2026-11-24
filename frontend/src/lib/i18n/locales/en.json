@@ -1370,5 +1370,8 @@
   "backtest.stop.runtime_limit": "The backtest took too long and was stopped.",
   "backtest.stop.memory_limit": "The backtest was stopped because the app used too much memory.",
   "backtest.stop.error": "The backtest failed because of an internal error (see the log).",
-  "backtest.stop.restart": "The backtest was interrupted by a restart of the app."
+  "backtest.stop.restart": "The backtest was interrupted by a restart of the app.",
+  "api.error.backtest_overlay_invalid": "These what-if values do not fit together or cannot be changed in a backtest.",
+  "api.error.backtest_overlay_no_battery": "Battery size, power or reserve can only be changed when a battery model is configured.",
+  "backtest.limit.overlay_capped": "The what-if value {field} is beyond what the configured battery hardware allows; the planner used {limit}."
 }

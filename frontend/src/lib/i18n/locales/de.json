@@ -1370,5 +1370,8 @@
   "backtest.stop.runtime_limit": "Der Backtest dauerte zu lange und wurde beendet.",
   "backtest.stop.memory_limit": "Der Backtest wurde beendet, weil die App zu viel Speicher belegte.",
   "backtest.stop.error": "Der Backtest ist wegen eines internen Fehlers fehlgeschlagen (siehe Protokoll).",
-  "backtest.stop.restart": "Der Backtest wurde durch einen Neustart der App unterbrochen."
+  "backtest.stop.restart": "Der Backtest wurde durch einen Neustart der App unterbrochen.",
+  "api.error.backtest_overlay_invalid": "Diese Was-wäre-wenn-Werte passen nicht zusammen oder lassen sich im Backtest nicht ändern.",
+  "api.error.backtest_overlay_no_battery": "Größe, Leistung oder Reserve der Batterie lassen sich nur ändern, wenn ein Batteriemodell konfiguriert ist.",
+  "backtest.limit.overlay_capped": "Der Was-wäre-wenn-Wert {field} geht über das hinaus, was die konfigurierte Batterie-Hardware erlaubt; der Planer nutzte {limit}."
 }

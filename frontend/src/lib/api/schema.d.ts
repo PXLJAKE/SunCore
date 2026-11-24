@@ -1342,6 +1342,10 @@ export interface components {
             params: {
                 [key: string]: boolean | number | string | null;
             };
+            /** Params Requested */
+            params_requested?: {
+                [key: string]: boolean | number | string | null;
+            };
             /**
              * Schema Version
              * @default 1
@@ -5473,7 +5477,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Invalid window or overlay */
+            /** @description Window not past, or overlay unusable */
             422: {
                 headers: {
                     [name: string]: unknown;

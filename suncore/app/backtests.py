@@ -31,14 +31,17 @@ from typing import Any, Final, Literal
 import structlog
 from pydantic import ValidationError
 
+from suncore.app.planning import run_in_daemon_thread
 from suncore.core.decisions import Reason
 from suncore.core.series import PriceSeries, QuantileSeries, SeriesUnit, TimeRange, TimeSeries
 from suncore.sim.backtest import (
     BacktestSite,
     BacktestStoppedError,
+    DayRun,
     HistoryReader,
     Solve,
     Thread,
+    apply_overlay,
     default_solve,
     run_backtest,
 )
@@ -59,6 +62,9 @@ STOP_RUNTIME: Final = "backtest.stop.runtime_limit"
 STOP_MEMORY: Final = "backtest.stop.memory_limit"
 STOP_ERROR: Final = "backtest.stop.error"
 STOP_RESTART: Final = "backtest.stop.restart"
+STOP_WAIT_S: Final = 2.0
+"""Longest a cancel or the shutdown waits for a run before abandoning its solve."""
+THREAD_NICENESS: Final = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +182,7 @@ class BacktestJobs:
         self._solve = solve
         self._thread = thread
         self._jobs: dict[int, _Job] = {}
+        self._closing = False
         self._lock = asyncio.Lock()
 
     @property
@@ -193,16 +200,21 @@ class BacktestJobs:
     async def start(self, request: BacktestRequest) -> BacktestJobView:
         """Start a run. Raises :class:`BacktestWindowError` (not in the past),
         :class:`BacktestBusyError` (a run or the planner is active) and
-        :class:`BacktestUnavailableError` (no history or site)."""
+        :class:`BacktestUnavailableError` (no history or site, or shutting down) and
+        :class:`~suncore.sim.backtest_models.BacktestOverlayError` (the overlay does not fit the
+        site; checked before the run is stored)."""
         if request.end >= self._today():
             raise BacktestWindowError(request.end.isoformat())
         async with self._lock:
+            if self._closing:
+                raise BacktestUnavailableError
             if len(self._jobs) >= self._limits.max_concurrent or self._busy():
                 raise BacktestBusyError
             history = self._history()
             site = await self._site()
             if history is None or site is None:
                 raise BacktestUnavailableError
+            apply_overlay(site, request)  # BacktestOverlayError before anything is stored
             reader = ReadOnlyHistory(history)
             run_id = await self._store.start(
                 request.model_dump(mode="json"),
@@ -243,7 +255,7 @@ class BacktestJobs:
         status: Literal["done", "failed", "cancelled"] = "failed"
         payload: dict[str, Any] = {"error": Reason(key=STOP_ERROR).model_dump(mode="json")}
         try:
-            kwargs: dict[str, Any] = {} if self._thread is None else {"thread": self._thread}
+            kwargs: dict[str, Any] = {"thread": self._thread or low_priority_daemon_thread}
             result = await run_backtest(
                 history,
                 site,
@@ -261,7 +273,7 @@ class BacktestJobs:
             payload = {"error": Reason(key=reason).model_dump(mode="json")}
         except asyncio.CancelledError:
             status = "cancelled"
-            payload = {"error": Reason(key=STOP_RESTART).model_dump(mode="json")}
+            payload = {"error": Reason(key=job.reason or STOP_RESTART).model_dump(mode="json")}
             raise
         except Exception:
             log.exception("backtest.failed", run_id=job.run_id)
@@ -308,27 +320,64 @@ class BacktestJobs:
         )
 
     async def cancel(self, run_id: int) -> Literal["cancelled", "deleted"] | None:
-        """Cancel a running run (it stops before its next replan and is kept as
-        ``cancelled``) or delete a finished one; ``None`` if there is no such run."""
+        """Cancel a running run (kept as ``cancelled``) or delete a finished one; ``None`` if
+        there is no such run. Waits at most :data:`STOP_WAIT_S` for the run to stop."""
         job = self._jobs.get(run_id)
         if job is not None:
             job.reason = job.reason or STOP_CANCELLED
-            job.stop.set()
-            if job.task is not None:
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await job.task
+            await self._stop(job)
             return "cancelled"
         return "deleted" if await self._store.delete(run_id) else None
 
     async def shutdown(self) -> None:
-        """Stop every run (kept as ``cancelled``); called before the database closes."""
-        for job in list(self._jobs.values()):
+        """Refuse new runs and stop every running one (kept as ``cancelled``) within
+        :data:`STOP_WAIT_S`; called before the database closes. A solve still running in its
+        daemon thread is abandoned, never awaited."""
+        self._closing = True
+        jobs = list(self._jobs.values())
+        for job in jobs:
             job.reason = job.reason or STOP_RESTART
-            job.stop.set()
-        for job in list(self._jobs.values()):
-            if job.task is not None:
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await job.task
+        await asyncio.gather(*(self._stop(job) for job in jobs))
+
+    async def _stop(self, job: _Job) -> None:
+        job.stop.set()
+        task = job.task
+        if task is None:
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), STOP_WAIT_S)
+        except TimeoutError:
+            task.cancel()  # abandons the daemon thread; the run is recorded as cancelled
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        except (asyncio.CancelledError, Exception):
+            if not task.done():
+                raise
+
+
+def lower_thread_priority(niceness: int = THREAD_NICENESS) -> bool:
+    """Lower the calling thread's CPU priority (Linux: ``setpriority`` on the native thread id
+    sets that thread only). ``False`` where unsupported or refused; never raises."""
+    setpriority = getattr(os, "setpriority", None)
+    which = getattr(os, "PRIO_PROCESS", None)
+    if setpriority is None or which is None:
+        return False
+    try:
+        setpriority(which, threading.get_native_id(), niceness)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+async def low_priority_daemon_thread(fn: Callable[[], DayRun]) -> DayRun:
+    """The live planner's daemon-thread helper, with the thread's priority lowered first, so a
+    backtest never delays the controller or the planner and never holds the shutdown."""
+
+    def work() -> DayRun:
+        lower_thread_priority()
+        return fn()
+
+    return await run_in_daemon_thread(work)
 
 
 def _midnight(day: date, site: BacktestSite) -> datetime:
@@ -341,8 +390,11 @@ __all__ = [
     "STOP_MEMORY",
     "STOP_RESTART",
     "STOP_RUNTIME",
+    "STOP_WAIT_S",
     "BacktestJobs",
     "JobLimits",
     "ReadOnlyHistory",
     "current_rss_mb",
+    "low_priority_daemon_thread",
+    "lower_thread_priority",
 ]
