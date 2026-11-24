@@ -3,13 +3,38 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PR 6-B contracts) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PR 6-F import side, §14a, island) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
 **Branch:** `claude/project-thread-7gkqcr`
 
 ## Done
+
+- **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - `safety/grid.py`: invariants G1-G6 as pure functions, wired into the device invariants
+    (`check_grid_situation`, the G2 fuse waiver in min run and the switch limit) and the battery
+    invariants (no grid charging under §14a or in a cool-down, nothing import-causing in island;
+    the lease ends with them). The gate keeps an island/§14a memory (`core.grid.GridMemory`) for
+    the cool-down (`safe_state_cooldown_s`) and sums the other §14a devices' upper estimates.
+  - `controller/grid.py`: one resolver per tick through `core.grid` (effective import limit =
+    min(fuse, peak), §14a budget, grid state, warnings); level caps for island (shed all but the
+    keep list, keep frozen), cool-down, §14a (budget shared in priority order, keep at `<=`,
+    rise with hysteresis to spare) and unknown §14a (frozen); the back-off above the limit uses
+    the shedding order (continuous first, `shed_rank`, reverse priority) and waives min run of
+    non-thermal kinds only above the fuse limit; battery support lifts a discharge lock near the
+    limit, island releases the battery, §14a blocks grid charging. `GateInputs` gains
+    `fuse_limit_w` and `para14a_devices` (additive).
+  - `app/grid.py` `GridMonitor`: monthly peak from 15-minute means of the tick values (reset at
+    local midnight of the 1st, seeded from `grid_peak`), grid events (island, §14a, new peak,
+    import above the fuse) persisted to `timeseries.db`; the controller ignores the plan in
+    island.
+  - Simulator: island (grid 0, battery covers, PV curtailed) and §14a signals in the fake HA;
+    scenarios `import_limit_fuse_shed`, `peak_shaving_month`, `para14a_dimming` (with cloud
+    flicker), `grid_outage_island`. Behaviour change: with only a fuse limit the import-limit
+    back-off now reports `controller.grid.fuse_shed` and skips min run of non-thermal kinds.
+    Deviations, safety self-review and questions: plan section 8 (6-F).
 
 - **Phase 6 - PR 6-B, WP2 contracts and configuration (branch `phase-6/b-contracts`, on 6-A;
   `control-safety`)** - additive, no behaviour yet:
@@ -1073,7 +1098,9 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |
 | Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (`power_update_s` is in the device editor since WP10) |
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
-| §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018 | a grid operator's control box / documentation |
+| §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed; 0 W cannot be a legal dimming value given the 4.2 kW minimum, a positive value is used as min(value, limit)) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018, plan section 8 (6-F) | a grid operator's control box / documentation |
+| Backup-switch island state names (simulator: `island`/`on_grid`; Kostal BackUp Switch G3 entity and states unknown) | `suncore/core/grid.py` `BackupConfig`, `suncore/sim/fake_ha.py` | maintainer maps the entity (question 10) |
+| Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
 | SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |

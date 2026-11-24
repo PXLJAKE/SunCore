@@ -664,3 +664,76 @@ detection; CO₂ weighting.
     defaults to `not_configured`.
   - H3: a `PUT` whose MQTT password equals the mask while none is stored is rejected with 422
     (`api.validation.mqtt_password_is_mask`) instead of dropping the password.
+
+### 6-F (import side, §14a, island)
+
+- **Scope:** WP6 and its four scenarios; no export chain or inverter writes (6-G). No new write
+  path: shedding, dimming and island shedding are ordinary controller intents through the gate;
+  the battery is released through the existing release path.
+- **G2 also waives the switch limit** above the fuse limit (not only min run): a switch-off
+  that the hourly switch count blocks would keep the connection overloaded. Thermal kinds keep
+  both; min pause (a switch-on) is never waived. With only `import_limit_w` configured (no peak
+  shaving) that limit **is** the fuse limit, so the Phase 3 import-limit back-off now reports
+  `controller.grid.fuse_shed` and waives min run for non-thermal kinds (two tests updated).
+- **Unknown after island** keeps "no increase" (cool-down not started) until a definite
+  connected state is seen; it never applies island shedding (unknown = connected, H1). Unknown
+  without a preceding island is connected with the warning `controller.grid.backup_unknown`.
+- **§14a enabled without a mapped signal** counts as inactive with the warning
+  `controller.grid.para14a_no_signal` (SunCore cannot observe it; the operator's own relay path
+  acts on the device). A mapped but unavailable signal is `unknown`: flagged devices frozen
+  (G5), battery grid charging blocked.
+- **§14a numeric signal (`power_w`), conservative treatment:** 0 W = not dimmed, as in 6-B.
+  Argument (not a proof): the Bundesnetzagentur guarantees at least 4.2 kW per controllable
+  device, so 0 W can never be a legal allowed power; a positive value is used as
+  `min(value, para14a_limit_w)`; unparsable or negative values are `unknown`. Besides, every
+  SunCore increase still needs real export surplus (no grid draw) until the ADR-0017 grid
+  exception arrives in 6-I/6-K, where G3 applies. Stays `UNVERIFIED` (STATUS).
+- **§14a sum in the gate** uses the upper bound of the other flagged devices' estimates plus
+  every increase already let through against the same snapshot (conservative); an unknown
+  estimate of one of them rejects every increase of a flagged device while dimmed.
+- **Controller §14a band:** a flagged device keeps its level while its power fits the remaining
+  budget and rises only with `hysteresis_w` to spare (no tolerance above the legal budget);
+  the budget is shared in allocation priority order (lower priority dimmed first).
+- **Peak tracking** is computed from the tick values the recorder aggregates into
+  `measurement_15m`, not by reading the table back in the tick; a quarter needs half its time
+  measured; gaps count as no import; quarters are aligned to UTC epoch (equal to local quarters
+  for whole-hour offsets). The peak limit reacts to the instantaneous import (conservative).
+- **Planner pause in island** is implemented in the control stack (the controller uses
+  `Plan.default()` while the grid state is `island`); the planning service keeps computing
+  plans that are not used. Pausing the planning loop itself is left to 6-H.
+- **Cool-down memory** lives in the gate (and a mirror in the controller), survives a
+  configuration change (`predecessor`), but not a restart; `seed_grid_memory` exists for
+  restoring it from `grid_event` later (the restart itself already releases every device).
+- **Notifications and MQTT events** for island/§14a are recorded as `grid_event` rows only;
+  sending them is 6-C/6-E.
+
+#### Safety self-review 6-F (control-safety)
+
+| Invariant | Result | Evidence |
+|---|---|---|
+| G1 import <= effective limit (fuse and peak), devices and battery | pass | `GateInputs.import_limit_w` = `core.grid.effective_import_limit_w` from `controller/grid.py`; `check_grid` and B5 unchanged; `test_effective_limit_never_above_the_fuse`; scenarios `import_limit_fuse_shed`, `peak_shaving_month` (no rise while importing above the limit) |
+| G2 reductions accepted; min run kept for thermal kinds; waived above the fuse for non-thermal | pass | `fuse_shed_waiver`; `test_min_run_is_waived_only_above_the_fuse_for_non_thermal_kinds`, `test_the_waiver_needs_an_ok_reading_and_a_fuse_limit`, `test_a_release_and_a_switch_off_pass_every_grid_situation`; scenario: pump shed after < 30 min only above the fuse, not under peak shaving |
+| G3 §14a sum <= budget; no battery grid charging | pass | `check_para14a`, `check_battery_grid`; `test_para14a_sum_never_exceeds_the_budget`, `test_gate_para14a_budget_counts_the_other_flagged_devices`, `test_para14a_caps_keep_the_sum_within_the_budget`; scenario `para14a_dimming` (sum <= 2500 W throughout the window, under flicker) |
+| G4 island: no increase, no import-causing battery state | pass | `check_island`, `check_battery_grid`, lease ends via `STATE_CHECKS`; `test_gate_island_then_cooldown_then_increase`, `test_battery_grid_rules`; scenario `grid_outage_island` |
+| G5 unknown inputs: no increase | pass | `check_grid_inputs` (stale snapshot, grid reading not OK), `check_para14a` (unknown signal/estimate); `test_gate_stale_snapshot_rejects_increases`, `test_unknown_para14a_freezes_flagged_devices`; scenario window with an unavailable §14a signal |
+| G6 cool-down after island and §14a | pass | `core.grid.GridMemory`; `test_no_increase_without_a_full_cooldown_after_island`, `test_gate_para14a_end_starts_the_cooldown`; scenarios: no rise within 120 s of each end |
+| Reserve never undercut by SunCore | pass | unchanged B1/B6; island releases SunCore's battery limits (the inverter's own floor applies) |
+| Min run/pause, switches per hour | pass (with the G2 waiver) | `test_switching_stays_within_the_limits_and_nothing_is_rejected` for all four scenarios |
+| No oscillation | pass | `test_para14a_cap_does_not_flap_on_noise`; `para14a_dimming` cloud flicker: <= 1 charger switch in the window |
+| Rate limit, write on change, read-back | pass | unchanged gate path; no new `apply()` caller (`tests/safety/test_boundary.py`) |
+| Stale/missing inputs -> safe state | pass | G5; `resolve_grid_inputs` failure falls back to the fuse limit; unknown backup = connected with warning |
+| Shadow / assisted / automatic | pass | shadow evaluates G3-G6 ("would dim": `test_gate_shadow_logs_would_dim`, `test_para14a_shadow_says_would_dim`); defaults unchanged |
+| Emergency "back to normal" from any state | pass | `ReleaseAction` is never judged by G1-G6, also in island |
+| Only `safety/` calls `apply()` | pass | boundary test green; `controller/grid.py`, `app/grid.py` write nothing |
+
+#### Offene Fragen an den Maintainer (6-F)
+
+1. **Lastabwurf über der Anschlussgrenze:** Über der Sicherungs-/Anschlussgrenze schaltet
+   SunCore nicht-thermische Geräte auch vor Ablauf der Mindestlaufzeit und trotz Schaltlimit ab
+   (Wärmepumpen/Klimageräte nie). **Empfehlung:** so lassen. Einverstanden?
+2. **§14a ohne Signal-Entity:** zählt als „nicht aktiv“ mit Hinweis. **Empfehlung:** so lassen
+   (du hast keine Steuerbox).
+3. **§14a-Zahlensignal:** 0 W = nicht gedimmt (eine Dimmung unter 4,2 kW ist rechtlich nicht
+   vorgesehen). Kennst du eine Steuerbox, die das anders meldet?
+4. **Notstrom-Entity:** Welche Entity und welcher Zustand zeigen beim Kostal BackUp Switch G3
+   den Inselbetrieb (Frage 10 aus §6)?
