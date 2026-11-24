@@ -32,8 +32,9 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     mode-raise refusals (6-D) now raise a persistent notification.
   - Not in this PR: grid events (island, section 14a) are consumed from `Observation` once 6-F
     delivers them; program and EV events come with 6-L and 6-I (`NotificationService.post`);
-    settings UI is 6-M. Review conditions of #57 (safety bypasses the daily cap, `gate.confirm`
-    re-checks the current mode, lost subscription drops buttons) are in. Deviations, safety self-review and questions: plan section 8 (6-E).
+    settings UI is 6-M. Review conditions of #57 (safety bypasses the daily cap,
+    `gate.confirm` re-checks the current mode, a lost subscription drops buttons) are in.
+    Deviations, safety self-review and questions: plan section 8 (6-E).
 - **Phase 6 - PR 6-D, WP4 MQTT commands (branch `phase-6/d-mqtt-commands`, on 6-C;
   `ha-integration`, `control-safety` review pending)** - Home Assistant can now command SunCore,
   only through the services layer:
