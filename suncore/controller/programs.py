@@ -102,6 +102,9 @@ INTENT_PREFIX: Final = "program:"
 REASON_NOT_UNDER_CONTROL_KEY: Final = "safety.not_under_control"
 """The gate's answer to a release of a device it does not control (``safety.gate``; the
 controller depends on ``core`` only, so the key is repeated here)."""
+REASON_EMERGENCY_STOP_KEY: Final = "safety.emergency_stop"
+RELEASE_SETTLED_KEYS: Final = frozenset({REASON_NOT_UNDER_CONTROL_KEY, REASON_EMERGENCY_STOP_KEY})
+"""Rejections that settle a release (the gate released the device already)."""
 IN_FLIGHT_TIMEOUT_S: Final = 300.0
 """An intent without a decision after this long (a transport error) no longer blocks."""
 
@@ -496,11 +499,15 @@ class ProgramController:
 
 def _release_done(decision: Decision) -> bool:
     """H1: a release is settled once the gate restored (or staged) the baseline, or the device
-    is not under SunCore's control any more; a failure or another rejection is retried."""
-    if decision.kind in (DecisionKind.ACCEPTED, DecisionKind.HELD):
+    is not under SunCore's control any more; a failure or another rejection is retried.
+
+    N1: ``shadow`` and an active emergency stop settle it too - the gate already released
+    every device when it entered them (mode change, emergency stop), so a retry would only add
+    a decision-log entry every :data:`RETRY_S`."""
+    if decision.kind in (DecisionKind.ACCEPTED, DecisionKind.HELD, DecisionKind.SHADOW):
         return True
     return decision.kind is DecisionKind.REJECTED and any(
-        r.key == REASON_NOT_UNDER_CONTROL_KEY for r in decision.reasons
+        r.key in RELEASE_SETTLED_KEYS for r in decision.reasons
     )
 
 

@@ -391,6 +391,27 @@ def test_h1_a_held_or_not_under_control_release_is_settled() -> None:
             assert releases(rig.step(RETRY_S)) == []
 
 
+def releases_per_hour(kind: DecisionKind, *reasons: str) -> int:
+    """Release submissions in one hour while the gate answers every release the same way."""
+    rig = Rig(jobs=[job()])
+    run_to_done(rig)
+    sent = 0
+    for _ in range(120):  # one hour at the 30 s tick
+        for release in releases(rig.step(30)):
+            sent += 1
+            rig.answer(release, kind, *reasons)
+    return sent
+
+
+def test_n1_shadow_or_an_emergency_stop_settles_the_release_at_once() -> None:
+    # the gate released every device when it entered shadow or the emergency stop
+    assert releases_per_hour(DecisionKind.SHADOW, "safety.shadow_mode") == 1
+    assert releases_per_hour(DecisionKind.REJECTED, "safety.emergency_stop") == 1
+    # a real failure is still retried, bounded by RETRY_S
+    failed = releases_per_hour(DecisionKind.FAILED)
+    assert 2 <= failed <= 3600 / RETRY_S + 1
+
+
 def test_m1_a_submit_error_does_not_block_the_release() -> None:
     rig = Rig(jobs=[job()])
     run_to_done(rig)

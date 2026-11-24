@@ -1233,6 +1233,11 @@ Approved with conditions; all done in the follow-up commit:
 - **L4 (done):** a missed job whose appliance power was unknown at some tick is announced as
   `notify.program.unknown` ("Status unbekannt") instead of `missed`
   (`test_l4_a_missed_job_with_a_power_gap_has_an_unknown_outcome`).
+- **N1 (re-check of 693903b, done):** a release answered with `shadow` or rejected with
+  `safety.emergency_stop` is settled too (the gate released every device when it entered
+  shadow or the emergency stop); before, it was retried every 60 s, about 60 decision-log
+  entries per hour (`test_n1_shadow_or_an_emergency_stop_settles_the_release_at_once`: one
+  submission per hour in both cases, a real failure still retried).
 - **CI (done):** `e2e/wizard.spec.ts` searches the gallery for "switch or smart plug" (the
   new `generic.program_plug` also matched "plug").
 
