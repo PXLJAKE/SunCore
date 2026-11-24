@@ -26,6 +26,8 @@ class I18n {
   locale = $state<Locale>(initialLocale());
   /** Home Assistant's time zone (region section); `undefined` = the browser's. */
   timeZone = $state<string | undefined>(undefined);
+  /** Bumped when a lazy catalogue arrives, so `t()` callers render again. */
+  loaded = $state(0);
 
   setLocale(locale: Locale): void {
     this.locale = locale;
@@ -52,6 +54,7 @@ export function applyLanguage(pref: 'auto' | 'en' | 'de'): void {
 
 /** Typed lookup: unknown keys fail `svelte-check`. */
 export function t(key: MessageKey, args?: MessageArgs): string {
+  void i18n.loaded;
   return translator.render(i18n.locale, key, args);
 }
 
@@ -64,13 +67,38 @@ export function tDynamic(
   args: MessageArgs | undefined,
   fallback: MessageKey = 'reason.unknown',
 ): string {
+  void i18n.loaded;
   if (!translator.has(key)) return translator.render(i18n.locale, fallback, { key });
   return translator.render(i18n.locale, key, args);
 }
 
 /** Whether the catalogue has `key` (backend ids such as template names may not be translated). */
 export function hasMessage(key: string): boolean {
+  void i18n.loaded;
   return translator.has(key);
+}
+
+let paramsLoad: Promise<void> | null = null;
+
+/**
+ * The `param.*` catalogue (names, help texts, group titles of the parameter registry) is large
+ * and only the expert area needs it: it is a separate chunk, loaded on first use.
+ */
+export function loadParamCatalogue(): Promise<void> {
+  paramsLoad ??= Promise.all([
+    import('./locales/params.en.json'),
+    import('./locales/params.de.json'),
+  ])
+    .then(([en, de]) => {
+      translator.extend('en', en.default);
+      translator.extend('de', de.default);
+      i18n.loaded += 1;
+    })
+    .catch((e: unknown) => {
+      paramsLoad = null; // allow a retry
+      throw e;
+    });
+  return paramsLoad;
 }
 
 export function tPower(watts: number): string {

@@ -64,7 +64,8 @@ def test_the_default_is_inside_its_range(parameter: ParamSpec) -> None:
 
 @pytest.mark.parametrize("lang", ["en", "de"])
 def test_every_spec_has_a_name_and_a_help_text_in_both_catalogues(lang: str) -> None:
-    catalogue: dict[str, str] = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+    path = LOCALES / f"params.{lang}.json"
+    catalogue: dict[str, str] = json.loads(path.read_text(encoding="utf-8"))
     for s in REGISTRY.values():
         assert catalogue.get(s.name_key, "").strip(), s.name_key
         assert catalogue.get(s.help_key, "").strip(), s.help_key

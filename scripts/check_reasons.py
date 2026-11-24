@@ -103,6 +103,10 @@ def missing_keys(keys: dict[str, list[str]], locales: Path = LOCALES) -> dict[st
     gaps: dict[str, list[str]] = {}
     for catalogue in ("en", "de"):
         data = json.loads((locales / f"{catalogue}.json").read_text(encoding="utf-8"))
+        # The parameter help is a separate, lazily loaded catalogue (``params.<locale>.json``).
+        extra = locales / f"params.{catalogue}.json"
+        if extra.exists():
+            data |= json.loads(extra.read_text(encoding="utf-8"))
         absent = sorted(k for k in keys if k not in data)
         if absent:
             gaps[catalogue] = absent

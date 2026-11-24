@@ -4,6 +4,8 @@ import { createTranslator, resolveLocale } from './core';
 import { formatPower } from './format';
 import de from './locales/de.json';
 import en from './locales/en.json';
+import paramsDe from './locales/params.de.json';
+import paramsEn from './locales/params.en.json';
 
 const tr = createTranslator({ en, de });
 
@@ -27,6 +29,20 @@ describe('catalogues', () => {
   it('have identical key sets', () => {
     expect(Object.keys(de).sort()).toEqual(Object.keys(en).sort());
   });
+  it('keep the lazy parameter catalogue in sync and out of the main one', () => {
+    expect(Object.keys(paramsDe).sort()).toEqual(Object.keys(paramsEn).sort());
+    expect(Object.keys(paramsEn).every((k) => k.startsWith('param.'))).toBe(true);
+    expect(Object.keys(en).some((k) => k.startsWith('param.'))).toBe(false);
+  });
+
+  it('extends a translator with a lazy catalogue without overriding keys', () => {
+    const tr = createTranslator({ en: { a: 'A' }, de: {} });
+    expect(tr.has('b')).toBe(false);
+    tr.extend('en', { a: 'other', b: 'B' });
+    expect(tr.render('en', 'a')).toBe('A');
+    expect(tr.render('en', 'b')).toBe('B');
+  });
+
   it('contain the backend reason and error keys', () => {
     for (const key of [
       'safety.shadow_mode',

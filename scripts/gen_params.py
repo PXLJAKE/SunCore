@@ -160,6 +160,8 @@ def _wrap(text: str) -> str:
 def render(lang: str, locales: Path = LOCALES) -> str:
     """The Markdown of the reference in ``lang`` (``en`` or ``de``)."""
     catalogue: dict[str, str] = json.loads((locales / f"{lang}.json").read_text(encoding="utf-8"))
+    # The parameter help lives in its own lazily loaded catalogue.
+    catalogue |= json.loads((locales / f"params.{lang}.json").read_text(encoding="utf-8"))
     words = TEXT[lang]
     head = "| " + " | ".join(words["cols"]) + " |\n|" + "---|" * len(words["cols"])
     lines = [_wrap(words["header"])]
