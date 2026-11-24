@@ -488,3 +488,15 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   it arrived). First paint fell from 124.7 to 98.8 kB. `Translator.set()` adds a catalogue; lazy
   extras such as `params.<lang>.json` (5-E) compose through the same `set`/`extend` idea and keep
   their own chunks (`vite.config.ts` only names the `en`/`de` main files).
+- **5-K (what-if UI).** (1) Navigation: the header link appears only with expert mode on (BRIEF
+  §4.12); `#/whatif` itself stays reachable and explains why it is empty. (2) Only numeric `whatif`
+  parameters are offered (`planner.budget_s`, `planner.mip_gap` today); bool/enum ones would need
+  the fields of `ParamField`. (3) Battery and tariff what-ifs are the typed fields of 5-J; HT/NT
+  and price-formula tariffs are still not offered (no request field). (4) Grid charging offers
+  "never" or "up to a price"; a schedule is not editable. (5) The server date comes from
+  `history/summary?period=day` (the browser clock may differ, the demo's is simulated). (6) No
+  "run again with these settings" button (dropped for the bundle budget). (7) Hourly charts show
+  SoC and grid power; battery power is only in the table (energy). (8) **Budget:** the total
+  without ECharts is 251.7 kB against 250 kB; trimming strings, merging chart helpers and
+  re-using `NumberField` and existing keys was not enough. Options: raise the budget by 2 kB, or
+  drop CSV export and the grid chart (about 0.8 kB) and more. Not decided here.

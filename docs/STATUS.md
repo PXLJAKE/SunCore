@@ -10,6 +10,36 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 – PR 5-K, WP11 what-if UI (branch `phase-5/k-whatif`, on 5-J + 5-I + 5-H;
+  `frontend-engineer`)**:
+  - `#/whatif` (lazy chunk `WhatIf`), reachable from the header only while expert mode is on; with
+    expert mode off a deep link shows a hint, not the form. `api/backtests.ts` (list, get, start,
+    DELETE = cancel or delete), `stores/whatif.svelte.ts` (runs, selection, 1 s polling only while
+    a run is active, server date from `history/summary`), pure logic in `whatif/model.ts` (request
+    building and checks, change list, comparison rows, CSV), chart options in
+    `whatif/chartOptions.ts` (types only from ECharts; registered in the existing `echarts` chunk,
+    194.3 of 200 kB, unchanged).
+  - Form: period (default last 14 days up to yesterday, max 30, server date), planner parameters
+    from `GET /params` filtered to tag `whatif` and numeric type (names and help from the lazy
+    param catalogue), battery overlay (strategy, capacity, charge/discharge power, reserve,
+    autarky weight, grid charging off/on with a price), flat tariff, perfect foresight. Only
+    edited parameters are sent. Progress bar and cancel, a live-region announcement, 409/422/503
+    keys through `tDynamic`.
+  - Result: verdict (cheaper/dearer/same), "what is not modelled" from `result.limitations`,
+    list of changes with `params` vs `params_requested` (budget capped), comparison table
+    (actual, what-if, perfect foresight), reference costs (no PV, PV only), charts (net cost per
+    day, SoC, grid power) with PNG download, daily table, skipped days with their reason keys,
+    CSV of the daily table, run list (last five) with show, delete and cancel.
+  - i18n: 5-H lazy main catalogue and 5-E lazy param catalogue compose (`Translator.extend` keeps a
+    side catalogue next to the lazy `set`; main keys win). Vitest: model, chart options, store
+    (polling, start, cancel, delete, 503), router; Playwright `e2e/whatif.spec.ts` on desktop,
+    phone and tablet incl. axe and German; screenshots `whatif-*`.
+  - Numbers: first paint 104.9 kB (budget 125), ECharts chunk 194.3 kB (200), total without
+    ECharts **251.7 kB, 1.7 kB over the 250 kB budget** (the what-if view is 12.6 kB JS + 0.7 kB
+    CSS, about 85 catalogue keys). `npm run size` fails until the budget is raised by 2 kB or the
+    CSV export and grid chart are dropped; see plan §8 (5-K) and the question in the PR.
+  - Deviations: see plan §8 (5-K).
+
 - **Phase 5 – PR 5-J, WP6 backtest engine and job API (branch `phase-5/j-backtest`, on 5-D + 5-E;
   `optimizer-engineer`)**:
   - `suncore/sim/backtest.py`: per local day and hour, `PlannerInputs` from what was known then
@@ -137,7 +167,6 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     coverage gate.
   - Tests `tests/analysis/` (hypothesis: flow balance, KPI bounds, savings identity, PV-only ≤ no-PV
     baseline for non-negative prices, energy-preserving bucketing across DST in four zones).
-
 
 - **Phase 5 – PR 5-I, WP10 expert mode UI (branch `phase-5/i-expert-ui`, base `phase-5/e-params`;
   `frontend-engineer`)**: header switch `Expert mode` (`role=switch`, per browser in localStorage,
