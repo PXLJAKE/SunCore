@@ -44,6 +44,11 @@ class _Frozen(BaseModel):
 
 
 BATTERY_ASSET_ID: Final = "battery"
+SOC_LOCK_TOLERANCE_PCT: Final = 0.5
+"""A ``min_soc`` discharge lock at most this far below the live SoC still holds the energy
+(E6, PR 6-I). The safety check, the controller's lock test and the battery controller's
+rewrite of the lock floor all use it (review 6-I M1)."""
+LOCK_POWER_TOLERANCE_W: Final = 1.0
 """The asset id of the (one) battery in intents, decisions and the gate (ADR-0013 decision 6)."""
 
 
@@ -445,6 +450,21 @@ class BatterySettings(_Frozen):
         return list(self.entities.values())
 
 
+def discharge_lock_held(held: BatteryAction | None, soc_pct: float | None) -> bool:
+    """SunCore holds a battery state that stops discharging (E6): ``max_discharge_w`` 0, or a
+    ``min_soc`` at most :data:`SOC_LOCK_TOLERANCE_PCT` below the live SoC. An unknown SoC never
+    proves a ``min_soc`` lock."""
+    if held is None:
+        return False
+    if held.max_discharge_w is not None and held.max_discharge_w <= LOCK_POWER_TOLERANCE_W:
+        return True
+    return (
+        held.min_soc_pct is not None
+        and soc_pct is not None
+        and held.min_soc_pct >= soc_pct - SOC_LOCK_TOLERANCE_PCT
+    )
+
+
 __all__ = [
     "BATTERY_ACTION_FIELDS",
     "BATTERY_ASSET_ID",
@@ -456,6 +476,8 @@ __all__ = [
     "DEFAULT_GRID_CHARGE_MARGIN_PER_KWH",
     "DEFAULT_RESERVE_PCT",
     "FIELD_CAPABILITY",
+    "LOCK_POWER_TOLERANCE_W",
+    "SOC_LOCK_TOLERANCE_PCT",
     "BatteryAction",
     "BatteryCapability",
     "BatteryModel",
@@ -469,6 +491,7 @@ __all__ = [
     "ModbusLink",
     "RiskLevel",
     "action_fields",
+    "discharge_lock_held",
     "effective_reserve_pct",
     "resolve_battery_action",
     "round_up_to_step",

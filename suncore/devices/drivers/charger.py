@@ -193,8 +193,13 @@ class ChargerDriver(EntityDriver):
         return self.last_context_id()
 
     async def _write_charge(self, action: ChargeAction, *, limit: bool) -> None:
-        if self.lookup(self._current) is None:
+        view = self.lookup(self._current)
+        if view is None:
             raise WriteRefusedError(f"{self._current} is unavailable")
+        unit = view.attributes.get("unit_of_measurement")
+        if unit is not None and unit != "A":
+            # review 6-I H2: a current entity in mA, kW or % would be written with amperes
+            raise WriteRefusedError(f"{self._current} is in {unit!r}, not in A")
         if action.phases is not None and self._phases is not None:
             await self._set_phases(action.phases)
         if action.effective_current_a <= 0:

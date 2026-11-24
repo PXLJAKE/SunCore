@@ -23,6 +23,7 @@ from suncore.core.battery import (
     BatteryModel,
     BatteryRanges,
     FieldRange,
+    discharge_lock_held,
 )
 from suncore.core.config import GoalsConfig
 from suncore.core.control import BatteryBand, Plan, PlanInterval
@@ -116,14 +117,41 @@ def test_discharge_lock_by_discharge_cap_or_by_min_soc() -> None:
     assert keys(p) == ["controller.battery.discharge_lock_unsupported"]
 
 
-def test_a_min_soc_lock_moves_only_a_full_step_after_the_soc() -> None:
+def test_a_min_soc_lock_moves_once_the_soc_leaves_the_lock_tolerance() -> None:
+    # review 6-I M1: the floor is kept exactly while the gate still counts it as a lock
     p = BatteryIntents(BatteryControlSettings(interval_s=0))
     rest = {"capabilities": REST_CAPS, "ranges": REST_RANGES}
     held = BatteryAction(min_soc_pct=45)
-    for soc in (42.0, 44.0, 45.0, 47.0, 49.9):
+    for soc in (42.0, 44.0, 45.0, 45.4):
         assert p.wanted(T0, plan(discharge_lock=True), inputs(held=held, **rest), soc)[0] == held
-    moved = p.wanted(T0, plan(discharge_lock=True), inputs(held=held, **rest), 50.2)[0]
-    assert moved == BatteryAction(min_soc_pct=55)
+    moved = p.wanted(T0, plan(discharge_lock=True), inputs(held=held, **rest), 45.6)[0]
+    assert moved == BatteryAction(min_soc_pct=50)
+    for soc in (47.0, 49.9, 50.4):
+        again = p.wanted(T0, plan(discharge_lock=True), inputs(held=moved, **rest), soc)[0]
+        assert again == moved
+    up = p.wanted(T0, plan(discharge_lock=True), inputs(held=moved, **rest), 50.6)[0]
+    assert up == BatteryAction(min_soc_pct=55)
+
+
+@settings(max_examples=300, deadline=None)
+@given(
+    held=st.one_of(st.none(), st.sampled_from(range(5, 101, 5))),
+    soc=st.floats(min_value=15.0, max_value=99.0, allow_nan=False),
+)
+def test_m1_the_written_lock_floor_is_always_a_lock_for_the_gate(
+    held: int | None, soc: float
+) -> None:
+    """No flapping window (review 6-I M1): whatever floor the controller keeps or writes for a
+    SoC in [reserve, range high) is a held lock by the gate's own test, so the EV side never
+    sees the lock vanish while the battery controller considers it held."""
+    p = BatteryIntents(BatteryControlSettings(interval_s=0))
+    rest = {"capabilities": REST_CAPS, "ranges": REST_RANGES}
+    current = None if held is None else BatteryAction(min_soc_pct=held)
+    wanted = p.wanted(T0, plan(discharge_lock=True), inputs(held=current, **rest), soc)[0]
+    assert isinstance(wanted, BatteryAction)
+    assert discharge_lock_held(wanted, soc)
+    if held is not None and held >= 15.0 and discharge_lock_held(current, soc):
+        assert wanted == current  # a lock that still holds is not rewritten
 
 
 def test_nothing_planned_releases_only_what_the_gate_holds() -> None:

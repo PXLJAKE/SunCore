@@ -12,6 +12,7 @@ discharges into the car and the phase is never changed while charging.
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
@@ -20,7 +21,7 @@ import pytest
 
 from suncore.controller.ev import PHASE_INTENT_PREFIX
 from suncore.core.control import ControlSettings, Plan
-from suncore.core.decisions import ChargeAction, Decision, DecisionKind
+from suncore.core.decisions import ChargeAction, Decision, DecisionKind, OperatingMode
 from suncore.planner.flex import EvLive, FlexRequest
 from suncore.sim.devices import SimWallbox
 from suncore.sim.runner import RunResult, ScenarioRunner
@@ -165,7 +166,9 @@ def test_para14a_dims_the_now_floor_and_cooldown_holds() -> None:
 PLAN_EVERY_STEPS = 30  # 15 minutes at 30 s per step
 
 
-async def arrives_late_run() -> tuple[RunResult, ScenarioRunner, list[Plan]]:
+async def arrives_late_run(
+    lose_lock_at_s: float | None = None,
+) -> tuple[RunResult, ScenarioRunner, list[Plan]]:
     from suncore.app.planning import (  # noqa: PLC0415
         LiveReading,
         PlanningService,
@@ -206,6 +209,13 @@ async def arrives_late_run() -> tuple[RunResult, ScenarioRunner, list[Plan]]:
     planning = PlanningService(collect, live, clock=runner.vt.clock, settings=PlanningSettings())
     planning.add_listener(lambda: plans.append(planning.plan))  # type: ignore[arg-type]
     runner.plan_provider = planning.active_plan
+    if lose_lock_at_s is not None:
+
+        async def lose_lock(r: ScenarioRunner) -> None:
+            # the battery goes to shadow: the gate releases it, the discharge lock is gone
+            r.modes.set_battery(OperatingMode.SHADOW)
+
+        runner.at(lose_lock_at_s, lose_lock)
     await runner.start()
     for index in range(scenario.steps):
         if index % PLAN_EVERY_STEPS == 0:
@@ -219,6 +229,38 @@ async def arrives_late_run() -> tuple[RunResult, ScenarioRunner, list[Plan]]:
 @pytest.fixture(scope="module")
 def late() -> tuple[RunResult, ScenarioRunner, list[Plan]]:
     return asyncio.run(arrives_late_run())
+
+
+LOSE_LOCK_AT_S = 12_600.0  # 02:00, the car charges from the grid on the plan's floor
+
+
+@pytest.fixture(scope="module")
+def late_lock_lost() -> tuple[RunResult, ScenarioRunner, list[Plan]]:
+    return asyncio.run(arrives_late_run(LOSE_LOCK_AT_S))
+
+
+def test_a_lock_lost_while_charging_sheds_the_car_within_a_tick_and_settle(
+    late_lock_lost: tuple[RunResult, ScenarioRunner, list[Plan]],
+) -> None:
+    """Review 6-I A2: the battery leaves automatic mid-charge (its lock is released); the car
+    is paused within one tick plus the settle time, min run waived, and never charges from
+    the house battery afterwards."""
+    result, _, _ = late_lock_lost
+    assert result.of_kind(DecisionKind.FAILED) == []
+    power = result.devices["wallbox"].power_w
+    lost = at(result, LOSE_LOCK_AT_S)
+    assert any(w > 0 for w in power[lost - 10 : lost])  # it was charging when the lock went
+    grace = math.ceil((30 + 2 * result.step_s) / result.step_s)  # settle + tick (+ read-back)
+    for i in range(lost + grace, len(power)):
+        if power[i] > 0:
+            assert result.steps[i].battery_w >= -50, (result.steps[i].t, result.steps[i].battery_w)
+    assert all(w == 0 for w in power[lost + grace :])  # no lock, no surplus at night: paused
+    sheds = [
+        d
+        for d in result.accepted("wallbox")
+        if any(r.key == "controller.ev.battery_wait" for r in d.intent.reasons)
+    ]
+    assert sheds
 
 
 def _grid_hours(plans: Sequence[Plan]) -> set[int]:

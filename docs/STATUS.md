@@ -36,6 +36,10 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     and scenarios `ev_pv_only_flicker`, `ev_min_pv`, `ev_phase_switching`, `ev_arrives_late`
     (real planner, battery lock), `ev_para14a`.
   - Deviations, safety self-review and questions: plan section 8 (6-I).
+  - Review conditions of PR #59 done (A1, A2, M1-M3, H1-H3): staged charger release (pause
+    first, phases/§14a later), immediate shed of a battery-fed car when the lock is lost,
+    one lock tolerance in `core.battery`, gate-observed idle time for E2, unit check on the
+    current entity; e2e gallery count updated for `generic.wallbox`.
 
 - **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
   `control-safety`)** - shadow stays the default, every write still passes the gate:

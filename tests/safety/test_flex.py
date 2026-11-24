@@ -104,7 +104,6 @@ def test_e1_rejects_below_the_minimum_and_a_pause_without_a_way_to_pause() -> No
     mode=modes,
     switching=st.booleans(),
     paused_s=st.one_of(st.none(), st.integers(min_value=0, max_value=600)),
-    never_charged=st.booleans(),
     count=st.integers(min_value=0, max_value=6),
 )
 def test_e2_a_phase_change_is_accepted_only_paused_rarely_and_never_in_now(  # noqa: PLR0917
@@ -116,7 +115,6 @@ def test_e2_a_phase_change_is_accepted_only_paused_rarely_and_never_in_now(  # n
     mode: EvMode,
     switching: bool,
     paused_s: int | None,
-    never_charged: bool,
     count: int,
 ) -> None:
     control = charger(switching=switching)
@@ -133,7 +131,6 @@ def test_e2_a_phase_change_is_accepted_only_paused_rarely_and_never_in_now(  # n
         EvSafety(mode=mode, observed=observed),
         now=T0,
         paused_since=paused_since,
-        never_charged=never_charged,
         last_phase_switch=None,
         phase_switches_last_hour=count,
     )
@@ -145,7 +142,8 @@ def test_e2_a_phase_change_is_accepted_only_paused_rarely_and_never_in_now(  # n
     assert mode is not EvMode.NOW
     assert current == 0
     assert observed.effective_current_a == 0  # paused, not charging
-    assert never_charged or (paused_s is not None and paused_s >= control.phase_switch_pause_s)
+    assert paused_s is not None
+    assert paused_s >= control.phase_switch_pause_s
     assert count < control.max_phase_switches_per_hour
 
 

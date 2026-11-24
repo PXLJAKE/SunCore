@@ -234,7 +234,13 @@ class Controller:
         held = None if inputs.battery is None else inputs.battery.held
         allocation = AllocationInputs(
             ev_modes=inputs.ev_modes,
-            battery_locked=not inputs.battery_present or battery_holds_lock(held, soc),
+            # E6 as the gate judges it (review 6-I H1): a lock being released is no lock.
+            battery_locked=not inputs.battery_present
+            or (
+                inputs.battery is not None
+                and not inputs.battery.release_pending
+                and battery_holds_lock(held, soc)
+            ),
             states=inputs.states,
             estimates=inputs.estimates,
             blocked=inputs.blocked,

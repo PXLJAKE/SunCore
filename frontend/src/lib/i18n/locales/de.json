@@ -1088,6 +1088,7 @@
   "safety.ev_phases_unknown": "Die aktiven Phasen der Wallbox sind unbekannt: keine Phasenumschaltung.",
   "safety.ev_phases_now": "Im Modus „Sofort“ wird nicht umgeschaltet (es lädt mit voller Leistung weiter).",
   "safety.ev_phases_charging": "Die Phasen werden nur bei pausiertem Laden umgeschaltet.",
+  "safety.ev_release_staged": "Die Wallbox pausiert zuerst; ihre vorherigen Phasen und ihr Strom kehren zurück, sobald die Phasenpause vorbei und die §14a-Dimmung beendet ist.",
   "safety.ev_battery_unlocked": "Laden aus dem Netz braucht zuerst eine gesperrte Hausbatterie (sie darf nicht ins Auto entladen); nichts geschrieben.",
   "safety.ev_current_range": "Ladestrom {current_a} A liegt außerhalb des Bereichs der Wallbox ({min_a}–{max_a} A).",
   "safety.ev_phase_pause": "Noch {remaining_s} s Pause um die Phasenumschaltung, bevor das Laden weitergeht.",

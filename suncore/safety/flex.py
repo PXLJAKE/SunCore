@@ -41,16 +41,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Final, Literal
 
+from suncore.core.balance import FlowSnapshot
+from suncore.core.battery import discharge_lock_held
 from suncore.core.control import DeviceBand
 from suncore.core.decisions import BatteryAction, ChargeAction, Reason
 from suncore.core.devices import ChargerControl
-from suncore.core.flex import EvMode
+from suncore.core.flex import EV_BATTERY_DISCHARGE_W, EvMode
+from suncore.core.signals import Quality
 
 CURRENT_TOLERANCE_A: Final = 0.05
 """Two currents closer than this are the same (entity values are floats)."""
 POWER_TOLERANCE_W: Final = 1.0
-SOC_LOCK_TOLERANCE_PCT: Final = 0.5
-"""A ``min_soc`` lock at most this far below the live SoC still holds the energy."""
 
 REASON_EV_MODE_OFF: Final = Reason(key="safety.ev_mode_off")
 REASON_EV_NOT_CONNECTED: Final = Reason(key="safety.ev_not_connected")
@@ -83,6 +84,9 @@ class EvSafety:
     entity_min_a: float | None = None
     entity_max_a: float | None = None
     """The current entity's live ``min``/``max`` attributes (``None`` = not published)."""
+    idle_since: datetime | None = None
+    """Since when the gate itself has observed the charger not charging (review 6-I M2):
+    the pause E2 requires before a phase change is counted from here."""
 
 
 NO_EV_SAFETY: Final = EvSafety()
@@ -134,18 +138,8 @@ def ev_allowance_w(
 
 
 def holds_discharge_lock(held: BatteryAction | None, soc_pct: float | None) -> bool:
-    """SunCore holds a battery state that stops discharging (E6): ``max_discharge_w`` 0, or a
-    ``min_soc`` at (or just below) the live SoC. An unknown SoC never proves a ``min_soc`` lock.
-    """
-    if held is None:
-        return False
-    if held.max_discharge_w is not None and held.max_discharge_w <= POWER_TOLERANCE_W:
-        return True
-    return (
-        held.min_soc_pct is not None
-        and soc_pct is not None
-        and held.min_soc_pct >= soc_pct - SOC_LOCK_TOLERANCE_PCT
-    )
+    """E6: SunCore holds a battery state that stops discharging (``core.battery``)."""
+    return discharge_lock_held(held, soc_pct)
 
 
 def ev_lock_wanted(allowances_w: list[float]) -> bool:
@@ -191,6 +185,23 @@ def check_current_range(
     )
 
 
+def ev_unlocked_shed_waiver(
+    control: object, ev: EvSafety, switches_off: bool, flows: FlowSnapshot | None
+) -> bool:
+    """E6 (review 6-I A2): pausing a charger while the battery discharges without a lock skips
+    min run and the switch limit, like a fuse shed (G2): the car would otherwise be fed from
+    the battery for the rest of the minimum run time. Needs an ``OK`` battery reading."""
+    if not switches_off or not isinstance(control, ChargerControl) or ev.battery_locked:
+        return False
+    flow = None if flows is None else flows.battery_w
+    return (
+        flow is not None
+        and flow.quality is Quality.OK
+        and flow.value is not None
+        and flow.value < -EV_BATTERY_DISCHARGE_W
+    )
+
+
 def check_phases(  # noqa: PLR0911 - one return per rule
     action: ChargeAction,
     control: ChargerControl,
@@ -200,16 +211,12 @@ def check_phases(  # noqa: PLR0911 - one return per rule
     paused_since: datetime | None,
     last_phase_switch: datetime | None,
     phase_switches_last_hour: int,
-    never_charged: bool = False,
 ) -> Reason | None:
     """E2: a phase change only paused, rarely, never in ``now``; resume after the pause.
 
-    ``paused_since`` is when SunCore paused the charger (``runtime.last_off_ts``; a pause it did
-    not see does not count), ``last_phase_switch`` its latest phase change. ``never_charged``:
-    SunCore has never started or stopped charging on this charger (no ``last_on_ts`` and no
-    ``last_off_ts``) - then there is no SunCore pause to wait for, and the observed
-    "not charging" (checked here) is the condition; the controller still waits the pause from
-    when it first saw the charger idle (``controller.ev``).
+    ``paused_since`` is since when the **gate** has observed the charger not charging
+    (``EvSafety.idle_since``, kept by the gate from every observation; unknown = the pause has
+    not started), ``last_phase_switch`` its latest phase change (review 6-I M2).
     """
     pause = control.phase_switch_pause_s
     observed = ev.observed
@@ -227,7 +234,7 @@ def check_phases(  # noqa: PLR0911 - one return per rule
         ):
             return REASON_EV_PHASES_CHARGING
         waited = math.inf if paused_since is None else (now - paused_since).total_seconds()
-        if (paused_since is None and not never_charged) or waited < pause:
+        if paused_since is None or waited < pause:
             remaining = pause if paused_since is None else math.ceil(pause - waited)
             return Reason(key="safety.ev_phase_pause", args={"remaining_s": int(remaining)})
         if phase_switches_last_hour >= control.max_phase_switches_per_hour:

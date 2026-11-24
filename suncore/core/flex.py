@@ -50,6 +50,9 @@ class EvMode(StrEnum):
 
 
 EV_MODE_DEFAULT: Final = EvMode.PV
+EV_BATTERY_DISCHARGE_W: Final = 50.0
+"""A home battery discharging more than this while no discharge lock is held feeds the car
+(E6): a charger is then shed without waiting for its minimum run time (review 6-I A2)."""
 
 EvccMode = Literal["off", "smart", "now"]
 

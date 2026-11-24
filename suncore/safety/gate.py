@@ -102,6 +102,7 @@ from suncore.core.devices import (
 from suncore.core.flex import EV_MODE_DEFAULT, EvMode
 from suncore.core.grid import (
     GridMemory,
+    Para14aStatus,
     advance_grid_memory,
     island_hold_s,
     merge_grid_memory,
@@ -130,6 +131,7 @@ from suncore.safety.battery import (
     user_changed_fields,
 )
 from suncore.safety.flex import (
+    CURRENT_TOLERANCE_A,
     EvSafety,
     active_phases,
     ev_allowance_w,
@@ -232,6 +234,11 @@ REASON_CHARGE_NOT_CHARGER: Final = Reason(key="safety.charge_not_charger")
 """A ``charge`` action for a device that is not an EV charger (PR 6-I)."""
 REASON_CHARGER_NEEDS_CHARGE: Final = Reason(key="safety.charger_needs_charge")
 """Any action but ``charge`` and a release for an EV charger (PR 6-I)."""
+REASON_EV_RELEASE_STAGED: Final = Reason(key="safety.ev_release_staged")
+"""A charger's release is staged (review 6-I A1/M3): paused now, the baseline (phases, a
+higher current) restored once the phase pause has passed and §14a allows it."""
+EV_RELEASE_RECHECK_S: Final = 60.0
+"""A release staged for §14a is re-checked this often."""
 REASON_SG_READY_NOT_SUPPORTED: Final = Reason(key="safety.sg_ready_not_supported")
 """Any action but a release for an SG-Ready heat pump (until PR 6-K, ADR-0017 decision 8)."""
 REASON_PROGRAM_NOT_SUPPORTED: Final = Reason(key="safety.program_not_supported")
@@ -341,6 +348,10 @@ class SafetyGate:
         # Island and §14a history for the cool-down (G6); kept across a configuration change.
         self._grid_memory: GridMemory = (
             predecessor._grid_memory if predecessor is not None else GridMemory()
+        )
+        # Since when each charger has been observed not charging (E2, review 6-I M2).
+        self._ev_idle_since: dict[str, datetime] = (
+            dict(predecessor._ev_idle_since) if predecessor is not None else {}
         )
 
     # --- read-only views ----------------------------------------------------------
@@ -519,6 +530,7 @@ class SafetyGate:
         or end the battery's lease (its heartbeat) and check a battery release (WP10)."""
         now = self._now()
         self._observe_grid()
+        self._track_chargers(now)
         decisions: list[Decision] = []
         for device_id in list(self._runtimes):
             runtime = self._runtimes[device_id]
@@ -594,6 +606,8 @@ class SafetyGate:
         device = self._devices(device_id)
         if device is None:
             return overrides.NO_OVERRIDE
+        if isinstance(observed, ChargeAction):
+            self._track_idle(device_id, observed, self._now())
         async with self._lock(device_id):
             now = self._now()
             runtime = await self._runtime(device_id)
@@ -1489,7 +1503,7 @@ class SafetyGate:
 
     # --- release -------------------------------------------------------------------------
 
-    async def release_device(  # noqa: PLR0911 - one return per verdict
+    async def release_device(  # noqa: PLR0911, PLR0912 - one return per verdict
         self,
         device_id: str,
         reason: Reason,
@@ -1536,6 +1550,12 @@ class SafetyGate:
                 return await self._release_battery(intent, runtime, actuator, reason, now, mode)
             observed = await actuator.read_back()
             runtime = await self._adopt_user_state(device, runtime, observed, now)
+            if not orphan and device is not None:
+                staged = await self._stage_ev_release(
+                    intent, device, runtime, actuator, observed, reason, now, mode
+                )
+                if staged is not None:
+                    return staged
             if not urgent and not orphan:
                 due = _protection_due(device, runtime, now, observed)
                 if due is not None:
@@ -2016,6 +2036,7 @@ class SafetyGate:
             observed=observed,
             entity_min_a=low,
             entity_max_a=high,
+            idle_since=self._ev_idle_since.get(device.id),
         )
 
     def _battery_locked(self, inputs: GateInputs) -> bool:
@@ -2040,9 +2061,120 @@ class SafetyGate:
                 continue
             if self._watchdog.pause_reason(device_id, now) is not None:
                 continue
-            if self._ev_safety(device, now, inputs).allowance_w > 0:
+            ev = self._ev_safety(device, now, inputs)
+            charging = ev.observed is not None and ev.observed.effective_current_a > 0
+            if ev.allowance_w > 0 and (ev.connected is True or charging):
                 return True
         return False
+
+    # --- EV idle tracking and staged release (review 6-I A1, M2, M3) -----------------------
+
+    def _track_idle(self, device_id: str, observed: ChargeAction | None, now: datetime) -> None:
+        """Remember since when a charger has been seen not charging (unknown = forget)."""
+        if observed is None or observed.effective_current_a > CURRENT_TOLERANCE_A:
+            self._ev_idle_since.pop(device_id, None)
+            return
+        self._ev_idle_since.setdefault(device_id, now)
+
+    def _track_chargers(self, now: datetime) -> None:
+        for device_id in self._actuators:
+            device = self._devices(device_id)
+            if device is None or not isinstance(device.control, ChargerControl):
+                continue
+            self._track_idle(device_id, _observed_charge(self._states(device_id)), now)
+
+    def _ev_release_due(
+        self, device: DeviceConfig, runtime: DeviceRuntime, observed: Action | None, now: datetime
+    ) -> tuple[bool, datetime | None]:
+        """``(pause now, due)`` of a charger's release; ``due`` ``None`` = release at once.
+
+        A1: restoring other phases needs the car paused for ``phase_switch_pause_s`` (E2 also
+        for a release); while it charges it is paused first. M3: while §14a dims or its
+        cool-down runs, a baseline that charges is not restored on a flagged charger; the
+        pause is the safe state until then.
+        """
+        control = device.control
+        baseline = runtime.baseline
+        if not isinstance(control, ChargerControl) or not isinstance(baseline, ChargeAction):
+            return False, None
+        current = observed if isinstance(observed, ChargeAction) else None
+        charging = current is None or current.effective_current_a > CURRENT_TOLERANCE_A
+        due: datetime | None = None
+        pause_now = False
+        if (
+            baseline.phases is not None
+            and control.phases_role is not None
+            and (current is None or current.phases != baseline.phases)
+        ):
+            pause = timedelta(seconds=control.phase_switch_pause_s)
+            if charging:
+                pause_now, due = True, now + pause
+            else:
+                since = self._ev_idle_since.get(device.id)
+                ready = (since if since is not None else now) + pause
+                if ready > now:
+                    due = ready
+        if device.para14a and baseline.effective_current_a > CURRENT_TOLERANCE_A:
+            inputs = self._inputs()
+            active = inputs is None or inputs.para14a_status is not Para14aStatus.INACTIVE
+            hold = para14a_hold_s(self._grid_memory, now, self._settings.safe_state_cooldown_s)
+            if active or hold > 0:
+                wait = EV_RELEASE_RECHECK_S if active else min(hold, EV_RELEASE_RECHECK_S)
+                recheck = now + timedelta(seconds=max(1.0, wait))
+                due = recheck if due is None else max(due, recheck)
+                pause_now = pause_now or charging
+        return pause_now, due
+
+    async def _stage_ev_release(  # noqa: PLR0917
+        self,
+        intent: Intent,
+        device: DeviceConfig,
+        runtime: DeviceRuntime,
+        actuator: Actuator,
+        observed: Action | None,
+        reason: Reason,
+        now: datetime,
+        mode: OperatingMode,
+    ) -> Decision | None:
+        """Pause a charger now and restore its baseline later (``poll``), or ``None``."""
+        pause_now, due = self._ev_release_due(device, runtime, observed, now)
+        if due is None:
+            return None
+        updated = runtime
+        if pause_now:
+            pause = ChargeAction(current_a=0.0)
+            try:
+                await actuator.apply(
+                    Intent(
+                        id=f"evpause:{device.id}:{now.isoformat()}",
+                        ts=now,
+                        asset_id=device.id,
+                        action=pause,
+                        reasons=(REASON_EV_RELEASE_STAGED, reason),
+                        origin=Origin.SAFETY,
+                    )
+                )
+            except Exception as exc:
+                log.warning("safety.release_failed", device_id=device.id, error=str(exc)[:200])
+                return await self._decide(
+                    intent, DecisionKind.FAILED, now, (REASON_RELEASE_FAILED, reason), mode
+                )
+            updated = updated.model_copy(
+                update={"last_written": pause, "last_write_ts": now}
+            ).with_switch(now, on=False)
+            self._ev_idle_since[device.id] = now
+        updated = updated.model_copy(
+            update={"release_due_ts": due, "release_due_reason": reason.key}
+        )
+        await self._save(updated)
+        return await self._decide(
+            intent,
+            DecisionKind.HELD,
+            now,
+            (REASON_EV_RELEASE_STAGED, reason),
+            mode,
+            held_until=due,
+        )
 
     # --- grid (PR 6-F, ``safety.grid``) ------------------------------------------------------
 

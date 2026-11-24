@@ -47,6 +47,7 @@ from typing import Final, Literal
 
 from suncore.controller import reasons as rs
 from suncore.controller.levels import Level, LevelTable, Quantiser
+from suncore.core.battery import discharge_lock_held
 from suncore.core.control import DeviceBand, DeviceState
 from suncore.core.decisions import (
     BatteryAction,
@@ -69,22 +70,12 @@ PHASE_UP_MARGIN_W: Final = 500.0
 PHASE_RETRY_S: Final = 900.0
 """After a refused phase change no new attempt for this long (no oscillation on refusals)."""
 EPS: Final = 1e-6
-SOC_LOCK_TOLERANCE_PCT: Final = 0.5
 PHASE_INTENT_PREFIX: Final = "evphase:"
 
 
 def battery_holds_lock(held: BatteryAction | None, soc_pct: float | None) -> bool:
-    """SunCore holds a battery state that stops discharging (mirrors
-    ``safety.flex.holds_discharge_lock``; E6)."""
-    if held is None:
-        return False
-    if held.max_discharge_w is not None and held.max_discharge_w <= 1.0:
-        return True
-    return (
-        held.min_soc_pct is not None
-        and soc_pct is not None
-        and held.min_soc_pct >= soc_pct - SOC_LOCK_TOLERANCE_PCT
-    )
+    """SunCore holds a battery state that stops discharging (``core.battery``; E6)."""
+    return discharge_lock_held(held, soc_pct)
 
 
 def table_phases(device: DeviceConfig, state: DeviceState | None) -> Literal[1, 3] | None:

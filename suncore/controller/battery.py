@@ -49,6 +49,7 @@ from suncore.controller.reasons import (
 )
 from suncore.core.battery import (
     BATTERY_ASSET_ID,
+    SOC_LOCK_TOLERANCE_PCT,
     BatteryAction,
     BatteryCapability,
     BatteryModel,
@@ -94,6 +95,8 @@ class BatteryControlInputs:
     under_control: bool = False
     blocked: Reason | None = None
     """Emergency stop, watchdog pause, override hold, pending release: no intents."""
+    release_pending: bool = False
+    """The gate is releasing the battery: a held lock no longer counts (E6, review 6-I H1)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,9 +238,13 @@ class BatteryIntents:
         assert soc_range is not None
         step = soc_range.step
         held = inputs.held.min_soc_pct if inputs.held is not None else None
-        if held is not None and held >= inputs.reserve_pct and soc_pct < held + (step or 1.0):
-            # Still (almost) a lock: moved only when the SoC rose a full step above it, so a
-            # SoC creeping up under PV does not rewrite the floor every few minutes.
+        if (
+            held is not None
+            and held >= inputs.reserve_pct
+            and soc_pct < held + SOC_LOCK_TOLERANCE_PCT
+        ):
+            # Still a lock by the same tolerance the gate and the EV logic use (review 6-I M1):
+            # the floor is rounded up to the step, so a rising SoC rewrites it once per step.
             return held
         floor = max(inputs.reserve_pct, soc_pct)
         return min(soc_range.high, round_up_to_step(floor, step, soc_range.low))

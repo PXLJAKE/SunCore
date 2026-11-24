@@ -90,7 +90,7 @@ from suncore.core.devices import (
     SetpointControl,
     TimeWindow,
 )
-from suncore.core.flex import EV_MODE_DEFAULT, EvMode
+from suncore.core.flex import EV_BATTERY_DISCHARGE_W, EV_MODE_DEFAULT, EvMode
 from suncore.core.signals import Quality
 
 POOR_ESTIMATE_REL: Final = 0.5
@@ -937,6 +937,53 @@ class Allocator:
 
     # --- deficit -----------------------------------------------------------------------------
 
+    def _battery_fed_chargers(
+        self, site: SiteSurplus, active: Sequence[DeviceMachine]
+    ) -> dict[str, DeviceMachine]:
+        """Running chargers that wait for a battery lock while the battery discharges (E6).
+
+        Review 6-I A2: the lock can be lost while the car charges (battery override, watchdog,
+        shadow, lease end); the floor then waits for it (``EV_BATTERY_WAIT``) but the car
+        still draws, so the battery feeds it. These are shed without the deficit delay.
+        """
+        if site.battery_w is None or site.battery_w >= -EV_BATTERY_DISCHARGE_W:
+            return {}
+        out: dict[str, DeviceMachine] = {}
+        for m in active:
+            directive = self._ev_directives.get(m.device.id)
+            if (
+                directive is not None
+                and directive.floor_reason is not None
+                and directive.floor_reason.key == rs.EV_BATTERY_WAIT
+            ):
+                out[m.device.id] = m
+        return out
+
+    def _shed_battery_fed(
+        self, now: datetime, unlocked: Mapping[str, DeviceMachine]
+    ) -> dict[str, Transition]:
+        """Pause every battery-fed charger at once, min run waived (E6, review 6-I A2).
+
+        No step-wise back-off: without the lock the car may not draw more than the surplus,
+        and at a discharging battery there is none; the allocator raises it again from the
+        surplus (min pause applies)."""
+        shed: dict[str, Transition] = {}
+        for m in unlocked.values():
+            if m.in_flight_id is not None:
+                continue
+            protection = m.blocked_by_protection(now, 0, waive_run=True)
+            if protection is not None:
+                m.reasons = (rs.plain(rs.EV_BATTERY_WAIT), protection)
+                continue
+            shed[m.device.id] = Transition(
+                0, rs.plain(rs.EV_BATTERY_WAIT), forced=True, deficit=True, fuse_shed=True
+            )
+        if shed:
+            self._deficit.restart(
+                now, max(m.settle_s for m in unlocked.values()) + self._settings.tick_s
+            )
+        return shed
+
     def _deficit_backoff(  # noqa: PLR0912, PLR0917 - one branch per back-off rule
         self,
         now: datetime,
@@ -962,6 +1009,11 @@ class Allocator:
         self._deficit.update(now, attributable, self._settings.deficit_delay_s)
         if attributable <= 0 or self._deficit.since is None:
             return {}
+        unlocked = self._battery_fed_chargers(site, active)
+        if unlocked:
+            shed = self._shed_battery_fed(now, unlocked)
+            if shed:
+                return shed
         elapsed = (now - self._deficit.since).total_seconds()
         reserve = inputs.reserve_soc_pct
         over_limit, fuse, limit_reason = _limit_breach(site, inputs.grid_inputs)
@@ -991,6 +1043,8 @@ class Allocator:
             directive = self._ev_directives.get(m.device.id)
             if not over_limit and directive is not None and m.level <= directive.floor:
                 continue  # a user-demanded floor is import by design (ADR-0017 decision 4)
+            if unlocked and m.device.id in unlocked:
+                continue  # shed above, at once
             target = min(
                 m.level - 1,
                 _fall_level(m.table, m.level, committed.get(m.device.id, 0.0), attributable),

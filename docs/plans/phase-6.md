@@ -800,10 +800,10 @@ detection; CO₂ weighting.
   controller requests the lock while a charger has an allowance (`controller.battery.ev_lock`),
   B4 accepts it also without a fresh plan. Consequence: with a battery in shadow or
   observe-only, the car charges from surplus only, also in `now` (safe default, question 1).
-- **E2 for a charger SunCore never paused:** the gate waits the pause from its own
-  `last_off_ts`; when SunCore has never started or stopped charging on the charger, the
-  observed "not charging" is the gate's condition and the controller waits the pause from when
-  it first saw the charger idle.
+- **E2 from the gate's own observation (review M2):** the gate keeps, per charger, since
+  when it has observed it not charging (every `poll` and `observe`; an unknown or charging
+  observation restarts it) and requires the phase-switch pause from that time. The
+  controller's `idle_since` only mirrors it.
 - **Floors and the deficit back-off:** the back-off does not lower a charger below its floor
   unless the import limit is exceeded (G1 always wins); §14a, fuse and phase caps win over the
   floor and give their own reason.
@@ -823,14 +823,14 @@ detection; CO₂ weighting.
 | Invariant | Result | Evidence |
 |---|---|---|
 | E1 current 0 (pause possible) or in control and entity range | pass | `check_current_range`; `test_e1_an_accepted_current_is_a_possible_pause_or_inside_both_ranges`, `test_e1_current_outside_the_range_is_rejected`; driver snaps down to the step (`test_current_is_clamped_to_the_control_range`) |
-| E2 phase change only paused, <= max/h, never in `now`, resume after the pause | pass | `check_phases`; `test_e2_a_phase_change_is_accepted_only_paused_rarely_and_never_in_now`, `test_e2_charging_resumes_only_after_the_pause`, `test_flicker_never_exceeds_the_phase_switch_limit`; scenario `ev_phase_switching` |
+| E2 phase change only paused, <= max/h, never in `now`, resume after the pause | pass | `check_phases` with the gate-observed idle time; `test_e2_a_phase_change_is_accepted_only_paused_rarely_and_never_in_now`, `test_m2_e2_counts_the_pause_from_the_gates_own_observation`, `test_m2_a_charging_observation_restarts_the_pause`, `test_flicker_never_exceeds_the_phase_switch_limit`; scenario `ev_phase_switching`; also for a release (A1) |
 | E3 import for the car <= the mode's allowance (ADR-0017 d. 4) | pass | `check_charge_grid`, `ev_allowance_w`; `test_e3_e6_g1_an_accepted_charge_imports_at_most_the_allowance`, `test_surplus_only_modes_get_no_grid_power`, `test_target_uses_the_fresh_plan_band_only`; scenarios `ev_pv_only_flicker` (caused import <= 2 % of moved energy), `ev_min_pv` (no import beyond the floor) |
 | E4 / G1-G6 hold for a charge | pass | `expected_power_w` knows the charge power; `test_g1_the_import_limit_holds_for_a_user_demanded_floor`; scenario `ev_para14a` (<= 4200 W while dimmed, no rise in the cool-down or with an unknown signal) |
 | E5 no increase unplugged or in `off` | pass | `check_ev_mode`; `test_e5_no_increase_unplugged_or_off`, `test_e5_unplugged_or_off_never_raises_but_pauses`, `test_an_unreadable_mode_counts_as_off`; `ev_min_pv` pauses on departure |
-| E6 home battery never discharges into the car | pass | `battery_locked` in the gate, `controller.battery.ev_lock`, B4 extension; `test_e6_grid_power_needs_a_battery_lock`, `test_the_battery_locks_for_the_ev_also_without_a_fresh_plan`; scenario `ev_arrives_late` (`battery_w >= -50 W` whenever the car draws) |
+| E6 home battery never discharges into the car | pass | `battery_locked` in the gate, `controller.battery.ev_lock`, B4 extension, one lock tolerance (`core.battery.discharge_lock_held`, M1); a lost lock sheds the car with min run waived (A2); `test_e6_grid_power_needs_a_battery_lock`, `test_m1_the_written_lock_floor_is_always_a_lock_for_the_gate`, `test_a_lock_lost_while_charging_sheds_the_car_within_a_tick_and_settle`; scenario `ev_arrives_late` (`battery_w >= -50 W` whenever the car draws) |
 | E7 write on change, rate, read-back | pass | unchanged gate path; `charge_matches`; `test_write_only_on_change`, `test_read_back_and_device_state` |
 | E8 assisted until the behaviour is confirmed | pass | `test_e8_unconfirmed_behaviour_is_capped_at_assisted`, `test_unconfirmed_phase6_devices_are_capped_at_assisted` |
-| E9 release restores current, phases, switch | pass | full `ChargeAction` baseline with `enabled`; `test_release_restores_current_phases_and_switch`, `test_release_of_a_charging_baseline_resumes_it`, `test_e9_back_to_normal_restores_the_baseline` |
+| E9 release restores current, phases, switch | pass | full `ChargeAction` baseline with `enabled`; staged when phases differ or §14a dims (A1, M3); `test_release_restores_current_phases_and_switch`, `test_e9_back_to_normal_restores_the_baseline`, `test_a1_release_while_charging_pauses_first_and_restores_phases_after_the_pause`, `test_m3_release_while_para14a_dims_only_pauses_until_it_ends` |
 | Min run/pause, switches per hour | pass | template defaults 300 s / 6 per hour; `test_nothing_is_rejected_and_switching_stays_within_the_limits` (four scenarios) |
 | No oscillation (cloud flicker) | pass | `test_pv_only_flicker_does_not_oscillate` (<= 2 transitions per flicker episode), `test_flicker_never_exceeds_the_phase_switch_limit` (hypothesis) |
 | Stale/missing inputs -> safe state | pass | fail-safe cap at the minimum (`test_floor_and_cap_by_mode`), surplus unknown rejected (`check_charge_grid`), stale plan band permits nothing; a pause is accepted with unknown inputs (`test_a_pause_is_accepted_even_with_unknown_inputs`) |
@@ -851,9 +851,45 @@ detection; CO₂ weighting.
 3. **Integrations-Vorlage:** Welche Wallbox planst du? Ich konnte nur die Doku der
    `wallbox`-Integration lesen, nicht ihren Quellcode; eine Vorlage dafür folgt, sobald der
    Quellcode gelesen werden kann.
-4. **Phasenumschaltung ohne vorherige SunCore-Pause:** Wenn SunCore die Wallbox nie selbst
-   pausiert hat, reicht der Gate „lädt gerade nicht“, die Wartezeit hält der Regler ein.
-   **Empfehlung:** so lassen. Einverstanden?
+4. **Phasenumschaltung ohne vorherige SunCore-Pause:** Erledigt (Review M2): Das Gate
+   merkt sich selbst, seit wann es die Wallbox „lädt nicht“ sieht, und verlangt die Pause ab
+   diesem Zeitpunkt – auch wenn SunCore sie nie pausiert hat. Keine Frage mehr offen.
 5. **Ziel knapp verfehlt:** Im Szenario „Auto kommt spät“ hört der Planer bei ca. 77 % statt
    80 % auf, Netzleistung freizugeben. Soll ein Ziel hart bis zur Abfahrtszeit gelten (dann
    auch zu teureren Preisen)? **Empfehlung:** ja, Prüfung in 6-H/QA.
+6. **Freigabe während §14a:** Gibt SunCore eine markierte Wallbox frei, während §14a dimmt
+   oder die Abklingzeit läuft, pausiert sie nur und bekommt ihren alten Zustand (z. B. 11 kW)
+   erst danach zurück (Prüfung jede Minute). **Empfehlung:** so lassen; alternativ den
+   Mindeststrom statt der Pause. Einverstanden?
+7. **Gestufte Freigabe beim Beenden:** Beendet sich SunCore (Update, Neustart), während eine
+   Freigabe noch auf die Phasenpause oder das Ende von §14a wartet, bleibt die Wallbox
+   pausiert, bis SunCore wieder läuft (die Wiederherstellung holt `recover()` nach).
+   **Empfehlung:** so lassen – Pause ist der sichere Zustand. Einverstanden?
+
+#### Review conditions 6-I (control-safety, PR #59)
+
+- **A1 (done):** a charger's release whose baseline has other phases is staged: while the car
+  charges, the gate pauses it first (0 A / enable off) and restores the baseline only after
+  `phase_switch_pause_s` (`release_due_ts`, executed by `poll`); an idle charger waits the rest
+  of the gate-observed pause. Same phases release at once.
+- **A2 (done):** a running charger whose floor waits for the battery lock
+  (`controller.ev.battery_wait`) while the battery discharges more than 50 W
+  (`EV_BATTERY_DISCHARGE_W`) is paused at once, min run and the switch limit waived in the
+  controller and in the gate (`ev_unlocked_shed_waiver`, like G2). Scenario: the battery
+  goes to shadow at 02:00 in `ev_arrives_late`; the car is paused within settle + tick and
+  `battery_w >= -50 W` afterwards (the test fails without the fix: -5000 W).
+- **M1 (done):** `SOC_LOCK_TOLERANCE_PCT` and `discharge_lock_held` live in `core.battery`;
+  the gate, the EV logic and the battery controller's floor rewrite use them (hypothesis test
+  over the SoC window).
+- **M2 (done):** see "E2 from the gate's own observation" above; `never_charged` is gone.
+- **M3 (done):** a release of a `para14a` charger while dimming or in the cool-down pauses it
+  and restores the baseline only afterwards (question 6).
+- **H1 (done):** the gate wants the lock only for a charger that is connected or drawing;
+  the controller's E6 flag ignores a lock whose release is pending
+  (`BatteryControlInputs.release_pending`).
+- **H2 (done):** the driver refuses to write when the current entity's
+  `unit_of_measurement` is set and not `A`.
+- **H3 (done):** a battery counts as present also when a non-zero battery flow was measured
+  (sticky for the session; without a configured battery `core.balance` reports a synthetic
+  0 W) or a battery adapter is wired (`tests/app/test_ev_battery_present.py`).
+- **CI (done):** the e2e gallery count includes `generic.wallbox` (7 templates).

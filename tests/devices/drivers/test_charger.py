@@ -157,3 +157,22 @@ async def test_other_actions_are_not_supported() -> None:
     with pytest.raises(Exception, match=r".*"):
         await driver.apply(intent(ReleaseAction()))
     assert ha.calls == []
+
+
+@pytest.mark.parametrize("unit", ["mA", "kW", "%"])
+async def test_a_current_entity_in_another_unit_is_refused(unit: str) -> None:
+    """Review 6-I H2: amperes are never written into an entity in another unit."""
+    driver, ha = make()
+    ha.set(CUR, "16.0", min=0, max=32, step=1, unit_of_measurement=unit)
+    with pytest.raises(WriteRefusedError):
+        await driver.apply(intent(ChargeAction(current_a=10)))
+    with pytest.raises(WriteRefusedError):
+        await driver.release(ChargeAction(current_a=16, phases=3, enabled=False))
+    assert ha.calls == []
+
+
+async def test_a_current_entity_in_amperes_is_written() -> None:
+    driver, ha = make()
+    ha.set(CUR, "16.0", min=0, max=32, step=1, unit_of_measurement="A")
+    await driver.apply(intent(ChargeAction(current_a=10)))
+    assert ha.sent[0] == ("number", "set_value", {"entity_id": CUR}, {"value": 10.0})

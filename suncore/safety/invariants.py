@@ -56,6 +56,7 @@ from suncore.safety.flex import (
     check_current_range,
     check_ev_mode,
     check_phases,
+    ev_unlocked_shed_waiver,
 )
 from suncore.safety.grid import (
     NO_GRID_SAFETY,
@@ -329,8 +330,7 @@ def check_ev(ctx: InvariantContext) -> Reason | None:
             control,
             ctx.ev,
             now=ctx.now,
-            paused_since=ctx.runtime.last_off_ts,
-            never_charged=ctx.runtime.last_on_ts is None and ctx.runtime.last_off_ts is None,
+            paused_since=ctx.ev.idle_since,
             last_phase_switch=ctx.runtime.last_phase_switch_ts,
             phase_switches_last_hour=ctx.runtime.phase_switches_in_window(ctx.now),
         ),
@@ -490,7 +490,9 @@ def check_heat_limit(ctx: InvariantContext) -> Reason | None:
 
 
 def _fuse_shed(ctx: InvariantContext) -> bool:
-    return fuse_shed_waiver(ctx.device.kind, True, ctx.flows, ctx.grid)
+    return fuse_shed_waiver(ctx.device.kind, True, ctx.flows, ctx.grid) or ev_unlocked_shed_waiver(
+        ctx.device.control, ctx.ev, True, ctx.flows
+    )
 
 
 def is_load_increase(ctx: InvariantContext) -> bool:

@@ -1088,6 +1088,7 @@
   "safety.ev_phases_unknown": "The wallbox's active phases are unknown: no phase switch.",
   "safety.ev_phases_now": "No phase switch in mode \"now\" (charging continues at full power).",
   "safety.ev_phases_charging": "Phases are only switched while charging is paused.",
+  "safety.ev_release_staged": "The wallbox is paused first; its previous phases and current return once the phase pause has passed and §14a dimming has ended.",
   "safety.ev_battery_unlocked": "Charging from the grid needs the home battery held back first (it must not discharge into the car); nothing was written.",
   "safety.ev_current_range": "Charging current {current_a} A is outside the wallbox's range {min_a}–{max_a} A.",
   "safety.ev_phase_pause": "Waiting {remaining_s} s around the phase switch before charging resumes.",

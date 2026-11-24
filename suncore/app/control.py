@@ -125,6 +125,8 @@ log = structlog.get_logger(__name__)
 DEFAULT_POWER_SAVE_INTERVAL_S: Final = 300.0
 """The learned power models are saved this often (and on shutdown)."""
 DEVIATION_HISTORY: Final = 100
+BATTERY_FLOW_SEEN_W: Final = 1.0
+"""A battery flow above this counts as a measured battery (E6, review 6-I H3)."""
 CELSIUS: Final = "°C"
 """The only probe unit judged (HA ``UnitOfTemperature.CELSIUS``); °F counts as unknown."""
 
@@ -325,6 +327,8 @@ class ControlStack:
         self.battery_driver: BatteryDriver | None = self._make_battery(connection, battery)
         self.battery_limits: BatteryAction | None = None
         """What the battery adapter's entities showed at the latest tick."""
+        self._battery_seen = False
+        """A battery flow was measured this session (E6, review 6-I H3)."""
         actuators: dict[str, StatefulActuator | BatteryDriver] = dict(self.drivers)
         gate_battery: BatteryGateConfig | None = None
         if battery is not None and self.battery_driver is not None:
@@ -882,7 +886,8 @@ class ControlStack:
                 for d in self._devices.values()
                 if isinstance(d.control, ChargerControl)
             },
-            battery_present=self._site is None or self._site.battery is not None,
+            # review 6-I H3: a measured battery flow is a battery, configured or not
+            battery_present=self._battery_present(flows),
         )
         self.estimates = estimates
         self.states = states
@@ -892,6 +897,24 @@ class ControlStack:
         self._maybe_save_models(now)
         self._notify()
         return self.last
+
+    def _battery_present(self, flows: FlowSnapshot | None) -> bool:
+        """E6: a home battery exists - configured, wired as an adapter, or ever measured.
+
+        Review 6-I H3: a battery flow that was measured once keeps the battery present for the
+        session, so a sensor that drops out never makes the EV side think there is none.
+        """
+        # Without a battery in the site config the flow is a synthetic 0 W (core.balance): only
+        # a non-zero value is a measurement.
+        value = None if flows is None else flows.battery_w.value
+        if value is not None and abs(value) > BATTERY_FLOW_SEEN_W:
+            self._battery_seen = True
+        return (
+            self._site is None
+            or self._site.battery is not None
+            or self.battery_driver is not None
+            or self._battery_seen
+        )
 
     def _state_text(self, entity_id: str | None) -> str | None:
         if entity_id is None:
@@ -965,6 +988,7 @@ class ControlStack:
             held=held if isinstance(held, BatteryAction) else None,
             under_control=under,
             blocked=self._battery_blocked(now),
+            release_pending=runtime is not None and runtime.release_pending,
         )
 
     def _record_measurements(
