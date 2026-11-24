@@ -31,10 +31,11 @@ Phases 3 and 4 on the maintainer's system is still open (two stages, see "Next s
     `vite.config.ts` merged without conflict (chunks `echarts-core|plan|history`).
   - **Bundle after the merge (`npm run verify`):** tests and type check green (Vitest 382),
     first paint 106.3 kB (budget 125), ECharts chunks core 182.9 / history 13.3 / plan 9.1 kB
-    (each under 200), core + history 196.2 and core + plan 192.0 kB (budget 240), **total
-    without ECharts 265.9 kB against 250 kB: `npm run size` fails**. That is 15.9 kB over,
-    not the 1.7 kB measured in 5-K alone: 5-F (232 kB on its own) and 5-K add up.
-    The budget is not changed (decision pending, see "Open maintainer questions" below).
+    (each under 200), core + history 196.2 and core + plan 192.0 kB (budget 240). The total
+    without ECharts first summed both language catalogues (265.9 kB). Maintainer decision
+    (2026-11-24): only the active language counts, because only one catalogue is loaded at
+    runtime; the script counts the larger of en/de. **Total now 232.6 kB against 250 kB**;
+    the budget stays unchanged.
 
 - **Phase 5 – PR 5-K, WP11 what-if UI (branch `phase-5/k-whatif`, on 5-J + 5-I + 5-H;
   `frontend-engineer`)**:
@@ -61,9 +62,9 @@ Phases 3 and 4 on the maintainer's system is still open (two stages, see "Next s
     (polling, start, cancel, delete, 503), router; Playwright `e2e/whatif.spec.ts` on desktop,
     phone and tablet incl. axe and German; screenshots `whatif-*`.
   - Numbers: first paint 104.9 kB (budget 125), ECharts chunk 194.3 kB (200), total without
-    ECharts **251.7 kB, 1.7 kB over the 250 kB budget** (the what-if view is 12.6 kB JS + 0.7 kB
-    CSS, about 85 catalogue keys). `npm run size` fails until the budget is raised by 2 kB or the
-    CSV export and grid chart are dropped; see plan §8 (5-K) and the question in the PR.
+    ECharts 251.7 kB with both catalogues counted (the what-if view is 12.6 kB JS + 0.7 kB CSS,
+    about 85 catalogue keys); 219.3 kB with only the active language counted (maintainer
+    decision, see the 5-F merge entry above).
   - Deviations: see plan §8 (5-K).
 
 - **Phase 5 – PR 5-J, WP6 backtest engine and job API (branch `phase-5/j-backtest`, on 5-D + 5-E;
@@ -1167,9 +1168,8 @@ Phases 3 and 4 on the maintainer's system is still open (two stages, see "Next s
 
 Each was built with the proposed default; the answer may change that default.
 
-1. **Bundle budget (5-K, #50):** total without ECharts is 265.9 kB against 250 kB after the 5-F
-   and 5-K merge. Raise the budget (to about 270 kB), or drop features (CSV of the what-if,
-   grid chart, change list) and trim more. Not decided; `npm run size` fails until then.
+1. **Bundle budget (5-K, #50): decided 2026-11-24.** Only the active language catalogue counts
+   towards the 250 kB total; the budget stays. Total after 5-F + 5-K: 232.6 kB.
 2. **Backtest start while the planner solves (#50):** the server answers 409; should the UI retry
    by itself?
 3. **Max. switches per hour in expert mode (#42):** hard bound 30, safety review recommends 12.
