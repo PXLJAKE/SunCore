@@ -170,6 +170,8 @@ class BacktestResult(_Model):
     currency: str | None
     tariff: Literal["stored", "fixed"]
     params: dict[str, ParamValue]
+    """The requested registry parameters with the values the run used (``budget_s`` capped)."""
+    params_requested: dict[str, ParamValue] = Field(default_factory=dict)
     totals: BacktestTotals | None
     """``None`` when every day was skipped."""
     days: list[DayResult]
@@ -207,6 +209,18 @@ class BacktestWindowError(ValueError):
     """The window is not entirely in the past."""
 
 
+OVERLAY_INVALID: Final = "backtest_overlay_invalid"
+OVERLAY_NO_BATTERY: Final = "backtest_overlay_no_battery"
+
+
+class BacktestOverlayError(ValueError):
+    """The overlay cannot be applied to the site (``key`` names why, ``api.error.<key>``)."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(key)
+        self.key = key
+
+
 class BacktestBusyError(RuntimeError):
     """Another run is active or the planner is running (one job at a time)."""
 
@@ -219,8 +233,11 @@ __all__ = [
     "BACKTEST_SCHEMA_VERSION",
     "DEFAULT_DAYS",
     "MAX_DAYS",
+    "OVERLAY_INVALID",
+    "OVERLAY_NO_BATTERY",
     "BacktestBusyError",
     "BacktestJobView",
+    "BacktestOverlayError",
     "BacktestRequest",
     "BacktestResult",
     "BacktestStatus",

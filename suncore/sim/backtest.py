@@ -41,6 +41,8 @@ from datetime import time as dtime
 from functools import partial
 from typing import Final, Literal, Protocol
 
+from pydantic import ValidationError
+
 from suncore.analysis.baselines import compute_savings
 from suncore.analysis.energy import MIN_COVERAGE, SlotEnergy
 from suncore.analysis.flows import total_flows
@@ -57,7 +59,7 @@ from suncore.core.measurements import (
     SITE_PV_W,
     SITE_SOC_PCT,
 )
-from suncore.core.params import whatif_targets
+from suncore.core.params import ParamError, ParamValue, whatif_targets
 from suncore.core.series import (
     PLANNING_STEP,
     Grid,
@@ -79,6 +81,9 @@ from suncore.planner.inputs import (
 from suncore.planner.run import PlannerRun
 from suncore.planner.run import run as run_planner
 from suncore.sim.backtest_models import (
+    OVERLAY_INVALID,
+    OVERLAY_NO_BATTERY,
+    BacktestOverlayError,
     BacktestRequest,
     BacktestResult,
     BacktestTotals,
@@ -167,13 +172,21 @@ class BacktestSite:
     mip_gap: float = DEFAULT_MIP_GAP
 
 
+MODEL_OVERLAY_FIELDS: Final = ("capacity_wh", "max_charge_w", "max_discharge_w", "reserve_pct")
+
+
 def apply_overlay(site: BacktestSite, request: BacktestRequest) -> BacktestSite:
     """``site`` with the request's overlay (registry parameters and battery settings).
 
-    Raises :class:`~suncore.core.params.ParamError` for a parameter a what-if may not change and
-    ``pydantic.ValidationError`` for battery values that do not fit together. Never writes.
+    Raises :class:`~suncore.sim.backtest_models.BacktestOverlayError`: ``backtest_overlay_invalid``
+    for a parameter a what-if may not change or battery values that do not fit together,
+    ``backtest_overlay_no_battery`` for a capacity, power or reserve change on a site without a
+    battery model (it would otherwise be ignored silently). Never writes.
     """
-    planner = whatif_targets(request.params, "planner")
+    try:
+        planner = whatif_targets(request.params, "planner")
+    except ParamError as exc:
+        raise BacktestOverlayError(OVERLAY_INVALID) from exc
     budget = float(planner.get("budget_s", site.budget_s))
     mip_gap = float(planner.get("mip_gap", site.mip_gap))
     battery = site.battery
@@ -186,18 +199,61 @@ def apply_overlay(site: BacktestSite, request: BacktestRequest) -> BacktestSite:
                 body[name] = value.model_dump() if name == "grid_charge" else value
         model_changes = {
             name: getattr(overlay, name)
-            for name in ("capacity_wh", "max_charge_w", "max_discharge_w", "reserve_pct")
+            for name in MODEL_OVERLAY_FIELDS
             if getattr(overlay, name) is not None
         }
-        if model_changes and body.get("model") is not None:
+        if model_changes:
+            if body.get("model") is None:
+                raise BacktestOverlayError(OVERLAY_NO_BATTERY)
             body["model"] = {**body["model"], **model_changes}
-        battery = BatterySettings.model_validate(body)
+        try:
+            battery = BatterySettings.model_validate(body)
+        except ValidationError as exc:
+            raise BacktestOverlayError(OVERLAY_INVALID) from exc
     return replace(
         site,
         battery=battery,
         budget_s=min(MAX_REPLAN_BUDGET_S, max(0.1, budget)),
         mip_gap=mip_gap,
     )
+
+
+def effective_params(site: BacktestSite, request: BacktestRequest) -> dict[str, ParamValue]:
+    """The requested registry parameters with the values the run used (``budget_s`` capped)."""
+    used: dict[str, ParamValue] = {
+        "planner.budget_s": site.budget_s,
+        "planner.mip_gap": site.mip_gap,
+    }
+    return {key: used.get(key, value) for key, value in request.params.items()}
+
+
+def overlay_limitations(site: BacktestSite, request: BacktestRequest) -> list[Reason]:
+    """A battery overlay above the site's hardware limits: the planner caps it to them."""
+    overlay, hardware = request.battery, site.site_battery
+    if overlay is None or hardware is None:
+        return []
+    found: list[Reason] = []
+    for name in ("max_charge_w", "max_discharge_w"):
+        wanted, limit = getattr(overlay, name), getattr(hardware, name)
+        if wanted is not None and limit is not None and wanted > limit:
+            found.append(
+                Reason(
+                    key="backtest.limit.overlay_capped",
+                    args={"field": name, "limit": round(float(limit), 1)},
+                )
+            )
+    if (
+        overlay.reserve_pct is not None
+        and hardware.min_soc_pct is not None
+        and overlay.reserve_pct < hardware.min_soc_pct
+    ):
+        found.append(
+            Reason(
+                key="backtest.limit.overlay_capped",
+                args={"field": "reserve_pct", "limit": round(float(hardware.min_soc_pct), 1)},
+            )
+        )
+    return found
 
 
 Solve = Callable[[PlannerInputs, float, float, Plan | None], PlannerRun]
@@ -763,11 +819,18 @@ def _derived_house(
     return grid + pv - battery
 
 
+RECENT_DAYS: Final = 3
+"""Days before today whose quarter hours may still live in the raw or 1-minute tables (the
+nightly downsample has not aggregated them yet); older windows read ``measurement_15m`` only."""
+
+
 async def load_day(
     history: HistoryReader,
     site: BacktestSite,
     request: BacktestRequest,
     day: date,
+    *,
+    today: date | None = None,
 ) -> DayData | Reason:
     """Read one day and the inputs of its replans; a :class:`Reason` if it must be skipped."""
     bucket = bucket_for(datetime.combine(day, dtime(12), tzinfo=site.tz), Granularity.DAY, site.tz)
@@ -780,8 +843,11 @@ async def load_day(
     )
     window = TimeRange(start=span.start, end=span.end)
 
+    recent = today is None or day >= today - timedelta(days=RECENT_DAYS + 2)
+
     async def read(key: str, unit: SeriesUnit) -> tuple[float | None, ...]:
-        return _values_on(await history.read_series(key, window, "15m", unit), span)
+        series = await history.read_series(key, window, "15m", unit, include_recent=recent)
+        return _values_on(series, span)
 
     pv = await read(SITE_PV_W, SeriesUnit.W)
     grid = await read(SITE_GRID_W, SeriesUnit.W)
@@ -911,7 +977,9 @@ async def run_backtest(
         if should_stop is not None and should_stop():
             raise BacktestStoppedError
         day = request.start + timedelta(days=index)
-        data = await load_day(history, effective, request, day)
+        if index:
+            await asyncio.sleep(0)  # let the loop breathe between days
+        data = await load_day(history, effective, request, day, today=today)
         if isinstance(data, Reason):
             skipped.append(SkippedDay(day=day, reason=data))
             whatif_state, perfect_state = ReplayState(), ReplayState()
@@ -932,7 +1000,7 @@ async def run_backtest(
                     solve_s.extend(run.solve_s)
         if progress is not None:
             progress(index + 1, total)
-    limitations = list(LIMITATIONS)
+    limitations = [*LIMITATIONS, *overlay_limitations(site, request)]
     if request.tariff is None:
         limitations.append(LIMITATION_PRICES)
     return BacktestResult(
@@ -941,7 +1009,8 @@ async def run_backtest(
         tz=site.tz_name,
         currency=site.currency,
         tariff="stored" if request.tariff is None else "fixed",
-        params=dict(request.params),
+        params=effective_params(effective, request),
+        params_requested=dict(request.params),
         totals=_totals(all_runs, len(days), battery, request.perfect_foresight) if days else None,
         days=days,
         skipped=skipped,
@@ -965,14 +1034,17 @@ __all__ = [
     "BacktestWindowError",
     "BatteryLimits",
     "DayData",
+    "DayRun",
     "Executed",
     "HistoryReader",
     "HourInputs",
     "ReplayState",
     "apply_overlay",
     "default_solve",
+    "effective_params",
     "execute_slot",
     "load_day",
+    "overlay_limitations",
     "price_known_until",
     "replay_day",
     "run_backtest",
