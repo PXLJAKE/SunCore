@@ -145,7 +145,9 @@ describe('actual and gantt', () => {
   it('builds planned and measured lanes with merged segments', () => {
     const intervals = [8, 9, 10, 11].map((n, i) =>
       interval(n * Q, {
-        devices: { ac: { allowed: i < 3, preference: i === 0 ? 'neutral' : 'prefer_on' } },
+        devices: {
+          ac: { allowed: i < 3, preference: i === 0 ? 'neutral' : 'prefer_on', start: false },
+        },
         expected: { battery_w: i === 1 ? 500 : i === 2 ? -500 : 0 } as never,
         battery: { discharge_lock: i === 3 } as never,
       }),

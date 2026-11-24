@@ -30,6 +30,13 @@ export function describeAction(action: Action, power: (w: number) => string): Ac
       return { key: 'action.release', args: {} };
     case 'battery':
       return { key: 'action.battery', args: {} };
+    // Phase 6 kinds: in the contract, rejected by the gate until their PRs (6-G, 6-I, 6-J).
+    case 'charge':
+      return { key: 'action.charge', args: { current: action.current_a } };
+    case 'loadpoint':
+      return { key: 'action.loadpoint', args: { mode: action.mode } };
+    case 'inverter_limit':
+      return { key: 'action.inverter_limit', args: {} };
   }
 }
 

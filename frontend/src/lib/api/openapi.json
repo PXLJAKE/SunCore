@@ -1511,7 +1511,14 @@
           "discharge_limit",
           "grid_charge",
           "battery_modes",
-          "hardware_fallback"
+          "hardware_fallback",
+          "ev_charging",
+          "phase_switching",
+          "sg_ready",
+          "remote_start",
+          "export_limit",
+          "ac_limit",
+          "backup_state"
         ],
         "title": "Capability",
         "type": "string"
@@ -3126,7 +3133,7 @@
       },
       "DeviceDefaults": {
         "additionalProperties": false,
-        "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.",
+        "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.\n\nPhase 6 (additive): ``ev`` (wallbox), ``program`` (program) and ``thermal`` (thermal kinds,\ne.g. a vendor COP curve with the template's ``source``) - the same models as on the device.",
         "properties": {
           "comfort": {
             "anyOf": [
@@ -3184,6 +3191,16 @@
             ],
             "title": "Control"
           },
+          "ev": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hysteresis_delay_s": {
             "anyOf": [
               {
@@ -3240,6 +3257,16 @@
           "power_model": {
             "$ref": "#/components/schemas/PowerModelDefault"
           },
+          "program": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgramSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "settle_s": {
             "anyOf": [
               {
@@ -3252,6 +3279,16 @@
               }
             ],
             "title": "Settle S"
+          },
+          "thermal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ThermalSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [

@@ -13,9 +13,19 @@ import type {
 } from '../api/types';
 import { emptyRef, fromRef, slugify, toRef, uniqueId, type RefField } from './forms';
 
-/** The primary entity role a control writes (the first relay of a `relays` control). */
+/** The primary entity role a control writes (the first relay of a `relays` control, the first
+ * contact of an SG-Ready control; an evcc loadpoint writes no entity). */
 export function controlRoleOf(control: ControlSpec): string {
-  return control.kind === 'relays' ? (control.roles[0] ?? '') : control.role;
+  switch (control.kind) {
+    case 'relays':
+      return control.roles[0] ?? '';
+    case 'sg_ready':
+      return control.contact_a;
+    case 'loadpoint':
+      return '';
+    default:
+      return control.role;
+  }
 }
 
 /** Device kinds with a comfort band (core/devices.py THERMAL_KINDS). */
@@ -294,6 +304,9 @@ export function deviceFromForm(
   return {
     windows: base?.windows ?? [],
     ...(base ?? {}),
+    // Phase 6 fields the form does not edit yet keep their stored value (or the default).
+    behaviour_confirmed: base?.behaviour_confirmed ?? false,
+    para14a: base?.para14a ?? false,
     ...switchOnFromForm(form),
     override_policy: overridePolicyFromForm(form),
     ...form.protection,

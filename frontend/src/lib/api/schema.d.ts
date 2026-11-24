@@ -1705,7 +1705,7 @@ export interface components {
          * @description What a template provides.
          * @enum {string}
          */
-        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback";
+        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback" | "ev_charging" | "phase_switching" | "sg_ready" | "remote_start" | "export_limit" | "ac_limit" | "backup_state";
         /**
          * ChargeAction
          * @description Desired state of an EV charger (ADR-0017 decision 1; PR 6-I lifts the rejection).
@@ -2257,11 +2257,15 @@ export interface components {
         /**
          * DeviceDefaults
          * @description Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.
+         *
+         *     Phase 6 (additive): ``ev`` (wallbox), ``program`` (program) and ``thermal`` (thermal kinds,
+         *     e.g. a vendor COP curve with the template's ``source``) - the same models as on the device.
          */
         DeviceDefaults: {
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
             control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"];
+            ev?: components["schemas"]["EvSpec"] | null;
             /** Hysteresis Delay S */
             hysteresis_delay_s?: number | null;
             /** Hysteresis W */
@@ -2279,8 +2283,10 @@ export interface components {
              */
             min_run_s: number;
             power_model: components["schemas"]["PowerModelDefault"];
+            program?: components["schemas"]["ProgramSpec"] | null;
             /** Settle S */
             settle_s?: number | null;
+            thermal?: components["schemas"]["ThermalSpec"] | null;
         };
         /** DeviceHistoryItemOut */
         DeviceHistoryItemOut: {

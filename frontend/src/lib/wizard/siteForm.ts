@@ -42,8 +42,22 @@ export interface BatteryForm {
   maxDischargeW: number | null;
 }
 
+/** Grid fields the wizard does not edit yet (Phase 6, PR 6-B): kept as stored on save. */
+type GridKept = Partial<
+  Pick<
+    SiteConfig['grid'],
+    | 'peak_shaving'
+    | 'export_dynamic'
+    | 'zero_export'
+    | 'para14a_limit_w'
+    | 'para14a_signal_kind'
+    | 'backup'
+  >
+>;
+
 export interface SiteForm {
   schemaVersion: number;
+  gridKept?: GridKept;
   grid: GridForm;
   pv: PvRow[];
   battery: BatteryForm;
@@ -108,6 +122,14 @@ export function siteFormFromSite(site: SiteConfig | null): SiteForm {
   const b = site.battery;
   return {
     schemaVersion: site.schema_version,
+    gridKept: {
+      peak_shaving: g.peak_shaving,
+      export_dynamic: g.export_dynamic,
+      zero_export: g.zero_export,
+      para14a_limit_w: g.para14a_limit_w,
+      para14a_signal_kind: g.para14a_signal_kind,
+      backup: g.backup,
+    },
     grid: {
       mode: pair ? 'pair' : 'single',
       power: fromRef(g.power),
@@ -200,6 +222,12 @@ export function siteFromForm(form: SiteForm): SiteConfig {
   return {
     schema_version: form.schemaVersion,
     grid: {
+      peak_shaving: { enabled: false, peak_floor_w: 2500, capacity_price_per_kw_month: 0 },
+      export_dynamic: false,
+      zero_export: false,
+      para14a_limit_w: 4200,
+      para14a_signal_kind: 'binary',
+      ...form.gridKept,
       power: single ? toRef(g.power) : null,
       import_power: single ? null : toRef(g.importPower),
       export_power: single ? null : toRef(g.exportPower),
