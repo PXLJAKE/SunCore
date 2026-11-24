@@ -58,6 +58,7 @@ from suncore.core.actions import is_read_only_action
 from suncore.core.entities import EntityMeta
 from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.ha.connection import (
+    NOTIFY_ACTION_EVENT,
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
     ActionRateLimitedError,
@@ -69,6 +70,8 @@ from suncore.ha.connection import (
     EntityUpdate,
     HAError,
     NotConnectedError,
+    NotificationAction,
+    NotificationActionListener,
     RateLimiter,
     RegistryListener,
     ServiceCaller,
@@ -76,6 +79,7 @@ from suncore.ha.connection import (
     StateListener,
     Unsubscribe,
     action_rate_key,
+    check_notify_call,
 )
 from suncore.sim import registry
 from suncore.sim.demo_devices import (
@@ -141,6 +145,16 @@ SUPERVISOR_USER_ID: Final = "sim-supervisor"
 USER_ID: Final = "sim-user"
 """``user_id`` of a change a person makes in the Home Assistant UI."""
 TARGET_KEYS: Final = ("entity_id", "device_id", "area_id", "floor_id", "label_id")
+
+
+@dataclass(frozen=True, slots=True)
+class NotifyRecord:
+    """One notification the fake accepted (evidence for tests)."""
+
+    domain: str
+    service: str
+    data: Mapping[str, Any]
+    target: Mapping[str, Any] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,7 +253,7 @@ class FakeHAConnection:
     * :meth:`entity_metas` - registry joined with the current states as ``EntityMeta``
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0915 - one attribute per piece of fake state
         self,
         scenario: Scenario,
         *,
@@ -292,6 +306,14 @@ class FakeHAConnection:
         self._action_limiter = ActionRateLimiter(
             clock=lambda: self._clock().timestamp(), sleep=sleep
         )
+        self.notify_log: list[NotifyRecord] = []
+        """Every accepted :meth:`notify` call, oldest first (not in :attr:`call_log`)."""
+        self.notify_error: HAError | None = None
+        """Make :meth:`notify` fail (e.g. an unknown notify service)."""
+        self.action_subscribe_error: HAError | None = None
+        """Make :meth:`subscribe_notification_actions` fail (a token that may not subscribe)."""
+        self._notify_services: frozenset[str] = frozenset()
+        self._action_listeners: list[NotificationActionListener] = []
         self.call_log: list[CallRecord] = []
         """Every service call seen, oldest first."""
         self.recorder = SimRecorder(
@@ -429,6 +451,46 @@ class FakeHAConnection:
     async def subscribe_registry_updates(self, listener: RegistryListener) -> Unsubscribe:
         """Register for registry events; :meth:`fire_registry_event` delivers them."""
         return self._add(self._registry_listeners, listener)
+
+    async def notify(
+        self,
+        domain: str,
+        service: str,
+        data: Mapping[str, Any],
+        target: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Notification call with the real allowlist; recorded in :attr:`notify_log`."""
+        check_notify_call(domain, service, data, target, self._notify_services)
+        self._require_connected()
+        if self.notify_error is not None:
+            raise self.notify_error
+        self.notify_log.append(NotifyRecord(domain, service, dict(data), target))
+
+    def set_notify_services(self, services: Collection[str]) -> None:
+        self._notify_services = frozenset(services)
+
+    async def subscribe_notification_actions(
+        self,
+        listener: NotificationActionListener,
+        on_lost: Callable[[], None] | None = None,  # noqa: ARG002 - the fake never loses it
+    ) -> Unsubscribe:
+        """Register for action taps; :meth:`fire_notification_action` delivers them."""
+        self._require_connected()
+        if self.action_subscribe_error is not None:
+            raise self.action_subscribe_error
+        return self._add(self._action_listeners, listener)
+
+    def fire_notification_action(
+        self, action: str, *, event_type: str = NOTIFY_ACTION_EVENT
+    ) -> None:
+        """Deliver a ``mobile_app_notification_action`` event (what the real client filters)."""
+        if event_type != NOTIFY_ACTION_EVENT:
+            return
+        for listener in list(self._action_listeners):
+            try:
+                listener(NotificationAction(action))
+            except Exception:
+                _log.exception("notification action listener failed")
 
     def fire_registry_event(self, event_type: str = REGISTRY_EVENT_TYPES[0]) -> None:
         """Deliver a registry update event to the listeners (tests and demo hooks)."""

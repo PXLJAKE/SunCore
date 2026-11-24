@@ -75,6 +75,7 @@ import structlog
 from suncore.core.actions import is_read_only_action
 from suncore.ha.connection import (
     DEFAULT_WRITE_INTERVAL_S,
+    NOTIFY_ACTION_EVENT,
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
     ActionRateLimitedError,
@@ -89,6 +90,8 @@ from suncore.ha.connection import (
     EntityUpdate,
     HeartbeatTimeoutError,
     NotConnectedError,
+    NotificationAction,
+    NotificationActionListener,
     ProtocolError,
     RateLimiter,
     RegistryListener,
@@ -97,6 +100,7 @@ from suncore.ha.connection import (
     StateListener,
     Unsubscribe,
     action_rate_key,
+    check_notify_call,
 )
 from suncore.ha.redact import DEFAULT_REGISTRY, SecretRegistry
 from suncore.ha.solar_forecast import parse_solar_forecast
@@ -121,6 +125,9 @@ def _iso_with_offset(moment: datetime) -> str:
         raise ValueError(msg)
     return moment.isoformat()
 
+
+NOTIFY_INTERVAL_S: Final = 1.0
+"""Spacing of two notifications; a separate limiter from the device writes' one."""
 
 MAX_MESSAGE_BYTES: Final = 32 * 1024 * 1024
 """A full ``get_states`` of a large installation exceeds aiohttp's 4 MiB default."""
@@ -347,6 +354,12 @@ class WebSocketConnection:
 
         self._registry_listeners: list[RegistryListener] = []
         self._registry_subs: dict[int, str] = {}
+        self._notify_limiter = RateLimiter(NOTIFY_INTERVAL_S, clock=clock, sleep=sleep)
+        self._notify_services: frozenset[str] = frozenset()
+        self._action_listeners: list[NotificationActionListener] = []
+        self._action_sub: int | None = None
+        self._action_lost: list[Callable[[], None]] = []
+        self._action_wanted = False
         self._wanted: tuple[str, ...] = ()
         self._sub_id: int | None = None
         self._states: dict[str, EntityState] = {}
@@ -485,6 +498,68 @@ class WebSocketConnection:
                 self._registry_subs.pop(mid, None)
                 log.warning("ha.registry_subscribe_failed", event_type=event_type, reason=str(e))
 
+    async def notify(
+        self,
+        domain: str,
+        service: str,
+        data: Mapping[str, Any],
+        target: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Notification call (allowlist :func:`check_notify_call`); see :class:`HAConnection`.
+
+        Not a device write, so not routed through :class:`ServiceCaller`; spaced by its own
+        limiter. The payload is never logged (it may contain names of devices).
+        """
+        check_notify_call(domain, service, data, target, self._notify_services)
+        if self._ws is None or self._ws.closed:
+            raise NotConnectedError("not connected to Home Assistant")
+        await self._notify_limiter.acquire()
+        payload: dict[str, Any] = {
+            "type": "call_service",
+            "domain": domain,
+            "service": service,
+            "service_data": dict(data),
+        }
+        if target is not None:
+            payload["target"] = dict(target)
+        await self._command(payload)
+
+    def set_notify_services(self, services: Collection[str]) -> None:
+        self._notify_services = frozenset(services)
+
+    async def subscribe_notification_actions(
+        self,
+        listener: NotificationActionListener,
+        on_lost: Callable[[], None] | None = None,
+    ) -> Unsubscribe:
+        if self._state is ConnectionState.CONNECTED:
+            await self._subscribe_actions_on_wire()  # raises when Home Assistant refuses
+        self._action_wanted = True
+        self._action_listeners.append(listener)
+        if on_lost is not None:
+            self._action_lost.append(on_lost)
+
+        def remove() -> None:
+            with contextlib.suppress(ValueError):
+                self._action_listeners.remove(listener)
+            if on_lost is not None:
+                with contextlib.suppress(ValueError):
+                    self._action_lost.remove(on_lost)
+            self._action_wanted = bool(self._action_listeners)
+
+        return remove
+
+    async def _subscribe_actions_on_wire(self) -> None:
+        if self._action_sub is not None:
+            return
+        mid = self._next_id  # the id _command will use; events carry it
+        self._action_sub = mid
+        try:
+            await self._command({"type": "subscribe_events", "event_type": NOTIFY_ACTION_EVENT})
+        except BaseException:
+            self._action_sub = None
+            raise
+
     async def call_action_response(
         self,
         domain: str,
@@ -592,6 +667,7 @@ class WebSocketConnection:
                 self._ws = None
                 self._sub_id = None
                 self._registry_subs = {}
+                self._action_sub = None
                 self._fail_pending(ConnectionLostError("connection lost"))
             if self._closing:
                 return
@@ -692,6 +768,16 @@ class WebSocketConnection:
                 self._states = {}
         if self._registry_listeners:
             await self._subscribe_registry_on_wire()
+        if self._action_wanted:
+            try:
+                await self._subscribe_actions_on_wire()
+            except (CommandError, CommandTimeoutError) as err:
+                log.warning("ha.action_subscribe_failed", reason=str(err))
+                for lost in list(self._action_lost):
+                    try:
+                        lost()
+                    except Exception:
+                        log.exception("ha.listener_failed")
 
     # --- reading -----------------------------------------------------------
 
@@ -736,9 +822,22 @@ class WebSocketConnection:
             event = msg.get("event")
             if isinstance(event, Mapping):
                 self._on_entities_event(event)
+        elif kind == "event" and mid == self._action_sub:
+            self._on_action_event(msg.get("event"))
         elif kind == "event" and mid in self._registry_subs:
             for listener in list(self._registry_listeners):
                 self._safely(listener, self._registry_subs[mid])
+
+    def _on_action_event(self, event: Any) -> None:
+        """A notification action tap; only a string ``action`` of the right event type passes."""
+        if not isinstance(event, Mapping) or event.get("event_type") != NOTIFY_ACTION_EVENT:
+            return
+        data = event.get("data")
+        action = data.get("action") if isinstance(data, Mapping) else None
+        if not isinstance(action, str) or not action or len(action) > 200:
+            return
+        for listener in list(self._action_listeners):
+            self._safely(listener, NotificationAction(action))
 
     # --- entity stream ---------------------------------------------------------
 

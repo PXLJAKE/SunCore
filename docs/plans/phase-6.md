@@ -573,7 +573,8 @@ Der Maintainer ist abwesend; **bis zur Antwort gilt jeweils der empfohlene Stand
 1. **MQTT-Broker:** SunCore-Entities in HA brauchen den Mosquitto-Broker. **Empfehlung:** Broker
    automatisch über den Supervisor finden (dafür wird `hassio_api` wieder aktiviert, nur für
    diesen einen Aufruf); ohne Broker läuft alles weiter, die Oberfläche zeigt einen Hinweis.
-   Ist Mosquitto bei dir installiert?
+   Ist Mosquitto bei dir installiert? *(Stand 6-C: `hassio_api` ist dafür gar nicht nötig und
+   bleibt aus, siehe Abschnitt 8.)*
 2. **Modus aus HA anheben:** Soll ein Schalter in HA ein Gerät auf „Automatisch“ stellen dürfen?
    **Empfehlung:** nein (Standard aus, in den Einstellungen einschaltbar); Absenken, Not-Aus und
    Pause gehen immer.
@@ -616,6 +617,14 @@ Der Maintainer ist abwesend; **bis zur Antwort gilt jeweils der empfohlene Stand
 14. **Modellwahl:** **Empfehlung:** Sonnet für Routine, Haiku für Übersetzungen, das stärkere
     Modell für Verträge/Invarianten (6-B, 6-F, 6-G, 6-I, 6-L), Planer (6-H, 6-K) und die
     Abschlussprüfung.
+15. **Anzeigetexte der HA-Entities (neu, 6-C):** Aufzählungs-Sensoren (Modus, Status, letzte
+    Entscheidung) zeigen den *übersetzten* Text („Automatisch“) als Zustand, so steht es in
+    ADR-0016. Das heißt: Automationen, die auf den Zustand prüfen, hängen an der Sprache.
+    **Empfehlung:** so lassen; alternativ feste englische Zustände plus übersetzte Namen. Welche
+    Variante willst du?
+16. **Sprache der Entity-Namen (neu, 6-C):** Bei „Sprache: automatisch“ nimmt SunCore die
+    Sprache von Home Assistant (Schlüssel `language` aus `get_config`, ungeprüft), sonst
+    Englisch. **Empfehlung:** so lassen; die Region-Einstellung hat Vorrang.
 
 ## 7. Out of scope for Phase 6
 
@@ -664,6 +673,217 @@ detection; CO₂ weighting.
     defaults to `not_configured`.
   - H3: a `PUT` whose MQTT password equals the mask while none is stored is rejected with 422
     (`api.validation.mqtt_password_is_mask`) instead of dropping the password.
+
+### 6-C (MQTT base and backend ICU)
+
+- **`hassio_api` stays off** (plan WP3 and decision 1 said "re-enable"): the Supervisor lets apps
+  call `/services*` without it (`security.py` `api_bypass`, verified 2026-11-24), the `mqtt:want`
+  services role is what grants the lookup. A boundary test asserts that `GET /services/mqtt` is
+  the only Supervisor REST URL in the code and that no app folder sets `hassio_api`.
+- **Stub broker, not `amqtt`**: `amqtt`'s latest release is a pre-release that does not resolve with
+  the project's dependencies; `tests/ha/mqtt/stub_broker.py` is a ~200-line MQTT 3.1.1 broker
+  (credentials, will, retained, wildcards) and the tests run the real `aiomqtt` against it.
+  6-J can reuse it for the evcc fake.
+- **Read-only subset announced**: only the entities whose values SunCore has today are
+  announced (`app/ha_entities.py` `SUPPORTED`): `status`, `mode`, `available_surplus`, `healthy`,
+  `shadow_mode`, `emergency_stop`, `events`, and per device `<dev>_mode`, `<dev>_power`,
+  `<dev>_last_decision`. Not announced yet (catalogue entries exist, values follow): `next_action`,
+  `plan_cost_today`, `savings_today`, `savings_month`, `autarky_today`, `pv_forecast_error`
+  (need a summary reader, to be added with 6-D or 6-N), `month_peak`, `grid_state`,
+  `para14a_active`, `island` (6-F), `battery_action`, `battery_lease` (battery state mapping),
+  EV, program and comfort entities (6-I, 6-K, 6-L). All command entities (switch, button, select,
+  number, text) are in the catalogue but never announced before 6-D.
+- **Object id** of the emergency stop button is `emergency_stop_button` (the binary sensor keeps
+  `emergency_stop`): object ids are unique per site because they form the topics.
+- **Enum sensors publish the rendered label** (state and `options` in the backend language), as
+  ADR-0016 decision 6 says; a language change republishes configs and states. Automations on
+  these states therefore depend on the language; see question 15.
+- **`available_surplus`** is the controller's smoothed `available_w` (before the reserve).
+  `healthy` = Home Assistant connected and the control loop active.
+- **Events** produced now: `device_switched` (accepted decision), `proposal` (proposed),
+  `error` (failed), derived from each device's newest gate decision; the other types of the
+  `events` entity belong to later PRs. Events are not retained (HA ignores retained replays).
+- **Install record** (`iid`, announced device ids) lives in `learned_param` (namespace
+  `ha_entities`), not in a new table: no schema bump.
+- **Discovery** uses one device payload per HA device with `via_device` pointing at the site
+  device; no `cu` (configuration_url) and no `child_devices`.
+- **Backend catalogue prefixes** as planned (`mqtt.`, `notify.`, `safety.`, `controller.`,
+  `planner.`, `device.`, `grid.`); the golden file covers up to 8 sample argument sets per key.
+  Languages other than `en` and `de` have plural rule `other` only.
+- Image smoke test not run locally (no Docker daemon in the session); the new dependencies
+  `aiomqtt` 2.5.1 and `paho-mqtt` 2.2.0 are pure-Python wheels with hashes in `uv.lock`, so the
+  image's `--only-binary --require-hashes` install is unaffected. CI's smoke job covers it.
+- `UNVERIFIED`: `get_config` language key, custom HA birth topic, monetary unit rule, TLS to the
+  Mosquitto app with verification (see `docs/research/mqtt-discovery.md`).
+
+### 6-D (MQTT commands)
+
+- **Scope: the commands that have a service today.** Announced: `auto`, `replan`,
+  `emergency_stop_button`, `emergency_stop_clear`, and per device `<dev>_auto`, `<dev>_boost`,
+  `<dev>_pause`, `<dev>_resume`, `<dev>_boost_minutes`. Not announced (catalogue entries stay):
+  `battery_strategy`, `battery_reserve`, `battery_evening_target` (a config edit of the `battery`
+  and `goals` sections through `put_section`; it rebuilds the control stack and needs the author
+  `mqtt` in the config history, which the history table does not have, so it follows with a
+  schema-free solution decided by the maintainer, see question 17), EV, comfort and program
+  entities (6-I, 6-K, 6-L, no service yet). `select` and `text` parsing is therefore not written.
+- **`auto` switch semantics:** state = the *stored* mode is `automatic` (global, or the device's own
+  stored mode; the effective mode is `min(global, device)` and is shown by the mode sensor).
+  `ON` raises to `automatic`, `OFF` lowers to `shadow` (not to `assisted`: the least autonomous
+  state is the safe reading of "off"). A device raise sends the device's *current* identity token
+  (`DeviceControlState.identity`), which is what the opt-in means; a re-mapped device is not
+  protected by the token here, only by the opt-in.
+- **"Back to normal"** is read as: `resume` (gives the device back to SunCore), `OFF` (shadow) and
+  the emergency stop; they always work. Clearing the emergency stop is a raise (ADR-0016
+  decision 5, plan decision 2) and needs the opt-in; its button is announced only then.
+- **Rate limits:** per entity 1 token/s, burst 3; over all entities 20 commands per 10 s; the
+  emergency stop is exempt from both. Commands are handled in the MQTT task, never in the control
+  tick; every service call is bounded by those limits.
+- **No persistent notification yet** (6-E owns notifications): a refusal is logged with its
+  `Reason` (`safety.mqtt_mode_raise_disabled`, `mqtt.command.*`) and the true state is
+  republished; the notification hook follows in 6-E.
+- **No config author `mqtt`** (no config command exists yet); mode changes are stored through the
+  same `operation` path as the panel's.
+- **No API change** (the plan title says `feat(ha,api)`): the status endpoint is unchanged; the
+  decision log is the structured log (`mqtt.command`, with entity, accepted, reason, args).
+- **`MqttClient.on_message`** now receives the broker's retain flag as third argument.
+- **Boost duration** (`<dev>_boost_minutes`) is held in memory (default 60, 1..1440) and sent
+  with the boost press; it is not stored across restarts.
+- **`UNVERIFIED`:** the default payloads and number keys listed in the research note (HA source was
+  not reachable); that HA sends commands with retain off.
+
+**Review conditions (control-safety, PR #56):**
+
+- A1: the opt-in is withdrawn at once: `reconfigure()` calls `CommandHandler.revoke_raise()`, so the
+  old session cannot raise while it shuts down.
+- A2: commands no longer run in the client's read loop. The emergency stop gets its own task;
+  everything else goes through one worker queue (64 deep) and each service call has a 5 s timeout
+  (`mqtt.command.failed`, error `timeout`). The emergency stop has no timeout.
+- N1: `pl_prs`, `pl_on`, `pl_off`, `stat_on`, `stat_off` are announced explicitly (abbreviations
+  `UNVERIFIED`, same source gap as above).
+- N2: an emergency-stop press while the stop is set and no device waits for its release is
+  acknowledged as `unchanged` without a service call.
+- N3: numbers must match `-?[0-9]+(\.[0-9]+)?` before `float()` (no `1e3`, `0x10`, `+5`, `inf`).
+- H1 (residual risk): a device raise sends the device's *current* identity token, so the token's
+  protection against a re-mapped device does not apply to HA commands; only the opt-in does.
+- H2 (open question 18): `resume` works without the opt-in and hands a device that was paused in
+  the panel back to SunCore. It stays within the device's mode (a shadow device is still not
+  written), but should HA be allowed to undo a panel pause? **Empfehlung:** ja, ohne Opt-in.
+
+**Safety self-review (6-D), for the `control-safety` review**
+
+| # | Requirement | Where | Evidence |
+|---|---|---|---|
+| S1 | A command reaches the system only through the services layer, never a device | `commands.py` talks to `CommandPort`; `RuntimeCommandPort` calls `Runtime` methods | `test_commands_reach_the_system_only_through_the_command_port`, `test_the_app_command_port_calls_only_service_methods`, boundary list extended (`submit`, `hold`, ...) |
+| S2 | No `apply()`, no direct gate access | same | `test_mqtt_package_never_calls_a_write_path`; port test bans `gate`, `stack`, `apply`, `put_section` |
+| S3 | Raising autonomy refused by default | `_mode`, `emergency_stop_clear` | `test_raising_a_mode_is_refused_by_default`, `test_clearing_the_emergency_stop_is_refused_by_default`, runtime e2e |
+| S4 | Emergency stop and lowering always work, even flooded | exempt from limits, no opt-in check | `test_emergency_stop_is_never_rate_limited`, `test_emergency_stop_and_resume_work_with_the_opt_in_off`, `test_lowering_always_works_and_goes_to_shadow` |
+| S5 | Payloads validated | `_parse`: exact `ON`/`OFF`/`PRESS`, finite numbers, range, integer, 64 bytes, UTF-8 | parametrised invalid/oversize/binary tests |
+| S6 | Rate limited, no tick delay | token bucket plus global window, handled in the MQTT task | flood tests (unit, broker, 200 messages and the state sync keeps running) |
+| S7 | Retained commands ignored | `retain` flag, removal from the broker | `test_a_retained_command_is_ignored_and_removed` |
+| S8 | Unknown or unannounced entities ignored | target map built from the announced entities only | `test_unknown_object_ids_are_refused`, `test_garbage_is_ignored` |
+| S9 | A decision/Reason per command | `mqtt.command` log with `Reason(key, args)`; keys in en/de catalogue | all result tests; catalogue check |
+| S10 | The true state is republished after a command | `StatePublisher.forget` + sync | `test_raise_is_refused_and_the_true_state_is_republished` |
+| S11 | A failing service never kills the session | `except Exception` in `_handle` | `test_a_failing_service_call_is_a_refusal_not_an_exception` |
+
+Residual risks: anyone with broker credentials can still stop SunCore, pause devices and lower
+modes (by design; stopping is always safe); with the opt-in on, a broker client can arm devices
+(R1, documented, default off); the opt-in is checked against the config loaded at session start
+(a change reconnects the session).
+
+**New question for the maintainer (17):** Batterie-Strategie, -Reserve und Abend-Ziel als
+HA-Entities brauchen eine Konfigurationsänderung durch HA. Soll ich dafür den Verlauf der
+Konfiguration um einen „Urheber“ (`mqtt`) erweitern (eine kleine Migration) oder reichen die
+Betriebsmodi und der Not-Aus aus HA vorerst? **Empfehlung:** vorerst nur Modi und Not-Aus; die
+Batterie-Einstellungen bleiben im Panel.
+
+### 6-E (notifications)
+
+- **Scope.** Built: `HAConnection.notify` (allowlist, own limiter), `subscribe_notification_actions`,
+  `suncore/notify/` (rules, rate limits, tokens, sink, render, service), the app composition
+  (`app/notifications.py`), the API (`GET/PUT /api/v1/notifications/settings`, `GET .../status`,
+  `POST .../test`), the persistent notification for a refused mode raise from HA (6-D hook
+  `HaEntityService(on_refusal=...)`), 46 new catalogue keys per language and the regenerated backend
+  catalogue and golden file. Demo mode runs no notification service.
+- **`notify` imports the types of `ha.connection`** (errors, `NotificationAction`) besides `core`
+  and `i18n`: the plan said `core` and `i18n` only; the boundary test bans every other `suncore`
+  package and `ha.websocket`/`ha.mqtt`.
+- **Entity targets get plain text.** `notify.send_message` has no documented button field, so
+  buttons go only to legacy `notify.<service>` targets (companion app); entity targets receive the
+  text with a pointer to the panel. The status reports `notify.reason.actions_entity_only`.
+- **Targets are entered by name.** The list of legacy `notify.*` services (`get_services`) is not
+  read (`UNVERIFIED` over the proxy, plan WP5); the status lists the `notify` entities from the
+  entity cache, services are typed in. Service names that could switch something
+  (`send_message`, `persistent_notification`, anything with a dot or capital) are rejected by the
+  config model; the connection's allowlist only sends configured names.
+- **Event subscription tried when HA is first connected**, not at process start (nothing can be
+  subscribed before). A refusal (`CommandError`) is final until a restart (`actions: refused`);
+  an offline error is retried at the next connect. After a reconnect the connection renews the
+  subscription itself; a failure there is only logged, the service keeps `active` (a tap then
+  simply never arrives, which is safe).
+- **Quiet hours drop, they do not queue.** A proposal or cheap-window message in the quiet hours
+  is not sent later (a proposal expires within minutes anyway). Persistent notifications ignore
+  quiet hours and the cap.
+- **Sources not yet there.** Island and section 14a (6-F) enter through `Observation.island` and
+  `.para14a` (both `None` today: no event); program start/done and EV target at risk (6-L, 6-I)
+  through `NotificationService.post`; "trip" is read from a watchdog pause
+  (`safety.watchdog_*`), "adapter refuses" has no source yet. The daily summary only carries the
+  mode and the number of switchings seen today (no cost or savings reader yet, see 6-C).
+- **Cheap window** = cheapest contiguous block of at least 1 h with prices strictly below the
+  25th percentile of the next 24 h, from the tariff report (refreshed every 5 min), announced once
+  per window start.
+- **Replies.** A tap is answered with a short message (confirmed, rejected, no longer valid, not
+  switched). A tap on an expired, used or forged token is logged and not answered (no amplification).
+- **Tests.** pytest, the sim fake, the WebSocket fake server (`FakeHA`) and a stub connection; no
+  network. The stub MQTT broker is not needed.
+- `UNVERIFIED`: see `docs/research/ha-websocket-api.md`, section "Notifications and notification
+  actions" (the `home-assistant/core` source was not reachable).
+
+**Safety self-review (6-E), for the `control-safety` review of the confirm path**
+
+| # | Requirement | Where | Evidence |
+|---|---|---|---|
+| S1 | A confirm from a notification takes the panel's service path | `NotificationService._handle` -> `ProposalPort.confirm_proposal` -> `Runtime.confirm_proposal` -> `gate.confirm` (`Origin.USER`) | `test_a_tap_confirms_through_the_same_gate_path_as_the_panel`, boundary tests (`confirm_proposal` only at `self._proposals`, port has two methods) |
+| S2 | Proposal still current: id, expiry, mode | token bound to the intent id and `expires_at`; `open_proposals()` must list the id, `now < expires_at`, device `assisted`; the gate re-checks expiry | `test_confirm_after_expiry...`, `test_confirm_needs_the_proposal_to_be_current_and_assisted`, `test_the_port_expiry_is_checked_by_the_service_too`, runtime tests (expired, panel first, mode lowered) |
+| S3 | Idempotent | the token is consumed synchronously by the first tap (its sibling dies with it); the gate pops the proposal once | `test_confirm_goes_through_the_services_layer_once_and_is_idempotent`, `test_a_second_tap_does_not_confirm_again`, `tests/notify/test_actions.py` |
+| S4 | Never raises a mode or clears the emergency stop | the port has no such method; `RuntimeProposalPort` calls `proposals`/`confirm_proposal` only; during an emergency stop the gate rejects | `test_a_tap_never_raises_the_mode_or_clears_the_emergency_stop`, `test_the_app_port_calls_only_the_two_service_methods`, `test_notify_package_never_calls_a_write_path` |
+| S5 | Rejected when action events cannot be authenticated | taps are honoured only in `ActionsState.ACTIVE` (subscription succeeded) and only for a 128-bit token SunCore issued (the event carries no sender proof, `UNVERIFIED`); a refused subscription issues no buttons | `test_a_refused_subscription_means_plain_notifications_and_no_taps`, `test_before_the_subscription_succeeds_no_tap_is_honoured`, `test_forged_and_foreign_actions_do_nothing` |
+| S6 | Token hygiene | random (`secrets`), memory only (a restart voids all), SHA-256 keyed, never logged, verb must match, 32 open proposals at most | `tests/notify/test_actions.py` |
+| S7 | Reject does not act | no service call; the proposal lapses | `test_reject_calls_nothing_and_kills_the_confirm_button` |
+| S8 | No device write from the notification layer | AST bans `apply`, `release`, `call_service`, gate and stack names; imports of `safety`, `controller`, `devices`, `api`, `app` forbidden; `HAConnection.notify` allowlist | `tests/notify/test_boundary.py`, `tests/ha/test_websocket_notify.py` (switch.turn_on etc. refused before the wire) |
+| S9 | A flood cannot hurt | forged ids cost one hash; at most 8 tasks in flight; notification rate 1/s on its own limiter; push cap per day | `test_a_tap_flood_is_bounded` |
+| S10 | Shadow stays default | the service reads modes, never writes them; no default target, push off until a target is chosen | defaults of `NotificationsConfig`, API default test |
+
+Residual risks: anyone who can fire events on the HA bus *and* reads the notification's token (the
+phone, the HA event log while the event is public) can confirm that one proposal within its
+lifetime; the effect is limited to what the panel's confirm does (one assisted proposal, all
+invariants apply). The token travels in the notification payload through the HA notify service and
+the push provider (as every actionable notification does). A refusal of the subscription after a
+reconnect is not detected (the service stays `active`, taps just never arrive).
+
+**Review conditions (control-safety, PR #57):**
+
+- 1 (required): `SAFETY` events bypass the daily push cap (a proposal flood cannot starve an
+  emergency-stop push; quiet hours never applied to safety).
+- 2: `gate.confirm` rejects when the device's *current* effective mode is not `assisted`
+  (`safety.proposal_mode_changed`, panel and tap alike); test assisted to automatic to confirm.
+- 3: persistent `SAFETY` notices are created even when the safety category (push) is off.
+- 4: the in-flight limit is checked before a token is spent.
+- 5: a failed renewal of the event subscription after a reconnect calls `on_lost`; the service
+  drops its buttons (`pending`) and subscribes again at the next connect.
+- 6: braces in device names are replaced before rendering (templates in legacy services,
+  `UNVERIFIED`).
+
+**New questions for the maintainer (19-21):**
+
+- **Frage 19: Push-Ziele (6-E):** Der Name des Ziels (z. B. `mobile_app_<handy>`) wird in den
+    Einstellungen eingetragen; die Liste der `notify`-Dienste liest SunCore nicht. Reicht das,
+    oder soll die Liste über Home Assistant geholt werden (ungeprüft über den Supervisor)?
+    **Empfehlung:** vorerst eintragen; `notify`-Entities werden als Auswahl angeboten.
+- **Frage 20: Aktions-Buttons (6-E):** Buttons gibt es nur für Companion-App-Dienste
+    (`notify.mobile_app_...`), nicht für `notify`-Entities. Ist das für dich in Ordnung?
+    **Empfehlung:** ja; ohne Button steht der Hinweis auf das Panel in der Meldung.
+- **Frage 21: Ruhezeit (6-E):** Vorschläge in der Ruhezeit (22-7 Uhr) werden verworfen statt am Morgen
+    nachgereicht (sie verfallen nach Minuten). **Empfehlung:** so lassen.
 
 ### 6-F (import side, §14a, island)
 

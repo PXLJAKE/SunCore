@@ -37,8 +37,10 @@ from suncore.app.adapters import (
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import BatteryWiring, ControlStack
 from suncore.app.grid import GridMonitor
+from suncore.app.ha_entities import build_ha_entities
 from suncore.app.history import backfill_history, rebuild_history
 from suncore.app.modes import ConfigModes
+from suncore.app.notifications import build_notifications
 from suncore.app.planning import (
     LiveReading,
     PlanningService,
@@ -84,6 +86,7 @@ from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import ChargerControl, DeviceConfig
 from suncore.core.flex import EvState
 from suncore.core.grid import month_key
+from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.identity import battery_identity_token, identity_token
 from suncore.core.series import QuantileSeries
 from suncore.core.signals import Quality, Sample
@@ -125,6 +128,16 @@ from suncore.ha import (
     detect_template_role,
     legacy_entities,
     suggest_from_prefs,
+)
+from suncore.ha.mqtt import HaEntityService
+from suncore.ha.mqtt.check import check_ha_entities
+from suncore.notify import (
+    ActionsState,
+    Category,
+    NotificationService,
+    NotifyEvent,
+    NotifyStatus,
+    TestResult,
 )
 from suncore.planner import build_inputs
 from suncore.planner import reasons as planner_reasons
@@ -269,6 +282,12 @@ class Runtime:
     _tz_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _ha_location: tuple[float, float] | None = None
     """Home Assistant's ``latitude``/``longitude`` (``get_config``), for the PV clear-sky model."""
+    ha_language: str | None = None
+    """Home Assistant's UI language (``get_config``, key ``language``: ``UNVERIFIED``), used for
+    the entity names while ``region.language`` is ``auto``."""
+    ha_entities: HaEntityService | None = None
+    notifications: NotificationService | None = None
+    """The MQTT entity surface (``None`` in demo mode); never needed by anything else."""
 
     @property
     def gate(self) -> SafetyGate:
@@ -319,11 +338,67 @@ class Runtime:
         self._start_load_task()
         self._start_tariff()
         self._start_planning()
+        await self._start_ha_entities()
+        await self._start_notifications()
         if self.timeseries is not None:
             self._flush_task = asyncio.create_task(self._flush_loop(), name="suncore-ts-flush")
             self._maintenance_task = asyncio.create_task(
                 self._maintenance_loop(), name="suncore-ts-maintenance"
             )
+
+    async def _start_ha_entities(self) -> None:
+        """The MQTT entity surface runs beside the control layer and never blocks it."""
+        service = build_ha_entities(self, self._on_mqtt_refusal)
+        if service is None:
+            return
+        self.ha_entities = service
+        self._unsubscribers.append(self.add_change_listener(service.refresh))
+        self._unsubscribers.append(self.add_control_listener(service.refresh))
+        await service.start()
+
+    async def _start_notifications(self) -> None:
+        """Notifications run beside the control layer; a failure never stops the application."""
+        service = build_notifications(self)
+        if service is None:
+            return
+        self.notifications = service
+        await service.start()
+
+    def _on_mqtt_refusal(self, object_id: str, reason: Reason) -> None:  # noqa: ARG002
+        """A raise from Home Assistant was refused: tell the user once an hour per entity."""
+        service = self.notifications
+        if service is None:
+            return
+        now = self.clock()
+        service.post(
+            NotifyEvent(
+                Category.SAFETY,
+                f"mqtt_raise_refused:{object_id}:{now:%Y%m%d%H}",
+                Reason(key="notify.safety.mqtt_raise_refused", args={"entity": object_id}),
+                now,
+            )
+        )
+
+    def ha_entities_status(self) -> HaEntitiesStatus:
+        if self.ha_entities is None:
+            return HaEntitiesStatus(BrokerState.DISABLED, None, 0, "mqtt.reason.not_enabled")
+        return self.ha_entities.status
+
+    async def ha_entities_republish(self) -> bool:
+        return self.ha_entities is not None and await self.ha_entities.republish()
+
+    def notifications_status(self) -> NotifyStatus:
+        if self.notifications is None:
+            return NotifyStatus(ActionsState.PENDING, "notify.reason.no_targets", 0, 0, 0, 0)
+        return self.notifications.status
+
+    def notify_entity_targets(self) -> list[str]:
+        return [m.entity_id for m in self.catalogue.metas() if m.domain == "notify"]
+
+    async def notifications_test(self) -> TestResult:
+        if self.notifications is None:
+            return TestResult(0, 0, "notify.reason.no_targets")
+        return await self.notifications.send_test()
 
     async def _load_live_sections(self) -> None:
         self.site = await self.config.get_site()
@@ -351,6 +426,10 @@ class Runtime:
         operation = await self.config.get("operation")
         assert operation is None or isinstance(operation, OperationConfig)
         self.modes.update(operation)
+
+    def timezone(self) -> tzinfo:
+        """The site's time zone (the notification service reads it)."""
+        return self._timezone()
 
     def _timezone(self) -> tzinfo:
         """The site time zone: the region's, else Home Assistant's, else UTC (a warning)."""
@@ -961,6 +1040,11 @@ class Runtime:
         except (HAError, TimeoutError) as exc:
             log.warning("ha.get_config_failed", error=str(exc))
             return
+        language = config.get("language")
+        if isinstance(language, str) and language:
+            self.ha_language = language
+            if self.ha_entities is not None:
+                self.ha_entities.refresh()
         lat, lon = config.get("latitude"), config.get("longitude")
         if (
             isinstance(lat, int | float)
@@ -1202,6 +1286,14 @@ class Runtime:
             if self.region is None and self._started:
                 await self._rebuild_stack()
 
+    async def _stop_ha_surface(self) -> None:
+        if self.notifications is not None:
+            await self.notifications.stop()
+            self.notifications = None
+        if self.ha_entities is not None:
+            await self.ha_entities.stop()
+            self.ha_entities = None
+
     async def stop(self) -> None:
         """Close in reverse order: release hardware control, connection, then database.
 
@@ -1252,6 +1344,7 @@ class Runtime:
             late.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await late
+        await self._stop_ha_surface()
         await self.catalogue.stop()
         await self.connection.close()
         await self.recorder.flush()
@@ -1406,6 +1499,10 @@ class Runtime:
             stored = await self._put_section(name, model)
         if name in PLANNING_SECTIONS:
             self._planning_event("config")
+        if name == "mqtt" and self.ha_entities is not None:
+            self.ha_entities.reconfigure()
+        if name == "notifications" and self.notifications is not None:
+            self.notifications.reconfigure()
         self._notify()
         return stored
 
@@ -1732,7 +1829,11 @@ class Runtime:
             else None
         )
         includes = template.price_includes if isinstance(template, TariffTemplate) else None
-        return [*items, *check_tariff(self.tariff_config, includes)]
+        return [
+            *items,
+            *check_tariff(self.tariff_config, includes),
+            *check_ha_entities(self.ha_entities_status()),
+        ]
 
     async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
         ids = list(dict.fromkeys(entity_id for _, entity_id, _ in collect_refs(fragment)))
@@ -1784,6 +1885,10 @@ class Runtime:
     async def import_config(self, data: object) -> list[str]:
         sections = await self.config.import_json(data)
         await self._reload_live_sections(resubscribe=True)
+        if self.ha_entities is not None:
+            self.ha_entities.reconfigure()
+        if self.notifications is not None:
+            self.notifications.reconfigure()
         self._notify()
         return sections
 

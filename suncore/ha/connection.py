@@ -98,6 +98,62 @@ ERR_ACTION_RATE_LIMITED: Final = "ha.error.action_rate_limited"
 """Catalogue key of the refusal of a too frequent read-only action."""
 
 
+class NotifyNotAllowedError(HAError):
+    """``HAConnection.notify`` was asked for a call outside the notification allowlist."""
+
+
+NOTIFY_ACTION_EVENT: Final = "mobile_app_notification_action"
+"""Event fired by the companion app when the user taps an action button of a notification
+(``companion.home-assistant.io`` "actionable notifications", read 2026-11-24; the payload keys
+other than ``action`` are ``UNVERIFIED``, the ``home-assistant/core`` source was unreachable)."""
+
+NOTIFY_RESERVED_SERVICES: Final = frozenset({"send_message", "persistent_notification"})
+_PERSISTENT_SERVICES: Final = frozenset({"create", "dismiss"})
+
+
+def check_notify_call(
+    domain: str,
+    service: str,
+    data: Mapping[str, Any],
+    target: Mapping[str, Any] | None,
+    allowed_services: Collection[str],
+) -> None:
+    """Raise :class:`NotifyNotAllowedError` unless the call is a permitted notification.
+
+    Allowed (ADR-0016 decision 1): ``persistent_notification.create|dismiss``;
+    ``notify.send_message`` addressed to ``notify.*`` entities only; ``notify.<name>`` for a
+    ``name`` the user configured (``allowed_services``). Anything else, including every
+    device-switching service, is refused here, before a message leaves the process.
+    """
+    if domain == "persistent_notification":
+        if service not in _PERSISTENT_SERVICES or target is not None:
+            msg = f"persistent_notification.{service} is not allowed"
+            raise NotifyNotAllowedError(msg)
+        return
+    if domain != "notify":
+        msg = f"{domain}.{service} is not a notification"
+        raise NotifyNotAllowedError(msg)
+    if service == "send_message":
+        entities = None if target is None else target.get("entity_id")
+        listed = [entities] if isinstance(entities, str) else entities
+        if (
+            not isinstance(listed, list | tuple)
+            or not listed
+            or not all(isinstance(e, str) and e.startswith("notify.") for e in listed)
+            or set(target or {}) != {"entity_id"}
+            or "message" not in data
+        ):
+            msg = "notify.send_message needs a message and notify entities as target"
+            raise NotifyNotAllowedError(msg)
+        return
+    if service in NOTIFY_RESERVED_SERVICES or service not in allowed_services:
+        msg = f"notify.{service} is not a configured notification target"
+        raise NotifyNotAllowedError(msg)
+    if target is not None or "message" not in data:
+        msg = f"notify.{service} takes a message and no target"
+        raise NotifyNotAllowedError(msg)
+
+
 # --- value types --------------------------------------------------------------
 
 
@@ -162,6 +218,15 @@ class EntityUpdate:
     removed: tuple[str, ...] = ()
     full: bool = False
 
+
+@dataclass(frozen=True, slots=True)
+class NotificationAction:
+    """A tap on an action button of a notification: only the action id is trusted data."""
+
+    action: str
+
+
+NotificationActionListener = Callable[[NotificationAction], None]
 
 StateListener = Callable[[ConnectionState], None]
 EntityListener = Callable[[EntityUpdate], None]
@@ -254,6 +319,41 @@ class HAConnection(Protocol):
 
         Subscribes to the three events of :data:`REGISTRY_EVENT_TYPES`; the subscriptions are
         renewed after a reconnect. Returns the remover.
+        """
+        ...
+
+    async def notify(
+        self,
+        domain: str,
+        service: str,
+        data: Mapping[str, Any],
+        target: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Send a notification (the only write that is not a device write, ADR-0016).
+
+        Accepts :func:`check_notify_call`'s allowlist and nothing else
+        (:class:`NotifyNotAllowedError`); spaced by its own limiter so a notification burst
+        never delays a device write. There is no read-back: a notification has no state.
+        """
+        ...
+
+    def set_notify_services(self, services: Collection[str]) -> None:
+        """The legacy ``notify.<name>`` services the user configured (replaces the set)."""
+        ...
+
+    async def subscribe_notification_actions(
+        self,
+        listener: NotificationActionListener,
+        on_lost: Callable[[], None] | None = None,
+    ) -> Unsubscribe:
+        """Subscribe to :data:`NOTIFY_ACTION_EVENT`; renewed after a reconnect.
+
+        Raises :class:`CommandError` when Home Assistant refuses (a non-admin token may only
+        subscribe to a short allowlist, ``UNVERIFIED`` for the Supervisor's token) and
+        :class:`NotConnectedError` while offline; the caller then degrades to plain
+        notifications. The listener gets nothing but the ``action`` string.
+        ``on_lost`` is called when the renewal after a reconnect fails (taps no longer
+        arrive); the caller then subscribes again.
         """
         ...
 

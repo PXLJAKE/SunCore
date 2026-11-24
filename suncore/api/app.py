@@ -43,6 +43,8 @@ from suncore.api.models import (
     ErrorOut,
     FlowsMessage,
     FlowsOut,
+    HaEntitiesRepublishOut,
+    HaEntitiesStatusOut,
     HealthMessage,
     HealthOut,
     HistoryRestoreOut,
@@ -50,6 +52,8 @@ from suncore.api.models import (
     InfoOut,
     LiveMessage,
     ModeRequest,
+    NotificationsStatusOut,
+    NotificationTestOut,
     PlanMessage,
     PreviewItemOut,
     PreviewOut,
@@ -73,6 +77,7 @@ from suncore.api.validation import validation_exception_handler
 from suncore.core.config import (
     SECTION_MODELS,
     MqttPasswordIsMaskError,
+    NotificationsConfig,
     OperationConfig,
     TariffConfig,
     formula_on_all_in_source,
@@ -173,6 +178,8 @@ def create_app(
     _register_http(app, services)
     _register_prices(app, services)
     _register_plan(app, services)
+    _register_ha_entities(app, services)
+    _register_notifications(app, services)
     register_history(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
@@ -401,6 +408,81 @@ def _register_plan(app: FastAPI, services: Services) -> None:
             return await services.replan()
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=ERR_PLANNING_UNAVAILABLE) from exc
+
+
+def _register_ha_entities(app: FastAPI, services: Services) -> None:
+    """Status of the MQTT entity surface and a manual republish (Phase 6 WP3)."""
+
+    @app.get(
+        f"{API_PREFIX}/ha-entities/status",
+        response_model=HaEntitiesStatusOut,
+        operation_id="ha_entities_status",
+    )
+    async def ha_entities_status() -> HaEntitiesStatusOut:
+        """Whether SunCore's entities are published in Home Assistant: the state (``disabled``,
+        ``no_broker``, ``connecting``, ``connected``, ``error``), where the broker comes from,
+        the number of entities and, when something is wrong, a reason key and (without a
+        broker) the hint key for installing the Mosquitto broker app. Everything else in
+        SunCore works without it."""
+        return HaEntitiesStatusOut.from_core(services.ha_entities_status())
+
+    @app.post(
+        f"{API_PREFIX}/ha-entities/republish",
+        response_model=HaEntitiesRepublishOut,
+        operation_id="ha_entities_republish",
+    )
+    async def ha_entities_republish() -> HaEntitiesRepublishOut:
+        """Publish the discovery configs and all states again (for a broker without the Home
+        Assistant birth message). ``republished`` is ``false`` when there is no broker session."""
+        return HaEntitiesRepublishOut(republished=await services.ha_entities_republish())
+
+
+def _register_notifications(app: FastAPI, services: Services) -> None:
+    """Notification settings, status and a test message (Phase 6 WP5)."""
+
+    @app.get(
+        f"{API_PREFIX}/notifications/settings",
+        response_model=NotificationsConfig,
+        operation_id="notifications_settings",
+    )
+    async def settings() -> NotificationsConfig:
+        """Categories, push targets, quiet hours and the daily cap (the ``notifications``
+        section; defaults while nothing is stored)."""
+        stored = await services.get_section("notifications")
+        return stored if isinstance(stored, NotificationsConfig) else NotificationsConfig()
+
+    @app.put(
+        f"{API_PREFIX}/notifications/settings",
+        response_model=NotificationsConfig,
+        operation_id="notifications_put_settings",
+    )
+    async def put_settings(body: NotificationsConfig) -> NotificationsConfig:
+        """Replace the notification settings; the service picks them up at once."""
+        stored = await services.put_section("notifications", body)
+        assert isinstance(stored, NotificationsConfig)
+        return stored
+
+    @app.get(
+        f"{API_PREFIX}/notifications/status",
+        response_model=NotificationsStatusOut,
+        operation_id="notifications_status",
+    )
+    async def status() -> NotificationsStatusOut:
+        """Whether the confirm buttons work (``active``) or Home Assistant refused the event
+        subscription (``refused``: plain messages with a pointer to the panel), how many push
+        targets can carry buttons, and the ``notify`` entities to choose from."""
+        return NotificationsStatusOut.from_core(
+            services.notifications_status(), services.notify_entity_targets()
+        )
+
+    @app.post(
+        f"{API_PREFIX}/notifications/test",
+        response_model=NotificationTestOut,
+        operation_id="notifications_test",
+    )
+    async def test() -> NotificationTestOut:
+        """Send a test message to every push target (at most one every five seconds)."""
+        return NotificationTestOut.from_core(await services.notifications_test())
 
 
 def _register_control(app: FastAPI, services: Services) -> None:

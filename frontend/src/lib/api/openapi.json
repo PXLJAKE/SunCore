@@ -5207,6 +5207,88 @@
         "title": "GridFeeWindow",
         "type": "object"
       },
+      "HaEntitiesRepublishOut": {
+        "additionalProperties": false,
+        "description": "Result of ``POST /api/v1/ha-entities/republish``.",
+        "properties": {
+          "republished": {
+            "title": "Republished",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "republished"
+        ],
+        "title": "HaEntitiesRepublishOut",
+        "type": "object"
+      },
+      "HaEntitiesStatusOut": {
+        "additionalProperties": false,
+        "description": "``GET /api/v1/ha-entities/status``: the MQTT entity surface.",
+        "properties": {
+          "entity_count": {
+            "title": "Entity Count",
+            "type": "integer"
+          },
+          "hint_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint Key"
+          },
+          "reason_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Key"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "supervisor",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "no_broker",
+              "connecting",
+              "connected",
+              "error"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "source",
+          "entity_count",
+          "reason_key",
+          "hint_key"
+        ],
+        "title": "HaEntitiesStatusOut",
+        "type": "object"
+      },
       "HealthMessage": {
         "additionalProperties": false,
         "properties": {
@@ -7144,6 +7226,38 @@
         "title": "NotificationCategories",
         "type": "object"
       },
+      "NotificationTestOut": {
+        "additionalProperties": false,
+        "description": "Result of ``POST /api/v1/notifications/test``.",
+        "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "reason_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Key"
+          },
+          "sent": {
+            "title": "Sent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sent",
+          "failed",
+          "reason_key"
+        ],
+        "title": "NotificationTestOut",
+        "type": "object"
+      },
       "NotificationsConfig": {
         "additionalProperties": false,
         "description": "Notification settings (ADR-0016 decision 7, plan WP5).\n\nPersistent notifications are on by default (errors and safety events); push needs a\ntarget the user picks. ``daily_push_cap`` limits push messages per local day.",
@@ -7196,6 +7310,66 @@
           }
         },
         "title": "NotificationsConfig",
+        "type": "object"
+      },
+      "NotificationsStatusOut": {
+        "additionalProperties": false,
+        "description": "``GET /api/v1/notifications/status``: do push and the confirm buttons work?",
+        "properties": {
+          "actions": {
+            "enum": [
+              "pending",
+              "active",
+              "refused"
+            ],
+            "title": "Actions",
+            "type": "string"
+          },
+          "button_targets": {
+            "title": "Button Targets",
+            "type": "integer"
+          },
+          "entity_targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entity Targets",
+            "type": "array"
+          },
+          "open_buttons": {
+            "title": "Open Buttons",
+            "type": "integer"
+          },
+          "push_targets": {
+            "title": "Push Targets",
+            "type": "integer"
+          },
+          "pushed_today": {
+            "title": "Pushed Today",
+            "type": "integer"
+          },
+          "reason_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Key"
+          }
+        },
+        "required": [
+          "actions",
+          "reason_key",
+          "push_targets",
+          "button_targets",
+          "pushed_today",
+          "open_buttons",
+          "entity_targets"
+        ],
+        "title": "NotificationsStatusOut",
         "type": "object"
       },
       "NotifyTarget": {
@@ -13255,6 +13429,44 @@
         "summary": "Forecast Risk"
       }
     },
+    "/api/v1/ha-entities/republish": {
+      "post": {
+        "description": "Publish the discovery configs and all states again (for a broker without the Home\nAssistant birth message). ``republished`` is ``false`` when there is no broker session.",
+        "operationId": "ha_entities_republish",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HaEntitiesRepublishOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ha Entities Republish"
+      }
+    },
+    "/api/v1/ha-entities/status": {
+      "get": {
+        "description": "Whether SunCore's entities are published in Home Assistant: the state (``disabled``,\n``no_broker``, ``connecting``, ``connected``, ``error``), where the broker comes from,\nthe number of entities and, when something is wrong, a reason key and (without a\nbroker) the hint key for installing the Mosquitto broker app. Everything else in\nSunCore works without it.",
+        "operationId": "ha_entities_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HaEntitiesStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ha Entities Status"
+      }
+    },
     "/api/v1/history/cycles": {
       "get": {
         "description": "Equivalent full cycles, charged and discharged energy and the state-of-charge range\nper local day (default: the last 30 days, at most 400).",
@@ -13987,6 +14199,100 @@
           }
         },
         "summary": "Info"
+      }
+    },
+    "/api/v1/notifications/settings": {
+      "get": {
+        "description": "Categories, push targets, quiet hours and the daily cap (the ``notifications``\nsection; defaults while nothing is stored).",
+        "operationId": "notifications_settings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Settings"
+      },
+      "put": {
+        "description": "Replace the notification settings; the service picks them up at once.",
+        "operationId": "notifications_put_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationsConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Put Settings"
+      }
+    },
+    "/api/v1/notifications/status": {
+      "get": {
+        "description": "Whether the confirm buttons work (``active``) or Home Assistant refused the event\nsubscription (``refused``: plain messages with a pointer to the panel), how many push\ntargets can carry buttons, and the ``notify`` entities to choose from.",
+        "operationId": "notifications_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status"
+      }
+    },
+    "/api/v1/notifications/test": {
+      "post": {
+        "description": "Send a test message to every push target (at most one every five seconds).",
+        "operationId": "notifications_test",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationTestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Test"
       }
     },
     "/api/v1/operation/battery": {

@@ -22,6 +22,7 @@ from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.haentities import HaEntitiesStatus
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
 from suncore.forecast.views import (
@@ -30,6 +31,7 @@ from suncore.forecast.views import (
     PvForecastView,
     RiskView,
 )
+from suncore.notify import NotifyStatus, TestResult
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import DecisionLog, HistoryEntry, PlanSnapshotStore, TimeseriesStore
 from suncore.storage.summaries import DaySummaryRow
@@ -309,6 +311,26 @@ class Services(Protocol):
 
     def plan_summary(self) -> PlanSummary:
         """The short form of the current plan for the live feed."""
+        ...
+
+    def ha_entities_status(self) -> HaEntitiesStatus:
+        """State of the Home Assistant entity surface (MQTT discovery, ADR-0016)."""
+        ...
+
+    async def ha_entities_republish(self) -> bool:
+        """Announce the entities and their states again; ``False`` = no broker session."""
+        ...
+
+    def notifications_status(self) -> NotifyStatus:
+        """Whether push and action buttons work as configured, and why not (ADR-0016)."""
+        ...
+
+    def notify_entity_targets(self) -> list[str]:
+        """``notify.*`` entities Home Assistant knows (the choices for ``entity`` targets)."""
+        ...
+
+    async def notifications_test(self) -> TestResult:
+        """Send a test message to every configured push target."""
         ...
 
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:

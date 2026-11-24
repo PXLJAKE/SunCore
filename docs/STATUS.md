@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PR 6-I wallbox/EV) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PR 6-L programs) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
@@ -96,6 +96,78 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     heuristic objective -0.37 vs solver -12.88. Reference house unchanged (5 ms solve, 31 ms
     run). Slow CI test: full house < 5 s. aarch64 not measured (`UNVERIFIED`).
   - Deviations: plan section 8 (6-H).
+- **Phase 6 - PR 6-E, WP5 notifications (branch `phase-6/e-notify`, on 6-D;
+  `backend-engineer`, `ha-integration`, `control-safety` review pending for the confirm path)** -
+  SunCore tells the user what matters and lets them confirm an assisted proposal from the phone:
+  - `HAConnection.notify(domain, service, data, target)` with an allowlist
+    (`persistent_notification.create|dismiss`, `notify.send_message` to `notify.*` entities,
+    `notify.<name>` only for configured names), its own 1 s limiter, no payload in logs;
+    `subscribe_notification_actions` (event `mobile_app_notification_action`, only the `action`
+    string passes). WebSocket client and `sim` fake both implement it.
+  - `suncore/notify/`: `rules.py` (categories: error, safety, proposal, program, EV target,
+    cheap window, daily summary; first observation = baseline), `ratelimit.py` (dedupe key,
+    interval, quiet hours 22:00-07:00, 20 push a day), `actions.py` (random single-use tokens
+    bound to a proposal and its expiry), `sink.py`, `render.py` (backend ICU catalogue),
+    `service.py` (observe, deliver, confirm path).
+  - Confirm path: a tap is honoured only after the event subscription succeeded; token valid and
+    unused, proposal still open, not expired, device still `assisted`; then one
+    `Runtime.confirm_proposal` (the panel's `gate.confirm`, `Origin.USER`). Reject calls nothing.
+    The port cannot raise a mode or clear the emergency stop (boundary tests).
+  - API `GET/PUT /api/v1/notifications/settings`, `GET .../status`, `POST .../test`; MQTT
+    mode-raise refusals (6-D) now raise a persistent notification.
+  - Not in this PR: grid events (island, section 14a) are consumed from `Observation` once 6-F
+    delivers them; program and EV events come with 6-L and 6-I (`NotificationService.post`);
+    settings UI is 6-M. Review conditions of #57 (safety bypasses the daily cap,
+    `gate.confirm` re-checks the current mode, a lost subscription drops buttons) are in.
+    Deviations, safety self-review and questions: plan section 8 (6-E).
+- **Phase 6 - PR 6-D, WP4 MQTT commands (branch `phase-6/d-mqtt-commands`, on 6-C;
+  `ha-integration`, `control-safety` review pending)** - Home Assistant can now command SunCore,
+  only through the services layer:
+  - `suncore/ha/mqtt/commands.py`: parse (`ON`/`OFF`, `PRESS`, finite numbers in range, at most
+    64 bytes), rate limit (1/s per entity, burst 3, 20 per 10 s over all; the emergency stop is
+    exempt), the mode-raise rule, one `CommandPort` call per command, a `Reason` per outcome in the
+    log; retained commands are ignored and removed from the broker; the true state is republished
+    after every command (also after a refusal).
+  - `app/ha_entities.py` `RuntimeCommandPort`: forwards to `Runtime.set_global_mode`,
+    `set_device_mode`, `emergency_stop`, `clear_emergency_stop`, `override_device`, `replan` (the
+    methods of the REST API). Never `apply()`, never the gate directly (boundary tests).
+  - Announced command entities: `auto`, `replan`, `emergency_stop_button`,
+    `emergency_stop_clear` (only with `mqtt.allow_mode_raise`), per device `<dev>_auto`,
+    `<dev>_boost`, `<dev>_pause`, `<dev>_resume`, `<dev>_boost_minutes`.
+  - Raising (`auto` ON, clearing the emergency stop) is refused unless `mqtt.allow_mode_raise`
+    (default off): `safety.mqtt_mode_raise_disabled`. `auto` OFF lowers to shadow; stop, pause,
+    resume, boost and replan always work.
+  - Not in this PR (no config path or values yet): battery strategy/reserve/evening target, EV,
+    comfort and program commands, the `mqtt` config author, the persistent notification (6-E).
+    Review conditions A1, A2, N1-N3 are in (opt-in withdrawn at once, emergency stop in its own
+    task, 5 s timeout, explicit payloads). Deviations and open questions: plan section 8 (6-D).
+
+- **Phase 6 - PR 6-C, WP3 MQTT base and backend ICU (branch `phase-6/c-mqtt`, on 6-B;
+  `ha-integration`, `backend-engineer`)** - read-only HA entities, no commands, nothing writes:
+  - `suncore/i18n/`: minimal ICU renderer (arguments, `number` with `::.0`/`0` skeletons, `plural`
+    with `=n`/`one`/`other`/`offset`, `select`, apostrophes; en/de plural rules and separators,
+    `other` fallback), generated `catalogue/{en,de}.json` (`scripts/gen_backend_catalogue.py`,
+    `--check` in `check.sh` and CI, prefixes `mqtt. notify. safety. controller. planner. device.
+    grid.`), golden file `tests/fixtures/i18n_golden.json` from a Vitest helper with
+    `intl-messageformat` (1 200 cases, Python equals it). Closes the ADR-0007 follow-up.
+  - `suncore/ha/mqtt/`: `catalogue.py` (the v1 entity catalogue as data), `discovery.py`
+    (device-based payloads with `via_device`, origin `SunCore`, topics, install id),
+    `states.py` (on change, deadbands, 5 s per entity, retained), `broker.py` (Supervisor
+    `GET /services/mqtt` or manual settings; status `disabled|no_broker|connecting|connected|error`
+    with a reason key), `client.py` (`aiomqtt` on `paho-mqtt` 2.2: connect, back-off, last will,
+    TLS, error classification), `service.py` (session, announce on connect and on the HA birth
+    message after 1-5 s, removal of vanished devices and on disable, events), `check.py`
+    (system-check item). Composition in `app/ha_entities.py`; runs only outside demo mode.
+  - API `GET /api/v1/ha-entities/status` (state, source, entity count, reason key, install hint
+    key), `POST /api/v1/ha-entities/republish`; system check "Home Assistant entities";
+    `schema.d.ts` regenerated. Frontend settings page for it follows in 6-M.
+  - **`hassio_api` stays off** (the Supervisor lets apps call `/services*` without it, verified);
+    a boundary test pins `GET /services/mqtt` as the only Supervisor REST URL. In-process stub
+    MQTT broker for the tests (no `amqtt`). Deviations and open questions: plan section 8 (6-C)
+    and questions 15-16.
+  - Announced so far: status, mode, available surplus, healthy, shadow mode, emergency stop,
+    event entity; per device mode, power and last decision. Everything else of the catalogue waits
+    for the PR that produces its values.
 
 - **Phase 6 - PR 6-B, WP2 contracts and configuration (branch `phase-6/b-contracts`, on 6-A;
   `control-safety`)** - additive, no behaviour yet:
@@ -1129,6 +1201,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 | Item | Where | Needed to resolve |
 |---|---|---|
+| 6-D MQTT commands: default payloads of the MQTT `switch` (`ON`/`OFF`), `button` (`PRESS`) and the `number` keys `min`, `max`, `step`, `mode` (HA source was not reachable in the session; used as documented); that HA sends commands with retain off | `research/mqtt-discovery.md`, `suncore/ha/mqtt/commands.py`, `discovery.py` | maintainer's HA: press the buttons, set the switches and the boost duration, see the true state come back |
+| 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); the unit rule of `monetary` sensors; TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
 | Kostal §3.4 set-point timeout and how external battery management is enabled (register map itself is verified from KOSTAL rev 2.9) | `research/kostal-plenticore-modbus.md` | Phase 4 measurement on the maintainer's inverter |
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
 | Energy-Charts and aWATTar APIs and terms (not shipped in Phase 4) | `research/integrations.md` | session with network access (Phase 6) |
@@ -1164,6 +1238,7 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
 | SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
 | Wallbox control: exercised in the simulator only (no wallbox in the session); the phase switch pause (120 s default), whether a charger accepts a phase change while paused, min run/pause defaults (300 s) for cloud-polled chargers; no integration template verified from `home-assistant/core` source (only home-assistant.io `wallbox` page, 2026-11-24) | `templates/device/generic.wallbox.yaml`, `suncore/devices/drivers/charger.py`, plan section 8 (6-I) | a real wallbox; a session with access to the core source |
+| Notifications (6-E): payload of `mobile_app_notification_action` beyond `data.action`; that the Supervisor token may `subscribe_events` for it (else plain messages); `data.actions` on every legacy `notify.<service>`; `notify.send_message` has no button field | `suncore/ha/connection.py`, `suncore/notify/`, `research/ha-websocket-api.md` | first run on HA OS with the companion app |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
 | Open-Meteo Solar Forecast: translation key assumed equal to the description key (the CC BY 4.0 attribution is shown in the plan view since 4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration |

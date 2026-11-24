@@ -15,5 +15,8 @@ licence). No code from these projects is included.
 Weather and solar data used by the built-in forecast fallback is provided
 by Open-Meteo (https://open-meteo.com) under CC BY 4.0.
 
+MQTT client: aiomqtt (BSD-3-Clause) and paho-mqtt (EPL-2.0 OR BSD-3-Clause), both
+pure-Python wheels used unmodified as dependencies (Phase 6, ADR-0016).
+
 Dependencies and their licences are listed in the generated
 third-party notice shipped with each release image.
