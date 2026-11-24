@@ -448,3 +448,18 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   `control-safety` review of 5-E (the maintainer's question 2 gave "inside the hard bounds of the
   safety layer" without numbers); the review tightened six of them and added the combined
   bound `INPUTS_MAX_AGE_LIMIT_S` (reasons in the `SAFETY_LIMITS` docstring).
+
+- **5-J (backtest).** (1) The overlay uses the registry as asked, but only `planner.budget_s` and
+  `planner.mip_gap` are tagged `whatif` today; the battery and tariff what-ifs of decision 5
+  (strategy, autarky weight, grid-charge policy, capacity, power, reserve, a flat tariff) are
+  typed request fields, not registry parameters, so they never appear in `PUT /params`. HT/NT
+  and price-formula tariffs are not offered yet (5-K can add them). (2) The learnt risk model
+  (morning buffer, evening target) and the ML/profile choice of the load forecast are not
+  replayed: configured targets apply and the profile forecast is preferred (listed as a
+  limitation). (3) Execution follows the plan's battery *band* like a self-consumption inverter,
+  not the planned set-point (ADR-0013: bands are limits). (4) Prices count as known from their
+  day-ahead publication (13:00 local for the next day). (5) The memory guard compares the process
+  RSS with 280 MB (not 200 MB as in R2): the backtest itself peaks at about 80 MB, but the app's
+  own RSS is included and the Pi budget is 300 MB. (6) `DELETE /backtests/{id}` cancels a running
+  run and deletes a finished one; there is no separate cancel route. (7) The "controller loop is
+  late" refusal of R2 is not implemented; a run is refused only while the planner solves.

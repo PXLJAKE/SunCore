@@ -10,6 +10,38 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 – PR 5-J, WP6 backtest engine and job API (branch `phase-5/j-backtest`, on 5-D + 5-E;
+  `optimizer-engineer`)**:
+  - `suncore/sim/backtest.py`: per local day and hour, `PlannerInputs` from what was known then
+    (newest stored PV/load forecast issued before the hour, stored prices up to their day-ahead
+    publication at 13:00 local, the simulated SoC), the real planner (HiGHS + heuristic, warm
+    start), then the hour executed against the actual PV and house load (`execute_slot`: PV
+    surplus charges, a deficit discharges, inside the plan's band: SoC corridor, power limits,
+    discharge lock, grid charge only where planned; efficiencies of the battery model). Runs
+    compared on the same priced slots: actual (measured, equals `day_summary`), what-if and
+    optionally perfect foresight; both baselines from `suncore.analysis`. Days with < 80 %
+    measured, without prices or without a stored forecast are skipped with a `backtest.skip.*`
+    reason; every result lists its `backtest.limit.*` limitations and is labelled
+    `plan_with_perfect_execution`.
+  - Overlay (`suncore/sim/backtest_models.py`, `core/params.py::check_whatif_overrides`): registry
+    parameters of the `planner`/`forecast` groups tagged `whatif` only (`planner.budget_s`, capped
+    at 10 s, and `planner.mip_gap` today); anything `safety`, controller or untagged is a 422
+    `param_not_whatif`. Plus battery settings (strategy, autarky weight, grid-charge policy,
+    capacity, power, reserve) and a flat tariff. Nothing is written back.
+  - Jobs (`suncore/app/backtests.py`): one run at a time, refused while the planner solves; stop
+    checked before every replan (cancel, 900 s runtime, 280 MB process RSS); results in
+    `backtest_run` (last 5); runs left `running` are `failed` at start-up. History reaches the
+    engine only through `ReadOnlyHistory`; boundary test: the backtest modules import nothing of
+    `safety`, `ha`, `devices`, `controller`, `app.control` and name no write call; a demo-runtime
+    test replays a day with zero service calls.
+  - API: `POST|GET /api/v1/backtests`, `GET|DELETE /api/v1/backtests/{id}` (DELETE cancels a
+    running run, deletes a finished one); new en/de keys; OpenAPI and `schema.d.ts` regenerated.
+  - Numbers (amd64, `scripts/bench_backtest.py`, demo history): 14 days 8.9 s (336 replans, slowest
+    0.05 s), with perfect foresight 16.6 s; 30 days 22.5 s / 39.2 s; peak RSS 80 MB. Override-free
+    replay of the demo's last 14 days: 17.41 EUR vs 17.21 EUR recorded (+1.1 %); the test allows
+    5 %. `UNVERIFIED`: run time and RSS on aarch64 (Pi 4).
+  - Deviations: see plan §8 (5-J).
+
 - **Phase 5 – PR 5-D, WP4 history API (branch `phase-5/d-api`, on 5-C; `backend-engineer`)**:
   - `GET /api/v1/history/{summary,series,sankey,heatmap,cycles,forecast-skill,devices}`, each with
     `format=csv` (UTF-8, comma, dot, ISO time with the site offset, units in column names);
