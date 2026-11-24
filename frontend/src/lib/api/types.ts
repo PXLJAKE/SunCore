@@ -27,6 +27,12 @@ export type EntityRef = S['EntityRef'];
 export type EntityCandidate = S['EntityCandidateOut'];
 export type ValidationIssue = S['ValidationIssueOut'];
 
+export type Param = S['ParamOut'];
+export type ParamsListing = S['ParamsOut'];
+export type ParamsApplied = S['ParamsApplied'];
+export type ParamValue = Param['value'];
+export type SolverStats = S['SolverStats'];
+
 export type ConfigSectionName =
   | 'site'
   | 'region'

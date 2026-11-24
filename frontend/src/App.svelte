@@ -6,6 +6,7 @@
   import { router } from './lib/router.svelte';
   import { app } from './lib/stores/app.svelte';
   import { control } from './lib/stores/control.svelte';
+  import { expert } from './lib/stores/expert.svelte';
   import { live, type LinkStatus } from './lib/stores/live.svelte';
   import EmergencyBanner from './lib/components/EmergencyBanner.svelte';
   import EmergencyStop from './lib/components/EmergencyStop.svelte';
@@ -96,6 +97,14 @@
     <EmergencyStop />
   </div>
   <div class="status">
+    <button
+      type="button"
+      role="switch"
+      class="expert-toggle"
+      aria-checked={expert.enabled}
+      data-testid="expert-toggle"
+      onclick={() => expert.set(!expert.enabled)}>{t('expert.toggle')}</button
+    >
     {#if mode}
       <span class="badge mode" class:shadow={mode === 'shadow'} data-testid="mode-badge"
         >{t(MODE[mode])}</span
@@ -213,6 +222,22 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 8px 12px;
+  }
+  .expert-toggle {
+    font: inherit;
+    font-size: 0.875rem;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 22px;
+    border: 1px solid var(--divider-color);
+    background: transparent;
+    color: var(--primary-text-color);
+    cursor: pointer;
+  }
+  .expert-toggle[aria-checked='true'] {
+    border-color: var(--primary-color);
+    background: var(--primary-color);
+    color: var(--text-primary-color);
   }
   .badge {
     padding: 2px 10px;

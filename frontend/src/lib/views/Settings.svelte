@@ -8,6 +8,7 @@
   import { router, stepHash } from '../router.svelte';
   import { clearCandidateCache } from '../stores/candidates';
   import { app } from '../stores/app.svelte';
+  import { expert } from '../stores/expert.svelte';
   import { wizard } from '../stores/wizard.svelte';
   import { STEPS, type StepId } from '../wizard/steps';
 
@@ -351,6 +352,14 @@
       </p>
     {/if}
   </section>
+
+  {#if expert.enabled}
+    {#await import('../expert/ExpertArea.svelte') then area}
+      <area.default />
+    {/await}
+  {:else}
+    <p class="hint" data-testid="expert-off">{t('settings.expert.off')}</p>
+  {/if}
 </section>
 
 <style>

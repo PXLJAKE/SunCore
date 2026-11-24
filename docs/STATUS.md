@@ -105,6 +105,19 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
   - Tests `tests/analysis/` (hypothesis: flow balance, KPI bounds, savings identity, PV-only ≤ no-PV
     baseline for non-negative prices, energy-preserving bucketing across DST in four zones).
 
+
+- **Phase 5 – PR 5-I, WP10 expert mode UI (branch `phase-5/i-expert-ui`, base `phase-5/e-params`;
+  `frontend-engineer`)**: header switch `Expert mode` (`role=switch`, per browser in localStorage,
+  default off); Settings "Expert" area is a lazy chunk (`ExpertArea`) generated from
+  `GET /api/v1/params` (number/int/bool/enum/entity inputs, unit, default and hard range, search,
+  "only modified", modified/unsaved/safety/restart markers, per-key and per-group reset, restart
+  hint). A change of safety-tagged keys opens a confirmation dialog (old to new) and is sent with
+  `confirm_safety`; client-side range check plus the API's `api.validation.param_*` messages per
+  field. Debug views: raw live signals, plan JSON with copy, solver statistics (existing
+  endpoints only). The `param.*` help catalogue is a lazy chunk (`params.<locale>.json`, commit
+  `perf(i18n)`; `check_reasons.py` reads both). First paint 124.4 kB gzip (budget 125 kB, tight:
+  keep new first-paint strings small), total without ECharts 201 kB. Vitest (model, generated
+  form) and Playwright `expert.spec.ts` incl. axe light/dark.
 - **Phase 5 – PR 5-E, WP5 parameter registry and expert API (branch `phase-5/e-params`;
   `backend-engineer`, safety bounds proposed for `control-safety` review)**:
   - `suncore/core/params.py`: `ParamSpec` registry (key, kind, unit, default, hard range, group,
