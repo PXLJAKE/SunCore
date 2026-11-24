@@ -225,6 +225,11 @@ def _component(  # noqa: PLR0912 - one branch per platform key
         payload["cmd_t"] = topics.command(entity.object_id)
     if spec.platform is not Platform.BUTTON:  # a button has no state
         payload["stat_t"] = topics.state(entity.object_id)
+    # The payloads are announced, not left to HA's defaults (UNVERIFIED defaults, N1).
+    if spec.platform is Platform.BUTTON and spec.command:
+        payload["pl_prs"] = "PRESS"
+    if spec.platform is Platform.SWITCH:
+        payload.update({"pl_on": "ON", "pl_off": "OFF", "stat_on": "ON", "stat_off": "OFF"})
     if spec.platform is Platform.NUMBER:
         if spec.unit is not None:
             payload["unit_of_meas"] = spec.unit

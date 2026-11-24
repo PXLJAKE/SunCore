@@ -27,7 +27,9 @@ that is logged; the caller republishes the entity's true state after a refusal.
 
 from __future__ import annotations
 
+import asyncio
 import math
+import re
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping
@@ -48,6 +50,9 @@ ENTITY_BURST: Final = 3
 GLOBAL_BURST: Final = 20
 GLOBAL_WINDOW_S: Final = 10.0
 DEFAULT_BOOST_MINUTES: Final = 60
+DISPATCH_TIMEOUT_S: Final = 5.0
+"""A non-priority command waits at most this long for the service (e.g. a held operation lock)."""
+NUMBER_RE: Final = re.compile(r"-?[0-9]+(\.[0-9]+)?")
 
 PAYLOAD_ON: Final = "ON"
 PAYLOAD_OFF: Final = "OFF"
@@ -77,6 +82,10 @@ class CommandPort(Protocol):
 
     def stored_device_mode(self, device_id: str) -> OperatingMode | None:
         """``None`` = no such device."""
+        ...
+
+    def stored_emergency_settled(self) -> bool:
+        """The stop is set and no device still waits to be released (a press changes nothing)."""
         ...
 
     async def command_emergency_stop(self) -> None: ...
@@ -157,7 +166,9 @@ class CommandHandler:
         *,
         allow_mode_raise: bool,
         clock: Callable[[], float] = time.monotonic,
+        timeout_s: float = DISPATCH_TIMEOUT_S,
     ) -> None:
+        self._timeout_s = timeout_s
         self._port = port
         self._allow_raise = allow_mode_raise
         self._clock = clock
@@ -165,6 +176,15 @@ class CommandHandler:
         self._buckets: dict[str, TokenBucket] = {}
         self._global = _SlidingWindow(GLOBAL_BURST, GLOBAL_WINDOW_S, clock)
         self._boost_minutes: dict[str, int] = {}
+
+    def revoke_raise(self) -> None:
+        """The opt-in was withdrawn: from now on every raise is refused (also mid-session)."""
+        self._allow_raise = False
+
+    def is_priority(self, object_id: str) -> bool:
+        """The emergency stop: never queued behind other commands, never rate-limited."""
+        target = self._targets.get(object_id)
+        return target is not None and target.spec.key == "emergency_stop_button"
 
     # --- what is commandable -----------------------------------------------------------
 
@@ -208,7 +228,9 @@ class CommandHandler:
         )
         return result
 
-    async def _handle(self, object_id: str, payload: bytes, retain: bool) -> CommandResult:
+    async def _handle(  # noqa: PLR0911 - one verdict per refusal
+        self, object_id: str, payload: bytes, retain: bool
+    ) -> CommandResult:
         if retain:
             return _result(object_id, False, "mqtt.command.retained_ignored")
         target = self._targets.get(object_id)
@@ -218,11 +240,17 @@ class CommandHandler:
         parsed = self._parse(spec, payload)
         if isinstance(parsed, CommandResult):
             return CommandResult(object_id, False, parsed.reason)
-        priority = spec.key == "emergency_stop_button"
+        priority = self.is_priority(object_id)
         if not priority and not self._admit(object_id):
             return _result(object_id, False, "mqtt.command.rate_limited")
         try:
-            return await self._dispatch(object_id, target, parsed)
+            if priority:
+                return await self._dispatch(object_id, target, parsed)
+            async with asyncio.timeout(self._timeout_s):
+                return await self._dispatch(object_id, target, parsed)
+        except TimeoutError:
+            log.warning("mqtt.command_timeout", entity=object_id)
+            return _result(object_id, False, "mqtt.command.failed", error="timeout")
         except Exception as exc:
             log.exception("mqtt.command_failed", entity=object_id)
             return _result(object_id, False, "mqtt.command.failed", error=type(exc).__name__)
@@ -256,10 +284,9 @@ class CommandHandler:
         if spec.platform is Platform.BUTTON:
             return True if text == PAYLOAD_PRESS else invalid
         if spec.platform is Platform.NUMBER:
-            try:
-                value = float(text)
-            except ValueError:
+            if NUMBER_RE.fullmatch(text) is None:
                 return invalid
+            value = float(text)
             if not math.isfinite(value):
                 return invalid
             low = spec.min_value if spec.min_value is not None else -math.inf
@@ -271,13 +298,15 @@ class CommandHandler:
 
     # --- dispatch --------------------------------------------------------------------------
 
-    async def _dispatch(
+    async def _dispatch(  # noqa: PLR0911, PLR0912 - one branch per command
         self, object_id: str, target: _Target, value: bool | float
     ) -> CommandResult:
         key = target.spec.key
         port = self._port
         device_id = target.device_id
         if key == "emergency_stop_button":
+            if port.stored_emergency_settled():
+                return _result(object_id, True, REASON_UNCHANGED, entity=object_id)
             await port.command_emergency_stop()
         elif key == "emergency_stop_clear":
             if not self._allow_raise:

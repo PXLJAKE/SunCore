@@ -108,6 +108,12 @@ class RuntimeCommandPort:
             return None
         return self._rt.modes.device_mode(device_id)
 
+    def stored_emergency_settled(self) -> bool:
+        state = self._rt.control_state()
+        return state.emergency_stop and not any(
+            d.under_control or d.release_pending for d in state.devices
+        )
+
     async def command_emergency_stop(self) -> None:
         await self._rt.emergency_stop()
 

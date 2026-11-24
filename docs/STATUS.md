@@ -30,7 +30,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     resume, boost and replan always work.
   - Not in this PR (no config path or values yet): battery strategy/reserve/evening target, EV,
     comfort and program commands, the `mqtt` config author, the persistent notification (6-E).
-    Deviations and open questions: plan section 8 (6-D).
+    Review conditions A1, A2, N1-N3 are in (opt-in withdrawn at once, emergency stop in its own
+    task, 5 s timeout, explicit payloads). Deviations and open questions: plan section 8 (6-D).
 
 - **Phase 6 - PR 6-C, WP3 MQTT base and backend ICU (branch `phase-6/c-mqtt`, on 6-B;
   `ha-integration`, `backend-engineer`)** - read-only HA entities, no commands, nothing writes:

@@ -751,6 +751,24 @@ detection; CO₂ weighting.
 - **`UNVERIFIED`:** the default payloads and number keys listed in the research note (HA source was
   not reachable); that HA sends commands with retain off.
 
+**Review conditions (control-safety, PR #56):**
+
+- A1: the opt-in is withdrawn at once: `reconfigure()` calls `CommandHandler.revoke_raise()`, so the
+  old session cannot raise while it shuts down.
+- A2: commands no longer run in the client's read loop. The emergency stop gets its own task;
+  everything else goes through one worker queue (64 deep) and each service call has a 5 s timeout
+  (`mqtt.command.failed`, error `timeout`). The emergency stop has no timeout.
+- N1: `pl_prs`, `pl_on`, `pl_off`, `stat_on`, `stat_off` are announced explicitly (abbreviations
+  `UNVERIFIED`, same source gap as above).
+- N2: an emergency-stop press while the stop is set and no device waits for its release is
+  acknowledged as `unchanged` without a service call.
+- N3: numbers must match `-?[0-9]+(\.[0-9]+)?` before `float()` (no `1e3`, `0x10`, `+5`, `inf`).
+- H1 (residual risk): a device raise sends the device's *current* identity token, so the token's
+  protection against a re-mapped device does not apply to HA commands; only the opt-in does.
+- H2 (open question 18): `resume` works without the opt-in and hands a device that was paused in
+  the panel back to SunCore. It stays within the device's mode (a shadow device is still not
+  written), but should HA be allowed to undo a panel pause? **Empfehlung:** ja, ohne Opt-in.
+
 **Safety self-review (6-D), for the `control-safety` review**
 
 | # | Requirement | Where | Evidence |

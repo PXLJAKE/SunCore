@@ -129,3 +129,5 @@ configured for the tools), so these are `UNVERIFIED` and used as documented on
   retained command as a replay and removes it with an empty retained payload.
 - `select` and `text` commands (battery strategy, EV mode, target time, program deadline) are not
   announced yet.
+- N1: `pl_prs`, `pl_on`, `pl_off`, `stat_on`, `stat_off` are announced explicitly;
+  the abbreviations are `UNVERIFIED` (source not read).

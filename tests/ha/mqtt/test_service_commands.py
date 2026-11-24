@@ -99,6 +99,9 @@ async def test_command_entities_are_announced_with_command_topics(harness: Harne
         assert cmps[object_id]["cmd_t"] == f"suncore/{iid}/{object_id}/set"
     assert "stat_t" not in cmps["replan"]  # a button has no state
     assert cmps["auto"]["p"] == "switch"
+    assert cmps["replan"]["pl_prs"] == "PRESS"
+    assert (cmps["auto"]["pl_on"], cmps["auto"]["pl_off"]) == ("ON", "OFF")
+    assert (cmps["auto"]["stat_on"], cmps["auto"]["stat_off"]) == ("ON", "OFF")
     assert "stat_t" in cmps["auto"]
     minutes = cmps["heater_boost_minutes"]
     assert (minutes["min"], minutes["max"], minutes["step"]) == (1, 1440, 1)
@@ -219,3 +222,22 @@ async def test_boost_minutes_state_follows_the_command(harness: Harness) -> None
     harness.command("heater_boost_minutes", "25")
     await harness.broker.wait_for(lambda: harness.broker.retained[topic].payload == b"25")
     assert harness.port.calls == []
+
+
+async def test_withdrawing_the_opt_in_mid_session_refuses_a_raise(opted_in: Harness) -> None:
+    await opted_in.connected()
+    opted_in.config = MqttConfig(allow_mode_raise=False)
+    opted_in.service.reconfigure()  # the session is still running while it shuts down
+    opted_in.command("auto", "ON")
+    await settle()
+    assert ("global_mode", OperatingMode.AUTOMATIC) not in opted_in.port.calls
+
+
+async def test_the_emergency_stop_passes_a_blocked_command(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.block = asyncio.Event()
+    harness.command("replan", "PRESS")  # waits in the service (5 s timeout in production)
+    await asyncio.sleep(0.1)
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: ("stop",) in harness.port.calls, seconds=1.0)
+    harness.port.block.set()

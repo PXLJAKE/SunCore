@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from suncore.core.controlstate import OverrideCommand
@@ -29,12 +31,21 @@ class FakePort:
         self.global_mode = OperatingMode.SHADOW
         self.device_modes: dict[str, OperatingMode] = {DEVICE: OperatingMode.SHADOW}
         self.fail = False
+        self.settled = False
+        self.block: asyncio.Event | None = None
 
     def stored_global_mode(self) -> OperatingMode:
         return self.global_mode
 
     def stored_device_mode(self, device_id: str) -> OperatingMode | None:
         return self.device_modes.get(device_id)
+
+    def stored_emergency_settled(self) -> bool:
+        return self.settled
+
+    async def _wait(self) -> None:
+        if self.block is not None:
+            await self.block.wait()
 
     def _record(self, *call: object) -> None:
         if self.fail:
@@ -48,6 +59,7 @@ class FakePort:
         self._record("clear")
 
     async def command_global_mode(self, mode: OperatingMode) -> None:
+        await self._wait()
         self._record("global_mode", mode)
 
     async def command_device_mode(self, device_id: str, mode: OperatingMode) -> None:
@@ -57,6 +69,7 @@ class FakePort:
         self._record("override", device_id, command)
 
     async def command_replan(self) -> None:
+        await self._wait()
         self._record("replan")
 
 
@@ -71,7 +84,7 @@ class Clock:
 def make(*, allow_raise: bool = False) -> tuple[CommandHandler, FakePort, Clock, dict[str, str]]:
     port = FakePort()
     clock = Clock()
-    handler = CommandHandler(port, allow_mode_raise=allow_raise, clock=clock)
+    handler = CommandHandler(port, allow_mode_raise=allow_raise, clock=clock, timeout_s=0.1)
     ids: dict[str, str] = {}
     entities = []
     for spec in ALL_ENTITIES:
@@ -303,3 +316,41 @@ def test_bind_replaces_the_command_set() -> None:
     assert ids["replan"] in handler._targets
     handler.bind([])
     assert handler.local_values() == {}
+
+
+async def test_withdrawing_the_opt_in_takes_effect_at_once() -> None:
+    handler, port, _clock, ids = make(allow_raise=True)
+    handler.revoke_raise()
+    for key in ("auto", "device_auto"):
+        result = await send(handler, ids[key], "ON")
+        assert result.reason.key == "safety.mqtt_mode_raise_disabled"
+    assert (await send(handler, ids["emergency_stop_clear"], "PRESS")).refused
+    assert port.calls == []
+
+
+async def test_a_blocked_service_times_out_but_the_emergency_stop_does_not_wait() -> None:
+    handler, port, _clock, ids = make()
+    port.block = asyncio.Event()  # e.g. the operation lock is held by a devices put
+    slow = await send(handler, ids["replan"], "PRESS")
+    assert slow.refused
+    assert slow.reason.key == "mqtt.command.failed"
+    assert slow.reason.args == {"error": "timeout"}
+    stop = await asyncio.wait_for(send(handler, ids["emergency_stop_button"], "PRESS"), 1.0)
+    assert stop.accepted
+    assert port.calls == [("stop",)]
+
+
+async def test_a_settled_emergency_stop_is_acknowledged_without_a_call() -> None:
+    handler, port, _clock, ids = make()
+    port.settled = True
+    result = await send(handler, ids["emergency_stop_button"], "PRESS")
+    assert result.accepted
+    assert result.reason.key == "mqtt.command.unchanged"
+    assert port.calls == []
+
+
+@pytest.mark.parametrize("payload", ["1e3", "+5", "0x10", "\u0665", " ", "5.", ".5", "1_0"])
+async def test_numbers_must_be_plain_decimals(payload: str) -> None:
+    handler, _port, _clock, ids = make()
+    result = await send(handler, ids["device_boost_minutes"], payload)
+    assert result.reason.key == "mqtt.command.invalid_payload"

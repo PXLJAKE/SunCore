@@ -58,6 +58,7 @@ log = structlog.get_logger(__name__)
 RETRY_S: Final = 60.0
 SYNC_POLL_S: Final = 5.0
 BIRTH_DELAY_S: Final = (1.0, 5.0)
+COMMAND_QUEUE: Final = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +113,8 @@ class _Session:
     birth_task: asyncio.Task[None] | None = None
     commands: CommandHandler | None = None
     allow_mode_raise: bool = False
+    queue: asyncio.Queue[tuple[str, str, bytes, bool]] | None = None
+    priority_tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
 
 class HaEntityService:
@@ -171,7 +174,13 @@ class HaEntityService:
         self._dirty.set()
 
     def reconfigure(self) -> None:
-        """The ``mqtt`` section changed: look up the broker again and restart the session."""
+        """The ``mqtt`` section changed: look up the broker again and restart the session.
+
+        The opt-in is withdrawn at once: until the session has restarted with the new settings
+        no raise is accepted (the old session may still be shutting down)."""
+        session = self._session
+        if session is not None and session.commands is not None:
+            session.commands.revoke_raise()
         self._reconf.set()
 
     async def republish(self) -> bool:
@@ -254,7 +263,9 @@ class HaEntityService:
             topics, client.publish, clock=self._clock, min_interval_s=self._min_interval_s
         )
         self._session = session
+        session.queue = asyncio.Queue(maxsize=COMMAND_QUEUE)
         tasks = [
+            asyncio.create_task(self._command_worker(session), name="suncore-mqtt-commands"),
             asyncio.create_task(client.run(), name="suncore-mqtt-client"),
             asyncio.create_task(self._sync_loop(session), name="suncore-mqtt-sync"),
         ]
@@ -265,6 +276,8 @@ class HaEntityService:
                 session.birth_task.cancel()
             await self._goodbye(session)
             for task in tasks:
+                task.cancel()
+            for task in session.priority_tasks:
                 task.cancel()
             for task in tasks:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -316,13 +329,48 @@ class HaEntityService:
     ) -> None:
         object_id = session.topics.object_id_of_command(topic)
         if object_id is not None:
-            await self._command(session, topic, object_id, payload, retain)
+            self._route_command(session, topic, object_id, payload, retain)
             return
         if topic != BIRTH_TOPIC or payload.decode("utf-8", "replace").strip() != BIRTH_PAYLOAD:
             return
         if session.birth_task is not None:
             session.birth_task.cancel()
         session.birth_task = asyncio.create_task(self._after_birth(session))
+
+    def _route_command(
+        self, session: _Session, topic: str, object_id: str, payload: bytes, retain: bool
+    ) -> None:
+        """Never run a command inside the client's read loop: the emergency stop gets its own
+        task at once, everything else goes through one worker queue (a slow service call must
+        not delay the read of a later emergency stop)."""
+        handler = session.commands
+        if handler is None:
+            return
+        if not retain and handler.is_priority(object_id):
+            task = asyncio.create_task(
+                self._command(session, topic, object_id, payload, retain),
+                name="suncore-mqtt-emergency-stop",
+            )
+            session.priority_tasks.add(task)
+            task.add_done_callback(session.priority_tasks.discard)
+            return
+        if session.queue is None:
+            return
+        try:
+            session.queue.put_nowait((topic, object_id, payload, retain))
+        except asyncio.QueueFull:
+            log.warning("mqtt.command_queue_full", entity=object_id)
+
+    async def _command_worker(self, session: _Session) -> None:
+        assert session.queue is not None
+        while True:
+            topic, object_id, payload, retain = await session.queue.get()
+            try:
+                await self._command(session, topic, object_id, payload, retain)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("mqtt.command_worker_failed", entity=object_id)
 
     async def _command(
         self, session: _Session, topic: str, object_id: str, payload: bytes, retain: bool
