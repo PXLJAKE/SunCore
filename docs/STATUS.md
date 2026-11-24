@@ -24,7 +24,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     log of that device.
   - Tests: Vitest (filters, store, readings, table/panel), Playwright `decisions.spec.ts`
     (filters, URL, CSV, keyboard, phone width, axe); screenshots `decisions-*` refreshed.
-  - Bundle: first paint 124.7 kB of 125 kB (catalogue growth), see plan section 8 (5-H).
+  - Bundle: only the active language's catalogue ships on first paint (English eager, German lazy):
+    98.8 kB of 125 kB, see plan section 8 (5-H).
 
 - **Phase 5 – PR 5-D, WP4 history API (branch `phase-5/d-api`, on 5-C; `backend-engineer`)**:
   - `GET /api/v1/history/{summary,series,sankey,heatmap,cycles,forecast-skill,devices}`, each with

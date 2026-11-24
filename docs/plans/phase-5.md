@@ -438,3 +438,9 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   `decisionPage`. First paint is 124.7 kB of the 125 kB budget: both language catalogues sit in
   the first-paint chunk, so every new key counts; 5-G/5-I will exceed it unless the catalogue is
   split per language or per view (not done here).
+- **5-H (i18n loading):** English stays eager (typed key source and fallback, so no raw key can
+  show); German is its own chunk (`catalogue-de`), fetched before the first render when the browser
+  asks for German and otherwise when `region.language` or the wizard switches (English shows until
+  it arrived). First paint fell from 124.7 to 98.8 kB. `Translator.set()` adds a catalogue; lazy
+  extras such as `params.<lang>.json` (5-E) compose through the same `set`/`extend` idea and keep
+  their own chunks (`vite.config.ts` only names the `en`/`de` main files).

@@ -24,9 +24,17 @@ export interface Translator {
   /** Render `key` in `locale`; falls back to English, then to the key itself. */
   render(locale: Locale, key: string, args?: MessageArgs): string;
   has(key: string, locale?: Locale): boolean;
+  /** Whether the catalogue of `locale` is loaded (English always is). */
+  loaded(locale: Locale): boolean;
+  /** Add or replace the main catalogue of a locale (lazy loading; drops its compiled cache). */
+  set(locale: Locale, catalogue: Catalogue): void;
 }
 
-export function createTranslator(catalogues: Record<Locale, Catalogue>): Translator {
+/** English is the fallback and must be present; other locales may arrive later via `set`. */
+export function createTranslator(
+  initial: Partial<Record<Locale, Catalogue>> & { en: Catalogue },
+): Translator {
+  const catalogues: Partial<Record<Locale, Catalogue>> = { ...initial };
   const cache = new Map<string, IntlMessageFormat>();
 
   const compile = (locale: Locale, key: string): IntlMessageFormat | null => {
@@ -34,7 +42,7 @@ export function createTranslator(catalogues: Record<Locale, Catalogue>): Transla
     const hit = cache.get(id);
     if (hit) return hit;
     const cat = catalogues[locale];
-    if (!Object.hasOwn(cat, key)) return null;
+    if (!cat || !Object.hasOwn(cat, key)) return null;
     const source = cat[key];
     if (source === undefined) return null;
     try {
@@ -60,7 +68,13 @@ export function createTranslator(catalogues: Record<Locale, Catalogue>): Transla
       return key;
     },
     has(key, locale = FALLBACK_LOCALE) {
-      return Object.hasOwn(catalogues[locale], key);
+      const cat = catalogues[locale];
+      return cat !== undefined && Object.hasOwn(cat, key);
+    },
+    loaded: (locale) => catalogues[locale] !== undefined,
+    set(locale, catalogue) {
+      catalogues[locale] = catalogue;
+      for (const id of [...cache.keys()]) if (id.startsWith(`${locale}\u0000`)) cache.delete(id);
     },
   };
 }
