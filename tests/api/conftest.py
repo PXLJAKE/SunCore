@@ -37,6 +37,7 @@ from suncore.core.controlstate import (
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
+    InverterNotControllableError,
     OverrideCommand,
     OverrideUntilPastError,
     UnknownDeviceError,
@@ -434,6 +435,17 @@ class FakeServices:
             if identity != self.battery_identity:
                 raise DeviceIdentityChangedError("battery")
         self.operation = self.operation.model_copy(update={"battery_mode": mode})
+        return self.operation
+
+    inverter_identity: str | None = "inv-current"
+
+    async def set_inverter_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        if mode is not OperatingMode.SHADOW:
+            if self.inverter_identity is None:
+                raise InverterNotControllableError("inverter")
+            if identity != self.inverter_identity:
+                raise DeviceIdentityChangedError("inverter")
+        self.operation = self.operation.model_copy(update={"inverter_mode": mode})
         return self.operation
 
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:

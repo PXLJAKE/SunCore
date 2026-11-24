@@ -51,6 +51,7 @@ from suncore.controller import (
     DeviationEvent,
 )
 from suncore.controller.battery import BatteryControlInputs
+from suncore.controller.export import ExportControlInputs
 from suncore.controller.grid import GridInputs, resolve_grid_inputs
 from suncore.controller.loop import TickResult
 from suncore.core.balance import FlowSnapshot, compute_flows
@@ -61,7 +62,7 @@ from suncore.core.battery import (
     GridChargePolicy,
 )
 from suncore.core.battery_adapter import BatteryAdapterSpec
-from suncore.core.config import GoalsConfig
+from suncore.core.config import GoalsConfig, InverterConfig
 from suncore.core.control import (
     TEMPERATURE_ROLE,
     ControlSettings,
@@ -74,12 +75,14 @@ from suncore.core.controlstate import (
     BatteryControlState,
     ControlState,
     DeviceControlState,
+    InverterControlState,
     SiteControlState,
 )
-from suncore.core.decisions import Action, Decision, Reason
+from suncore.core.decisions import Action, Decision, InverterLimitAction, Reason
 from suncore.core.devices import DeviceConfig, control_roles
-from suncore.core.grid import GridState
+from suncore.core.grid import GridState, static_export_limit_w
 from suncore.core.identity import identity_token
+from suncore.core.inverter import INVERTER_ASSET_ID, InverterAdapterSpec
 from suncore.core.measurements import (
     SITE_BATTERY_W,
     SITE_GRID_W,
@@ -93,6 +96,7 @@ from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.devices.battery import BatteryDriver, create_battery_driver
 from suncore.devices.drivers import ClimateDriver, NumberDriver, create_driver
+from suncore.devices.inverter import InverterDriver, create_inverter_driver
 from suncore.devices.power import create_power_model, restore_power_model
 from suncore.devices.power.common import PowerEstimator
 from suncore.ha.cache import EntityCache
@@ -112,6 +116,7 @@ from suncore.safety.gate import (
     DecisionSink,
     SafetyGate,
 )
+from suncore.safety.inverter import InverterGateConfig
 from suncore.safety.modes import ModeProvider
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
 from suncore.safety.watchdog import Watchdog
@@ -178,6 +183,20 @@ class BatteryWiring:
     reserve_pct: float | None
     policy: GridChargePolicy = field(default_factory=GridChargePolicy)
     import_price: PriceProvider = _no_price
+
+
+@dataclass(frozen=True, slots=True)
+class InverterWiring:
+    """The inverter limit as a controlled asset (PR 6-G): what the runtime hands the stack.
+
+    ``identity`` is ``InverterConfig.identity_token()``; ``export_price`` the live export price
+    (currency/kWh) for the dynamic 0 W limit at negative prices (ADR-0018 decision 4).
+    """
+
+    config: InverterConfig
+    spec: InverterAdapterSpec
+    identity: str
+    export_price: PriceProvider = _no_price
 
 
 def grid_heartbeats(site: SiteConfig | None) -> tuple[tuple[str, ...], ...]:
@@ -267,6 +286,7 @@ class ControlStack:
         on_measurements: MeasurementSink | None = None,
         battery: BatteryWiring | None = None,
         grid_monitor: GridMonitor | None = None,
+        inverter: InverterWiring | None = None,
     ) -> None:
         self._connection = connection
         self.grid_monitor = grid_monitor if grid_monitor is not None else GridMonitor(tz)
@@ -319,7 +339,21 @@ class ControlStack:
         self.battery_driver: BatteryDriver | None = self._make_battery(connection, battery)
         self.battery_limits: BatteryAction | None = None
         """What the battery adapter's entities showed at the latest tick."""
-        actuators: dict[str, StatefulActuator | BatteryDriver] = dict(self.drivers)
+        self.inverter_wiring = inverter
+        self.inverter_driver: InverterDriver | None = self._make_inverter(connection, inverter)
+        self.inverter_limit: InverterLimitAction | None = None
+        """What the inverter adapter's entity showed at the latest tick."""
+        actuators: dict[str, StatefulActuator | BatteryDriver | InverterDriver] = dict(self.drivers)
+        gate_inverter: InverterGateConfig | None = None
+        if inverter is not None and self.inverter_driver is not None:
+            actuators[INVERTER_ASSET_ID] = self.inverter_driver
+            gate_inverter = InverterGateConfig(
+                identity=inverter.identity,
+                capability=self.inverter_driver.capability,
+                verified=inverter.config.limit_verified,
+                nominal_ac_w=inverter.config.nominal_ac_w,
+                static_limit_w=self._static_export_limit_w(),
+            )
         gate_battery: BatteryGateConfig | None = None
         if battery is not None and self.battery_driver is not None:
             actuators[BATTERY_ASSET_ID] = self.battery_driver
@@ -363,6 +397,7 @@ class ControlStack:
             sleep=sleep,
             predecessor=predecessor,
             battery=gate_battery,
+            inverter=gate_inverter,
         )
         self.deviations: deque[DeviationEvent] = deque(maxlen=DEVIATION_HISTORY)
         self.loop = ControllerLoop(
@@ -419,6 +454,34 @@ class ControlStack:
             log.warning("control.battery_adapter_unusable", error=str(exc)[:200])
             return None
 
+    def _make_inverter(
+        self, connection: HAConnection, inverter: InverterWiring | None
+    ) -> InverterDriver | None:
+        """The inverter limit adapter, or ``None`` (no inverter control) when it cannot be
+        built (no read-back entity, no modbus link, a device named ``inverter``)."""
+        if inverter is None:
+            return None
+        if INVERTER_ASSET_ID in self._devices:
+            log.error("control.inverter_id_conflict", device_id=INVERTER_ASSET_ID)
+            return None
+        spec, config = inverter.spec, inverter.config
+
+        def make(write: WriterFn) -> InverterDriver:
+            return create_inverter_driver(spec, config, write=write, states=self._lookup)
+
+        try:
+            return build_actuator(connection, make)
+        except ValueError as exc:
+            log.warning("control.inverter_adapter_unusable", error=str(exc)[:200])
+            return None
+
+    def _static_export_limit_w(self) -> float | None:
+        site = self._site
+        if site is None:
+            return None
+        grid = site.grid
+        return static_export_limit_w(grid.export_limit_w, grid.export_limit_pct_kwp, site.total_kwp)
+
     def _lookup(self, entity_id: str) -> EntityState | None:
         entry = self.cache.get(entity_id)
         return None if entry is None else entry.state
@@ -461,6 +524,8 @@ class ControlStack:
             ids.update(
                 dict.fromkeys(r.entity_id for r in self.battery_wiring.settings.entity_refs())
             )
+        if self.inverter_wiring is not None and self.inverter_wiring.config.limit_entity:
+            ids[self.inverter_wiring.config.limit_entity.entity_id] = None
         return list(ids)
 
     @property
@@ -805,6 +870,8 @@ class ControlStack:
             await self.gate.check_site(self._site, samples)
             flows = compute_flows(self._site, samples)
             await self.gate.check_battery(flows)
+        if self.inverter_driver is not None:
+            await self.gate.check_inverter(self.inverter_driver.readable())
         states: dict[str, DeviceState] = {}
         estimates: dict[str, PowerEstimate] = {}
         for device_id, device in self._devices.items():
@@ -836,6 +903,7 @@ class ControlStack:
             plan=plan,
             battery=await self._battery_inputs(now),
             grid=grid,
+            inverter=await self._inverter_inputs(now),
         )
         self.estimates = estimates
         self.states = states
@@ -860,9 +928,12 @@ class ControlStack:
         config = site.grid
         if config.import_limit_w != self._import_limit_w:
             config = config.model_copy(update={"import_limit_w": self._import_limit_w})
+        inverter = self.inverter_wiring if self.inverter_driver is not None else None
         try:
             return resolve_grid_inputs(
                 config,
+                export_price=None if inverter is None else inverter.export_price(now),
+                export_adapter_verified=inverter is not None and inverter.config.limit_verified,
                 month_peak_w=self.grid_monitor.month_peak_w(now),
                 para14a_state=self._state_text(
                     None if config.para14a_signal is None else config.para14a_signal.entity_id
@@ -899,6 +970,41 @@ class ControlStack:
         if runtime is not None and runtime.is_held(now):
             return REASON_OVERRIDE_HELD
         return None
+
+    def _inverter_blocked(self, now: datetime) -> Reason | None:
+        runtime = self.gate.runtime_of(INVERTER_ASSET_ID)
+        if self.gate.emergency_stopped:
+            return REASON_EMERGENCY_STOP
+        if (pause := self.watchdog.pause_reason(INVERTER_ASSET_ID, now)) is not None:
+            return pause
+        if self.gate.is_orphaned(INVERTER_ASSET_ID):
+            return REASON_ORPHANED
+        if runtime is not None and runtime.release_pending:
+            return REASON_RELEASE_PENDING
+        if runtime is not None and runtime.is_held(now):
+            return REASON_OVERRIDE_HELD
+        return None
+
+    async def _inverter_inputs(self, now: datetime) -> ExportControlInputs | None:
+        """The inverter adapter as the export chain sees it this tick (reads the cache only)."""
+        driver, wiring = self.inverter_driver, self.inverter_wiring
+        if driver is None or wiring is None:
+            return None
+        observed = await driver.read_back()
+        self.inverter_limit = observed if isinstance(observed, InverterLimitAction) else None
+        runtime = self.gate.runtime_of(INVERTER_ASSET_ID)
+        under = runtime is not None and runtime.under_control
+        held = runtime.last_written if under and runtime is not None else None
+        return ExportControlInputs(
+            capability=driver.capability,
+            nominal_ac_w=wiring.config.nominal_ac_w,
+            static_limit_w=self._static_export_limit_w(),
+            enforce_static=wiring.config.enforce_static,
+            verified=wiring.config.limit_verified,
+            held=held if isinstance(held, InverterLimitAction) else None,
+            under_control=under,
+            blocked=self._inverter_blocked(now),
+        )
 
     async def _battery_inputs(self, now: datetime) -> BatteryControlInputs | None:
         """The battery adapter as the controller sees it this tick (reads the cache only)."""
@@ -995,6 +1101,37 @@ class ControlStack:
             devices=devices,
             proposals=list(self.gate.proposals()),
             battery=self._battery_control_state(now),
+            inverter=self._inverter_control_state(now),
+        )
+
+    def _inverter_control_state(self, now: datetime) -> InverterControlState | None:
+        driver, wiring = self.inverter_driver, self.inverter_wiring
+        if driver is None or wiring is None:
+            return None
+        modes = self.gate.modes_of(INVERTER_ASSET_ID)
+        runtime = self.gate.runtime_of(INVERTER_ASSET_ID)
+        under = runtime is not None and runtime.under_control
+        view = None if self.last is None else self.last.export
+        held = runtime.last_written if under and runtime is not None else None
+        baseline = runtime.baseline if under and runtime is not None else None
+        return InverterControlState(
+            identity=wiring.identity,
+            adapter=wiring.config.adapter,
+            adapter_template_id=wiring.spec.template_id,
+            capability=driver.capability,
+            verified=wiring.config.limit_verified,
+            global_mode=modes.global_mode,
+            inverter_mode=self._modes.inverter_mode(),
+            effective_mode=modes.effective,
+            mode_capped=self.gate.inverter_mode_capped,
+            limit=self.inverter_limit,
+            held=held if isinstance(held, InverterLimitAction) else None,
+            baseline=baseline if isinstance(baseline, InverterLimitAction) else None,
+            under_control=under,
+            wanted=None if view is None else view.wanted,
+            reasons=[] if view is None else list(view.reasons),
+            paused=self._inverter_blocked(now),
+            last_decision=self.last_decisions.get(INVERTER_ASSET_ID),
         )
 
     def _battery_control_state(self, now: datetime) -> BatteryControlState | None:
@@ -1068,5 +1205,6 @@ __all__ = [
     "BatteryWiring",
     "ControlStack",
     "DeviceActuator",
+    "InverterWiring",
     "probe_temperature_c",
 ]

@@ -21,6 +21,7 @@ from suncore.core.inverter import (
 )
 from suncore.core.signals import Quality
 from suncore.safety.inverter import (
+    LEASE_MARGIN_SHARE,
     InverterContext,
     InverterGateConfig,
     InverterLive,
@@ -133,6 +134,28 @@ def test_the_lease_ends_whenever_inputs_or_bounds_fail(ctx: InverterContext) -> 
     if lease:
         # whatever ends a lease also stops a new write of the same limit
         assert evaluate_inverter(ctx)
+
+
+@given(contexts())
+def test_x2_a_held_ac_limit_keeps_at_least_half_the_margin(ctx: InverterContext) -> None:
+    """The lease is looser than a new write only by half the margin (no oscillation), never by
+    more: a held AC (or unverified) limit still leaves house + charging + margin / 2."""
+    if lease_violations(ctx):
+        return
+    house, battery = ctx.live.house_w, ctx.live.battery_w
+    assert house is not None
+    assert battery is not None
+    need = house + max(0.0, battery) + ctx.config.margin_w * LEASE_MARGIN_SHARE
+    if ctx.requested.max_ac_pct is not None:
+        ac = ac_limit_w(ctx.requested, ctx.config.nominal_ac_w)
+        assert ac is not None
+        assert ac + 1e-6 >= need
+    elif not ctx.config.verified:
+        assert ctx.requested.max_export_w is not None
+        assert ctx.requested.max_export_w + 1e-6 >= need
+    # whatever passes a new write also keeps its lease
+    if not evaluate_inverter(ctx):
+        assert not lease_violations(ctx)
 
 
 @given(contexts())

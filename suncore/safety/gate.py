@@ -1743,7 +1743,12 @@ class SafetyGate:
                 observed=observed,
             )
         return await self._decide(
-            intent, DecisionKind.ACCEPTED, now, (REASON_RELEASED, reason), mode, observed=observed
+            intent,
+            DecisionKind.ACCEPTED,
+            now,
+            (REASON_RELEASED,) if reason == REASON_RELEASED else (REASON_RELEASED, reason),
+            mode,
+            observed=observed,
         )
 
     async def _asset_released(  # noqa: PLR0917

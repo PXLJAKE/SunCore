@@ -1946,6 +1946,16 @@
           "global_mode": {
             "$ref": "#/components/schemas/OperatingMode"
           },
+          "inverter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterControlState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "proposals": {
             "items": {
               "$ref": "#/components/schemas/Decision"
@@ -5969,6 +5979,137 @@
         "title": "InverterConfig",
         "type": "object"
       },
+      "InverterControlState": {
+        "additionalProperties": false,
+        "description": "The inverter limit as a controlled asset (PR 6-G, ADR-0018 decision 3).",
+        "properties": {
+          "adapter": {
+            "title": "Adapter",
+            "type": "string"
+          },
+          "adapter_template_id": {
+            "title": "Adapter Template Id",
+            "type": "string"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterLimitAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capability": {
+            "title": "Capability",
+            "type": "string"
+          },
+          "effective_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "global_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "held": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterLimitAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "inverter_mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          },
+          "last_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Decision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterLimitAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode_capped": {
+            "title": "Mode Capped",
+            "type": "boolean"
+          },
+          "paused": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "under_control": {
+            "title": "Under Control",
+            "type": "boolean"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "wanted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterLimitAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "identity",
+          "adapter",
+          "adapter_template_id",
+          "capability",
+          "verified",
+          "global_mode",
+          "inverter_mode",
+          "effective_mode",
+          "mode_capped",
+          "limit",
+          "held",
+          "baseline",
+          "under_control",
+          "wanted",
+          "reasons",
+          "paused",
+          "last_decision"
+        ],
+        "title": "InverterControlState",
+        "type": "object"
+      },
       "InverterLimitAction": {
         "additionalProperties": false,
         "description": "An export or AC output limit for the inverter (ADR-0018 decision 3; PR 6-G).\n\nExactly one of ``max_export_w`` (capability ``export_limit``) and ``max_ac_pct``\n(capability ``ac_limit``, % of the nominal AC power) is set. The asset id is ``inverter``.\nRelease = the baseline captured at takeover (100 % for a volatile register).",
@@ -6037,6 +6178,33 @@
           "slave"
         ],
         "title": "InverterModbusLink",
+        "type": "object"
+      },
+      "InverterModeRequest": {
+        "additionalProperties": false,
+        "description": "``PUT /api/v1/operation/inverter``: the inverter limit's operating mode (PR 6-G).\n\nRaising it above shadow needs ``identity`` (``inverter.identity`` of the control state); a\nchanged adapter answers 409. Until ``inverter.limit_verified`` it runs at most assisted.",
+        "properties": {
+          "identity": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identity"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/OperatingMode"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "InverterModeRequest",
         "type": "object"
       },
       "InverterTemplate": {
@@ -11259,7 +11427,8 @@
               "tariff",
               "forecast",
               "region",
-              "battery"
+              "battery",
+              "inverter"
             ],
             "title": "Kind",
             "type": "string"
@@ -14300,6 +14469,65 @@
           }
         },
         "summary": "Set Device Mode"
+      }
+    },
+    "/api/v1/operation/inverter": {
+      "put": {
+        "description": "Set the inverter limit's mode (PR 6-G, ADR-0018 decision 3). Anything above shadow\nneeds the adapter's ``identity`` token from the control state; shadow never does. An\nadapter whose limit is not verified (``inverter.limit_verified``) runs at most assisted\nwhatever is stored.",
+        "operationId": "set_inverter_mode_api_v1_operation_inverter_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InverterModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No inverter limit adapter"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The inverter adapter changed since its identity was read"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Set Inverter Mode"
       }
     },
     "/api/v1/operation/mode": {

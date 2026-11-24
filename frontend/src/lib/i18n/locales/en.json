@@ -1712,5 +1712,6 @@
   "template.kostal.plenticore_power_limit.name": "KOSTAL PLENTICORE active power limitation (Home Assistant integration)",
   "template.kostal.plenticore_power_limit.role.limit": "\"Active Power Limitation\" number of the inverter (W, disabled by default: enable it first)",
   "template.kostal.plenticore_g3_modbus_limit.name": "KOSTAL PLENTICORE G3 active power set-point over Modbus (register 533)",
-  "template.kostal.plenticore_g3_modbus_limit.role.limit": "Modbus sensor that reads register 533 back (active power set-point, %)"
+  "template.kostal.plenticore_g3_modbus_limit.role.limit": "Modbus sensor that reads register 533 back (active power set-point, %)",
+  "api.error.inverter_not_controllable": "No inverter limit adapter is configured: the inverter keeps its own limit."
 }

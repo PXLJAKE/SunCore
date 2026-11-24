@@ -1712,5 +1712,6 @@
   "template.kostal.plenticore_power_limit.name": "KOSTAL PLENTICORE Wirkleistungsbegrenzung (Home-Assistant-Integration)",
   "template.kostal.plenticore_power_limit.role.limit": "Number „Active Power Limitation“ des Wechselrichters (W, standardmäßig deaktiviert: zuerst aktivieren)",
   "template.kostal.plenticore_g3_modbus_limit.name": "KOSTAL PLENTICORE G3 Wirkleistungsvorgabe über Modbus (Register 533)",
-  "template.kostal.plenticore_g3_modbus_limit.role.limit": "Modbus-Sensor, der Register 533 zurückliest (Wirkleistungsvorgabe, %)"
+  "template.kostal.plenticore_g3_modbus_limit.role.limit": "Modbus-Sensor, der Register 533 zurückliest (Wirkleistungsvorgabe, %)",
+  "api.error.inverter_not_controllable": "Kein Wechselrichter-Limit-Adapter eingerichtet: der Wechselrichter behält sein eigenes Limit."
 }

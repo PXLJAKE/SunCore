@@ -915,6 +915,7 @@ describe('goals and operation', () => {
       mode: 'assisted',
       device_modes: { a: 'automatic', gone: 'automatic' },
       battery_mode: 'assisted',
+      inverter_mode: 'assisted',
     });
     form.deviceModes.b = 'shadow';
     form.deviceModes.c = 'assisted';
@@ -923,6 +924,7 @@ describe('goals and operation', () => {
       mode: 'assisted',
       device_modes: { a: 'automatic', c: 'assisted' },
       battery_mode: 'assisted',
+      inverter_mode: 'assisted',
     });
     expect(operationFormFromConfig(null).mode).toBe('shadow');
   });

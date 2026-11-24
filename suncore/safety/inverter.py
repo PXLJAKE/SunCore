@@ -208,15 +208,21 @@ def check_inputs(ctx: InverterContext) -> Reason | None:
     return None
 
 
-def no_import_floor_w(ctx: InverterContext) -> float | None:
+LEASE_MARGIN_SHARE: Final = 0.5
+"""A held limit ends (X2 lease) only when less than this share of the margin is left: the
+controller loosens it at once when the full margin is gone, so house-load noise never makes
+the lease and the write check fight (no oscillation)."""
+
+
+def no_import_floor_w(ctx: InverterContext, *, share: float = 1.0) -> float | None:
     """X2: the AC output the limit must leave (house + battery charging + margin)."""
     house, battery = ctx.live.house_w, ctx.live.battery_w
     if house is None or battery is None:
         return None
-    return house + max(0.0, battery) + ctx.config.margin_w
+    return house + max(0.0, battery) + ctx.config.margin_w * share
 
 
-def check_no_import(ctx: InverterContext) -> Reason | None:
+def check_no_import(ctx: InverterContext, *, share: float = 1.0) -> Reason | None:
     """X2: an AC limit never below house load + battery charging + margin.
 
     A not yet verified export limit is judged the same way, read as an AC limit in W: the
@@ -232,7 +238,7 @@ def check_no_import(ctx: InverterContext) -> Reason | None:
         ac = requested.max_export_w
     else:
         return None
-    floor = no_import_floor_w(ctx)
+    floor = no_import_floor_w(ctx, share=share)
     if floor is None:
         return REASON_INVERTER_INPUTS_UNKNOWN
     assert ac is not None
@@ -269,10 +275,16 @@ _CHECKS: Final[tuple[Callable[[InverterContext], Reason | None], ...]] = (
     check_no_import,
     check_chain,
 )
+
+
+def _lease_no_import(ctx: InverterContext) -> Reason | None:
+    return check_no_import(ctx, share=LEASE_MARGIN_SHARE)
+
+
 _LEASE_CHECKS: Final[tuple[Callable[[InverterContext], Reason | None], ...]] = (
     check_inputs,
     check_bounds,
-    check_no_import,
+    _lease_no_import,
 )
 
 
@@ -282,7 +294,8 @@ def evaluate_inverter(ctx: InverterContext) -> tuple[Reason, ...]:
 
 
 def lease_violations(ctx: InverterContext) -> tuple[Reason, ...]:
-    """What ends a held limit (re-checked every tick): X5 inputs, X1 bounds, X2 import.
+    """What ends a held limit (re-checked every tick): X5 inputs, X1 bounds, X2 import with
+    half the margin (:data:`LEASE_MARGIN_SHARE`).
 
     X3 is not re-judged: while the limit curtails, the export equals the limit by design.
     """
@@ -296,6 +309,7 @@ def as_limit(action: Action | None) -> InverterLimitAction | None:
 
 
 __all__ = [
+    "LEASE_MARGIN_SHARE",
     "REASON_INVERTER_BASELINE_UNKNOWN",
     "REASON_INVERTER_CAPABILITY",
     "REASON_INVERTER_INPUTS_UNKNOWN",

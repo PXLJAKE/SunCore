@@ -241,6 +241,8 @@ class ConfigStore:
         decision 6): a ``battery`` or ``site`` put that changes the battery's identity token
         (``core.identity.battery_identity_token``) drops ``operation.battery_mode`` to shadow; an
         ``operation`` put with a non-shadow battery mode records the token it was granted to.
+        Inverter (PR 6-G): an ``inverter`` put that changes the adapter's identity resets
+        ``limit_verified`` and drops ``operation.inverter_mode`` to shadow.
         """
         return await self._put(section, model, restoring=False)
 
@@ -280,9 +282,13 @@ class ConfigStore:
                 if restoring:
                     model = await self._drop_changed_identities(tx, model, devices)
                     model = await self._drop_changed_battery(tx, model)
+                    # PR 6-G: a restored inverter mode is never trusted (no identity record).
+                    model = model.without_inverter_mode()
                 await self._write(tx, section, model, now)
                 await self._record_identities(tx, model, devices, now)
                 await self._record_battery_identity(tx, model, now)
+            elif isinstance(model, InverterConfig):
+                model = await self._put_inverter(tx, model, now)
             elif isinstance(model, BatterySettings | SiteConfig):
                 before = await self._battery_token(tx)
                 await self._write(tx, section, model, now)
@@ -290,6 +296,34 @@ class ConfigStore:
                     await self._shadow_battery(tx, now)
             else:
                 await self._write(tx, section, model, now)
+        return model
+
+    # --- inverter identity (PR 6-G, ADR-0018 decision 3) ---------------------------------
+
+    async def _put_inverter(
+        self, tx: Transaction, model: InverterConfig, now: str
+    ) -> InverterConfig:
+        """A changed inverter adapter (``InverterConfig.identity_token``) is never verified and
+        never inherits a mode: ``limit_verified`` is reset and ``operation.inverter_mode`` drops
+        to shadow. The same adapter keeps both (the user sets ``limit_verified`` after the test).
+        """
+        row = await tx.fetchone(
+            "SELECT schema_version, body FROM config_doc WHERE section = 'inverter'"
+        )
+        stored = self._try_parse("inverter", row)
+        before = stored.identity_token() if isinstance(stored, InverterConfig) else None
+        if model.identity_token() != before:
+            if model.limit_verified:
+                model = model.model_copy(update={"limit_verified": False})
+            op_row = await tx.fetchone(
+                "SELECT schema_version, body FROM config_doc WHERE section = 'operation'"
+            )
+            operation = self._try_parse("operation", op_row)
+            if isinstance(operation, OperationConfig):
+                cleaned = operation.without_inverter_mode()
+                if cleaned is not operation:
+                    await self._write(tx, "operation", cleaned, now)
+        await self._write(tx, "inverter", model, now)
         return model
 
     # --- battery identity (ADR-0013 decision 6) -----------------------------------------
@@ -654,7 +688,11 @@ class ConfigStore:
                 # An import never carries trust over: the global mode is shadow afterwards, and so
                 # is the battery (ADR-0013: an imported battery is never trusted to write).
                 operation = operation.model_copy(
-                    update={"mode": OperatingMode.SHADOW, "battery_mode": OperatingMode.SHADOW}
+                    update={
+                        "mode": OperatingMode.SHADOW,
+                        "battery_mode": OperatingMode.SHADOW,
+                        "inverter_mode": OperatingMode.SHADOW,
+                    }
                 )
                 if isinstance(new_devices, DevicesConfig):
                     operation = operation.without_modes_of(

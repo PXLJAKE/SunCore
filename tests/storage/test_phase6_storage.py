@@ -18,9 +18,12 @@ from suncore.core.config import (
     InverterConfig,
     MqttConfig,
     MqttPasswordIsMaskError,
+    OperationConfig,
 )
+from suncore.core.decisions import OperatingMode
 from suncore.core.flex import EvMode, EvState, EvTarget, JobState, ProgramJob, transition
 from suncore.core.series import TimeRange
+from suncore.core.site import EntityRef
 from suncore.storage import ConfigStore, Database, FlexStateStore, GridEvent, open_timeseries
 from suncore.storage.errors import SchemaTooNewError
 from suncore.storage.flex import FINAL_JOB_KEEP
@@ -247,6 +250,45 @@ async def test_import_never_carries_the_inverter_verification(db: Database) -> N
     assert isinstance(loaded, InverterConfig)
     assert loaded.limit_verified is False
     assert loaded.mode_capped
+
+
+async def test_a_new_inverter_adapter_is_unverified_and_back_in_shadow(db: Database) -> None:
+    """PR 6-G: a changed adapter identity resets ``limit_verified`` and the inverter mode."""
+    store = ConfigStore(db)
+    first = InverterConfig(
+        adapter="generic_number",
+        capability="export_limit",
+        limit_entity=EntityRef(entity_id="number.inverter_export_limit"),
+        limit_verified=True,
+    )
+    await store.put("inverter", first)
+    await store.put("operation", OperationConfig(inverter_mode=OperatingMode.ASSISTED))
+    # The same adapter (a setting changed): verification and mode stay.
+    same = await store.put("inverter", first.model_copy(update={"enforce_static": True}))
+    assert isinstance(same, InverterConfig)
+    assert same.limit_verified
+    kept = await store.get("operation")
+    assert isinstance(kept, OperationConfig)
+    assert kept.inverter_mode is OperatingMode.ASSISTED
+    # Another limit entity is another adapter: never verified, never inherits the mode.
+    other = first.model_copy(
+        update={"limit_entity": EntityRef(entity_id="number.other_export_limit")}
+    )
+    changed = await store.put("inverter", other)
+    assert isinstance(changed, InverterConfig)
+    assert changed.limit_verified is False
+    dropped = await store.get("operation")
+    assert isinstance(dropped, OperationConfig)
+    assert dropped.inverter_mode is OperatingMode.SHADOW
+
+
+async def test_import_drops_the_inverter_mode(db: Database) -> None:
+    store = ConfigStore(db)
+    await store.put("operation", OperationConfig(inverter_mode=OperatingMode.AUTOMATIC))
+    await store.import_json(await store.export_json())
+    loaded = await store.get("operation")
+    assert isinstance(loaded, OperationConfig)
+    assert loaded.inverter_mode is OperatingMode.SHADOW
 
 
 async def test_a_mask_without_a_stored_password_is_rejected(db: Database) -> None:
