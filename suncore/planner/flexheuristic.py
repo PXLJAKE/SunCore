@@ -51,6 +51,7 @@ def preplan(  # noqa: PLR0912 - one block per load kind, then the EV targets
     fe: FlexEconomics,
     surplus_w: tuple[float, ...],
     deficit_w: tuple[float, ...],
+    battery_first_until: int = -1,
 ) -> FlexPrePlan:
     """Job starts and the EV targets' grid slots (module doc)."""
     n, dt = inputs.n, inputs.dt_h
@@ -98,7 +99,13 @@ def preplan(  # noqa: PLR0912 - one block per load kind, then the EV targets
             continue
         plan = [0.0] * n
         slots = [t for t in range(n) if load.target_slot(t)]
-        est = {t: min(load.max_w[t] - load.floor_w[t], fe.surplus_p10_w[t], left[t]) for t in slots}
+        # The battery-first window (morning buffer) takes the surplus before the EV.
+        est = {
+            t: 0.0
+            if t < battery_first_until
+            else min(load.max_w[t] - load.floor_w[t], fe.surplus_p10_w[t], left[t])
+            for t in slots
+        }
         gap = load.need_by_wh - sum((est[t] + load.floor_w[t]) * dt for t in slots)
         for t in sorted(slots, key=lambda t: (inputs.import_price[t], t)):
             if gap <= EPS:
@@ -148,16 +155,30 @@ class FlexSim:
         self.delivered = [0.0] * len(self.loads)
         self.need = [0.0] * len(self.loads)
         """Per load: power still to settle from battery or grid in the current slot."""
+        dt = inputs.dt_h
+        self.reserved: list[list[float]] = []
+        """Per load and slot: energy the EV's later floors and planned grid slots need (Wh);
+        surplus charging keeps room for it under the vehicle's total."""
+        for i, load in enumerate(self.loads):
+            later = [0.0] * (n + 1)
+            if isinstance(load, PlannerEv):
+                for t in range(n - 1, -1, -1):
+                    later[t] = later[t + 1] + (load.floor_w[t] + pre.ev_grid_w[i][t]) * dt
+            self.reserved.append(later)
 
     # --- helpers ---------------------------------------------------------------------------
 
     def power(self, i: int, t: int) -> float:
         return self.s[i][t] + self.g[i][t] + self.b[i][t] + self.need[i]
 
-    def _ev_room(self, i: int, ev: PlannerEv, t: int) -> float:
+    def _ev_room(self, i: int, ev: PlannerEv, t: int, *, keep: bool = True) -> float:
         room = ev.max_w[t] - self.power(i, t)
         if ev.need_total_wh is not None:
-            room = min(room, max(0.0, ev.need_total_wh - self.delivered[i]) / self.inputs.dt_h)
+            dt = self.inputs.dt_h
+            left = ev.need_total_wh - self.delivered[i] - self.power(i, t) * dt
+            if keep:
+                left -= self.reserved[i][t + 1]
+            room = min(room, max(0.0, left) / dt)
         return max(0.0, room)
 
     def _thermal_to(self, th: PlannerThermal, t: int, target_c: float, temp: float) -> float:

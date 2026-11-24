@@ -83,7 +83,9 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
     )
     flex: FlexSim | None = None
     if inputs.flex_loads and econ.flex is not None:
-        pre = preplan(inputs, econ.flex, econ.surplus_w, econ.deficit_w)
+        pre = preplan(
+            inputs, econ.flex, econ.surplus_w, econ.deficit_w, econ.first_until if battery else -1
+        )
         flex = FlexSim(inputs, econ.flex, pre, econ.deficit_w)
     gl = [0.0] * n
     bl = [0.0] * n
@@ -128,14 +130,16 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
             default=float("inf"),
         )
         rest = s
-        if flex is not None:
-            rest -= flex.forced(t, rest)
         # Same rule as the LP's FIRST slack (review n2): strictly before the buffer's slot.
         battery_first = buffer_wh is not None and e < buffer_wh - 1e-6 and t < econ.first_until
         if battery is not None and battery_first:
             first = min(rest, max_ch, max(0.0, ceiling - e) / (dt * eta_c))
             pc[t] = first
             rest -= first
+        if flex is not None:
+            # The LP's FIRST row counts flexible loads too: battery first, then their demand
+            # (from surplus as far as it is left, else battery or grid).
+            rest -= flex.forced(t, rest)
         budget_w = float("inf") if margin == float("inf") else max(0.0, margin) / (dt * eta_c)
         for slot, left in budget_left.items():
             if slot >= t:
