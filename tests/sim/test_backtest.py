@@ -323,6 +323,9 @@ async def test_actual_matches_the_recorded_day_summary(store: TimeseriesStore) -
     assert result.totals is not None
     assert result.totals.days == 3
     assert result.stats.replans == 72
+    # Budget (plan §0 item 7: one hourly replan <= 10 s on a Pi 4); CI on amd64 checks 3 s,
+    # measured about 0.05 s (scripts/bench_backtest.py).
+    assert result.stats.solve_s_max < 3.0
     assert result.label == "plan_with_perfect_execution"
     assert {r.key for r in result.limitations} >= {"backtest.limit.perfect_execution"}
     assert len(result.hourly.starts) == 72
