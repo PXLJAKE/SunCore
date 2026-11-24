@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """``backtest_run``: the last results of what-if and backtest runs (Phase 5 WP3).
 
-Only the table and its retention live here; the engine and the job runner come in PR 5-J. The
+The engine is ``suncore.sim.backtest``, the job runner ``suncore.app.backtests`` (PR 5-J). The
 request is JSON text, the result a zlib-compressed JSON blob (same encoding as plan snapshots).
 """
 
@@ -115,6 +115,16 @@ class BacktestRunStore:
             "schema_version FROM backtest_run ORDER BY id DESC"
         )
         return [_meta(r) for r in rows]
+
+    async def abandon_running(self) -> int:
+        """Mark runs left ``running`` by an earlier process as ``failed`` (at start-up)."""
+        changed: int = await self._db.execute(
+            "UPDATE backtest_run SET status = 'failed', finished_at = ? WHERE status = 'running'",
+            (self._clock().astimezone(UTC).isoformat(),),
+        )
+        if changed:
+            log.info("backtest_run.abandoned", runs=changed)
+        return changed
 
     async def delete(self, run_id: int) -> bool:
         return await self._db.execute("DELETE FROM backtest_run WHERE id = ?", (run_id,)) > 0

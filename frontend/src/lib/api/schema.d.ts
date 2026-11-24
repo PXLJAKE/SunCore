@@ -4,6 +4,58 @@
  */
 
 export interface paths {
+    "/api/v1/backtests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Backtests
+         * @description The kept runs (the last five), newest first, with progress but without results.
+         */
+        get: operations["list_backtests"];
+        put?: never;
+        /**
+         * Start Backtest
+         * @description Replay local days ``start..end`` (at most 30, all in the past) through the planner
+         *     with the overlay (``planner``/``forecast`` parameters tagged ``whatif``, battery
+         *     settings, a flat tariff). Returns at once; poll ``GET /backtests/{id}``. Nothing is
+         *     written to the configuration or to a device.
+         */
+        post: operations["start_backtest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/backtests/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Backtest
+         * @description One run: status, progress while running, the result when done, the reason when it
+         *     failed or was cancelled.
+         */
+        get: operations["get_backtest"];
+        put?: never;
+        post?: never;
+        /**
+         * Cancel Backtest
+         * @description Cancel a running run (kept as ``cancelled``) or delete a finished one.
+         */
+        delete: operations["cancel_backtest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/battery": {
         parameters: {
             query?: never;
@@ -1224,6 +1276,140 @@ export interface components {
              */
             source: "attribute";
         };
+        /** BacktestCancelOut */
+        BacktestCancelOut: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "cancelled" | "deleted";
+        };
+        /** BacktestProgressOut */
+        BacktestProgressOut: {
+            /** Done */
+            done: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * BacktestRequest
+         * @description One run: local days ``start..end`` (inclusive) and what to change.
+         */
+        BacktestRequest: {
+            battery?: components["schemas"]["BatteryOverlay"] | null;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Params */
+            params?: {
+                [key: string]: boolean | number | string | null;
+            };
+            /**
+             * Perfect Foresight
+             * @default false
+             */
+            perfect_foresight: boolean;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            tariff?: components["schemas"]["TariffOverlay"] | null;
+        };
+        /** BacktestResult */
+        BacktestResult: {
+            /** Currency */
+            currency: string | null;
+            /** Days */
+            days: components["schemas"]["DayResult"][];
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            hourly: components["schemas"]["HourlySeries"];
+            /**
+             * Label
+             * @default plan_with_perfect_execution
+             * @constant
+             */
+            label: "plan_with_perfect_execution";
+            /** Limitations */
+            limitations: components["schemas"]["Reason"][];
+            /** Params */
+            params: {
+                [key: string]: boolean | number | string | null;
+            };
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Skipped */
+            skipped: components["schemas"]["SkippedDay"][];
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            stats: components["schemas"]["SolveStats"];
+            /**
+             * Tariff
+             * @enum {string}
+             */
+            tariff: "stored" | "fixed";
+            totals: components["schemas"]["BacktestTotals"] | null;
+            /** Tz */
+            tz: string;
+        };
+        /**
+         * BacktestRunOut
+         * @description One run; ``result`` only from ``GET /backtests/{id}`` of a finished run.
+         */
+        BacktestRunOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            error: components["schemas"]["Reason"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: number;
+            progress: components["schemas"]["BacktestProgressOut"] | null;
+            request: components["schemas"]["BacktestRequest"] | null;
+            result: components["schemas"]["BacktestResult"] | null;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed" | "cancelled";
+        };
+        /** BacktestTotals */
+        BacktestTotals: {
+            actual: components["schemas"]["RunFigures"];
+            /** Baseline No Pv Cost */
+            baseline_no_pv_cost: number;
+            /** Baseline Pv Only Cost */
+            baseline_pv_only_cost: number;
+            /** Days */
+            days: number;
+            perfect?: components["schemas"]["RunFigures"] | null;
+            whatif: components["schemas"]["RunFigures"];
+        };
         /**
          * BandPreference
          * @description What the plan would like the controller to do inside an allowed band.
@@ -1424,6 +1610,24 @@ export interface components {
              * @default 10
              */
             reserve_pct: number;
+        };
+        /**
+         * BatteryOverlay
+         * @description Battery settings to try; ``None`` keeps the configured value.
+         */
+        BatteryOverlay: {
+            /** Autarky Weight Per Kwh */
+            autarky_weight_per_kwh?: number | null;
+            /** Capacity Wh */
+            capacity_wh?: number | null;
+            grid_charge?: components["schemas"]["GridChargePolicy"] | null;
+            /** Max Charge W */
+            max_charge_w?: number | null;
+            /** Max Discharge W */
+            max_discharge_w?: number | null;
+            /** Reserve Pct */
+            reserve_pct?: number | null;
+            strategy?: components["schemas"]["BatteryStrategy"] | null;
         };
         /**
          * BatterySettings
@@ -1888,6 +2092,25 @@ export interface components {
             start: string;
             /** Total Equivalent Full Cycles */
             total_equivalent_full_cycles: number | null;
+        };
+        /** DayResult */
+        DayResult: {
+            actual: components["schemas"]["RunFigures"];
+            /** Baseline No Pv Cost */
+            baseline_no_pv_cost: number;
+            /** Baseline Pv Only Cost */
+            baseline_pv_only_cost: number;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            perfect?: components["schemas"]["RunFigures"] | null;
+            /** Priced Slots */
+            priced_slots: number;
+            /** Slots */
+            slots: number;
+            whatif: components["schemas"]["RunFigures"];
         };
         /**
          * DayType
@@ -2896,6 +3119,28 @@ export interface components {
          * @enum {string}
          */
         HorizonBucket: "0_6h" | "6_24h" | "24_48h" | "48h_plus";
+        /**
+         * HourlySeries
+         * @description Hourly means for the comparison chart (W, %); ``None`` = not replayed.
+         */
+        HourlySeries: {
+            /** Actual Battery W */
+            actual_battery_w: (number | null)[];
+            /** Actual Grid W */
+            actual_grid_w: (number | null)[];
+            /** Actual Soc Pct */
+            actual_soc_pct: (number | null)[];
+            /** Perfect Soc Pct */
+            perfect_soc_pct?: (number | null)[] | null;
+            /** Starts */
+            starts: string[];
+            /** Whatif Battery W */
+            whatif_battery_w: (number | null)[];
+            /** Whatif Grid W */
+            whatif_grid_w: (number | null)[];
+            /** Whatif Soc Pct */
+            whatif_soc_pct: (number | null)[];
+        };
         /** ImportResultOut */
         ImportResultOut: {
             /** Imported Sections */
@@ -4420,6 +4665,41 @@ export interface components {
             /** Same Device As */
             same_device_as?: string | null;
         };
+        /**
+         * RunFigures
+         * @description Energy (Wh), cost (currency) and KPIs of one run over the priced, replayed slots.
+         */
+        RunFigures: {
+            /** Autarky */
+            autarky: number | null;
+            /** Charge Wh */
+            charge_wh: number;
+            /** Cost Net */
+            cost_net: number;
+            /**
+             * Curtailed Wh
+             * @default 0
+             */
+            curtailed_wh: number;
+            /** Discharge Wh */
+            discharge_wh: number;
+            /** Equivalent Full Cycles */
+            equivalent_full_cycles: number | null;
+            /** Export Revenue */
+            export_revenue: number;
+            /** Export Wh */
+            export_wh: number;
+            /** House Wh */
+            house_wh: number;
+            /** Import Cost */
+            import_cost: number;
+            /** Import Wh */
+            import_wh: number;
+            /** Pv Wh */
+            pv_wh: number;
+            /** Self Consumption */
+            self_consumption: number | null;
+        };
         /** SankeyLinkOut */
         SankeyLinkOut: {
             /**
@@ -4629,6 +4909,15 @@ export interface components {
             /** Source Id */
             source_id: string;
         };
+        /** SkippedDay */
+        SkippedDay: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            reason: components["schemas"]["Reason"];
+        };
         /** SnapshotMessage */
         SnapshotMessage: {
             control: components["schemas"]["ControlState"];
@@ -4655,6 +4944,21 @@ export interface components {
             snapshot_id: number;
             /** Source */
             source: string;
+        };
+        /**
+         * SolveStats
+         * @description Planner runs of the replay; times vary between machines and are not part of the
+         *     deterministic result.
+         */
+        SolveStats: {
+            /** Fallbacks */
+            fallbacks: number;
+            /** Replans */
+            replans: number;
+            /** Solve S Max */
+            solve_s_max: number;
+            /** Solve S Total */
+            solve_s_total: number;
         };
         /**
          * SolverStats
@@ -4812,6 +5116,25 @@ export interface components {
              * @default 3
              */
             schema_version: number;
+        };
+        /**
+         * TariffOverlay
+         * @description A flat tariff to try instead of the stored prices (currency/kWh).
+         */
+        TariffOverlay: {
+            /**
+             * Export Price
+             * @default 0
+             */
+            export_price: number;
+            /** Import Price */
+            import_price: number;
+            /**
+             * Kind
+             * @default fixed
+             * @constant
+             */
+            kind: "fixed";
         };
         /** TariffTemplate */
         TariffTemplate: {
@@ -5090,6 +5413,184 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_backtests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunOut"][];
+                };
+            };
+            /** @description No history */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    start_backtest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BacktestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunOut"];
+                };
+            };
+            /** @description A run or the planner is active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Invalid window or overlay */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No history or no site configuration */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_backtest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunOut"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description No history */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    cancel_backtest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestCancelOut"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description No history */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     get_config_battery: {
         parameters: {
             query?: never;

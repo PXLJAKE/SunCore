@@ -279,6 +279,11 @@ class PlanningService:
     def settings(self) -> PlanningSettings:
         return self._settings
 
+    @property
+    def busy(self) -> bool:
+        """A run is collecting inputs or solving (a backtest does not start meanwhile)."""
+        return self._running or self._thread_busy
+
     def update_settings(self, settings: PlanningSettings) -> None:
         """Take over new settings (expert mode, Phase 5 WP5). Every read of a setting happens
         when it is used, so a run in progress finishes with the budget it started with and the

@@ -34,6 +34,7 @@ from suncore.app.adapters import (
     build_pv_forecast_service,
     build_tariff_service,
 )
+from suncore.app.backtests import BacktestJobs
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import BatteryWiring, ControlStack
 from suncore.app.history import backfill_history, rebuild_history
@@ -127,8 +128,10 @@ from suncore.ha import (
 )
 from suncore.planner import build_inputs
 from suncore.planner import reasons as planner_reasons
+from suncore.planner.inputs import DEFAULT_MIP_GAP
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck, Trigger
 from suncore.safety.gate import REASON_OVERRIDE_HELD, Clock, SafetyGate
+from suncore.sim.backtest import BACKTEST_BUDGET_S, BacktestSite
 from suncore.storage import (
     ConfigStore,
     Database,
@@ -140,6 +143,7 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
+from suncore.storage.backtests import BacktestRunStore
 from suncore.storage.summaries import DaySummaryRow
 from suncore.storage.timeseries import META_HISTORY_BACKFILLED, META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
@@ -251,6 +255,8 @@ class Runtime:
     planning: PlanningService | None = None
     """The planner runtime (built in :meth:`prepare`; the control stack reads its plan)."""
     _planning_task: asyncio.Task[None] | None = None
+    backtest_jobs: BacktestJobs | None = None
+    """Backtest runs (Phase 5 WP6); ``None`` without ``timeseries.db``."""
     _plan_unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _history_done: bool = False
     """The statistics rebuild ran (or was not needed) in this process."""
@@ -287,6 +293,7 @@ class Runtime:
         self.load_service = self._new_load_service()
         await self._load_risk_model()
         self._build_tariff()
+        await self._prepare_backtests()
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -468,6 +475,54 @@ class Runtime:
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         assert self.planning is not None
         return self.planning.add_listener(listener)
+
+    # --- backtests (Phase 5 WP6) ---------------------------------------------------------
+
+    async def _prepare_backtests(self) -> None:
+        if self.timeseries is None or self.backtest_jobs is not None:
+            return
+        timeseries = self.timeseries
+        self.backtest_jobs = BacktestJobs(
+            BacktestRunStore(self.db, clock=self.clock),
+            history=lambda: timeseries,
+            site=self._backtest_site,
+            today=lambda: self.clock().astimezone(self._blend_tz()).date(),
+            busy=lambda: self.planning is not None and self.planning.busy,
+        )
+        await self.backtest_jobs.recover()
+
+    def backtests(self) -> BacktestJobs | None:
+        return self.backtest_jobs
+
+    async def _backtest_site(self) -> BacktestSite | None:
+        """The configuration of the moment as a plain value for a backtest (never written)."""
+        site = self.site
+        if site is None or not self._time_zone_settled():
+            return None
+        context = self._summary_context()
+        pv_sources: tuple[str, ...] = ()
+        if self.pv_service is not None:
+            pv_sources = (BLENDED_SOURCE_ID, *self.pv_service.source_ids)
+        load_sources = (
+            ("load_profile",) if self.load_service is None else self.load_service.source_ids
+        )
+        planning = None if self.planning is None else self.planning.settings
+        return BacktestSite(
+            tz=context.tz,
+            tz_name=context.tz_name,
+            battery=await self._battery_settings(),
+            site_battery=site.battery,
+            goals=self.goals,
+            import_limit_w=site.grid.import_limit_w,
+            export_limit_w=export_limit_w(site),
+            price_source_id=context.price_source_id,
+            export_fallback=context.export_fallback,
+            currency=context.currency,
+            pv_source_ids=pv_sources,
+            load_source_ids=load_sources,
+            budget_s=BACKTEST_BUDGET_S,
+            mip_gap=DEFAULT_MIP_GAP if planning is None else planning.mip_gap,
+        )
 
     # --- tariff (prices) --------------------------------------------------------
 
@@ -1199,6 +1254,8 @@ class Runtime:
         async with self._stack_lock:
             if self.stack is not None:
                 await self.stack.shutdown()
+        if self.backtest_jobs is not None:
+            await self.backtest_jobs.shutdown()
         for task in storage_tasks:
             if task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):

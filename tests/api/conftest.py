@@ -27,6 +27,7 @@ from suncore.api import (
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.api.services import BacktestService
 from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import Flow, FlowSnapshot
 from suncore.core.battery import BatterySettings
@@ -239,6 +240,7 @@ class FakeServices:
         self.price_report: PriceReport | None = None
         self.price_hours: list[int] = []
         self.history: HistorySources | None = None
+        self.backtest_service: BacktestService | None = None
 
         async def nothing(now: datetime, previous: object) -> PlanningSnapshot:
             return PlanningSnapshot(None)
@@ -264,6 +266,9 @@ class FakeServices:
 
     def history_sources(self) -> HistorySources | None:
         return self.history
+
+    def backtests(self) -> BacktestService | None:
+        return self.backtest_service
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
         self.pv_hours.append(hours)
