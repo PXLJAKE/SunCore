@@ -285,6 +285,46 @@
  },
  {
   "lang": "en",
+  "key": "controller.evcc.cap",
+  "args": {
+   "current_a": "abc"
+  },
+  "expected": "evcc's maximum current is held at abc A by a grid limit."
+ },
+ {
+  "lang": "en",
+  "key": "controller.evcc.cap",
+  "args": {
+   "current_a": 42
+  },
+  "expected": "evcc's maximum current is held at 42 A by a grid limit."
+ },
+ {
+  "lang": "en",
+  "key": "controller.evcc.min_pv",
+  "args": {},
+  "expected": "evcc follows the PV surplus; evcc has no minimum-power mode, so smart mode is used."
+ },
+ {
+  "lang": "en",
+  "key": "controller.evcc.no_raise",
+  "args": {},
+  "expected": "evcc's state is stale or unknown: charging is not raised."
+ },
+ {
+  "lang": "en",
+  "key": "controller.evcc.para14a_off",
+  "args": {},
+  "expected": "A grid operator limit (section 14a) is active: evcc charging is switched off."
+ },
+ {
+  "lang": "en",
+  "key": "controller.evcc.smart",
+  "args": {},
+  "expected": "evcc is set to follow the PV surplus (smart mode)."
+ },
+ {
+  "lang": "en",
   "key": "controller.grid.backup_unknown",
   "args": {},
   "expected": "The backup power state is unknown: treated as connected to the grid."
@@ -5604,6 +5644,50 @@
  },
  {
   "lang": "en",
+  "key": "safety.evcc_current_range",
+  "args": {
+   "current_a": "abc",
+   "min_a": "abc",
+   "max_a": "abc"
+  },
+  "expected": "The charging current abc A is outside evcc's range of abc to abc A; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.evcc_current_range",
+  "args": {
+   "current_a": 42,
+   "min_a": 42,
+   "max_a": 42
+  },
+  "expected": "The charging current 42 A is outside evcc's range of 42 to 42 A; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.evcc_limit_range",
+  "args": {},
+  "expected": "The charge limit must be between 1 and 100 %; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.evcc_now_not_allowed",
+  "args": {},
+  "expected": "Charging now needs the EV mode now or a planned grid interval; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.evcc_plan_unverified",
+  "args": {},
+  "expected": "A vehicle plan cannot be cleared over evcc's MQTT interface (unverified); nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.evcc_state_unknown",
+  "args": {},
+  "expected": "evcc's state is stale or unknown: charging is not raised."
+ },
+ {
+  "lang": "en",
   "key": "safety.grid_cooldown",
   "args": {
    "remaining_s": "abc"
@@ -5729,6 +5813,18 @@
   "key": "safety.late_confirmed",
   "args": {},
   "expected": "The device confirmed the earlier write late."
+ },
+ {
+  "lang": "en",
+  "key": "safety.loadpoint_needs_loadpoint",
+  "args": {},
+  "expected": "An evcc loadpoint is controlled through mode, current and limit only; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.loadpoint_not_loadpoint",
+  "args": {},
+  "expected": "Only an evcc loadpoint takes a loadpoint action; nothing was written."
  },
  {
   "lang": "en",
@@ -6429,6 +6525,46 @@
    "power_w": 42
   },
   "expected": "Der Plan erlaubt jetzt 42 W aus dem Netz, um das Ladeziel zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.cap",
+  "args": {
+   "current_a": "abc"
+  },
+  "expected": "Der maximale Strom von evcc wird durch eine Netzgrenze auf abc A gehalten."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.cap",
+  "args": {
+   "current_a": 42
+  },
+  "expected": "Der maximale Strom von evcc wird durch eine Netzgrenze auf 42 A gehalten."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.min_pv",
+  "args": {},
+  "expected": "evcc folgt dem PV-Überschuss; evcc kennt keinen Mindestleistungsmodus, daher wird smart verwendet."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.no_raise",
+  "args": {},
+  "expected": "Der Zustand von evcc ist veraltet oder unbekannt: Das Laden wird nicht erhöht."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.para14a_off",
+  "args": {},
+  "expected": "Eine Netzbetreiber-Begrenzung (§14a) ist aktiv: Das Laden über evcc ist ausgeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.smart",
+  "args": {},
+  "expected": "evcc folgt dem PV-Überschuss (Modus smart)."
  },
  {
   "lang": "de",
@@ -11751,6 +11887,50 @@
  },
  {
   "lang": "de",
+  "key": "safety.evcc_current_range",
+  "args": {
+   "current_a": "abc",
+   "min_a": "abc",
+   "max_a": "abc"
+  },
+  "expected": "Der Ladestrom abc A liegt außerhalb des evcc-Bereichs von abc bis abc A; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.evcc_current_range",
+  "args": {
+   "current_a": 42,
+   "min_a": 42,
+   "max_a": 42
+  },
+  "expected": "Der Ladestrom 42 A liegt außerhalb des evcc-Bereichs von 42 bis 42 A; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.evcc_limit_range",
+  "args": {},
+  "expected": "Das Ladelimit muss zwischen 1 und 100 % liegen; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.evcc_now_not_allowed",
+  "args": {},
+  "expected": "Sofort laden braucht den EV-Modus Sofort oder ein geplantes Netzintervall; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.evcc_plan_unverified",
+  "args": {},
+  "expected": "Ein Fahrzeugplan lässt sich über die MQTT-Schnittstelle von evcc nicht löschen (ungeprüft); nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.evcc_state_unknown",
+  "args": {},
+  "expected": "Der Zustand von evcc ist veraltet oder unbekannt: Das Laden wird nicht erhöht."
+ },
+ {
+  "lang": "de",
   "key": "safety.grid_cooldown",
   "args": {
    "remaining_s": "abc"
@@ -11876,6 +12056,18 @@
   "key": "safety.late_confirmed",
   "args": {},
   "expected": "Das Gerät hat den früheren Schreibvorgang verspätet bestätigt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.loadpoint_needs_loadpoint",
+  "args": {},
+  "expected": "Ein evcc-Ladepunkt wird nur über Modus, Strom und Limit gesteuert; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.loadpoint_not_loadpoint",
+  "args": {},
+  "expected": "Nur ein evcc-Ladepunkt nimmt eine Ladepunkt-Aktion an; nichts geschrieben."
  },
  {
   "lang": "de",

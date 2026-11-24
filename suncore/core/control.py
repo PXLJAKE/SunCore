@@ -91,6 +91,13 @@ class DeviceState(_Frozen):
     soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     """The vehicle's state of charge (``None`` = no ``vehicle_soc`` role or unavailable)."""
 
+    # PR 6-J (additive): an evcc loadpoint (``LoadpointControl``); ``mode`` is the evcc mode
+    # (``off``/``smart``/``now``), ``on`` = charging, ``value`` = the charge power in W.
+    max_current_a: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    """The loadpoint's ``maxCurrent`` as evcc reports it (``None`` = unknown)."""
+    limit_soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    """The loadpoint's ``limitSoc`` as evcc reports it (``None`` = unknown)."""
+
     @property
     def known(self) -> bool:
         """Whether the state can be trusted for a decision (ok or stale, never missing)."""

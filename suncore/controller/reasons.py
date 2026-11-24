@@ -78,6 +78,12 @@ EV_BATTERY_WAIT: Final = "controller.ev.battery_wait"
 EV_INPUTS_UNKNOWN: Final = "controller.ev.inputs_unknown"
 EV_PHASE_SWITCH: Final = "controller.ev.phase_switch"
 EV_PHASE_PAUSE: Final = "controller.ev.phase_pause"
+# Phase 6 PR 6-J: evcc as actor (``controller.evcc``).
+EVCC_SMART: Final = "controller.evcc.smart"
+EVCC_MIN_PV: Final = "controller.evcc.min_pv"
+EVCC_CAP: Final = "controller.evcc.cap"
+EVCC_NO_RAISE: Final = "controller.evcc.no_raise"
+EVCC_PARA14A_OFF: Final = "controller.evcc.para14a_off"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
     BATTERY_EV_LOCK,
@@ -90,6 +96,11 @@ ALL_KEYS: Final[tuple[str, ...]] = (
     EV_INPUTS_UNKNOWN,
     EV_PHASE_SWITCH,
     EV_PHASE_PAUSE,
+    EVCC_SMART,
+    EVCC_MIN_PV,
+    EVCC_CAP,
+    EVCC_NO_RAISE,
+    EVCC_PARA14A_OFF,
     GRID_ISLAND_SHED,
     GRID_ISLAND_KEEP,
     GRID_COOLDOWN,
@@ -256,6 +267,11 @@ def ev_phase_switch(phases: int) -> Reason:
 
 def ev_phase_pause(remaining_s: float) -> Reason:
     return Reason(key=EV_PHASE_PAUSE, args={"remaining_s": _ceil(remaining_s)})
+
+
+def evcc_cap(current_a: float) -> Reason:
+    """evcc's maximum current is held below the wiring limit by a grid limit."""
+    return Reason(key=EVCC_CAP, args={"current_a": round(current_a)})
 
 
 def plain(key: str) -> Reason:

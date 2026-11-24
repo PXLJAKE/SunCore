@@ -85,6 +85,7 @@ from suncore.core.decisions import (
     Decision,
     DecisionKind,
     Intent,
+    LoadpointAction,
     OperatingMode,
     Origin,
     Reason,
@@ -130,6 +131,7 @@ from suncore.safety.battery import (
     same_state,
     user_changed_fields,
 )
+from suncore.safety.evcc import LoadpointSafety, loadpoint_allowance_w
 from suncore.safety.flex import (
     CURRENT_TOLERANCE_A,
     EvSafety,
@@ -222,14 +224,13 @@ REASON_BATTERY_RELEASE_CONFIRMED: Final = Reason(key="safety.battery_release_con
 """The battery shows its own settings again: control of it has ended."""
 REASON_NOT_SUPPORTED: Final[Mapping[ActionKind, Reason]] = MappingProxyType(
     {
-        ActionKind.LOADPOINT: Reason(key="safety.loadpoint_not_supported"),
         ActionKind.INVERTER_LIMIT: Reason(key="safety.inverter_limit_not_supported"),
     }
 )
 """ADR-0011 addendum, PR 6-B: the Phase 6 action kinds are in the contract but have no
 invariants yet; the gate rejects each before mode handling (also in shadow and assisted), writes
 nothing and creates no proposal. Lifted per kind with its ``control-safety`` sign-off (6-G
-inverter limit, 6-I charge, 6-J loadpoint)."""
+inverter limit, 6-I charge, 6-J loadpoint - both lifted)."""
 REASON_CHARGE_NOT_CHARGER: Final = Reason(key="safety.charge_not_charger")
 """A ``charge`` action for a device that is not an EV charger (PR 6-I)."""
 REASON_CHARGER_NEEDS_CHARGE: Final = Reason(key="safety.charger_needs_charge")
@@ -239,6 +240,10 @@ REASON_EV_RELEASE_STAGED: Final = Reason(key="safety.ev_release_staged")
 higher current) restored once the phase pause has passed and §14a allows it."""
 EV_RELEASE_RECHECK_S: Final = 60.0
 """A release staged for §14a is re-checked this often."""
+REASON_LOADPOINT_NOT_LOADPOINT: Final = Reason(key="safety.loadpoint_not_loadpoint")
+"""A ``loadpoint`` action for a device that is not an evcc loadpoint (PR 6-J)."""
+REASON_LOADPOINT_NEEDS_LOADPOINT: Final = Reason(key="safety.loadpoint_needs_loadpoint")
+"""Any action but ``loadpoint`` and a release for an evcc loadpoint (PR 6-J)."""
 REASON_SG_READY_NOT_SUPPORTED: Final = Reason(key="safety.sg_ready_not_supported")
 """Any action but a release for an SG-Ready heat pump (until PR 6-K, ADR-0017 decision 8)."""
 REASON_PROGRAM_NOT_SUPPORTED: Final = Reason(key="safety.program_not_supported")
@@ -266,6 +271,13 @@ EvModeLookup = Callable[[str], EvMode]
 
 PlanLookup = Callable[[datetime], Plan]
 """The plan the controller follows (``ControlStack.current_plan``)."""
+
+
+@runtime_checkable
+class LoadpointLimits(Protocol):
+    """An evcc driver that reports evcc's own ``minCurrent`` (L1)."""
+
+    def min_current_a(self) -> float | None: ...
 
 
 @runtime_checkable
@@ -801,8 +813,13 @@ class SafetyGate:
             )
         if isinstance(control, SgReadyControl):
             return REASON_SG_READY_NOT_SUPPORTED
-        if isinstance(control, LoadpointControl):
-            return REASON_NOT_SUPPORTED[ActionKind.LOADPOINT]
+        if isinstance(action, LoadpointAction) != isinstance(control, LoadpointControl):
+            # 6-J: an evcc loadpoint takes only ``loadpoint`` actions, and only it takes them.
+            return (
+                REASON_LOADPOINT_NOT_LOADPOINT
+                if isinstance(action, LoadpointAction)
+                else REASON_LOADPOINT_NEEDS_LOADPOINT
+            )
         if device.program is not None:
             return REASON_PROGRAM_NOT_SUPPORTED
         return None
@@ -1980,6 +1997,7 @@ class SafetyGate:
             claimed_w=self._claimed_w() if inputs.ts is not None else 0.0,
             grid=self._grid_safety(inputs, now, device),
             ev=self._ev_safety(device, now, inputs),
+            lp=self._lp_safety(device),
         )
 
     # --- EV (PR 6-I, ``safety.flex``) --------------------------------------------------------
@@ -2009,6 +2027,8 @@ class SafetyGate:
     ) -> EvSafety:
         """E1-E6 inputs of a charger: mode, allowance, connection, battery lock, read-back."""
         control = device.control
+        if isinstance(control, LoadpointControl):
+            return self._loadpoint_ev_safety(device, control, now, inputs)
         if not isinstance(control, ChargerControl):
             return EvSafety()
         inputs = inputs if inputs is not None else (self._inputs() or GateInputs())
@@ -2039,6 +2059,49 @@ class SafetyGate:
             idle_since=self._ev_idle_since.get(device.id),
         )
 
+    def _loadpoint_ev_safety(
+        self,
+        device: DeviceConfig,
+        control: LoadpointControl,
+        now: datetime,
+        inputs: GateInputs | None,
+    ) -> EvSafety:
+        """L2/E3/E6 inputs of an evcc loadpoint: the EV mode's allowance (the user's ``now`` or a
+        planned grid interval of ``target``), the connection, the battery lock."""
+        inputs = inputs if inputs is not None else (self._inputs() or GateInputs())
+        state = self._states(device.id)
+        connected = None if state is None else state.connected
+        mode = self.ev_mode(device)
+        return EvSafety(
+            mode=mode,
+            allowance_w=loadpoint_allowance_w(
+                mode, control, connected=connected, band=self._ev_band(device.id, now)
+            ),
+            connected=connected,
+            battery_locked=self._battery_locked(inputs),
+        )
+
+    def _lp_safety(self, device: DeviceConfig) -> LoadpointSafety:
+        """evcc's observed state and its own ``minCurrent`` (L1, L2)."""
+        if not isinstance(device.control, LoadpointControl):
+            return LoadpointSafety()
+        state = self._states(device.id)
+        observed: LoadpointAction | None = None
+        if (
+            state is not None
+            and state.known
+            and state.mode in ("off", "smart", "now")
+            and state.max_current_a is not None
+        ):
+            observed = LoadpointAction(
+                mode=state.mode,
+                max_current_a=state.max_current_a,
+                limit_soc_pct=state.limit_soc_pct,
+            )
+        actuator = self._actuators.get(device.id)
+        minimum = actuator.min_current_a() if isinstance(actuator, LoadpointLimits) else None
+        return LoadpointSafety(observed=observed, min_current_a=minimum)
+
     def _battery_locked(self, inputs: GateInputs) -> bool:
         """E6: no home battery, or SunCore holds (and has confirmed) a discharge lock."""
         if not inputs.battery_present:
@@ -2055,14 +2118,18 @@ class SafetyGate:
         inputs = self._inputs() or GateInputs()
         for device_id in self._actuators:
             device = self._devices(device_id)
-            if device is None or not isinstance(device.control, ChargerControl):
+            if device is None or not isinstance(device.control, ChargerControl | LoadpointControl):
                 continue
             if self.modes_of(device_id).effective is OperatingMode.SHADOW:
                 continue
             if self._watchdog.pause_reason(device_id, now) is not None:
                 continue
             ev = self._ev_safety(device, now, inputs)
-            charging = ev.observed is not None and ev.observed.effective_current_a > 0
+            if isinstance(device.control, LoadpointControl):
+                state = self._states(device_id)
+                charging = state is not None and state.on is True
+            else:
+                charging = ev.observed is not None and ev.observed.effective_current_a > 0
             if ev.allowance_w > 0 and (ev.connected is True or charging):
                 return True
         return False

@@ -73,7 +73,7 @@ class MqttClient:
         settings: BrokerSettings,
         *,
         client_id: str,
-        will: Will,
+        will: Will | None,
         subscriptions: Sequence[tuple[str, int]],
         on_connected: Callable[[], Awaitable[None]],
         on_message: OnMessage,
@@ -113,7 +113,9 @@ class MqttClient:
             keepalive=KEEPALIVE_S,
             timeout=CONNECT_TIMEOUT_S,
             tls_context=tls_context,
-            will=aiomqtt.Will(
+            will=None
+            if self._will is None
+            else aiomqtt.Will(
                 topic=self._will.topic,
                 payload=self._will.payload,
                 qos=self._will.qos,

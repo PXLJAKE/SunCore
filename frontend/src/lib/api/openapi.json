@@ -3467,6 +3467,31 @@
             ],
             "title": "Connected"
           },
+          "limit_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Soc Pct"
+          },
+          "max_current_a": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Current A"
+          },
           "mode": {
             "anyOf": [
               {
@@ -6619,7 +6644,7 @@
       },
       "LoadpointAction": {
         "additionalProperties": false,
-        "description": "What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; PR 6-J lifts the rejection).\n\nevcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle\nplan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``\nfields are left as evcc has them. SunCore never writes ``evcc/site/*``.",
+        "description": "What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; judged since PR 6-J).\n\nevcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle\nplan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``\nfields are left as evcc has them. SunCore never writes ``evcc/site/*``.",
         "properties": {
           "kind": {
             "const": "loadpoint",
