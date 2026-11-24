@@ -1084,6 +1084,15 @@ A1, B1, B2 and C1-C3 are confirmed fixed; A2 is partly fixed. Two new items, bot
   `release_due_reason`, and `poll` retries. Hand-over and shutdown are unchanged, so
   `recover(after_handover=True)` and `tests/safety/test_release_paths.py` hold. Test:
   `test_r2_a_failed_emergency_stop_release_is_retried_by_poll_with_backoff`.
+- **C4 (done, re-check of 5ae3da5):** the "over the limit" clock restarted on a single tick
+  below the limit, so noise around a mean above the limit (6 kW limit, house 2000 +- 500 W,
+  65 % of the ticks over) held the car at 6 A for an hour: a permanent G1 violation. The clock
+  now restarts only after the import stayed under the limit for 30 s (`UNDER_RESET_S`), so the
+  cut follows within about 60-90 s. Above the fuse limit (`GridInputs.fuse_limit_w`, G2) the car
+  goes `off` at once, without the 60 s hold. Tests: `test_c4_*` (controller); one test per
+  release path (`recover`, `connection_restored`, site trip) for the rescheduled release.
+- **Residual risk (safety review, listed as such):** G1 for `smart` is reactive, about 1 min
+  (evcc's own plan may import until the cut is written; up to 60-90 s with noisy import).
 
 ### 6-C (MQTT base and backend ICU)
 

@@ -40,6 +40,12 @@ from suncore.core.flex import EvMode
 from suncore.safety.gate import REASON_EMERGENCY_STOP, GateInputs, SafetyGate
 from suncore.safety.modes import StaticModes
 from suncore.safety.runtime import MemoryRuntimeStore
+from suncore.safety.watchdog import (
+    REASON_CONNECTION_LOST,
+    SITE_SCOPE,
+    Fault,
+    FaultKind,
+)
 from tests.safety.helpers import T0, FakeClock, SpyActuator, flows, make_intent, surplus
 
 AUTO = OperatingMode.AUTOMATIC
@@ -331,3 +337,29 @@ def test_r1_off_and_on_count_as_switches_but_off_is_never_blocked() -> None:
     runtime = asyncio.run(h.store.load_runtime("lp"))
     assert runtime is not None
     assert runtime.switches_in_window(h.clock.now) == 2
+
+
+@pytest.mark.parametrize("path", ["recover", "connection_restored", "site_trip"])
+def test_r2_every_release_path_reschedules_a_failed_first_attempt(path: str) -> None:
+    h = make(mode=EvMode.PV)
+    assert submit(h, LoadpointAction(mode="smart", max_current_a=16.0)).kind is (
+        DecisionKind.ACCEPTED
+    )
+    h.spy.fail_release = RuntimeError("echo timeout")
+    gate = h.gate
+    if path == "recover":
+        asyncio.run(gate.recover())
+    elif path == "connection_restored":
+        asyncio.run(gate.connection_restored())
+    else:
+        gate._watchdog.connection_lost(h.clock.now)
+        fault = Fault(FaultKind.CONNECTION_LOST, SITE_SCOPE, REASON_CONNECTION_LOST)
+        asyncio.run(gate._after_site_check(h.clock.now, (fault,)))
+    runtime = asyncio.run(h.store.load_runtime("lp"))
+    assert runtime is not None
+    assert runtime.under_control
+    assert runtime.release_due_ts is not None
+    h.spy.fail_release = None
+    h.clock.advance(31)
+    decisions = asyncio.run(gate.poll())
+    assert [d.kind for d in decisions] == [DecisionKind.ACCEPTED]
