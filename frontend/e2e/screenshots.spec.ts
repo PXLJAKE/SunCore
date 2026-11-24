@@ -19,6 +19,10 @@ const shots = [
   { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'en-US' },
   { view: 'plan', path: '/#/plan', scheme: 'light', locale: 'de-DE' },
   { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'de-DE' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'light', locale: 'en-US' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'dark', locale: 'en-US' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'light', locale: 'de-DE' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'dark', locale: 'de-DE' },
 ] as const;
 
 for (const shot of shots) {
@@ -40,6 +44,12 @@ for (const shot of shots) {
     if (shot.view === 'plan') {
       await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
       await expect(page.getByTestId('fc-accuracy')).toBeVisible();
+    }
+    if (shot.view === 'history') {
+      for (const chart of ['energy', 'sankey', 'heatmap', 'skill']) {
+        await expect(page.getByTestId(`chart-${chart}`).locator('canvas').first()).toBeVisible();
+      }
+      await expect(page.getByTestId('device-row').first()).toBeVisible();
     }
     // Let the live feed deliver a few updates before the capture.
     await page.waitForTimeout(1500);
