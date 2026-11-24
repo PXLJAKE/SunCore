@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PR 6-F import side, §14a, island) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PRs 6-F import side and 6-H planner flex) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
@@ -38,6 +38,34 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
   - Review conditions (PR #54): no G2 waiver on a stale snapshot; the §14a sum counts writes
     in flight; the cool-down memory is restored from `grid_event` at start; G1 rejects load
     increases of unknown size (`safety.power_unknown`). H3 (running programs) is due in 6-L.
+
+- **Phase 6 - PR 6-H, WP8 planner for flexible loads and grid (branch `phase-6/h-planner-flex`,
+  on 6-B; `optimizer-engineer`)** - plans and bands only, no device writes, no runtime wiring:
+  - `planner/flex.py` (inputs from the 6-B contracts: `build_flex`, `build_grid`),
+    `planner/flexmodel.py` (LP/MILP columns and rows), `planner/flexheuristic.py` (fallback).
+    Without flexible loads or grid limits the model is exactly Phase 4 (same columns and rows,
+    no integrality; test).
+  - EV: modes off/min/pv/min_pv/target, charging window from arrival/departure, 6 A floor,
+    on/off binaries only in the first 24 h (LP beyond), energy target counted on the P10
+    surplus, never fed by the home battery. Program jobs: one binary per candidate start before
+    the deadline, warm start keeps the previous start. Heat pump: exact RC discretisation, COP
+    curve, comfort band with soft slacks, surplus pre-heat; grid pre-heat only with
+    `grid_preheat`.
+  - Grid: per-slot import/export limits from `core.grid`, monthly peak variable with the
+    capacity price (local month bounds), §14a sum of flagged loads within the budget for the
+    hold time, grid charging 0 while dimmed; a demanded load above the import limit uses a
+    penalised slack (`planner.grid.import_limit_exceeded`).
+  - Bands: `max_power_w`, `grid_power_max_w` (EV target, grid pre-heat), `start` (jobs); 18 new
+    reason keys (`planner.ev.*`, `planner.job.*`, `planner.thermal.*`, `planner.grid.*`, en/de).
+  - Simulator: `sim/planner_flex.py` with nine scenarios (full house, late EV, PV-only EV,
+    program deadline (feasible/infeasible), heat pump surplus/grid pre-heat, peak shaving,
+    §14a). Hypothesis: random flexible loads and grid limits, both schedules feasible, solver
+    never worse than the heuristic.
+  - Benchmark (`scripts/bench_planner.py --scenario full_house`, x86_64, 5 runs): 5931 columns,
+    2414 rows, 234 binaries, solve 0.22 s cold / 0.21 s warm, whole run 0.26 s, MIP gap 0;
+    heuristic objective -0.37 vs solver -12.88. Reference house unchanged (5 ms solve, 31 ms
+    run). Slow CI test: full house < 5 s. aarch64 not measured (`UNVERIFIED`).
+  - Deviations: plan section 8 (6-H).
 
 - **Phase 6 - PR 6-B, WP2 contracts and configuration (branch `phase-6/b-contracts`, on 6-A;
   `control-safety`)** - additive, no behaviour yet:
@@ -1111,7 +1139,7 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Forecast.Solar `wh_hours`/`watt_hours_period` keys read as period *start* (vendor API unreachable) | `templates/forecast/forecast_solar.pv.yaml`, `suncore/forecast/pv/parsing.py` | live comparison with the integration's sensors |
 | Supervisor proxy forwards `energy/solar_forecast` | `suncore/ha/` (`fetch_solar_forecast`) | first run on HA OS |
 | PV calibration constants (classes kt 0.3/0.65, shrink k = 16, decay 0.98, factor 0.5–1.5) and the clipping thresholds (plateau ±0.3 % for ≥ 1 h on ≥ 2 days; export within max(3 %, 50 W)) are reasoned, not fitted to real data | `suncore/forecast/pv/` | 30+ days of the maintainer's data |
-| Planner solve times on aarch64 (Raspberry Pi 4, HA Green); amd64: 4 ms solve, 24 ms whole run for the reference house; HiGHS releasing the GIL on aarch64 (measured on amd64) | ADR-0003, `scripts/bench_planner.py`, `tests/planner/test_gil.py` | run the benchmark and the slow tests on a Pi / the CI arm runner |
+| Planner solve times on aarch64 (Raspberry Pi 4, HA Green); amd64: 4 ms solve, 24 ms whole run for the reference house, 0.22 s solve / 0.26 s run for the 6-H full house (EV, program, heat pump, 234 binaries); HiGHS releasing the GIL on aarch64 (measured on amd64) | ADR-0003, `scripts/bench_planner.py`, `tests/planner/test_gil.py` | run the benchmark and the slow tests on a Pi / the CI arm runner |
 | Negative-price rule slots in the planner use a proxy (export price ≤ 0 and import price < 0); a spot-only source with a formula whose end price stays positive is not detected | `suncore/planner/inputs.py` | tariff service exposes the rule's slots (Phase 5) |
 | Planner weights and rules: target penalties (10 × max price + 1, buffer 2 × + 0.5), terminal value (median import × discharge efficiency − degradation/2), device budget on P50 plus overflow (a day far below P50 can miss the evening target, review D4), flat 500 W base load without a load forecast, automatic device value export + 0.01 | `suncore/planner/model.py`, `inputs.py` | shadow plans on the maintainer's system |
 | `weather.get_forecasts` `hourly` support of the maintainer's weather integration (the `temperature_unit` attribute and the conversion of the forecast to it are verified from source, `research/ha-websocket-api.md`) | `suncore/app/adapters.py` (`HaLoadReader`) | maintainer's HA |

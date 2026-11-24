@@ -72,6 +72,8 @@ from typing import Final, Literal, Protocol
 import numpy as np
 import numpy.typing as npt
 
+from suncore.planner import flexmodel as fx
+from suncore.planner.flex import FlexFlows
 from suncore.planner.inputs import DEVICE_VALUE_MARGIN, PlannerInputs, SocGoal
 
 FloatArray = npt.NDArray[np.float64]
@@ -103,14 +105,20 @@ class Layout:
     n: int
     n_dev: int
     n_goals: int
+    flex: fx.FlexLayout | None = None
+    """Phase 6: the flexible loads' and the grid's columns after the goals (``None`` = none)."""
 
     @property
     def per_slot(self) -> int:
         return SLOT_VARS + self.n_dev
 
     @property
-    def n_vars(self) -> int:
+    def n_base(self) -> int:
         return self.n * self.per_slot + self.n_goals
+
+    @property
+    def n_vars(self) -> int:
+        return self.n_base + (0 if self.flex is None else self.flex.size)
 
     def var(self, t: int, kind: int) -> int:
         return t * self.per_slot + kind
@@ -146,6 +154,8 @@ class Economics:
     goal is due at its end): surplus beyond what the battery can take
     (``s - max charge``) may go to devices, export or curtailment; more costs the buffer
     penalty (slack ``FIRST``). ``-1`` = no such rule."""
+    flex: fx.FlexEconomics | None = None
+    """Phase 6: values and penalties of the flexible loads (``None`` = none)."""
 
 
 def economics(inputs: PlannerInputs) -> Economics:
@@ -191,6 +201,18 @@ def economics(inputs: PlannerInputs) -> Economics:
         ),
         default=-1,
     )
+    flex = (
+        fx.flex_economics(
+            inputs,
+            target_penalty=target_p,
+            reserve_penalty=reserve_p,
+            biggest=biggest,
+            margin=DEVICE_VALUE_MARGIN,
+            comfort_weight=w.comfort_penalty_per_kh,
+        )
+        if inputs.flex_loads or inputs.peak_price() > 0
+        else None
+    )
     return Economics(
         surplus_w=surplus,
         deficit_w=deficit,
@@ -203,6 +225,7 @@ def economics(inputs: PlannerInputs) -> Economics:
         goal_penalty=penalties,
         first_until=first_until,
         device_budget=_device_budgets(inputs, slots),
+        flex=flex,
     )
 
 
@@ -261,23 +284,42 @@ class Schedule:
     soc_wh: tuple[float, ...]
     devices_w: tuple[tuple[float, ...], ...]
     """``[device][slot]``."""
+    flex: tuple[FlexFlows, ...] = ()
+    """Phase 6: flows of ``inputs.flex_loads`` (same order)."""
 
     @property
     def n(self) -> int:
         return len(self.grid_load_w)
 
     def import_w(self, t: int) -> float:
-        return self.grid_load_w[t] + self.grid_charge_w[t]
+        return self.grid_load_w[t] + self.grid_charge_w[t] + self.flex_grid_w(t)
 
     def charge_w(self, t: int) -> float:
         return self.pv_charge_w[t] + self.grid_charge_w[t]
 
     def battery_w(self, t: int) -> float:
         """Battery power, + = charging."""
-        return self.charge_w(t) - self.battery_load_w[t]
+        return self.charge_w(t) - self.battery_load_w[t] - self.flex_battery_w(t)
+
+    def discharge_w(self, t: int) -> float:
+        """Everything the battery discharges in slot ``t`` (house and flexible loads)."""
+        return self.battery_load_w[t] + self.flex_battery_w(t)
 
     def device_total_w(self, t: int) -> float:
+        """Phase 4 devices only (surplus energy); flexible loads: :meth:`flex_total_w`."""
         return sum(d[t] for d in self.devices_w)
+
+    def flex_total_w(self, t: int) -> float:
+        return sum(f.power_w(t) for f in self.flex)
+
+    def flex_surplus_w(self, t: int) -> float:
+        return sum(f.surplus_w[t] for f in self.flex)
+
+    def flex_grid_w(self, t: int) -> float:
+        return sum(f.grid_w[t] for f in self.flex)
+
+    def flex_battery_w(self, t: int) -> float:
+        return sum(f.battery_w[t] for f in self.flex)
 
 
 # --- the LP ----------------------------------------------------------------------------------
@@ -362,19 +404,37 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
 ) -> tuple[LinearProblem, Layout]:
     """The sparse LP of the module doc."""
     n, dt = inputs.n, inputs.dt_h
-    layout = Layout(n=n, n_dev=len(inputs.devices), n_goals=len(inputs.goals))
+    base_layout = Layout(n=n, n_dev=len(inputs.devices), n_goals=len(inputs.goals))
+    flex = fx.flex_layout(inputs, base_layout.n_base)
+    layout = Layout(n=n, n_dev=base_layout.n_dev, n_goals=base_layout.n_goals, flex=flex)
     nv = layout.n_vars
     cost = np.zeros(nv)
     lower = np.zeros(nv)
     upper = np.zeros(nv)
     rows = _Rows()
+    integrality: list[int] = []
     bat = _battery_kwh(inputs)
     aut = inputs.weights.autarky_per_kwh
     cur = inputs.weights.curtail_per_kwh
-    export_cap = INF if inputs.export_limit_w is None else inputs.export_limit_w / KW
+    base_cols = fx.BaseColumns(
+        grid_load=lambda t: layout.var(t, GL),
+        grid_charge=lambda t: layout.var(t, GC),
+        battery_load=lambda t: layout.var(t, BL),
+        surplus_w=econ.surplus_w,
+        deficit_w=econ.deficit_w,
+        battery=bat is not None,
+        max_discharge_kw=0.0 if bat is None else bat.max_discharge,
+        degradation=0.0 if bat is None else bat.deg,
+        autarky=aut,
+    )
+    if flex is not None and econ.flex is not None:
+        fx.set_flow_bounds(inputs, econ.flex, flex, base_cols, cost, upper)
     for t in range(n):
         s, d = econ.surplus_w[t] / KW, econ.deficit_w[t] / KW
         pi, pe = inputs.import_price[t], inputs.export_price[t]
+        limit = inputs.export_limit_at(t)
+        export_cap = INF if limit is None else limit / KW
+        flex_s = [] if flex is None else fx.surplus_terms(flex, upper, t)
         col = layout.var
         upper[col(t, GL)] = d
         upper[col(t, EX)] = min(s, export_cap)
@@ -405,14 +465,14 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
         if s > 0:
             terms = [(col(t, PC), 1.0), (col(t, EX), 1.0), (col(t, CU), 1.0)]
             terms += [(layout.dev(t, j), 1.0) for j in range(layout.n_dev)]
-            rows.add(terms, s, s)
+            rows.add([*terms, *flex_s], s, s)
             if bat is not None and t < econ.first_until and s > 0:
                 excess = max(0.0, s - bat.max_charge)
                 upper[col(t, FIRST)] = s
                 cost[col(t, FIRST)] = dt * econ.buffer_penalty
                 others = [(col(t, EX), 1.0), (col(t, CU), 1.0), (col(t, FIRST), -1.0)]
                 others += [(layout.dev(t, j), 1.0) for j in range(layout.n_dev)]
-                rows.add(others, -INF, excess)
+                rows.add([*others, *flex_s], -INF, excess)
         if d > 0:
             rows.add([(col(t, GL), 1.0), (col(t, BL), 1.0)], d, d)
         if bat is None:
@@ -425,6 +485,8 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
             (col(t, GC), -dt * bat.eta_c),
             (col(t, BL), dt / bat.eta_d),
         ]
+        if flex is not None:
+            dyn += [(c, dt / bat.eta_d) for c in fx.battery_terms(flex, upper, t)]
         if t == 0:
             rows.add(dyn, bat.e0, bat.e0)
         else:
@@ -447,6 +509,8 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
             upper[g] = target
             cost[g] = econ.goal_penalty[k]
             rows.add([(layout.var(slot, SOC), 1.0), (g, 1.0)], target, INF)
+    if flex is not None and econ.flex is not None:
+        fx.add_rows(inputs, econ.flex, flex, base_cols, cost, lower, upper, rows, integrality)
     problem = LinearProblem(
         cost=cost,
         col_lower=lower,
@@ -456,6 +520,7 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
         a_start=np.array(rows.start, dtype=np.int64),
         a_index=np.array(rows.index, dtype=np.int64),
         a_value=np.array(rows.value, dtype=np.float64),
+        integrality=tuple(integrality),
     )
     return problem, layout
 
@@ -483,6 +548,7 @@ def schedule_from_vector(
         curtail_w=series(CU),
         soc_wh=soc,
         devices_w=devices,
+        flex=() if layout.flex is None else fx.flows_from_vector(layout.flex, x),
     )
 
 
@@ -527,7 +593,20 @@ def vector_from_schedule(
             x[layout.dev(t, j)] = schedule.devices_w[j][t] / KW
     for k, short in enumerate(goal_shortfall_wh(inputs, econ, schedule)):
         x[layout.goal(k)] = short / KW
+    if layout.flex is not None and econ.flex is not None:
+        flows = schedule.flex or idle_flex(inputs)
+        imports = [
+            schedule.grid_load_w[t] + schedule.grid_charge_w[t] + sum(f.grid_w[t] for f in flows)
+            for t in range(layout.n)
+        ]
+        fx.fill_vector(inputs, econ.flex, layout.flex, x, flows, imports, econ.deficit_w)
     return x
+
+
+def idle_flex(inputs: PlannerInputs) -> tuple[FlexFlows, ...]:
+    """Flexible loads that draw nothing (a schedule without flexible flows)."""
+    zero = (0.0,) * inputs.n
+    return tuple(FlexFlows(zero, zero, zero) for _ in inputs.flex_loads)
 
 
 def objective(inputs: PlannerInputs, schedule: Schedule, econ: Economics | None = None) -> float:
@@ -546,6 +625,11 @@ def violations(  # noqa: PLR0912, PLR0915 - one check per constraint family
     bat = inputs.battery
     prev = None if bat is None else bat.soc_wh
     dt = inputs.dt_h
+    loads = inputs.flex_loads
+    if loads or schedule.flex:
+        if econ.flex is None or len(schedule.flex) != len(loads):
+            return [f"flex flows: {len(schedule.flex)} for {len(loads)} loads"]
+        found += fx.flex_violations(inputs, schedule.flex, battery=bat is not None)
     for t in range(schedule.n):
         flows = (
             schedule.grid_load_w[t],
@@ -558,10 +642,11 @@ def violations(  # noqa: PLR0912, PLR0915 - one check per constraint family
         )
         if any(v < -BALANCE_TOL_W for v in flows):
             found.append(f"negative flow at {t}")
-        left = inputs.pv_p50[t] + schedule.import_w(t) + schedule.battery_load_w[t]
+        left = inputs.pv_p50[t] + schedule.import_w(t) + schedule.discharge_w(t)
         right = (
             inputs.load_p50[t]
             + schedule.device_total_w(t)
+            + schedule.flex_total_w(t)
             + schedule.charge_w(t)
             + schedule.export_w[t]
             + schedule.curtail_w[t]
@@ -577,40 +662,44 @@ def violations(  # noqa: PLR0912, PLR0915 - one check per constraint family
             + schedule.export_w[t]
             + schedule.curtail_w[t]
             + schedule.device_total_w(t)
+            + schedule.flex_surplus_w(t)
         )
         if abs(surplus_side - econ.surplus_w[t]) > BALANCE_TOL_W:
             found.append(f"surplus split at {t}")
         deficit_side = schedule.grid_load_w[t] + schedule.battery_load_w[t]
         if abs(deficit_side - econ.deficit_w[t]) > BALANCE_TOL_W:
             found.append(f"deficit split at {t}")
+        import_limit = inputs.import_limit_at(t)
+        # Only the user-demanded power of flexible loads may exceed the limit (penalised).
+        forced = sum(
+            fx.forced_power_w(load, f, t) for load, f in zip(loads, schedule.flex, strict=True)
+        )
         if (
-            inputs.import_limit_w is not None
-            and schedule.import_w(t) > max(inputs.import_limit_w, econ.deficit_w[t]) + BALANCE_TOL_W
+            import_limit is not None
+            and schedule.import_w(t) > max(import_limit, econ.deficit_w[t]) + forced + BALANCE_TOL_W
         ):
             found.append(f"import limit at {t}")
         if schedule.grid_charge_w[t] > inputs.grid_charge_at(t) + BALANCE_TOL_W:
             found.append(f"grid charging not allowed at {t}")
-        if (
-            inputs.export_limit_w is not None
-            and schedule.export_w[t] > inputs.export_limit_w + BALANCE_TOL_W
-        ):
+        export_limit = inputs.export_limit_at(t)
+        if export_limit is not None and schedule.export_w[t] > export_limit + BALANCE_TOL_W:
             found.append(f"export limit at {t}")
         for j, device in enumerate(inputs.devices):
             limit = device.max_w if device.allowed[t] else 0.0
             if schedule.devices_w[j][t] > limit + BALANCE_TOL_W:
                 found.append(f"device {device.device_id} above its limit at {t}")
         if bat is None or prev is None:
-            if schedule.charge_w(t) > BALANCE_TOL_W or schedule.battery_load_w[t] > BALANCE_TOL_W:
+            if schedule.charge_w(t) > BALANCE_TOL_W or schedule.discharge_w(t) > BALANCE_TOL_W:
                 found.append(f"battery flow without a battery at {t}")
             continue
         if schedule.charge_w(t) > bat.max_charge_w + BALANCE_TOL_W:
             found.append(f"charge limit at {t}")
-        if schedule.battery_load_w[t] > bat.max_discharge_w + BALANCE_TOL_W:
+        if schedule.discharge_w(t) > bat.max_discharge_w + BALANCE_TOL_W:
             found.append(f"discharge limit at {t}")
         model = bat.model
         expected = prev + dt * (
             model.charge_efficiency * schedule.charge_w(t)
-            - schedule.battery_load_w[t] / model.discharge_efficiency
+            - schedule.discharge_w(t) / model.discharge_efficiency
         )
         e = schedule.soc_wh[t]
         if abs(expected - e) > SOC_TOL_WH:
@@ -772,6 +861,7 @@ __all__ = [
     "build_problem",
     "economics",
     "goal_shortfall_wh",
+    "idle_flex",
     "objective",
     "schedule_from_vector",
     "vector_from_schedule",
