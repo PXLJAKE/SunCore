@@ -6,7 +6,7 @@ and a real-time surplus controller in one app.
 > This is the **beta channel**. It receives new versions earlier than the
 > stable app and may contain bugs. Please report what you find.
 
-## What SunCore does today (Phase 4)
+## What SunCore does today (Phase 5)
 
 SunCore is **pre-alpha**. This version helps you describe your installation,
 shows your energy flow live, distributes your solar surplus to devices, plans
@@ -118,6 +118,25 @@ for you if not. On a sunny day with a charging battery, PV must be positive
 and the battery arrow must point into the battery. Power sensors in W and kW
 are understood; other units are rejected rather than guessed.
 
+## History, decisions, expert mode and what-if
+
+- **History** shows a day, week, month or year: autarky, self-consumption,
+  cost and savings against two baselines (without PV, PV only), energy flows,
+  battery cycles and forecast quality, with CSV and PNG export. Guide:
+  [History and analysis](https://github.com/pxljake/suncore/blob/main/docs/user/en/history-and-analysis.md)
+  ([Deutsch](https://github.com/pxljake/suncore/blob/main/docs/user/de/history-and-analysis.md)).
+- **Decision log** with filters and **Why?** per decision, and a **Plan** view
+  that sets the plan against measured values:
+  [Decision log](https://github.com/pxljake/suncore/blob/main/docs/user/en/decision-log.md),
+  [Plan chart](https://github.com/pxljake/suncore/blob/main/docs/user/en/plan-chart.md).
+- **Expert mode** (header switch, off by default) exposes every parameter with
+  its range inside the safety limits, see the
+  [Expert mode guide](https://github.com/pxljake/suncore/blob/main/docs/user/en/expert-mode.md) and the
+  [parameter reference](https://github.com/pxljake/suncore/blob/main/docs/reference/parameters.md).
+- **What-if** replays the real planner over past days with other battery or
+  tariff settings (expert mode):
+  [What-if and backtesting](https://github.com/pxljake/suncore/blob/main/docs/user/en/what-if-and-backtesting.md).
+
 ## Planning and battery control
 
 Forecasts, tariffs, how the plan is made, risk levels and buffers, grid
@@ -211,8 +230,10 @@ tried; off by default).
 Nothing of the planner and the battery control has run on real hardware yet.
 Kostal Plenticore cannot be told to charge from the grid (the plan only shows
 it), and a Kostal Modbus battery stays capped at assisted mode until you have
-measured the inverter's fallback timer. There are no history charts, what-if
-analysis or backtesting (the plan view is minimal), no machine-learning load
+measured the inverter's fallback timer. A what-if backtest replays the planner
+with perfect execution, so it is an estimate and not a promise (its run time on a
+Raspberry Pi is not measured yet), there is no free date range in the history,
+no HT/NT or price-formula what-if, no machine-learning load
 model, no built-in internet fallbacks for solar forecasts and prices, no thermal
 models for air conditioners and water heaters in the plan, no export limiting
 through the inverter, no charge point (wallbox), heat pump or shiftable program

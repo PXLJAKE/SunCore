@@ -231,6 +231,11 @@ forecasts and the battery are in
 [Planning and battery control](planning-and-battery.md), including a
 walk-through to take your first battery to assisted mode.
 
+Once data has collected, **History** shows what the house did and what it saved:
+[History and analysis](history-and-analysis.md). The **Decision log** has a
+**Why?** per row: [Decision log and "Why?"](decision-log.md). Later you can try
+[Expert mode](expert-mode.md) and [What-if and backtesting](what-if-and-backtesting.md).
+
 ## 6. Change things later
 
 Open **Settings**. It lists every section of your setup (**Region**,

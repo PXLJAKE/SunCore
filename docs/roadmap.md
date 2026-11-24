@@ -99,18 +99,22 @@ Exit: plan with battery strategy and "Why?" on the maintainer's system, battery 
 mode, then assisted. ⏸ waiting for the maintainer (after the Phase 3 acceptance: wizard steps, plan
 in shadow, enabling the Kostal `Battery:MinSoc` entity, the battery to assisted).
 
-## Phase 5 – Visualisation, analysis, expert mode 🔨
+## Phase 5 – Visualisation, analysis, expert mode ⏸
 
-Plan: [`plans/phase-5.md`](plans/phase-5.md) (stacked PRs 5-A…5-L).
+Plan: [`plans/phase-5.md`](plans/phase-5.md) (stacked PRs 5-A…5-L, #38–#50).
 
-| Milestone | Acceptance |
-|---|---|
-| Plan chart | price, P10–P90 PV, load, SoC, flows, device Gantt, zoom/pan, tooltips with reasons |
-| History | day/week/month/year, autarky, self-consumption, cost vs baselines, Sankey, heatmap, cycles, forecast skill |
-| Decision log UI | filters, "why did X switch at Y" |
-| Expert mode | all parameters with help, defaults, ranges, reset; generated parameter reference |
-| What-if + backtesting | run plan with other parameters/tariffs against history |
-| Export | CSV, PNG |
+| Milestone | Acceptance | |
+|---|---|---|
+| Plan chart | price, P10–P90 PV, load, SoC, flows, device Gantt, zoom/pan, tooltips with reasons | ✅ |
+| History | day/week/month/year, autarky, self-consumption, cost vs baselines, Sankey, heatmap, cycles, forecast skill | ✅ |
+| Decision log UI | filters, "why did X switch at Y" | ✅ |
+| Expert mode | all parameters with help, defaults, ranges, reset; generated parameter reference | ✅ |
+| What-if + backtesting | run plan with other parameters/tariffs against history (estimate; HT/NT and price formulas not offered yet) | ✅ |
+| Export | CSV, PNG | ✅ |
+| Docs | guides for history, decision log, plan chart, expert mode, what-if (en/de), parameter reference | ✅ |
+
+Exit: all PRs reviewed and merged in order, the bundle budget decided, the first backtest run
+on the maintainer's system and on a Pi. ⏸ waiting for the maintainer.
 
 ## Phase 6 – HA integration surface and remaining devices ⬜
 
