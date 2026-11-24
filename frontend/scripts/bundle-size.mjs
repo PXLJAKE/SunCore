@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Reports the gzip size of dist/ and fails above the budgets:
-//   * everything except the ECharts chunk: 250 kB (Phase 1 budget, unchanged),
+//   * everything except the ECharts chunks: 250 kB (Phase 1 budget, unchanged); only one
+//     language catalogue (the larger of en/de) counts, because the app loads only the
+//     active language at runtime (maintainer decision, Phase 5),
 //   * first paint (index.html plus its static import graph): 125 kB,
 //   * every ECharts chunk (loaded on demand): 200 kB, and the chunks of one view together
 //     (`echarts-core` plus `echarts-plan` or `echarts-history`): 240 kB (Phase 5, decision 6),
@@ -25,19 +27,26 @@ function* walk(dir) {
 
 const gz = (file) => gzipSync(readFileSync(file), { level: 9 }).length;
 const isEcharts = (file) => /(^|\/)echarts-[^/]*\.js$/.test(file);
+const isLanguageCatalogue = (file) => /(^|\/)catalogue-(en|de)-[^/]*\.js$/.test(file);
 
 let total = 0;
+let catalogue = 0;
 const chunks = new Map();
 for (const file of walk(dist)) {
     if (!/\.(js|css|html|json|svg)$/.test(file)) continue;
     const size = gz(file);
     if (isEcharts(file)) {
         chunks.set(file.replace(/^.*\/echarts-([^./-]+).*$/, '$1'), size);
-    } else total += size;
-    console.log(
-        `${(size / 1000).toFixed(1).padStart(8)} kB  ${relative(dist, file)}${isEcharts(file) ? '  (on demand)' : ''}`,
-    );
+    } else if (isLanguageCatalogue(file)) catalogue = Math.max(catalogue, size);
+    else total += size;
+    const note = isEcharts(file)
+        ? '  (on demand)'
+        : isLanguageCatalogue(file)
+          ? '  (language catalogue, only the largest counts)'
+          : '';
+    console.log(`${(size / 1000).toFixed(1).padStart(8)} kB  ${relative(dist, file)}${note}`);
 }
+total += catalogue;
 
 // First paint: the files index.html loads and their static imports (dynamic import() excluded).
 const firstPaint = new Set();
