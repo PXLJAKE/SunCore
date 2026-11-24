@@ -13,7 +13,12 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from suncore.core.config import SECRET_MASK, InverterConfig, MqttConfig
+from suncore.core.config import (
+    SECRET_MASK,
+    InverterConfig,
+    MqttConfig,
+    MqttPasswordIsMaskError,
+)
 from suncore.core.flex import EvMode, EvState, EvTarget, JobState, ProgramJob, transition
 from suncore.core.series import TimeRange
 from suncore.storage import ConfigStore, Database, FlexStateStore, GridEvent, open_timeseries
@@ -242,3 +247,14 @@ async def test_import_never_carries_the_inverter_verification(db: Database) -> N
     assert isinstance(loaded, InverterConfig)
     assert loaded.limit_verified is False
     assert loaded.mode_capped
+
+
+async def test_a_mask_without_a_stored_password_is_rejected(db: Database) -> None:
+    """Review H3: the mask as a new password raises instead of being dropped."""
+    store = ConfigStore(db)
+    with pytest.raises(MqttPasswordIsMaskError):
+        await store.put("mqtt", _mqtt(SECRET_MASK))
+    assert await store.get("mqtt") is None
+    await store.put("mqtt", _mqtt(None))
+    with pytest.raises(MqttPasswordIsMaskError):
+        await store.put("mqtt", _mqtt(SECRET_MASK))

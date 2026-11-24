@@ -652,3 +652,15 @@ detection; CO₂ weighting.
   enabled, so stored sites stay valid.
 - **Frontend:** the site form keeps the grid fields it does not edit; the device form keeps
   `behaviour_confirmed`/`para14a`.
+- **Review conditions (control-safety, PR #52):**
+  - A1: the placeholder driver's release raises when there is a baseline, so the gate reports
+    `failed` and keeps the runtime instead of marking a device released that may still be in
+    the state SunCore wrote; without a baseline it stays a no-op.
+  - A2: `build_levels` returns no levels for program devices and the Phase 6 controls until
+    6-I..6-L, so the controller does not repeat intents the gate rejects.
+  - H1: `GridState.NOT_CONFIGURED` (no backup entity) is distinct from `unknown` (entity
+    configured but unavailable). 6-F: only `island` applies island rules; `unknown` warns and is
+    treated as connected; `not_configured` is connected without a warning. `GateInputs`
+    defaults to `not_configured`.
+  - H3: a `PUT` whose MQTT password equals the mask while none is stored is rejected with 422
+    (`api.validation.mqtt_password_is_mask`) instead of dropping the password.

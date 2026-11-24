@@ -628,6 +628,27 @@ class MqttConfig(_Frozen):
             password = None
         return self.model_copy(update={"password": password})
 
+    def require_secret_of(self, previous: MqttConfig | None) -> Self:
+        """Like :meth:`keep_secret_of`, for a ``PUT``: a mask with nothing stored to keep is
+        rejected (:class:`MqttPasswordIsMaskError`) instead of silently dropped, so a password
+        that really is the mask never vanishes unnoticed."""
+        kept = self.keep_secret_of(previous)
+        if self.password_masked and kept.password is None:
+            raise MqttPasswordIsMaskError
+        return kept
+
+
+class MqttPasswordIsMaskError(ValueError):
+    """A ``PUT`` sent the mask as the MQTT password, but no password is stored to keep."""
+
+
+def mqtt_password_is_mask() -> PydanticCustomError:
+    """The validation error the API reports for :class:`MqttPasswordIsMaskError`."""
+    return invalid(
+        "mqtt_password_is_mask",
+        "mqtt: the password equals the mask and no password is stored; enter another one",
+    )
+
 
 # --- notifications (Phase 6, ADR-0016 decision 7) ----------------------------------------
 

@@ -184,6 +184,7 @@
   "api.validation.loadpoint_plan_pair": "Ein Ladeplan braucht Ziel-Ladestand und Uhrzeit.",
   "api.validation.mqtt_manual_needs_host": "Ein manuell eingetragener MQTT-Broker braucht einen Host.",
   "api.validation.mqtt_password_needs_user": "Ein Passwort braucht einen Benutzernamen.",
+  "api.validation.mqtt_password_is_mask": "Das Passwort darf nicht der Maske „**********“ entsprechen, solange keines gespeichert ist; bitte neu eingeben.",
   "api.validation.mqtt_supervisor_extra": "Der über den Supervisor gefundene Broker braucht keinen Host und keine Zugangsdaten.",
   "api.validation.notify_target_entity": "{id} ist keine notify-Entity.",
   "api.validation.notify_target_service": "{id} ist kein Name eines notify-Dienstes.",

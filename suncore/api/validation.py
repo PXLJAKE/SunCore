@@ -190,6 +190,7 @@ VALIDATION_KEYS: Final[dict[str, str]] = {
     "suncore.loadpoint_plan_pair": "api.validation.loadpoint_plan_pair",
     "suncore.mqtt_manual_needs_host": "api.validation.mqtt_manual_needs_host",
     "suncore.mqtt_password_needs_user": "api.validation.mqtt_password_needs_user",
+    "suncore.mqtt_password_is_mask": "api.validation.mqtt_password_is_mask",
     "suncore.mqtt_supervisor_extra": "api.validation.mqtt_supervisor_extra",
     "suncore.notify_target_entity": "api.validation.notify_target_entity",
     "suncore.notify_target_service": "api.validation.notify_target_service",

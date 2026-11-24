@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -99,6 +100,7 @@ def make_harness(
     observed: dict[str, Action | None] | None = None,
     modes: StaticModes | None = None,
     sleep: Sleeper | None = None,
+    actuator_overrides: Mapping[str, Actuator] | None = None,
 ) -> Harness:
     clock = FakeClock()
     actuators = {d.id: SpyActuator(d.id) for d in devices}
@@ -123,7 +125,7 @@ def make_harness(
     gate = SafetyGate(
         clock=clock,
         sink=sink,
-        actuators=actuators,
+        actuators={**actuators, **(actuator_overrides or {})},
         modes=modes,
         devices=by_id.get,
         states=states.get,

@@ -406,7 +406,7 @@ def test_old_plan_intervals_still_load_and_defaults() -> None:
     band = interval.devices["pool"]
     assert (band.grid_power_max_w, band.start) == (None, False)
     inputs = GateInputs()
-    assert inputs.grid_state is GridState.UNKNOWN
+    assert inputs.grid_state is GridState.NOT_CONFIGURED
     assert inputs.para14a_status is Para14aStatus.INACTIVE
     assert (inputs.export_limit_w, inputs.para14a_budget_w) == (None, None)
 
@@ -519,7 +519,8 @@ def test_grid_state_from_the_backup_entity() -> None:
     assert grid_state_from(backup, "grid") is GridState.CONNECTED
     assert grid_state_from(backup, "unavailable") is GridState.UNKNOWN
     assert grid_state_from(backup, None) is GridState.UNKNOWN
-    assert grid_state_from(None, "island") is GridState.UNKNOWN
+    assert grid_state_from(None, "island") is GridState.NOT_CONFIGURED
+    assert grid_state_from(None, None) is GridState.NOT_CONFIGURED
     with pytest.raises(ValidationError) as exc:
         BackupConfig(entity_id="sensor.b", island_states=("unavailable",))
     assert err_type(exc) == "suncore.backup_unavailable_state"

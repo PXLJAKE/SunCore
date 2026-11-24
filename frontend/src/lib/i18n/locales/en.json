@@ -184,6 +184,7 @@
   "api.validation.loadpoint_plan_pair": "A charging plan needs both the target SoC and the time.",
   "api.validation.mqtt_manual_needs_host": "A manually configured MQTT broker needs a host.",
   "api.validation.mqtt_password_needs_user": "A password needs a user name.",
+  "api.validation.mqtt_password_is_mask": "The password must not equal the mask “**********” while none is stored; enter it again.",
   "api.validation.mqtt_supervisor_extra": "The broker found through the Supervisor takes no host or credentials.",
   "api.validation.notify_target_entity": "{id} is not a notify entity.",
   "api.validation.notify_target_service": "{id} is not the name of a notify service.",

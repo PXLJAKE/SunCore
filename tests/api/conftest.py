@@ -30,7 +30,7 @@ from suncore.api import (
 from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import Flow, FlowSnapshot
 from suncore.core.battery import BatterySettings
-from suncore.core.config import SECTION_MODELS, OperationConfig
+from suncore.core.config import SECTION_MODELS, MqttConfig, OperationConfig
 from suncore.core.control import DeviceState, PowerEstimate
 from suncore.core.controlstate import (
     BatteryNotControllableError,
@@ -299,6 +299,9 @@ class FakeServices:
         return self.sections.get(name)
 
     async def put_section(self, name: str, model: BaseModel) -> BaseModel:
+        if isinstance(model, MqttConfig):  # the store's secret rule (ConfigStore._put)
+            previous = self.sections.get(name)
+            model = model.require_secret_of(previous if isinstance(previous, MqttConfig) else None)
         self.sections[name] = model
         return model
 

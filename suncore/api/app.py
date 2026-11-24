@@ -72,10 +72,12 @@ from suncore.api.services import (
 from suncore.api.validation import validation_exception_handler
 from suncore.core.config import (
     SECTION_MODELS,
+    MqttPasswordIsMaskError,
     OperationConfig,
     TariffConfig,
     formula_on_all_in_source,
     missing_action_params,
+    mqtt_password_is_mask,
 )
 from suncore.core.controlstate import (
     BatteryModeRequest,
@@ -550,6 +552,12 @@ def _register_section(app: FastAPI, services: Services, name: str, model: type[B
             return await services.put_section(name, body)
         except ModeRaiseRejectedError as exc:
             raise HTTPException(status_code=409, detail=ERR_MODE_RAISE_REJECTED) from exc
+        except MqttPasswordIsMaskError as exc:
+            # Same 422 body as model validation: only the store knows whether a secret exists.
+            error = mqtt_password_is_mask()
+            raise RequestValidationError(
+                [{"type": error.type, "loc": ("body", "password"), "msg": error.message()}]
+            ) from exc
 
     # FastAPI reads the body type from the annotations; they are per section, hence dynamic.
     put_section.__annotations__ = {"body": model, "return": model}

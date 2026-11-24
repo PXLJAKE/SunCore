@@ -246,3 +246,19 @@ async def test_required_request_fields_of_the_template_are_checked(services: Fak
     ]
     assert optional_only.status_code == 422
     assert good.status_code == 200
+
+
+async def test_mqtt_mask_as_password_is_rejected_without_a_stored_one(
+    services: FakeServices,
+) -> None:
+    """Review H3: a password that equals the mask is not silently dropped."""
+    body = {**VALID["mqtt"], "password": "**********"}
+    async with client_for(create_app(services)) as client:
+        first = await client.put("/api/v1/config/mqtt", json=body)
+        stored = await client.put("/api/v1/config/mqtt", json={**body, "password": "s3cret"})
+        again = await client.put("/api/v1/config/mqtt", json=body)  # the UI sends the mask back
+    assert first.status_code == 422, first.text
+    assert "mqtt_password_is_mask" in first.text
+    assert stored.status_code == 200
+    assert again.status_code == 200
+    assert again.json()["password"] == "**********"
