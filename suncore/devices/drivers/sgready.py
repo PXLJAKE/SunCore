@@ -13,9 +13,11 @@ Read-back maps the contact pair to its ``StepAction``; any other pair (state 1, 
 pair, state 4 while ``allow_forced`` is off) is reported as ``ModeAction(mode="sg:<a><b>")``, a
 different kind, so the gate sees "changed outside SunCore" and never adopts it as a step.
 
-Release restores the takeover baseline when it is a writable step; any other baseline (a pair
-SunCore may not write, such as the block) is replaced by **state 2** - SunCore never writes
-state 1, not even to give a state back.
+Release restores the takeover baseline when it is a writable step. Any other baseline (a pair
+SunCore may not write: the utility block, state 4 without ``allow_forced``, an unmapped pair)
+was set by someone else - a user, an automation, the grid operator's lock - and **release
+writes nothing**: SunCore never lifts a foreign lock, and never writes state 1 either
+(review 6-K, A1).
 
 ``UNVERIFIED`` (docs/STATUS.md): which contact pair selects which state is vendor-specific and
 comes from the template; the generic template's mapping is the common one, unconfirmed. No real
@@ -25,7 +27,7 @@ heat pump has been driven: simulator only.
 from __future__ import annotations
 
 from suncore.core.control import DeviceState
-from suncore.core.decisions import Action, Intent, ModeAction, ReleaseAction, StepAction
+from suncore.core.decisions import Action, Intent, ModeAction, StepAction
 from suncore.core.devices import DeviceConfig, SgContacts, SgReadyControl
 from suncore.core.sgready import SG_NORMAL, contact_path, sg_contacts_label, sg_step_of
 from suncore.core.signals import Quality
@@ -124,12 +126,9 @@ class SgReadyDriver(EntityDriver):
 
     async def release(self, baseline: Action | None) -> None:
         self.begin_apply()
-        if baseline is None or isinstance(baseline, ReleaseAction):
-            return
-        step = SG_NORMAL
-        if isinstance(baseline, StepAction) and 0 <= baseline.step < len(self._control.steps):
-            step = baseline.step
-        await self._select(self._control.steps[step])
+        if not (isinstance(baseline, StepAction) and 0 <= baseline.step < len(self._control.steps)):
+            return  # none, or a pair SunCore may not write: leave it as it is (A1)
+        await self._select(self._control.steps[baseline.step])
 
 
 __all__ = ["SgReadyDriver"]

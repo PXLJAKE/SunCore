@@ -795,13 +795,19 @@ class DeviceConfig(_Frozen):
 
 
 def needs_behaviour_confirmation(device: DeviceConfig) -> bool:
-    """A device of the Phase 6 families (charger, evcc loadpoint, SG-Ready, program job).
+    """A device of the Phase 6 families (charger, evcc loadpoint, SG-Ready, a heat pump's
+    set-point lift, program job).
 
     Conservative reading of plan §0 decision 17: every such device counts as running on an
     unverified template until 6-I/6-J/6-K/6-L can tell verified templates apart; Phase 3
     devices (other controls, no program spec) are never affected.
     """
-    return isinstance(device.control, PHASE6_CONTROLS) or device.program is not None
+    return (
+        isinstance(device.control, PHASE6_CONTROLS)
+        or device.program is not None
+        # a heat pump's set-point lift (6-K, review A2): untested template, simulator only
+        or (device.kind is DeviceKind.HEAT_PUMP and isinstance(device.control, SetpointControl))
+    )
 
 
 def behaviour_mode_capped(device: DeviceConfig) -> bool:

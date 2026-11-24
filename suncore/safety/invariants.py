@@ -430,6 +430,16 @@ def _fuse_shed(ctx: InvariantContext) -> bool:
     return fuse_shed_waiver(ctx.device.kind, True, ctx.flows, ctx.grid)
 
 
+def _user_base_c(runtime: DeviceRuntime) -> float | None:
+    """The user's own set-point for H4 (review 6-K, A3): the takeover baseline the gate read
+    back (renewed after a detected override), never the controller's ``base_c`` that the gate
+    copies into ``base_setpoint_c`` on every write."""
+    baseline = runtime.baseline
+    if isinstance(baseline, SetpointAction):
+        return baseline.setpoint_c
+    return runtime.base_setpoint_c
+
+
 def _failsafe(ctx: InvariantContext) -> bool:
     return failsafe_reduction(
         ctx.action, ctx.device, ctx.state, ctx.grid.grid_state, ctx.grid.para14a_status
@@ -454,7 +464,7 @@ def check_heat_pump(ctx: InvariantContext) -> Reason | None:
             ctx.now,
             waived=_failsafe(ctx),
         ),
-        check_lift_base(action, device, ctx.runtime.base_setpoint_c),
+        check_lift_base(action, device, _user_base_c(ctx.runtime)),
         check_heat_pump_failsafe(
             is_load_increase(ctx),
             device,

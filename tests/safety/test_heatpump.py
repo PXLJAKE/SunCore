@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from pydantic import ValidationError
 
 from suncore.core.control import DeviceState, GateInputs, PowerEstimate
 from suncore.core.decisions import (
@@ -32,6 +34,7 @@ from suncore.core.devices import (
     SetpointControl,
     SgContacts,
     SgReadyControl,
+    behaviour_mode_capped,
 )
 from suncore.core.grid import GridState, Para14aStatus
 from suncore.core.sgready import (
@@ -391,3 +394,46 @@ def test_restart_hysteresis_after_the_comfort_maximum() -> None:
     assert sg_restart_c(device, DeviceState(step=0, temperature_c=restart)) is None
     assert sg_restart_c(device, DeviceState(step=0)) is None  # unknown: a fail-safe cause
     assert sg_restart_c(lift_device(), DeviceState(temperature_c=60.0)) is None
+
+
+def test_gate_unconfirmed_lift_is_capped_at_assisted() -> None:
+    """Review 6-K A2: the heat pump's set-point lift is a Phase 6 family as well."""
+    device = lift_device()
+    assert behaviour_mode_capped(device)
+    assert not behaviour_mode_capped(device.model_copy(update={"behaviour_confirmed": True}))
+    h = make_harness(
+        devices=(device,),
+        observed={"dhw": SetpointAction(setpoint_c=50.0, base_c=50.0)},
+        inputs=GateInputs(flows=flows(), surplus=surplus(5000.0), ts=T0),
+    )
+    h.states["dhw"] = DeviceState(on=True, mode="heat", setpoint_c=50.0)
+    lift = SetpointAction(setpoint_c=52.0, base_c=50.0)
+    decision = asyncio.run(h.gate.submit(make_intent(lift, asset_id="dhw")))
+    assert decision.kind is DecisionKind.PROPOSED
+
+
+def test_h4_lift_base_is_the_users_baseline_not_the_controllers_base() -> None:
+    """Review 6-K A3: a controller ``base_c`` below the user's set-point does not lower H4."""
+    device = lift_device()
+    rt = DeviceRuntime(
+        device_id="dhw",
+        baseline=SetpointAction(setpoint_c=50.0, base_c=50.0),
+        base_setpoint_c=46.0,  # what the gate copied from the controller's last intent
+    )
+    sneaky = SetpointAction(setpoint_c=47.0, base_c=46.0)
+    assert "safety.lift_below_base" in keys(evaluate(ctx(sneaky, device, rt=rt)))
+    assert evaluate(ctx(SetpointAction(setpoint_c=52.0, base_c=46.0), device, rt=rt)) == ()
+    # without a set-point baseline the runtime's base applies
+    plain = DeviceRuntime(device_id="dhw", base_setpoint_c=50.0)
+    assert "safety.lift_below_base" in keys(evaluate(ctx(sneaky, device, rt=plain)))
+
+
+def test_a_lift_never_switches_the_heat_pump_on() -> None:
+    """Review 6-K A5: ``allow_switch_on`` is a climate option; a lift device rejects it."""
+    payload = {
+        **lift_device().model_dump(mode="json"),
+        "allow_switch_on": True,
+        "switch_on_hvac_mode": "heat",
+    }
+    with pytest.raises(ValidationError, match="allow_switch_on"):
+        DeviceConfig.model_validate(payload)

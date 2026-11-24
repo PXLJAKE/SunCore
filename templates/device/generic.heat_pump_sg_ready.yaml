@@ -2,7 +2,8 @@
 # A heat pump with an SG-Ready interface: two potential-free contacts, driven here through two
 # Home Assistant `switch` entities (a relay module, ESPHome, Shelly ...). SG-Ready states:
 #   1 utility block      - NEVER written by SunCore (no step, not even on release)
-#   2 normal             - step 0: the baseline and what SunCore returns to on release
+#   2 normal             - step 0: the usual baseline (release restores the baseline it found;
+#                          a lock someone else set is never lifted)
 #   3 intensified        - step 1: a recommendation to run more (the surplus level)
 #   4 forced on          - step 2: only with `allow_forced: true` (opt-in, default off)
 # Contacts are switched one at a time so a change never passes through the block pattern.

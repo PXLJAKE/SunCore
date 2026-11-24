@@ -101,12 +101,21 @@ async def test_unknown_patterns_are_reported_as_a_mode() -> None:
         await driver.apply(intent(StepAction(step=1), "hp"))
 
 
-async def test_release_restores_the_baseline_but_never_state_1() -> None:
+async def test_release_restores_the_baseline_but_never_lifts_a_foreign_lock() -> None:
     driver, ha = make(contacts=FORCED)
     await driver.release(StepAction(step=1))
     assert pair(ha) == INTENSIFIED
-    await driver.release(ModeAction(mode="sg:10"))  # a block baseline is never written back
-    assert pair(ha) == NORMAL
+    # someone set the utility block while SunCore controlled the pump: it stays (A1)
+    driver, ha = make(contacts=BLOCK)
+    await driver.release(ModeAction(mode="sg:10"))
+    assert pair(ha) == BLOCK
+    assert ha.calls == []
+    # state 4 set by someone else without the opt-in: not written back, not changed either
+    driver, ha = make(forced=False, contacts=FORCED)
+    await driver.release(ModeAction(mode="sg:11"))
+    await driver.release(StepAction(step=2))
+    assert pair(ha) == FORCED
+    assert ha.calls == []
     calls = len(ha.calls)
     await driver.release(None)
     await driver.release(ReleaseAction())

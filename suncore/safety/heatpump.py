@@ -17,12 +17,12 @@ Pure functions over plain values; :mod:`suncore.safety.invariants` wires them in
   (:func:`check_lift_base`); an SG-Ready device is intensified only with a store probe and a
   comfort band (:func:`check_sg_probe`), never at or above ``comfort.max_c`` or with an unknown
   or stale probe (``invariants.check_heat_limit``).
-* H5 - **back to normal**: the release restores the baseline (state 2 for anything SunCore may not
-  write, the user's set-point); a return to SG state 2 for a fail-safe cause
-  (``core.sgready.heat_pump_failsafe``: unknown/stale temperature, heat limit, no probe, §14a,
-  island) is never held back by dwell, minimum run or the switch limit
-  (:func:`failsafe_reduction`), and no increase passes while such a cause holds
-  (:func:`check_heat_pump_failsafe`).
+* H5 - **back to normal**: the release restores a writable baseline or the user's set-point;
+  a baseline SunCore may not write (a lock someone else set) is left as it is; a return to
+  SG state 2 for a fail-safe cause (``core.sgready.heat_pump_failsafe``: unknown/stale
+  temperature, heat limit, no probe, §14a, island) is never held back by dwell, minimum run
+  or the switch limit (:func:`failsafe_reduction`), and no increase passes while such a cause
+  holds (:func:`check_heat_pump_failsafe`).
 
 A ``ReleaseAction`` is never judged here.
 """

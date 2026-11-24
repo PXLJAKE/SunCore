@@ -834,16 +834,32 @@ detection; CO₂ weighting.
 
 | Rule | Enforced in | Evidence |
 |---|---|---|
-| H1 never state 1 | driver: contacts one at a time along `contact_path` (only writable intermediates, else refused before any call); release writes state 2 for a non-writable baseline; gate `sg_state_invalid` | `test_no_write_sequence_ever_shows_the_block` (hypothesis), scenario: states seen ⊆ {2, 3} |
+| H1 never state 1 | driver: contacts one at a time along `contact_path` (only writable intermediates, else refused before any call); release writes nothing for a non-writable baseline; gate `sg_state_invalid` | `test_no_write_sequence_ever_shows_the_block` (hypothesis), scenario: states seen ⊆ {2, 3} |
 | H2 state 4 only with `allow_forced` | `SgReadyControl.steps` without it; gate `sg_forced_not_allowed`; driver refuses | `test_state_4_is_not_writable_without_the_opt_in`, gate tests |
 | H3 dwell ≥ 600 s, switch limit, min run/pause | gate `sg_dwell` + invariants; controller `level_ts` / `heat_pump.dwell_wait` | scenario: gaps ≥ 600 s, ≤ 3 writes per hour |
 | H4 intensify only with probe and band; heat limit; lift in band, never below base | `sg_needs_probe`, `heat_capped`, `lift_below_base`, driver clamps to step and entity range | `tests/safety/test_heatpump.py`, scenario max 55.0 °C (the pump would heat to 58) |
 | H5 fail-safe to state 2 / base | unknown or stale probe, heat limit, no probe, §14a (flagged), island; waives dwell, min run, switch limit; works with unknown surplus | scenario: probe fault -> state 2 within one tick, no rise during the fault |
-| Release restores the baseline | SG: baseline step if writable, else state 2, never state 1; lift: the user's set-point | driver tests |
+| Release restores the baseline | SG: baseline step if writable, else nothing (a foreign lock or state 4 stays, review A1), never state 1; lift: the user's set-point | driver tests |
 | Shadow default | unchanged gate path | scenario in shadow: contacts never leave state 2 |
 | Only `safety/` applies | drivers built by the factory, called by the gate only; the placeholder driver is gone for `sg_ready` only | gate tests, `test_phase6_gate.py` |
 | Stale inputs | probe through the cache (quality, age, °C only); a contact `unavailable` -> no levels, write refused | `test_unknown_patterns_are_reported_as_a_mode`, controller tests |
 | G1-G6 interplay | heat-pump checks run first; grid invariants unchanged; the fail-safe direction (state 2) is never blocked; G3 import exception not used (pre-heat not executed) | full gate and grid suites green |
+
+#### Review conditions (control-safety, PR #60)
+
+- A1: release no longer replaces a non-writable baseline (block `sg:10`, state 4 without
+  `allow_forced`, an unmapped pair) by state 2: it writes nothing, so SunCore never lifts a
+  lock someone else set (also on emergency stop, shutdown and recover).
+- A2: `needs_behaviour_confirmation` covers the heat pump's set-point lift (kind `heat_pump`
+  with a set-point control): it runs at most assisted until `behaviour_confirmed`.
+- A3: H4 checks a lift against the user's set-point from the takeover baseline (renewed after a
+  detected override), not against the controller's `base_c` the gate stores on every write.
+- A4 (documented): the fail-safe return to state 2 is not exempt from `min_write_interval_s`;
+  it is late by at most that interval (5 s default, at least 0.25 s). The limiter stays the
+  one write-storm guard without exceptions; dwell, min run and the switch limit are waived.
+- A5: `allow_switch_on` is already a climate-only option in the `DeviceConfig` validator; a
+  test pins it for the lift.
+- `frontend/e2e/wizard-devices.spec.ts`: the gallery shows 8 templates.
 
 #### Offene Fragen an den Maintainer (6-K)
 

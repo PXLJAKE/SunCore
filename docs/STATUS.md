@@ -31,6 +31,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     `unverified`, en/de); simulator `SimHeatPump`; scenarios `heat_pump_sg_ready_surplus`,
     `heat_pump_dhw_lift` and a planner-level history -> fit -> plan test. Deviations and the
     safety self-review: plan section 8 (6-K).
+  - Review conditions A1-A5 (PR #60): release never lifts a foreign SG lock, the lift is
+    capped at assisted until confirmed, H4 checks against the user's baseline set-point.
 
 - **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
