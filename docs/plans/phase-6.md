@@ -664,3 +664,26 @@ detection; CO₂ weighting.
     defaults to `not_configured`.
   - H3: a `PUT` whose MQTT password equals the mask while none is stored is rejected with 422
     (`api.validation.mqtt_password_is_mask`) instead of dropping the password.
+
+### 6-H (planner for flexible loads and grid)
+
+- **No battery into the EV:** `battery.allow_discharge_to_ev` does not exist in the contracts,
+  so the EV is fed only by surplus and grid. Programs and heating may use the battery.
+  EV grid slots do not set the battery's discharge lock (open for 6-I).
+- **Conservative EV targets:** the target constraint counts surplus only up to the P10 surplus
+  (P10 PV minus P50 load); the objective uses P50.
+- **Energy target semantics:** `EvTarget.energy_wh` is energy delivered to the car; the wallbox
+  draws it divided by the charging efficiency.
+- **Arrival and departure** of the EV come from a planner-side `EvLive` (SoC, connected,
+  arrival); the 6-B contracts carry no such fields. Unknown need = `planner.ev.need_unknown`.
+- **§14a:** the budget holds for a fixed hold time (default 15 min from now); unknown status
+  is treated as budget 0 for the flagged loads (`planner.grid.para14a_unknown`).
+- **Import limit:** a demanded load (EV floor, running program, heating to `min_c`) above the
+  import limit uses a slack penalised like the reserve, bounded by the demanded power, so the
+  plan stays solvable; the export limit stays a hard bound (curtailment is informational).
+- **Thermal model:** one outdoor series for losses and COP (a domestic hot-water tank uses it
+  too); heating only, no cooling.
+- **Programs** are never energy-only and plan one job per device; further jobs get
+  `planner.job.ignored`.
+- **Runtime wiring:** `FlexRequest`/`GridRequest` are not built by the app yet; the planner
+  service passes them from 6-I..6-L. Plans carry the bands; nothing writes.
