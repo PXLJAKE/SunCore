@@ -23,7 +23,14 @@
         "discharge_limit",
         "grid_charge",
         "battery_modes",
-        "hardware_fallback"
+        "hardware_fallback",
+        "ev_charging",
+        "phase_switching",
+        "sg_ready",
+        "remote_start",
+        "export_limit",
+        "ac_limit",
+        "backup_state"
       ],
       "title": "Capability",
       "type": "string"
@@ -250,9 +257,58 @@
       "title": "ContinuousControl",
       "type": "object"
     },
+    "CopCurve": {
+      "additionalProperties": false,
+      "description": "COP over outdoor temperature: 2-8 points, piecewise linear, clamped at the ends.\n\n``assumed`` marks a curve that is not from a vendor source (the generic default); the UI\nlabels it as an assumption.",
+      "properties": {
+        "assumed": {
+          "default": false,
+          "title": "Assumed",
+          "type": "boolean"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/CopPoint"
+          },
+          "maxItems": 8,
+          "minItems": 2,
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "points"
+      ],
+      "title": "CopCurve",
+      "type": "object"
+    },
+    "CopPoint": {
+      "additionalProperties": false,
+      "description": "The coefficient of performance at one outdoor temperature.",
+      "properties": {
+        "cop": {
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "title": "Cop",
+          "type": "number"
+        },
+        "outdoor_c": {
+          "maximum": 50,
+          "minimum": -40,
+          "title": "Outdoor C",
+          "type": "number"
+        }
+      },
+      "required": [
+        "outdoor_c",
+        "cop"
+      ],
+      "title": "CopPoint",
+      "type": "object"
+    },
     "DeviceDefaults": {
       "additionalProperties": false,
-      "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.",
+      "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.\n\nPhase 6 (additive): ``ev`` (wallbox), ``program`` (program) and ``thermal`` (thermal kinds,\ne.g. a vendor COP curve with the template's ``source``) - the same models as on the device.",
       "properties": {
         "comfort": {
           "anyOf": [
@@ -310,6 +366,17 @@
             }
           ],
           "title": "Control"
+        },
+        "ev": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "hysteresis_delay_s": {
           "anyOf": [
@@ -370,6 +437,17 @@
         "power_model": {
           "$ref": "#/$defs/PowerModelDefault"
         },
+        "program": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProgramSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "settle_s": {
           "anyOf": [
             {
@@ -383,6 +461,17 @@
           ],
           "default": null,
           "title": "Settle S"
+        },
+        "thermal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ThermalSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -525,6 +614,124 @@
         "domain"
       ],
       "title": "EntityMatcher",
+      "type": "object"
+    },
+    "EvMode": {
+      "description": "User-chosen EV charging mode (BRIEF §4.5).",
+      "enum": [
+        "off",
+        "now",
+        "min_pv",
+        "pv",
+        "target"
+      ],
+      "title": "EvMode",
+      "type": "string"
+    },
+    "EvSpec": {
+      "additionalProperties": false,
+      "description": "The vehicle behind a charger (kind ``wallbox``; one vehicle per charger in v1).\n\nRoles (all optional, mapped in ``DeviceConfig.entities``): ``vehicle_soc_role`` (sensor %),\n``connected_role`` (binary sensor), ``charging_role`` (binary sensor). Without a SoC the\ntargets are energy-based. ``efficiency`` is the charging efficiency (losses, default 0.9).",
+      "properties": {
+        "capacity_wh": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 500000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capacity Wh"
+        },
+        "charging_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charging Role"
+        },
+        "connected_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connected Role"
+        },
+        "default_mode": {
+          "$ref": "#/$defs/EvMode",
+          "default": "pv"
+        },
+        "efficiency": {
+          "default": 0.9,
+          "exclusiveMinimum": 0.5,
+          "maximum": 1,
+          "title": "Efficiency",
+          "type": "number"
+        },
+        "vehicle_soc_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vehicle Soc Role"
+        }
+      },
+      "title": "EvSpec",
+      "type": "object"
+    },
+    "LearnedThermal": {
+      "additionalProperties": false,
+      "description": "A fitted model with its quality (``nrmse`` of a 24 h replay) and history length.",
+      "properties": {
+        "fitted_at": {
+          "format": "date-time",
+          "title": "Fitted At",
+          "type": "string"
+        },
+        "history_days": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "History Days",
+          "type": "integer"
+        },
+        "model": {
+          "$ref": "#/$defs/ThermalModel"
+        },
+        "nrmse": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Nrmse",
+          "type": "number"
+        }
+      },
+      "required": [
+        "model",
+        "nrmse",
+        "history_days",
+        "fitted_at"
+      ],
+      "title": "LearnedThermal",
       "type": "object"
     },
     "LoadpointControl": {
@@ -748,6 +955,56 @@
       ],
       "title": "PowerModelKind",
       "type": "string"
+    },
+    "ProgramSpec": {
+      "additionalProperties": false,
+      "description": "A shiftable program (kind ``program``; ADR-0017 decision 7).\n\n``profile_wh`` is the energy per 15 minutes of a run (``None`` = nominal power x run time);\nits length must cover ``runtime_min``. ``start_method``: ``plug`` (a smart plug switched on;\nneeds ``resume_confirmed``, the user's statement that the appliance resumes after power\nreturns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or\n``notify`` (the user is asked to start it). ``idle_w`` is the \"finished\" threshold.",
+      "properties": {
+        "idle_w": {
+          "default": 5.0,
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Idle W",
+          "type": "number"
+        },
+        "profile_wh": {
+          "default": [],
+          "items": {
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "maxItems": 96,
+          "title": "Profile Wh",
+          "type": "array"
+        },
+        "resume_confirmed": {
+          "default": false,
+          "title": "Resume Confirmed",
+          "type": "boolean"
+        },
+        "runtime_min": {
+          "maximum": 1440,
+          "minimum": 1,
+          "title": "Runtime Min",
+          "type": "integer"
+        },
+        "start_method": {
+          "enum": [
+            "plug",
+            "remote",
+            "notify"
+          ],
+          "title": "Start Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime_min",
+        "start_method"
+      ],
+      "title": "ProgramSpec",
+      "type": "object"
     },
     "RelayStep": {
       "additionalProperties": false,
@@ -1083,6 +1340,72 @@
         "version"
       ],
       "title": "TestedWith",
+      "type": "object"
+    },
+    "ThermalModel": {
+      "additionalProperties": false,
+      "description": "First-order RC parameters of a thermal store.",
+      "properties": {
+        "capacity_wh_per_k": {
+          "exclusiveMinimum": 0,
+          "maximum": 1000000,
+          "title": "Capacity Wh Per K",
+          "type": "number"
+        },
+        "internal_gain_w": {
+          "default": 0.0,
+          "maximum": 100000,
+          "minimum": -100000,
+          "title": "Internal Gain W",
+          "type": "number"
+        },
+        "loss_w_per_k": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Loss W Per K",
+          "type": "number"
+        }
+      },
+      "required": [
+        "capacity_wh_per_k",
+        "loss_w_per_k"
+      ],
+      "title": "ThermalModel",
+      "type": "object"
+    },
+    "ThermalSpec": {
+      "additionalProperties": false,
+      "description": "Heat-pump and thermal-store options (ADR-0017 decision 6; kinds with a comfort band).\n\n``cop`` ``None`` = the generic air/water assumption (``core.thermal``); ``learned`` is the\nfitted RC model (written by the learner, PR 6-K). ``grid_preheat`` allows pre-heating\nwith cheap grid energy (default off, plan §0 decision 8); the lift band is the device's\ncomfort band.",
+      "properties": {
+        "cop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CopCurve"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "grid_preheat": {
+          "default": false,
+          "title": "Grid Preheat",
+          "type": "boolean"
+        },
+        "learned": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearnedThermal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ThermalSpec",
       "type": "object"
     }
   },

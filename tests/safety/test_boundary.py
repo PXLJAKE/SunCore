@@ -56,6 +56,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+from typing import Final
 
 import pytest
 
@@ -633,3 +634,19 @@ def test_analysis_rule_rejects_siblings() -> None:
     }
     assert bad == {1, 3}
     assert (PACKAGE / "analysis" / "flows.py").is_file()
+
+
+SIBLING_FREE_CORE: Final = ("grid", "thermal", "flex")
+"""Plan WP1 (Phase 6): these ``core`` modules import nothing from siblings but the validation
+helper, so planner, controller and gate share them without pulling in device or config models."""
+
+
+@pytest.mark.parametrize("name", SIBLING_FREE_CORE)
+def test_phase6_core_modules_import_no_siblings(name: str) -> None:
+    path = ROOT / "suncore" / "core" / f"{name}.py"
+    offenders = [
+        f"{line}: {imported}"
+        for line, imported in imported_modules(path, parse(path))
+        if in_package(imported, "suncore") and not in_package(imported, "suncore.core.validation")
+    ]
+    assert not offenders, f"core/{name}.py imports siblings: {offenders}"

@@ -46,16 +46,22 @@ from suncore.core.decisions import REASON_KEY_PATTERN
 from suncore.core.devices import (
     TEMPLATE_ID_PATTERN,
     THERMAL_KINDS,
+    ChargerControl,
     ComfortBand,
     ContinuousControl,
     ControlSpec,
     DeviceKind,
+    EvSpec,
+    LoadpointControl,
     OnOffControl,
     PowerModelKind,
+    ProgramSpec,
     RelaysControl,
     RoleName,
     SetpointControl,
+    SgReadyControl,
     StepsControl,
+    ThermalSpec,
     control_roles,
 )
 from suncore.core.units import Unit, parse_unit
@@ -443,7 +449,11 @@ class PowerModelDefault(_Frozen):
 
 
 class DeviceDefaults(_Frozen):
-    """Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`."""
+    """Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.
+
+    Phase 6 (additive): ``ev`` (wallbox), ``program`` (program) and ``thermal`` (thermal kinds,
+    e.g. a vendor COP curve with the template's ``source``) - the same models as on the device.
+    """
 
     power_model: PowerModelDefault
     control: ControlSpec
@@ -454,6 +464,9 @@ class DeviceDefaults(_Frozen):
     hysteresis_delay_s: Annotated[int, Field(ge=0, le=3600)] | None = None
     settle_s: Annotated[int, Field(ge=0, le=600)] | None = None
     comfort: ComfortBand | None = None
+    ev: EvSpec | None = None
+    program: ProgramSpec | None = None
+    thermal: ThermalSpec | None = None
 
 
 class DeviceTemplate(TemplateHeader):
@@ -480,6 +493,7 @@ class DeviceTemplate(TemplateHeader):
         if self.defaults.comfort is not None and self.device_kind not in THERMAL_KINDS:
             msg = f"defaults.comfort: not applicable to device_kind `{self.device_kind.value}`"
             raise ValueError(msg)
+        self._phase6()
         self._capabilities()
         return self
 
@@ -506,6 +520,59 @@ class DeviceTemplate(TemplateHeader):
             isinstance(control, SetpointControl),
             "control is not setpoint",
         )
+        _need(
+            caps,
+            Capability.EV_CHARGING,
+            isinstance(control, ChargerControl | LoadpointControl),
+            "control is neither charger nor loadpoint",
+        )
+        _need(
+            caps,
+            Capability.PHASE_SWITCHING,
+            isinstance(control, ChargerControl) and control.phases_role is not None,
+            "control is not a charger with a `phases_role`",
+        )
+        _need(
+            caps,
+            Capability.SG_READY,
+            isinstance(control, SgReadyControl),
+            "control is not sg_ready",
+        )
+        _need(
+            caps,
+            Capability.REMOTE_START,
+            self.defaults.program is not None and self.defaults.program.start_method == "remote",
+            "defaults.program.start_method is not `remote`",
+        )
+        for cap in (Capability.EXPORT_LIMIT, Capability.AC_LIMIT, Capability.BACKUP_STATE):
+            _need(caps, cap, False, "it is not a device capability (inverter/site)")
+
+    def _phase6(self) -> None:
+        """Kind checks of the Phase 6 controls and defaults (mirror ``DeviceConfig``)."""
+        control = self.defaults.control
+        kind = self.device_kind
+        if (
+            isinstance(control, ChargerControl | LoadpointControl)
+            and kind is not DeviceKind.WALLBOX
+        ):
+            msg = f"defaults.control: `{control.kind}` needs device_kind `wallbox`"
+            raise ValueError(msg)
+        if isinstance(control, SgReadyControl) and kind is not DeviceKind.HEAT_PUMP:
+            msg = "defaults.control: `sg_ready` needs device_kind `heat_pump`"
+            raise ValueError(msg)
+        for field, value, kinds in (
+            ("ev", self.defaults.ev, frozenset({DeviceKind.WALLBOX})),
+            ("program", self.defaults.program, frozenset({DeviceKind.PROGRAM})),
+            ("thermal", self.defaults.thermal, THERMAL_KINDS),
+        ):
+            if value is not None and kind not in kinds:
+                msg = f"defaults.{field}: not applicable to device_kind `{kind.value}`"
+                raise ValueError(msg)
+        if self.defaults.ev is not None:
+            for role in self.defaults.ev.roles():
+                if role not in self.roles:
+                    msg = f"defaults.ev: unknown role `{role}`"
+                    raise ValueError(msg)
 
     def message_keys(self) -> list[str]:
         return [self.name, *(r.description for r in self.roles.values())]
