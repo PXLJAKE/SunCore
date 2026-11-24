@@ -10,6 +10,22 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 - PR 5-F, WP7 plan chart v2 (branch `phase-5/f-plan-chart`, on 5-H;
+  `frontend-engineer`)**:
+  - `#/plan` shows measured values (`/history/series`, 15 min) as wide faint lines under the
+    planned ones, a Gantt per controlled device and for the battery (planned bars outlined,
+    measured bars solid, from `device.<id>.on` and `site.battery_w`), dataZoom synced over all
+    panels with buttons and keys (arrows, `+`, `-`, `0`), tooltips with the interval reasons
+    (`ReasonList`), PNG and CSV (plan, measured values, comparison).
+  - Deep links: `#/plan?day=YYYY-MM-DD` (history), `#/plan?at=<time>` (decision log; marks the
+    decision's interval), `&compare=<time>` (`/plan/compare`, dashed lines and a difference
+    table); a look-back panel sets them. A missing snapshot (pruned) is said, the measured
+    values still show.
+  - Text alternatives: table with measured columns, device schedule as text, colour key.
+  - Bundle: ECharts split into `echarts-core` 183 kB, `-plan` 9 kB, `-history` 13 kB gzip; core +
+    view 192/196 of 240 kB; first paint 101.7 of 125 kB; total without ECharts 232 of 250 kB.
+    Deviations: plan section 8 (5-F).
+
 - **Phase 5 – PR 5-G, WP8 history view and export (branch `phase-5/g-history`, on 5-D;
   `frontend-engineer`)**:
   - `#/history` (lazy chunk): period day/week/month/year with previous/next/today and a date jump,

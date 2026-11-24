@@ -117,7 +117,7 @@ interface Layout {
 }
 
 function layout(compact: boolean, entries: number, laneCount: number): Layout {
-  const gridTop = 10 + legendRows(entries, compact) * 22 + 12;
+  const gridTop = 10 + legendRows(entries, compact) * 28 + 12;
   const mainH = compact ? 190 : 230;
   const ganttH = laneCount > 0 ? laneCount * LANE_HEIGHT + 6 : 0;
   const panels = mainH + GAP + SOC_H + GAP + PRICE_H + (ganttH > 0 ? GAP + ganttH : 0);

@@ -20,7 +20,7 @@
     type MessageKey,
   } from '../i18n/index.svelte';
   import { addDays } from '../history/model';
-  import { SITE_KEYS, actualIndex, deviceKey } from '../plan/actual';
+  import { SITE_KEYS, actualIndex, deviceKey, hasValues } from '../plan/actual';
   import { chartIntervals, referenceTime } from '../plan/assemble';
   import { compareRows, compareSeries, hasDelta } from '../plan/compare';
   import { buildLanes, type GanttLane, type GanttSeg, type SegKind } from '../plan/gantt';
@@ -83,7 +83,16 @@
     untrack(() => void store.syncActual(r, ids));
   });
 
-  const lanes: GanttLane[] = $derived(buildLanes(intervals, store.actual));
+  /** Measured values worth drawing: a window without any measurement shows no overlay. */
+  const measured = $derived(
+    store.actual &&
+      [store.actual.pvW, store.actual.houseW, store.actual.gridW, store.actual.batteryW].some(
+        hasValues,
+      )
+      ? store.actual
+      : null,
+  );
+  const lanes: GanttLane[] = $derived(buildLanes(intervals, measured));
   const compared = $derived(store.compare ? compareSeries(data, store.compare) : null);
   const lines = $derived(targetLines(plan.risk));
   const marker = $derived.by(() => {
@@ -331,7 +340,7 @@
     {currency}
     label={chartLabel}
     describedby={hintId}
-    actual={store.actual}
+    actual={measured}
     {lanes}
     compare={compared}
     {marker}

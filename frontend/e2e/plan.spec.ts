@@ -33,7 +33,7 @@ test.describe('Plan view', () => {
       .poll(
         async () => {
           // Hover on a desktop, tap on a phone: both end in a click on the same spot.
-          await chart.click({ position: { x, y: 150 } });
+          await chart.click({ position: { x, y: 260 } });
           return page.getByText('Why', { exact: true }).count();
         },
         { timeout: 15_000 },

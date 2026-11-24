@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
-import type { HistorySeries, IntervalDiff, PlanCompare, PlanInterval } from '../api/types';
+import type {
+  HistorySeries,
+  IntervalDiff,
+  PlanCompare,
+  PlanInterval,
+  PlanView,
+} from '../api/types';
 import { buildActual, actualIndex } from './actual';
 import { chartIntervals, needsSnapshot, referenceTime, stitch } from './assemble';
 import { compareRows, compareSeries, hasDelta } from './compare';
@@ -83,7 +89,10 @@ describe('target', () => {
 });
 
 describe('assemble', () => {
-  const live = { plan: { intervals: [interval(10 * Q), interval(11 * Q)] } } as never;
+  const live = { plan: { intervals: [interval(10 * Q), interval(11 * Q)] } } as unknown as Pick<
+    PlanView,
+    'plan'
+  >;
   const earlier = [interval(8 * Q), interval(9 * Q), interval(10 * Q)];
   it('completes the live plan with the snapshot before it', () => {
     expect(stitch(earlier, live.plan.intervals).map((i) => Date.parse(i.start) / Q)).toEqual([

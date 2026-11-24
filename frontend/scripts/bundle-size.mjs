@@ -33,8 +33,7 @@ for (const file of walk(dist)) {
     const size = gz(file);
     if (isEcharts(file)) {
         chunks.set(file.replace(/^.*\/echarts-([^./-]+).*$/, '$1'), size);
-    }
-    else total += size;
+    } else total += size;
     console.log(
         `${(size / 1000).toFixed(1).padStart(8)} kB  ${relative(dist, file)}${isEcharts(file) ? '  (on demand)' : ''}`,
     );
@@ -62,7 +61,9 @@ console.log(
     `${kb(paint).padStart(8)}  first paint (index.html + static imports; budget ${FIRST_PAINT_BYTES / 1000} kB)`,
 );
 for (const [name, size] of chunks) {
-    console.log(`${kb(size).padStart(8)}  ECharts chunk ${name} (budget ${ECHARTS_BYTES / 1000} kB)`);
+    console.log(
+        `${kb(size).padStart(8)}  ECharts chunk ${name} (budget ${ECHARTS_BYTES / 1000} kB)`,
+    );
 }
 const core = chunks.get('core') ?? 0;
 const views = [...chunks].filter(([name]) => name !== 'core');
