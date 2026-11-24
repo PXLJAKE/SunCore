@@ -9,7 +9,13 @@ building the inputs (incl. the risk model's targets), the HiGHS solve cold and w
 the previous plan, the heuristic, and the model size. The budget (ADR-0003, BRIEF §2) is 10 s on
 a Raspberry Pi 4; CI checks < 3 s on x86 (``tests/planner/test_bench.py``).
 
-Usage: ``uv run python scripts/bench_planner.py [--runs 5] [--json]``.
+``--scenario full_house`` (Phase 6 WP8, plan §1.7): the reference house plus one EV (target
+80 % by 07:00 tomorrow, 6 A floor with binaries in the first 24 h), a hot-water heat pump with
+its RC model and two armed programs (``suncore.sim.planner_flex.full_house_situation``). Budget
+10 s on the CI arm runner and the Pi (``UNVERIFIED`` until measured); CI checks < 5 s on x86.
+
+Usage: ``uv run python scripts/bench_planner.py [--runs 5] [--scenario reference|full_house]
+[--json]``.
 """
 
 from __future__ import annotations
@@ -23,11 +29,14 @@ import time
 
 from suncore.planner.heuristic import heuristic_schedule
 from suncore.planner.run import run
+from suncore.sim.planner_flex import full_house_situation
 from suncore.sim.planner_scenarios import reference_situation, situation_inputs
 
+SCENARIOS = {"reference": reference_situation, "full_house": full_house_situation}
 
-def bench(runs: int) -> dict[str, float | int | str]:
-    situation = reference_situation()
+
+def bench(runs: int, scenario: str = "reference") -> dict[str, float | int | str]:
+    situation = SCENARIOS[scenario]()
     build, cold, warm, heuristic, total = [], [], [], [], []
     stats: dict[str, float | int | str] = {}
     for _ in range(runs):
@@ -48,12 +57,15 @@ def bench(runs: int) -> dict[str, float | int | str]:
         plan_stats = first.plan.stats
         assert plan_stats is not None
         stats = {
+            "scenario": scenario,
             "source": first.source,
             "status": plan_stats.status,
             "slots": inputs.n,
             "vars": first.n_vars,
             "rows": first.n_rows,
             "binaries": plan_stats.n_binaries,
+            "flex_loads": len(inputs.flex_loads),
+            "mip_gap": -1.0 if plan_stats.mip_gap is None else round(plan_stats.mip_gap, 5),
             "iterations_cold": first.solver.iterations,
             "iterations_warm": second.solver.iterations,
             "objective": round(first.objective, 4),
@@ -75,9 +87,10 @@ def bench(runs: int) -> dict[str, float | int | str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--runs", type=int, default=5)
+    parser.add_argument("--scenario", choices=sorted(SCENARIOS), default="reference")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    result = bench(max(1, args.runs))
+    result = bench(max(1, args.runs), args.scenario)
     if args.json:
         print(json.dumps(result))
     else:
