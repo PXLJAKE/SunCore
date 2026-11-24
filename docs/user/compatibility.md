@@ -34,6 +34,14 @@ a template only tested in the simulator has never run against real hardware.
 | `kostal.plenticore` | battery | KOSTAL PLENTICORE (Home Assistant integration, minimum SoC) | `kostal_plenticore` | `min_soc_limit` | not tested on hardware | 4 |
 | `kostal.plenticore_g3_modbus` | battery | KOSTAL PLENTICORE G3 battery limits over Modbus (§3.5) | `modbus` | `charge_limit`, `discharge_limit`, `hardware_fallback` | not tested on hardware | 5 |
 
+## Inverter limits
+
+| Id | Kind | Name | Integration / platforms | Capabilities | Tested with | Unverified |
+|---|---|---|---|---|---|---|
+| `generic.inverter_limit` | inverter | Inverter limit with a number entity (generic) | any | `ac_limit`, `export_limit` | not tested on hardware | 3 |
+| `kostal.plenticore_g3_modbus_limit` | inverter | KOSTAL PLENTICORE G3 active power set-point over Modbus (register 533) | `modbus` | `ac_limit` | not tested on hardware | 4 |
+| `kostal.plenticore_power_limit` | inverter | KOSTAL PLENTICORE active power limitation (Home Assistant integration) | `kostal_plenticore` | `export_limit` | not tested on hardware | 4 |
+
 ## Tariffs
 
 | Id | Kind | Name | Integration / platforms | Capabilities | Tested with | Unverified |

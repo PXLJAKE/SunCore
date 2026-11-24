@@ -1442,6 +1442,178 @@
       "title": "ForecastTemplate",
       "type": "object"
     },
+    "InverterTemplate": {
+      "additionalProperties": false,
+      "description": "Inverter limit adapter template (PR 6-G, ADR-0018 decision 3; kind ``inverter``).\n\nExactly one role, ``limit``: a ``number`` for ``generic_number`` and ``kostal_rest`` (it is\nwritten with ``number.set_value`` and read back), a ``modbus`` ``sensor`` for\n``kostal_modbus`` (read-back of the register that ``modbus.write_register`` writes).\n``limit_capability`` ``None`` = the configuration chooses (generic: W or %). ``min``/``max``\nbound the writable value in the capability's unit; ``volatile``: the value is lost on an\ninverter reset and is re-written while SunCore holds a limit. Writes go through the safety\ngate only (X1-X6, ``safety.inverter``).",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "maxItems": 32,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "default_pct": {
+          "default": 100.0,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Default Pct",
+          "type": "number"
+        },
+        "driver": {
+          "enum": [
+            "generic_number",
+            "kostal_rest",
+            "kostal_modbus"
+          ],
+          "title": "Driver",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "inverter",
+          "title": "Kind",
+          "type": "string"
+        },
+        "limit_capability": {
+          "anyOf": [
+            {
+              "enum": [
+                "export_limit",
+                "ac_limit"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit Capability"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "min": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Min",
+          "type": "number"
+        },
+        "min_app_version": {
+          "anyOf": [
+            {
+              "pattern": "^\\d+(\\.\\d+)*((a|b|rc)\\d+)?(\\.post\\d+)?(\\.dev\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min App Version"
+        },
+        "modbus_register": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modbus Register"
+        },
+        "name": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "roles": {
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,31}$": {
+              "$ref": "#/$defs/RoleSpec"
+            }
+          },
+          "title": "Roles",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "settle_s": {
+          "default": 10,
+          "maximum": 600,
+          "minimum": 0,
+          "title": "Settle S",
+          "type": "integer"
+        },
+        "source": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "minItems": 1,
+          "title": "Source",
+          "type": "array"
+        },
+        "tested_with": {
+          "items": {
+            "$ref": "#/$defs/TestedWith"
+          },
+          "title": "Tested With",
+          "type": "array"
+        },
+        "unverified": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Unverified",
+          "type": "array"
+        },
+        "volatile": {
+          "default": false,
+          "title": "Volatile",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "schema_version",
+        "name",
+        "source",
+        "tested_with",
+        "capabilities",
+        "kind",
+        "roles",
+        "driver"
+      ],
+      "title": "InverterTemplate",
+      "type": "object"
+    },
     "LearnedThermal": {
       "additionalProperties": false,
       "description": "A fitted model with its quality (``nrmse`` of a 24 h replay) and history length.",
@@ -2708,6 +2880,7 @@
       "battery": "#/$defs/BatteryTemplate",
       "device": "#/$defs/DeviceTemplate",
       "forecast": "#/$defs/ForecastTemplate",
+      "inverter": "#/$defs/InverterTemplate",
       "region": "#/$defs/RegionTemplate",
       "tariff": "#/$defs/TariffTemplate"
     },
@@ -2728,6 +2901,9 @@
     },
     {
       "$ref": "#/$defs/BatteryTemplate"
+    },
+    {
+      "$ref": "#/$defs/InverterTemplate"
     }
   ],
   "title": "SunCore template v1"

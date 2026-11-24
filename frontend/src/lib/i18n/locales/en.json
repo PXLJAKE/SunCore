@@ -1706,5 +1706,11 @@
   "safety.inverter_release_confirmed": "The inverter shows its own limit again: SunCore has let go of it.",
   "safety.inverter_override": "The inverter limit was changed outside SunCore: SunCore leaves it alone for now.",
   "safety.inverter_readback_lost": "The inverter limit cannot be read back: SunCore gives the inverter its own limit back.",
-  "safety.inverter_limit_reset": "The inverter lost SunCore's limit (for example after a restart): it is written again."
+  "safety.inverter_limit_reset": "The inverter lost SunCore's limit (for example after a restart): it is written again.",
+  "template.generic.inverter_limit.name": "Inverter limit with a number entity (generic)",
+  "template.generic.inverter_limit.role.limit": "Number that holds the export limit (W or kW) or the AC output limit (%)",
+  "template.kostal.plenticore_power_limit.name": "KOSTAL PLENTICORE active power limitation (Home Assistant integration)",
+  "template.kostal.plenticore_power_limit.role.limit": "\"Active Power Limitation\" number of the inverter (W, disabled by default: enable it first)",
+  "template.kostal.plenticore_g3_modbus_limit.name": "KOSTAL PLENTICORE G3 active power set-point over Modbus (register 533)",
+  "template.kostal.plenticore_g3_modbus_limit.role.limit": "Modbus sensor that reads register 533 back (active power set-point, %)"
 }

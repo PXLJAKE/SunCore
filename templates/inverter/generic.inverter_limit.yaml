@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../schema/inverter.schema.json
+# Any Home Assistant `number` entity that holds the inverter's export limit (W or kW) or its AC
+# output limit (%). SunCore writes it with `number.set_value` and believes a write only when the
+# entity shows the value after settle_s. Choose the capability in the inverter settings
+# (`inverter.capability`); an AC limit also needs the nominal AC power.
+id: generic.inverter_limit
+kind: inverter
+schema_version: 1
+name: template.generic.inverter_limit.name
+source:
+  - title: "Home Assistant number integration: number.set_value (value), min/max attributes"
+    url: "https://www.home-assistant.io/integrations/number/"
+    date: 2026-11-24
+tested_with: []
+capabilities: [export_limit, ac_limit]
+unverified:
+  - "Whether the entity limits the export at the grid point or the AC output depends on the integration."
+  - "Until verified, an export limit is kept at or above house load + battery charging + 500 W."
+  - "Whether the integration reports a failed write: SunCore reads the value back after settle_s."
+driver: generic_number
+settle_s: 10
+roles:
+  limit:
+    matcher: { domain: number }
+    description: template.generic.inverter_limit.role.limit

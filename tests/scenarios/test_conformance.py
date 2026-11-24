@@ -38,12 +38,14 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from suncore.core.battery import BatteryModel, BatterySettings, ModbusByteOrder, ModbusLink
+from suncore.core.config import InverterConfig, InverterModbusLink
 from suncore.core.devices import DeviceConfig
 from suncore.core.entities import EntityMeta
 from suncore.core.series import TimeRange, floor_to_step
 from suncore.core.site import EntityRef
 from suncore.core.units import Dimension, parse_unit
 from suncore.devices.battery import create_battery_driver
+from suncore.devices.inverter import create_inverter_driver
 from suncore.ha.connection import EntityState
 from suncore.sim.fake_ha import FakeHAConnection
 from suncore.sim.scenario import load_scenario
@@ -53,6 +55,7 @@ from suncore.templates import (
     BatteryTemplate,
     DeviceTemplate,
     ForecastTemplate,
+    InverterTemplate,
     RegionTemplate,
     TariffTemplate,
     Template,
@@ -128,7 +131,8 @@ class ScenarioFile(BaseModel):
     roles: dict[str, RoleExpectation]
     expect: SeriesExpectation | None = None
     capabilities: list[str] | None = None
-    """Battery templates: what the adapter built from the resolved mapping can execute."""
+    """Battery and inverter templates: what the adapter built from the resolved mapping can
+    execute."""
 
 
 def _scenario_files() -> dict[str, Path]:
@@ -266,6 +270,44 @@ async def test_template_conforms(template_id: str, fake: FakeHAConnection) -> No
         await _check_region(template, fake)
     elif isinstance(template, BatteryTemplate):
         await _check_battery(template, scenario, resolved, states)
+    elif isinstance(template, InverterTemplate):
+        await _check_inverter(template, scenario, resolved, states)
+
+
+async def _check_inverter(
+    template: InverterTemplate,
+    scenario: ScenarioFile,
+    resolved: Mapping[str, EntityMeta],
+    states: Mapping[str, EntityState],
+) -> None:
+    """The real inverter adapter is built from the resolved mapping for every capability the
+    scenario states; it reads the limit back from the fixture state and never writes."""
+    assert scenario.capabilities is not None, "inverter scenarios state the capabilities"
+    assert sorted(c.value for c in template.capabilities) == sorted(scenario.capabilities)
+
+    async def no_write(*_: object, **__: object) -> object:
+        msg = "conformance never writes"
+        raise AssertionError(msg)
+
+    for capability in scenario.capabilities:
+        config = InverterConfig(
+            adapter=template.driver,
+            capability=capability,  # type: ignore[arg-type]
+            limit_entity=EntityRef(entity_id=resolved["limit"].entity_id),
+            nominal_ac_w=10_000.0,
+            template_id=template.id,
+            modbus=InverterModbusLink(slave=71) if template.driver == "kostal_modbus" else None,
+        )
+        driver = create_inverter_driver(
+            template.adapter_spec(),
+            config,
+            write=no_write,
+            states=states.get,  # type: ignore[arg-type]
+        )
+        assert driver.capability == capability
+        assert await driver.read_back() is not None, capability
+        low, high = driver.limit_range()
+        assert low <= high
 
 
 async def _check_battery(

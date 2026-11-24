@@ -1706,5 +1706,11 @@
   "safety.inverter_release_confirmed": "Der Wechselrichter zeigt wieder sein eigenes Limit: SunCore hat ihn freigegeben.",
   "safety.inverter_override": "Das Wechselrichter-Limit wurde außerhalb von SunCore geändert: SunCore lässt es vorerst in Ruhe.",
   "safety.inverter_readback_lost": "Das Wechselrichter-Limit lässt sich nicht zurücklesen: SunCore gibt dem Wechselrichter sein eigenes Limit zurück.",
-  "safety.inverter_limit_reset": "Der Wechselrichter hat SunCores Limit verloren (z. B. nach einem Neustart): es wird erneut geschrieben."
+  "safety.inverter_limit_reset": "Der Wechselrichter hat SunCores Limit verloren (z. B. nach einem Neustart): es wird erneut geschrieben.",
+  "template.generic.inverter_limit.name": "Wechselrichter-Limit über eine Number-Entität (generisch)",
+  "template.generic.inverter_limit.role.limit": "Number mit dem Einspeiselimit (W oder kW) oder dem AC-Leistungslimit (%)",
+  "template.kostal.plenticore_power_limit.name": "KOSTAL PLENTICORE Wirkleistungsbegrenzung (Home-Assistant-Integration)",
+  "template.kostal.plenticore_power_limit.role.limit": "Number „Active Power Limitation“ des Wechselrichters (W, standardmäßig deaktiviert: zuerst aktivieren)",
+  "template.kostal.plenticore_g3_modbus_limit.name": "KOSTAL PLENTICORE G3 Wirkleistungsvorgabe über Modbus (Register 533)",
+  "template.kostal.plenticore_g3_modbus_limit.role.limit": "Modbus-Sensor, der Register 533 zurückliest (Wirkleistungsvorgabe, %)"
 }
