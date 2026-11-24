@@ -143,3 +143,12 @@ export interface DecisionPage {
   ids: number[];
   total: number;
 }
+
+export type BacktestRun = S['BacktestRunOut'];
+export type BacktestRequest = S['BacktestRequest'];
+export type BacktestResult = S['BacktestResult'];
+export type BacktestTotals = S['BacktestTotals'];
+export type BacktestDay = S['DayResult'];
+export type BacktestFigures = S['RunFigures'];
+export type BatteryOverlay = S['BatteryOverlay'];
+export type TariffOverlay = S['TariffOverlay'];

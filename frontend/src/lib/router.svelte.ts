@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// Tiny hash router (`#/`, `#/plan`, `#/settings`, `#/decisions`, `#/history`, `#/setup[/<step>]`): independent of the ingress base path.
+// Tiny hash router (`#/`, `#/plan`, `#/settings`, `#/decisions`, `#/history`, `#/whatif`, `#/setup[/<step>]`): independent of the ingress base path.
 import { SvelteURLSearchParams } from 'svelte/reactivity';
 import { isStepId, type StepId } from './wizard/steps';
 
-export type Route = 'now' | 'plan' | 'settings' | 'setup' | 'decisions' | 'history';
+export type Route = 'now' | 'plan' | 'settings' | 'setup' | 'decisions' | 'history' | 'whatif';
 
 export interface Location {
   route: Route;
@@ -15,6 +15,7 @@ export function parseLocation(hash: string): Location {
   const path = hash.replace(/^#/, '').split('?')[0] ?? '';
   if (path === '/plan') return { route: 'plan', step: null };
   if (path === '/history') return { route: 'history', step: null };
+  if (path === '/whatif') return { route: 'whatif', step: null };
   if (path === '/decisions') return { route: 'decisions', step: null };
   if (path === '/settings') return { route: 'settings', step: null };
   if (path === '/setup' || path === '/setup/') return { route: 'setup', step: null };

@@ -92,6 +92,11 @@
     <a href="#/decisions" aria-current={router.route === 'decisions' ? 'page' : undefined}
       >{t('nav.decisions')}</a
     >
+    {#if expert.enabled || router.route === 'whatif'}
+      <a href="#/whatif" aria-current={router.route === 'whatif' ? 'page' : undefined}
+        >{t('nav.whatif')}</a
+      >
+    {/if}
     <a
       href="#/settings"
       aria-current={router.route === 'settings' || router.route === 'setup' ? 'page' : undefined}
@@ -144,6 +149,10 @@
     {/await}
   {:else if router.route === 'history'}
     {#await import('./lib/views/History.svelte') then view}
+      <view.default />
+    {/await}
+  {:else if router.route === 'whatif'}
+    {#await import('./lib/views/WhatIf.svelte') then view}
       <view.default />
     {/await}
   {:else if router.route === 'decisions'}
