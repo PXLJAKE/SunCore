@@ -118,7 +118,7 @@ for (const shot of controlShots) {
       await page.goto(shot.view === 'decisions' ? '/#/decisions' : '/');
       await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
       if (shot.view === 'decisions') {
-        await expect(page.getByTestId('log-list').locator('li').first()).toBeVisible({
+        await expect(page.getByTestId('decision-table').locator('tbody tr').first()).toBeVisible({
           timeout: 40_000,
         });
       } else {
@@ -126,6 +126,7 @@ for (const shot of controlShots) {
         await page.getByTestId('estop').click();
         await expect(page.getByTestId('estop-banner')).toBeVisible();
       }
+      if (shot.view === 'decisions') await page.getByTestId('why-button').first().click();
       await page.waitForTimeout(1500);
       const name = `${shot.view}-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
       await page.screenshot({

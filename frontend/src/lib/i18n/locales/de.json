@@ -441,7 +441,7 @@
   "log.range": "{from, number}–{to, number} von {total, number}",
   "log.range_invalid": "Das Enddatum liegt vor dem Startdatum.",
   "log.reason": "Grund-Schlüssel",
-  "log.reason_hint": "Ein Grund-Schlüssel wie safety.shadow_mode oder sein Anfang wie safety.",
+  "log.reason_hint": "Ein Grund-Schlüssel wie safety.shadow_mode oder sein Anfang wie „safety“.",
   "log.reason_invalid": "Nur Kleinbuchstaben, Ziffern, Punkte und Unterstriche, beginnend mit einem Buchstaben.",
   "log.reset": "Filter zurücksetzen",
   "log.search": "Suche",

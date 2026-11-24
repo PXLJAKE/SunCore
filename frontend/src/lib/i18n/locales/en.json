@@ -441,7 +441,7 @@
   "log.range": "{from, number}–{to, number} of {total, number}",
   "log.range_invalid": "The end date is before the start date.",
   "log.reason": "Reason key",
-  "log.reason_hint": "A reason key such as safety.shadow_mode, or its start such as safety.",
+  "log.reason_hint": "A reason key such as safety.shadow_mode, or its start such as “safety”.",
   "log.reason_invalid": "Use lower-case letters, digits, dots and underscores, starting with a letter.",
   "log.reset": "Reset filters",
   "log.search": "Search",

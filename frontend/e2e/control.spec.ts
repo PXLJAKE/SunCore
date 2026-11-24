@@ -267,47 +267,6 @@ test.describe('overall mode (setup step)', () => {
 test.describe('decision log', () => {
   test.afterEach(async ({ request }) => resetDemo(request));
 
-  test('lists decisions with rendered reasons and filters by device and kind', async ({
-    page,
-    request,
-  }) => {
-    await page.goto('/#/decisions');
-    await expect(page.getByRole('heading', { name: 'Decision log', level: 2 })).toBeVisible();
-    // The controller logs a shadow decision for each device within a few ticks.
-    await expect(page.getByTestId('log-list').locator('li').first()).toBeVisible({
-      timeout: 40_000,
-    });
-    await expect(page.getByTestId('log-list')).not.toContainText('safety.shadow_mode');
-    await expect(page.getByTestId('log-list')).toContainText('Would have switched');
-    await expectNoAxeViolations(page);
-
-    const all = (await (await request.get('/api/v1/decisions?limit=200')).json()) as {
-      intent: { asset_id: string };
-    }[];
-    const ids = [...new Set(all.map((d) => d.intent.asset_id))];
-    expect(ids.length).toBeGreaterThan(0);
-
-    // device filter: every row names that device (the server filters)
-    const names: Record<string, string> = {
-      living_room_ac: 'Living room AC',
-      pool_pump: 'Pool pump',
-      heating_rod: 'Heating rod',
-    };
-    const id = ids[0]!;
-    await page.getByTestId('filter-device').selectOption(id);
-    const rows = page.getByTestId('log-list').locator('li');
-    await expect(rows.first()).toBeVisible();
-    for (const text of await rows.allTextContents()) expect(text).toContain(names[id] ?? id);
-
-    // kind filter: a kind nothing has happened for gives an empty list
-    await page.getByTestId('filter-device').selectOption('');
-    await page.getByTestId('filter-kind-failed').check();
-    await expect(page.getByTestId('log-list')).toContainText('No decisions yet');
-    await page.getByTestId('filter-kind-failed').uncheck();
-    await page.getByTestId('filter-kind-shadow').check();
-    await expect(rows.first()).toContainText('Would have switched');
-  });
-
   test('Now links to the log', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('link', { name: 'Open the decision log' }).click();

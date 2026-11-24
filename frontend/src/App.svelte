@@ -72,6 +72,8 @@
       firstRoute = false;
       return;
     }
+    // A link to a device card (`#/?device=`) focuses that card instead.
+    if (router.route === 'now' && router.query.has('device')) return;
     void tick().then(() => main?.focus());
   });
 </script>
