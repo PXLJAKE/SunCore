@@ -1,0 +1,22 @@
+# The heat pump is not part of the static demo house: its water heater entity is the one of the
+# simulated heat pump (suncore.sim.devices SimHeatPump variant water_heater, scenario
+# heat_pump_dhw_lift). It is the only water_heater entity, so the role has one candidate.
+template: generic.heat_pump_dhw_setpoint
+sim_scenario: summer_day
+extra_entities:
+  - { entity_id: water_heater.sim_heat_pump_dhw, platform: suncore_sim, state: "heat_pump" }
+  - { entity_id: sensor.sim_heat_pump_dhw_power, platform: suncore_sim, unit: W, device_class: power }
+user_input:
+  nominal_w: 1500
+  comfort: {min_c: 45, max_c: 55}
+roles:
+  water_heater:
+    entity: water_heater.sim_heat_pump_dhw
+    criteria: [domain]
+  power:
+    # Optional; every power sensor of the demo house ranks equal (no `same_device_as`).
+    tied: [sensor.sim_heat_pump_dhw_power, sensor.sim_battery_power, sensor.sim_grid_power,
+           sensor.sim_house_power, sensor.sim_living_room_ac_energy_current,
+           sensor.sim_pool_pump_power, sensor.sim_pv_power]
+    pick: sensor.sim_heat_pump_dhw_power
+    unit: W

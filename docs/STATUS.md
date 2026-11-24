@@ -3,7 +3,8 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-I EV, 6-J evcc, 6-L programs) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-F import side, 6-H planner flex, 6-I EV,
+6-J evcc, 6-K heat pump, 6-L programs, 6-M frontend) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
@@ -106,6 +107,28 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     first, phases/§14a later), immediate shed of a battery-fed car when the lock is lost,
     one lock tolerance in `core.battery`, gate-observed idle time for E2, unit check on the
     current entity; e2e gallery count updated for `generic.wallbox`.
+- **Phase 6 - PR 6-K, WP11 heat pump (branch `phase-6/k-heatpump`, on 6-F + 6-H;
+  `control-safety`)** - shadow stays the default, every write passes the gate:
+  - SG-Ready is supported: `core/sgready.py` (step <-> state <-> contacts, `contact_path` that
+    never passes the block pattern, fail-safe causes), `devices/drivers/sgready.py` (two contact
+    switches, read-back of unknown pairs as a mode, release to the baseline or state 2 - never
+    state 1), `safety/heatpump.py` (H1-H5: no state 1, state 4 only with `allow_forced`, dwell
+    600 s and switch limit, probe and comfort band, fail-safe to state 2 that waives dwell, min
+    run and the switch limit). `safety.sg_ready_not_supported` is gone.
+  - Hot-water lift: `devices/drivers/water_heater.py` (`water_heater.set_temperature`, snapped
+    and clamped to the entity range, never while `off`, release to the user's set-point).
+  - Controller: SG levels (state 2 = 0 W, state 3/4 nominal), fail-safe back-off also with an
+    unknown surplus, dwell wait, restart hysteresis 3 K below `comfort.max_c`.
+  - `forecast/thermal.py`: RC least squares on 15-minute data with a MAD outlier filter, quality
+    = NRMSE of a 24 h replay, stored in `learned_param` (`thermal_model`), refitted daily; the
+    planner runtime builds the thermal `FlexRequest` (probe temperatures, outdoor forecast,
+    learned models). Probe temperatures are recorded as `device.<id>.temperature_c`.
+  - Templates `generic.heat_pump_sg_ready`, `generic.heat_pump_dhw_setpoint` (sources,
+    `unverified`, en/de); simulator `SimHeatPump`; scenarios `heat_pump_sg_ready_surplus`,
+    `heat_pump_dhw_lift` and a planner-level history -> fit -> plan test. Deviations and the
+    safety self-review: plan section 8 (6-K).
+  - Review conditions A1-A5 (PR #60): release never lifts a foreign SG lock, the lift is
+    capped at assisted until confirmed, H4 checks against the user's baseline set-point.
 
 - **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
@@ -1307,6 +1330,9 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Wallbox control: exercised in the simulator only (no wallbox in the session); the phase switch pause (120 s default), whether a charger accepts a phase change while paused, min run/pause defaults (300 s) for cloud-polled chargers; no integration template verified from `home-assistant/core` source (only home-assistant.io `wallbox` page, 2026-11-24) | `templates/device/generic.wallbox.yaml`, `suncore/devices/drivers/charger.py`, plan section 8 (6-I) | a real wallbox; a session with access to the core source |
 | Shiftable programs (6-L): exercised in the simulator only; whether an appliance resumes its programme after the plug's power returns (per appliance, the user confirms `resume_confirmed`); remote-start switches per integration (a `button` role is not supported yet); placeholder run time 120 min, `idle_w` 5 W and peak power in the templates; appliances that draw more than `idle_w` right after start are treated as running (no delay) | `templates/device/generic.program_*.yaml`, `suncore/devices/drivers/program.py`, plan section 8 (6-L) | a real washing machine/dishwasher behind a plug; an integration with a remote start |
 | Notifications (6-E): payload of `mobile_app_notification_action` beyond `data.action`; that the Supervisor token may `subscribe_events` for it (else plain messages); `data.actions` on every legacy `notify.<service>`; `notify.send_message` has no button field | `suncore/ha/connection.py`, `suncore/notify/`, `research/ha-websocket-api.md` | first run on HA OS with the companion app |
+| Heat pump (6-K): SG-Ready contact mapping of the generic template (normal 00, intensified 01, forced 11, block 10); which integrations expose a heat pump's hot water as `water_heater` and how fast they apply a target; template defaults (dwell 600 s, min run 1200 s, min pause 600 s, 3/h, comfort 45-55 °C, restart 3 K); grid pre-heat planned but not executed; simulator only, no heat pump in the session | `templates/device/generic.heat_pump_*.yaml`, `suncore/core/sgready.py`, plan section 8 (6-K) | a user's heat pump with its manual; 6-I import mechanism |
+| RC learner (6-K): losses fitted against the outdoor series (stores indoors lose to the room); small fast stores miss the quality threshold on 15-minute data and stay energy-only | `suncore/forecast/thermal.py` | 14+ days of a real heat pump's probe, power and weather |
+| SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
 | Open-Meteo Solar Forecast: translation key assumed equal to the description key (the CC BY 4.0 attribution is shown in the plan view since 4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration |

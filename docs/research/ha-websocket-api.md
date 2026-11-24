@@ -857,6 +857,12 @@ Read on 2026-10-14, `home-assistant/core` `dev` `c433453ac565f083a4515ec5edfbdbe
 `a2627a1ce37032ecd5c6509813f70cf5b95d32c2`: `supervisor/api/proxy.py`,
 `supervisor/homeassistant/api.py`.
 
+PR 6-K (2026-11-24) uses the `water_heater` reading of this verification for the heat-pump lift:
+state = `current_operation`, attributes `temperature` (target), `current_temperature`,
+`min_temp`, `max_temp`, `target_temp_step`, `operation_list`, `operation_mode`;
+`water_heater.set_temperature` with `temperature` (not range-checked by core, so the driver
+clamps to `min_temp`/`max_temp`). No new source was read.
+
 `UNVERIFIED` (needs a live HA): the Core-side user id behind the Supervisor proxy; the runtime
 error code for `subscribe_events` `state_reported`; whether the 5 s context window is hit in
 practice for `lg_thinq` pushes (timing of the cloud echo); `SUBSCRIBE_ALLOWLIST` content

@@ -21,6 +21,12 @@ Kinds (BRIEF §4.5):
   power: a shifted unit may run flat out, so the gate and the controller both treat a
   shift away from the base as adding ``nominal - current draw``.
 * ``mode``: one level per configured mode, ordered by power.
+* ``sg_ready`` (PR 6-K): level 0 = SG state 2 (the heat pump's own operation, counted as 0 W
+  like a climate base), level 1 = state 3, level 2 = state 4 (only with ``allow_forced``);
+  states 3/4 "draw" the nominal power. Ramped (one state at a time). Only with a store probe
+  and a comfort band, and only while the contacts show a writable state.
+* ``setpoint`` on a heat pump (a hot-water lift): shifted upward only, whatever mode the
+  water heater reports.
 """
 
 from __future__ import annotations
@@ -49,10 +55,12 @@ from suncore.core.devices import (
     OnOffControl,
     RelaysControl,
     SetpointControl,
+    SgReadyControl,
     StepsControl,
     step_power_w,
 )
 from suncore.core.setpoint import snap_setpoint
+from suncore.core.sgready import is_heat_pump_lift, sg_has_probe
 
 HVAC_OFF: Final = "off"
 HEATING_MODES: Final = frozenset({"heat"})
@@ -238,16 +246,19 @@ def build_levels(  # noqa: PLR0911 - one return per control kind
 
     EV chargers (PR 6-I) get the levels of ``controller.ev``. Job-driven programs
     (``device.program``) and the other Phase 6 control variants are not controllable by
-    surplus levels until their PRs (6-L; 6-J, 6-K): the gate rejects
+    surplus levels until their PRs (6-L; 6-J): the gate rejects
     their writes, so offering levels would only repeat rejected intents (review of 6-B, A2).
+    SG-Ready heat pumps have levels since 6-K.
     """
     if isinstance(device.control, ChargerControl) and device.program is None:
         from suncore.controller.ev import charger_levels  # noqa: PLC0415 - ev imports levels
 
         return charger_levels(device, state, quantiser)
-    if device.program is not None or isinstance(device.control, PHASE6_CONTROLS):
-        return None
     control = device.control
+    if isinstance(control, SgReadyControl):
+        return _sg_levels(device, control, state, estimate)
+    if device.program is not None or isinstance(control, PHASE6_CONTROLS):
+        return None
     if isinstance(control, OnOffControl):
         nominal = nominal_power_w(device, estimate)
         if nominal is None:
@@ -286,6 +297,22 @@ def build_levels(  # noqa: PLR0911 - one return per control kind
     return None  # pragma: no cover - exhaustive
 
 
+def _sg_levels(
+    device: DeviceConfig,
+    control: SgReadyControl,
+    state: DeviceState | None,
+    estimate: PowerEstimate | None,
+) -> LevelTable | None:
+    nominal = nominal_power_w(device, estimate)
+    if nominal is None or not sg_has_probe(device):
+        return None
+    if state is None or not state.known or state.step is None or state.step >= len(control.steps):
+        return None  # contacts unknown, or a pattern SunCore may not write (state 1, ...)
+    levels = [Level(0, 0.0, StepAction(step=0))]
+    levels.extend(Level(i, nominal, StepAction(step=i)) for i in range(1, len(control.steps)))
+    return LevelTable(tuple(levels), ramped=True)
+
+
 def _continuous_levels(
     device: DeviceConfig,
     control: ContinuousControl,
@@ -319,7 +346,12 @@ def _continuous_levels(
 
 
 def shift_direction(state: DeviceState | None, device: DeviceConfig) -> int:
-    """+1 = raise the set-point (heating), -1 = lower it (cooling), 0 = do not shift."""
+    """+1 = raise the set-point (heating), -1 = lower it (cooling), 0 = do not shift.
+
+    A heat-pump set-point lift (hot water) is always a heating shift (PR 6-K).
+    """
+    if is_heat_pump_lift(device):
+        return 1
     mode = state.mode if state is not None else None
     if mode is None or mode == HVAC_OFF:
         mode = device.switch_on_hvac_mode
@@ -419,7 +451,7 @@ def observed_level(  # noqa: PLR0911, PLR0912 - one branch per control kind
         return charger_observed_level(table, state)
     if isinstance(control, OnOffControl):
         return None if state.on is None else int(state.on)
-    if isinstance(control, StepsControl | RelaysControl):
+    if isinstance(control, StepsControl | RelaysControl | SgReadyControl):
         return state.step if state.step is not None and state.step <= table.top else None
     if isinstance(control, ModeControl):
         for level in table.levels:

@@ -57,6 +57,7 @@ from suncore.core.measurements import (
     device_power_key,
     is_percent_key,
     is_state_key,
+    is_temperature_key,
 )
 from suncore.core.series import MAX_POINTS, SeriesUnit, TimeRange, TimeSeries
 from suncore.storage.summaries import DaySummaryRow
@@ -78,7 +79,7 @@ _LIVE_LOOKBACK: Final = 1
 """Days before today that are computed live while their frozen row is missing."""
 QUARTER_H: Final = 0.25
 
-_KEY_RE: Final = re.compile(r"^device\.[A-Za-z0-9_-]{1,64}\.(power_w|on)$")
+_KEY_RE: Final = re.compile(r"^device\.[A-Za-z0-9_-]{1,64}\.(power_w|on|temperature_c)$")
 _STEP_S: Final = {"1m": 60, "15m": 900, "1h": 3600}
 _ORDER: Final[tuple[SeriesResolution, ...]] = ("1m", "15m", "1h", "1d")
 
@@ -118,7 +119,7 @@ def check_day_range(first: date, last: date) -> None:
 def unit_of(key: str) -> str:
     if is_state_key(key):
         return "share"
-    if key == WEATHER_TEMPERATURE_C:
+    if is_temperature_key(key):
         return SeriesUnit.CELSIUS.value
     return SeriesUnit.PERCENT.value if is_percent_key(key) else SeriesUnit.W.value
 

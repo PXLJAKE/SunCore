@@ -102,7 +102,19 @@ EVCC_BATTERY_WARNING: Final = "controller.evcc.battery_warning"
 EVCC_IMPORT_CUT: Final = "controller.evcc.import_cut"
 EVCC_IMPORT_OFF: Final = "controller.evcc.import_off"
 
+# Phase 6 PR 6-K: heat pump (``controller.heat_pump``).
+HP_FAILSAFE: Final = "controller.heat_pump.failsafe"
+HP_DWELL_WAIT: Final = "controller.heat_pump.dwell_wait"
+HP_STATE_UNKNOWN: Final = "controller.heat_pump.state_unknown"
+HP_NO_PROBE: Final = "controller.heat_pump.no_probe"
+HP_RESTART_WAIT: Final = "controller.heat_pump.restart_wait"
+
 ALL_KEYS: Final[tuple[str, ...]] = (
+    HP_FAILSAFE,
+    HP_DWELL_WAIT,
+    HP_STATE_UNKNOWN,
+    HP_NO_PROBE,
+    HP_RESTART_WAIT,
     PROGRAM_START,
     PROGRAM_DEADLINE_START,
     PROGRAM_ARM_OFF,
@@ -310,6 +322,22 @@ def evcc_cap(current_a: float) -> Reason:
 def evcc_import_cut(current_a: float) -> Reason:
     """The grid import is over the limit while evcc charges: ``maxCurrent`` is lowered."""
     return Reason(key=EVCC_IMPORT_CUT, args={"current_a": round(current_a)})
+
+
+def heat_pump_failsafe(cause: str) -> Reason:
+    """Back to SG state 2 / the base set-point at once (``core.sgready.FailsafeCause``)."""
+    return Reason(key=HP_FAILSAFE, args={"cause": cause})
+
+
+def heat_pump_dwell(remaining_s: float) -> Reason:
+    return Reason(key=HP_DWELL_WAIT, args={"remaining_s": _ceil(remaining_s)})
+
+
+def heat_pump_restart(temperature_c: float, restart_c: float) -> Reason:
+    return Reason(
+        key=HP_RESTART_WAIT,
+        args={"temperature_c": round(temperature_c, 1), "restart_c": round(restart_c, 1)},
+    )
 
 
 def plain(key: str) -> Reason:

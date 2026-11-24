@@ -53,12 +53,8 @@ from suncore.core.devices import (
     SgReadyControl,
 )
 from suncore.core.site import EntityRef
-from suncore.devices.drivers import create_driver
-from suncore.devices.drivers.unsupported import UnsupportedDriver
 from suncore.safety.gate import REASON_EMERGENCY_STOP, REASON_NOT_SUPPORTED
 from suncore.safety.invariants import action_matches_state, action_turns_on, expected_power_w
-from suncore.safety.runtime import DeviceRuntime, MemoryRuntimeStore
-from tests.devices.drivers.fakes import FakeHA
 from tests.safety.helpers import T0, make_intent, switch_device
 from tests.safety.test_gate import AUTO, make_harness
 
@@ -138,12 +134,9 @@ def program_device() -> DeviceConfig:
     )
 
 
-PHASE6_DEVICES = (sg_device(),)
-"""The Phase 6 device families still without a write path (the charger has one since 6-I, the
-evcc loadpoint since 6-J, programs since 6-L: ``tests/safety/test_program_gate.py``)."""
-EXPECTED_DEVICE_REASON = {
-    "hp": "safety.sg_ready_not_supported",
-}
+PHASE6_DEVICES: tuple[DeviceConfig, ...] = ()
+"""Phase 6 control families still without a write path (all lifted since 6-K)."""
+
 
 DEVICE_ACTIONS: tuple[Action, ...] = (
     SwitchAction(on=True),
@@ -285,34 +278,7 @@ def test_new_action_kinds_are_always_rejected_without_side_effects(  # noqa: PLR
     assert h.gate.proposals() == ()
 
 
-@settings(max_examples=150, deadline=None)
-@given(
-    device=st.sampled_from(PHASE6_DEVICES),
-    action=st.sampled_from(DEVICE_ACTIONS),
-    origin=st.sampled_from(Origin),
-    mode=st.sampled_from(OperatingMode),
-)
-def test_phase6_devices_reject_every_action_but_a_release(
-    device: DeviceConfig, action: Action, origin: Origin, mode: OperatingMode
-) -> None:
-    h = make_harness(devices=(device,), global_mode=mode, device_mode=mode)
-    decision = asyncio.run(h.gate.submit(make_intent(action, asset_id=device.id, origin=origin)))
-    assert decision.kind is DecisionKind.REJECTED
-    if action.kind in NOT_YET_SUPPORTED_KINDS:
-        assert keys(decision) == [REASON_NOT_SUPPORTED[action.kind].key]
-    elif isinstance(action, ChargeAction):
-        assert keys(decision) == ["safety.charge_not_charger"]
-    elif isinstance(action, LoadpointAction) and device.id != "hp":
-        assert keys(decision) == ["safety.loadpoint_not_loadpoint"]
-    else:
-        assert keys(decision) == [EXPECTED_DEVICE_REASON[device.id]]
-    assert h.apply_calls == 0
-    assert h.gate.proposals() == ()
-
-
-@pytest.mark.parametrize(
-    "device", [charger_device(), loadpoint_device(), *PHASE6_DEVICES], ids=lambda d: d.id
-)
+@pytest.mark.parametrize("device", [charger_device(), loadpoint_device()], ids=lambda d: d.id)
 def test_a_release_of_a_phase6_device_writes_nothing(device: DeviceConfig) -> None:
     h = make_harness(devices=(device,))
     decision = asyncio.run(h.gate.submit(make_intent(ReleaseAction(), asset_id=device.id)))
@@ -371,11 +337,12 @@ def test_a_loadpoint_action_on_another_device_is_rejected(
     assert h.gate.proposals() == ()
 
 
-def test_sg_ready_step_is_rejected_even_in_shadow() -> None:
+def test_sg_ready_step_is_judged_in_shadow_since_6k() -> None:
     h = make_harness(devices=(sg_device(),), global_mode=OperatingMode.SHADOW)
     decision = asyncio.run(h.gate.submit(make_intent(StepAction(step=1), asset_id="hp")))
-    assert decision.kind is DecisionKind.REJECTED
-    assert keys(decision) == ["safety.sg_ready_not_supported"]
+    assert decision.kind is DecisionKind.SHADOW
+    assert "safety.sg_ready_not_supported" not in keys(decision)
+    assert h.apply_calls == 0
 
 
 def test_phase3_devices_are_unaffected() -> None:
@@ -410,31 +377,3 @@ def test_battery_actions_keep_their_own_rejection() -> None:
     h = make_harness()
     decision = asyncio.run(h.gate.submit(make_intent(BatteryAction(min_soc_pct=20))))
     assert keys(decision) == ["safety.battery_not_supported"]
-
-
-@pytest.mark.parametrize(
-    "device", [d for d in PHASE6_DEVICES if d.program is None], ids=lambda d: d.id
-)
-def test_a_release_with_a_baseline_fails_and_keeps_the_runtime(device: DeviceConfig) -> None:
-    """Review A1: the placeholder driver cannot restore a baseline, so the release is
-    ``failed`` and the runtime (baseline included) is kept instead of silently dropped."""
-    ha = FakeHA()
-    driver = create_driver(device, write=ha.write, states=ha.lookup)
-    assert isinstance(driver, UnsupportedDriver)
-    store = MemoryRuntimeStore()
-    runtime = DeviceRuntime(
-        device_id=device.id, baseline=SwitchAction(on=False), last_written=SwitchAction(on=True)
-    )
-    h = make_harness(devices=(device,), store=store, actuator_overrides={device.id: driver})
-
-    async def scenario() -> Decision:
-        await store.save_runtime(runtime)
-        return await h.gate.release_device(device.id, REASON_EMERGENCY_STOP)
-
-    decision = asyncio.run(scenario())
-    assert decision.kind is DecisionKind.FAILED
-    assert keys(decision)[0] == "safety.release_failed"
-    kept = asyncio.run(store.load_runtime(device.id))
-    assert kept is not None
-    assert kept.baseline == SwitchAction(on=False)
-    assert ha.calls == []

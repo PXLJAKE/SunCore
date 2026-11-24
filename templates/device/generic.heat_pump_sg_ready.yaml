@@ -1,0 +1,82 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# A heat pump with an SG-Ready interface: two potential-free contacts, driven here through two
+# Home Assistant `switch` entities (a relay module, ESPHome, Shelly ...). SG-Ready states:
+#   1 utility block      - NEVER written by SunCore (no step, not even on release)
+#   2 normal             - step 0: the usual baseline (release restores the baseline it found;
+#                          a lock someone else set is never lifted)
+#   3 intensified        - step 1: a recommendation to run more (the surplus level)
+#   4 forced on          - step 2: only with `allow_forced: true` (opt-in, default off)
+# Contacts are switched one at a time so a change never passes through the block pattern.
+# SunCore intensifies only with the store probe (`temperature`) and the comfort band: an
+# unknown or stale probe, or the store at `comfort.max_c`, returns the heat pump to state 2 at
+# once (its own controller keeps its own compressor protection).
+# Copy this file to /data/templates/device/ and edit the contact pairs if your heat pump's
+# manual maps the states differently.
+id: generic.heat_pump_sg_ready
+kind: device
+schema_version: 1
+name: template.generic.heat_pump_sg_ready.name
+source:
+  - title: "home-assistant/core switch/__init__.py (turn_on, turn_off; dev c433453, fetched 2026-10-14)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/switch/__init__.py"
+    date: 2026-10-14
+  - title: "home-assistant/core sensor/const.py (SensorDeviceClass.TEMPERATURE, UnitOfTemperature °C; dev c433453)"
+    url: "https://github.com/home-assistant/core/blob/c433453ac565f083a4515ec5edfbdbede48ebf24/homeassistant/components/sensor/const.py"
+    date: 2026-10-14
+tested_with: []
+capabilities: [sg_ready, power_measured]
+unverified:
+  - "Maintainer has no heat pump - simulator only (switch.sim_heat_pump_sg_a/_b). Never run against hardware."
+  - "Contact mapping normal 00, intensified 01, forced 11 (block 10) is the common wiring; the SG-Ready label document was not read. Check the manual."
+  - "allow_forced is off: state 4 is a definitive switch-on command and needs the user's explicit opt-in."
+  - "min_dwell_s 600, min_run_s 1200, min_pause_s 600 and 3 switches per hour are conservative design defaults, not a manufacturer rule."
+  - "Comfort band 45-55 C is a design default for a hot-water store (not a legionella rule)."
+  - "Without the store probe SunCore never intensifies (state 2 only)."
+device_kind: heat_pump
+roles:
+  contact_a:
+    matcher:
+      domain: switch
+    description: template.generic.heat_pump_sg_ready.role.contact_a
+  contact_b:
+    matcher:
+      domain: switch
+    description: template.generic.heat_pump_sg_ready.role.contact_b
+  temperature:
+    required: false
+    matcher:
+      domain: sensor
+      device_class: temperature
+      units: ["°C"]
+    description: template.generic.heat_pump_sg_ready.role.temperature
+  power:
+    required: false
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.heat_pump_sg_ready.role.power
+defaults:
+  # The wizard asks for the electrical power the heat pump draws while it runs (nominal_w);
+  # `measured` when the optional power sensor is mapped.
+  power_model:
+    kind: nominal
+  control:
+    kind: sg_ready
+    contact_a: contact_a
+    contact_b: contact_b
+    normal: { a: false, b: false }
+    intensified: { a: false, b: true }
+    forced: { a: true, b: true }
+    allow_forced: false
+    min_dwell_s: 600
+  settle_s: 30
+  min_run_s: 1200
+  min_pause_s: 600
+  max_switches_per_hour: 3
+  hysteresis_w: 200
+  hysteresis_delay_s: 120
+  comfort:
+    min_c: 45
+    max_c: 55
+  thermal: {}

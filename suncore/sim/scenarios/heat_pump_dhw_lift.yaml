@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+name: heat_pump_dhw_lift
+description: A heat pump's hot-water set-point as a water_heater entity (300 l store, 1.5 kW, the user's own target 50 degrees, measured power) takes the surplus of a sunny day by a set-point lift (PR 6-K) - never below the user's 50, never above the comfort maximum of 55; a cloud (11:00-11:30) takes the lift back, and SunCore restores the user's set-point when it releases the device. The heat pump's own thermostat decides when the compressor runs. Simulator only - the maintainer has no heat pump (UNVERIFIED).
+start: "2026-07-15T09:00:00+02:00"
+duration_s: 18000
+step_s: 5
+house:
+  seed: 85
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.03}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 24.0, amplitude_c: 5.0}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 1500, factor: 0.2}
+  - {at_s: 3300, factor: 1.0}
+devices:
+  - id: dhw
+    template: generic.heat_pump_dhw_setpoint
+    physics:
+      kind: heat_pump
+      variant: water_heater
+      entity_id: water_heater.sim_heat_pump_dhw
+      power_entity_id: sensor.sim_heat_pump_dhw_power
+      nominal_w: 1500
+      initial_temp_c: 47
+      initial_target_c: 50
+    control:
+      priority: 10
+      behaviour_confirmed: true
+      comfort: {min_c: 45, max_c: 55}
+      power_model: {kind: measured, power_role: power, nominal_w: 1500}

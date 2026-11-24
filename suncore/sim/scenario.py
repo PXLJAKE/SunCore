@@ -45,7 +45,13 @@ SIM_SIGNALS: Final[tuple[str, ...]] = (
 FaultKind = Literal["unavailable", "stale", "disconnect", "frozen"]
 """``frozen``: the entity keeps reporting its last value (an inverter that hangs)."""
 ManualAction = Literal[
-    "turn_on", "turn_off", "set_temperature", "set_hvac_mode", "set_value", "select_option"
+    "turn_on",
+    "turn_off",
+    "set_temperature",
+    "set_hvac_mode",
+    "set_value",
+    "select_option",
+    "set_contacts",
 ]
 ManualSource = Literal["remote", "ui"]
 """``remote``: a push with an id-only context (remote control, vendor app);

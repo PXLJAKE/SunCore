@@ -35,7 +35,7 @@ from suncore.app.adapters import (
     build_tariff_service,
 )
 from suncore.app.cadence import device_cadences, merge_cadences
-from suncore.app.control import BatteryWiring, ControlStack
+from suncore.app.control import BatteryWiring, ControlStack, probe_temperature_c
 from suncore.app.evcc_link import EvccLink
 from suncore.app.grid import GridMonitor
 from suncore.app.ha_entities import build_ha_entities
@@ -112,6 +112,7 @@ from suncore.forecast.pv.learning import BLENDED_SOURCE_ID, LearningContext, run
 from suncore.forecast.pv.service import BlendContext, PvForecastService
 from suncore.forecast.risk import ErrorModel
 from suncore.forecast.risk_learning import learn_net_errors, load_error_model, risk_view
+from suncore.forecast.thermal import ThermalLearner, learnable, with_learned
 from suncore.forecast.views import (
     ForecastAccuracyView,
     LoadForecastView,
@@ -236,6 +237,8 @@ class Runtime:
     timeseries: TimeseriesStore | None = None
     plans: PlanSnapshotStore | None = None
     learned: LearnedParamStore | None = None
+    thermal: ThermalLearner | None = None
+    """The RC models of the heat pumps (PR 6-K; ``None`` without ``timeseries.db``)."""
     recorder: MeasurementRecorder = field(default_factory=lambda: MeasurementRecorder(None))
     """Batched writer of the controller's measurements (disabled without ``timeseries``)."""
     flush_interval_s: float = FLUSH_INTERVAL_S
@@ -322,6 +325,8 @@ class Runtime:
         self.load_service = self._new_load_service()
         await self._load_risk_model()
         self._build_tariff()
+        if self.timeseries is not None:
+            self.thermal = ThermalLearner(self.timeseries, self.learned, clock=self.clock)
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -505,11 +510,14 @@ class Runtime:
             load_reasons = self.load_service.planning_reasons(choice)
         risk = self._risk(now, battery, pv, load)
         devices = [] if self.devices is None else list(self.devices.devices)
+        devices, thermal = await self._thermal_inputs(now, devices)
         await self.reload_ev_states()
         flex = FlexRequest(
             ev_states=dict(self._ev_states),
             ev_live=self._ev_live(),
             jobs=tuple(self.program_jobs.all_open()),
+            temperatures_c={} if thermal is None else thermal.temperatures_c,
+            outdoor_c=None if thermal is None else thermal.outdoor_c,
         )
         inputs = build_inputs(
             now,
@@ -537,6 +545,29 @@ class Runtime:
             and (self.load_service is None or load is not None)
         )
         return PlanningSnapshot(inputs, complete=complete)
+
+    async def _thermal_inputs(
+        self, now: datetime, devices: list[DeviceConfig]
+    ) -> tuple[list[DeviceConfig], FlexRequest | None]:
+        """The heat pumps' learned models, probe temperatures and the outdoor forecast for the
+        6-H thermal planner (PR 6-K). Without a thermal device the planner sees ``None``."""
+        thermal = [d for d in devices if d.thermal is not None]
+        if not thermal:
+            return devices, None
+        if self.thermal is not None:
+            if self.thermal.due(now):
+                try:
+                    await self.thermal.refit([d for d in thermal if learnable(d)])
+                except Exception:
+                    log.exception("planning.thermal_refit_failed")
+            devices = with_learned(devices, self.thermal.models)
+        temperatures: dict[str, float] = {}
+        for device in thermal:
+            value = probe_temperature_c(self.cache, device)
+            if value is not None:
+                temperatures[device.id] = value
+        outdoor = None if self.load_service is None else self.load_service.outdoor_forecast(now)
+        return devices, FlexRequest(temperatures_c=temperatures, outdoor_c=outdoor)
 
     async def plan_view(self, hours: int) -> PlanView:
         if self.planning is None:

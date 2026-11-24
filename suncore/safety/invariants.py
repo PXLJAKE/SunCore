@@ -43,9 +43,11 @@ from suncore.core.devices import (
     DeviceKind,
     LoadpointControl,
     ModeControl,
+    SgReadyControl,
     program_peak_w,
     step_power_w,
 )
+from suncore.core.sgready import SG_NORMAL
 from suncore.core.signals import Quality
 from suncore.safety.evcc import (
     IEC_MIN_CURRENT_A,
@@ -74,6 +76,14 @@ from suncore.safety.grid import (
     GridSafety,
     device_grid_violation,
     fuse_shed_waiver,
+)
+from suncore.safety.heatpump import (
+    check_heat_pump_failsafe,
+    check_lift_base,
+    check_sg_action,
+    check_sg_dwell,
+    check_sg_probe,
+    failsafe_reduction,
 )
 from suncore.safety.programs import (
     NO_PROGRAM_SAFETY,
@@ -205,6 +215,12 @@ def expected_power_w(  # noqa: PLR0911, PLR0912 - one branch per action kind
                 return program_peak_w(device)  # P5: a start draws up to the profile's peak
             return nominal if nominal is not None else _upper(estimate)
         case StepAction(step=step):
+            if isinstance(device.control, SgReadyControl):
+                # SG state 2 is the heat pump's own operation (nothing SunCore adds, like a
+                # climate base set-point); states 3/4 may run it flat out (H4, PR 6-K).
+                if step == SG_NORMAL:
+                    return 0.0
+                return nominal if nominal is not None else _upper(estimate)
             return step_power_w(device.control, step)
         case ModeAction(mode=mode):
             if mode == HVAC_OFF:
@@ -485,6 +501,8 @@ def check_min_run_pause(ctx: InvariantContext) -> Reason | None:  # noqa: PLR091
         return None  # G2: shedding above the fuse limit (non-thermal kinds)
     if target is False and isinstance(ctx.action, LoadpointAction):
         return None  # off is the safe direction for a loadpoint (counted, never blocked)
+    if _failsafe(ctx):
+        return None  # H5: back to SG state 2 for a fail-safe cause
     if target is True:
         since, limit = ctx.runtime.last_off_ts, ctx.device.min_pause_s
     else:
@@ -510,6 +528,8 @@ def check_switch_rate(ctx: InvariantContext) -> Reason | None:
         _fuse_shed(ctx) or isinstance(ctx.action, LoadpointAction)
     ):
         return None  # G2 shedding; a loadpoint's off is counted but never blocked (R1)
+    if _failsafe(ctx):
+        return None  # H5: back to SG state 2 for a fail-safe cause
     limit = ctx.device.max_switches_per_hour
     if limit is None:
         limit = ctx.settings.default_max_switches_per_hour
@@ -623,6 +643,54 @@ def _fuse_shed(ctx: InvariantContext) -> bool:
     )
 
 
+def _user_base_c(runtime: DeviceRuntime) -> float | None:
+    """The user's own set-point for H4 (review 6-K, A3): the takeover baseline the gate read
+    back (renewed after a detected override), never the controller's ``base_c`` that the gate
+    copies into ``base_setpoint_c`` on every write."""
+    baseline = runtime.baseline
+    if isinstance(baseline, SetpointAction):
+        return baseline.setpoint_c
+    return runtime.base_setpoint_c
+
+
+def _failsafe(ctx: InvariantContext) -> bool:
+    return failsafe_reduction(
+        ctx.action, ctx.device, ctx.state, ctx.grid.grid_state, ctx.grid.para14a_status
+    )
+
+
+def check_heat_pump(ctx: InvariantContext) -> Reason | None:
+    """H1-H5 of a heat pump (``safety.heatpump``): writable SG states only, state 4 only with
+    ``allow_forced``, a probe for intensifying, the SG dwell, a lift never below the base, no
+    increase while §14a dims a flagged heat pump or in island."""
+    action, device = ctx.action, ctx.device
+    if isinstance(action, ReleaseAction):
+        return None
+    for reason in (
+        check_sg_action(action, device),
+        check_sg_probe(action, device),
+        check_sg_dwell(
+            action,
+            device,
+            ctx.state,
+            ctx.runtime.last_write_ts,
+            ctx.now,
+            waived=_failsafe(ctx),
+        ),
+        check_lift_base(action, device, _user_base_c(ctx.runtime)),
+        check_heat_pump_failsafe(
+            is_load_increase(ctx),
+            device,
+            ctx.state,
+            ctx.grid.grid_state,
+            ctx.grid.para14a_status,
+        ),
+    ):
+        if reason is not None:
+            return reason
+    return None
+
+
 def is_load_increase(ctx: InvariantContext) -> bool:
     """The action may add load: not a release, not a switch-off, and a positive or unknown
     added demand (an unknown one counts as an increase - the conservative direction)."""
@@ -657,6 +725,7 @@ ALL_CHECKS: Final = (
     check_program,
     check_ev,
     check_loadpoint,
+    check_heat_pump,
     check_climate_switch_on,
     check_comfort,
     check_heat_limit,
@@ -778,6 +847,7 @@ __all__ = [
     "check_ev",
     "check_grid",
     "check_grid_situation",
+    "check_heat_pump",
     "check_loadpoint",
     "check_min_run_pause",
     "check_program",

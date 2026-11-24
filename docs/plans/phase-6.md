@@ -1477,3 +1477,92 @@ A1, B1, B2 and C1-C3 are confirmed fixed; A2 is partly fixed. Two new items, bot
   image's `--only-binary --require-hashes` install is unaffected. CI's smoke job covers it.
 - `UNVERIFIED`: `get_config` language key, custom HA birth topic, monetary unit rule, TLS to the
   Mosquitto app with verification (see `docs/research/mqtt-discovery.md`).
+### 6-K (heat pump)
+
+- **Scope:** WP11. SG-Ready moves from rejected to supported through `safety/` (H1-H5 in
+  `safety/heatpump.py`), the `water_heater` set-point lift gets its own driver, the RC learner
+  (`forecast/thermal.py`) feeds the 6-H planner's thermal requests (`app/runtime.py` builds the
+  thermal part of `FlexRequest`: probe temperatures, outdoor forecast, learned models). Shadow
+  stays the default; SG devices stay at most assisted until `behaviour_confirmed`.
+- **No `generic.heat_pump_select`:** the fail-safe (H5) and the heat-pump checks cover
+  `SgReadyControl` and heat-pump set-point lifts only; a `ModeControl` heat pump would be driven
+  like any select without them. Left out until the checks cover it (question 2).
+- **Grid pre-heat is planned, not executed:** with `grid_preheat` on, the planner plans grid
+  heating (6-H), but the controller still raises SG state 3 or a lift only on real surplus.
+  Executing the bounded import exception (ADR-0017 decision 4) belongs to 6-I's generic
+  mechanism (question 3). The opt-in stays off by default.
+- **Restart hysteresis (new):** after the store reached `comfort.max_c` SunCore intensifies
+  again only below `max_c - 3 K` (`core.sgready.SG_RESTART_K`,
+  `controller.heat_pump.restart_wait`). Without it the contacts chattered at the comfort maximum
+  (35 s stints in the scenario), limited only by the dwell and the switch limit.
+- **SG state 2 counts as 0 W** in the level table and in `expected_power_w`: it is the heat
+  pump's own operation (like a climate base set-point); states 3/4 may run it at its nominal
+  power.
+- **Lift without a fail-safe on an unknown temperature:** a set-point lift is bounded by the
+  set-point itself (comfort band, entity range, never below the user's base); island and §14a
+  return it to the base. The driver never writes while the entity is `off`.
+- **RC learner limits:** losses are fitted against the outdoor series (6-H's thermal model); a
+  store indoors loses to the room - the planner-level test therefore uses the room temperature
+  as the series. A small, fast store (300 l at 1.5 kW, ~19 K/h) does not reach the quality
+  threshold on 15-minute data (NRMSE 0.24 > 0.2) and stays energy-only; 800 l fits within 1 %.
+  Question 5.
+- **Scenario `heat_pump_thermal_plan`** is a planner-level test
+  (`tests/sim/test_heat_pump_scenarios.py`): simulator history -> fit -> plan, `grid_preheat` off
+  and on, summer hot-water store. The winter pre-heat before a price peak is 6-H's
+  `heat_pump_preheat(_grid)`.
+- **Conformance scenarios** use `extra_entities`: the heat pump is not part of the static demo
+  house (adding it would change every demo balance); its entities are those of `SimHeatPump`.
+- **Simulator:** the probe and the power sensor of `SimHeatPump` report the physics live; the
+  contacts and the `water_heater` entity follow pushes. The closed-loop runner does not release
+  at the end, so the release paths are proven by driver tests.
+- **Templates** default to `min_dwell_s` 600, `min_run_s` 1200, `min_pause_s` 600, 3 switches
+  per hour, comfort 45-55 °C, `allow_forced` off: design defaults, `UNVERIFIED`.
+- **Frontend** (SG state, lift, COP and model quality on the device card) is WP13.
+
+#### Safety self-review (6-K)
+
+| Rule | Enforced in | Evidence |
+|---|---|---|
+| H1 never state 1 | driver: contacts one at a time along `contact_path` (only writable intermediates, else refused before any call); release writes nothing for a non-writable baseline; gate `sg_state_invalid` | `test_no_write_sequence_ever_shows_the_block` (hypothesis), scenario: states seen ⊆ {2, 3} |
+| H2 state 4 only with `allow_forced` | `SgReadyControl.steps` without it; gate `sg_forced_not_allowed`; driver refuses | `test_state_4_is_not_writable_without_the_opt_in`, gate tests |
+| H3 dwell ≥ 600 s, switch limit, min run/pause | gate `sg_dwell` + invariants; controller `level_ts` / `heat_pump.dwell_wait` | scenario: gaps ≥ 600 s, ≤ 3 writes per hour |
+| H4 intensify only with probe and band; heat limit; lift in band, never below base | `sg_needs_probe`, `heat_capped`, `lift_below_base`, driver clamps to step and entity range | `tests/safety/test_heatpump.py`, scenario max 55.0 °C (the pump would heat to 58) |
+| H5 fail-safe to state 2 / base | unknown or stale probe, heat limit, no probe, §14a (flagged), island; waives dwell, min run, switch limit; works with unknown surplus | scenario: probe fault -> state 2 within one tick, no rise during the fault |
+| Release restores the baseline | SG: baseline step if writable, else nothing (a foreign lock or state 4 stays, review A1), never state 1; lift: the user's set-point | driver tests |
+| Shadow default | unchanged gate path | scenario in shadow: contacts never leave state 2 |
+| Only `safety/` applies | drivers built by the factory, called by the gate only; the placeholder driver is gone for `sg_ready` only | gate tests, `test_phase6_gate.py` |
+| Stale inputs | probe through the cache (quality, age, °C only); a contact `unavailable` -> no levels, write refused | `test_unknown_patterns_are_reported_as_a_mode`, controller tests |
+| G1-G6 interplay | heat-pump checks run first; grid invariants unchanged; the fail-safe direction (state 2) is never blocked; G3 import exception not used (pre-heat not executed) | full gate and grid suites green |
+
+#### Review conditions (control-safety, PR #60)
+
+- A1: release no longer replaces a non-writable baseline (block `sg:10`, state 4 without
+  `allow_forced`, an unmapped pair) by state 2: it writes nothing, so SunCore never lifts a
+  lock someone else set (also on emergency stop, shutdown and recover).
+- A2: `needs_behaviour_confirmation` covers the heat pump's set-point lift (kind `heat_pump`
+  with a set-point control): it runs at most assisted until `behaviour_confirmed`.
+- A3: H4 checks a lift against the user's set-point from the takeover baseline (renewed after a
+  detected override), not against the controller's `base_c` the gate stores on every write.
+- A4 (documented): the fail-safe return to state 2 is not exempt from `min_write_interval_s`;
+  it is late by at most that interval (5 s default, at least 0.25 s). The limiter stays the
+  one write-storm guard without exceptions; dwell, min run and the switch limit are waived.
+- A5: `allow_switch_on` is already a climate-only option in the `DeviceConfig` validator; a
+  test pins it for the lift.
+- `frontend/e2e/wizard-devices.spec.ts`: the gallery shows 8 templates.
+
+#### Offene Fragen an den Maintainer (6-K)
+
+1. **Kontaktbelegung SG-Ready:** Das generische Template nutzt normal 00, verstärkt 01, Zwang
+   11, Sperre 10 (A zuerst). Passt das zu deiner Wärmepumpe bzw. hast du eine Herstellerquelle?
+2. **`generic.heat_pump_select`** (SG-Ready über eine Select-Entität) habe ich weggelassen, weil
+   H1-H5 und der Fail-safe nur `sg_ready` und Sollwert-Anhebungen abdecken. Eigener PR mit
+   diesen Prüfungen für `ModeControl`, oder ganz streichen?
+3. **Netz-Vorheizen:** Der Planer plant es (6-H), der Controller führt es noch nicht aus.
+   Soll die Ausführung mit dem generischen Import-Mechanismus in 6-I kommen?
+4. **Standardwerte:** Wiedereinschalt-Hysterese 3 K unter `max_c`, Mindestverweildauer 600 s,
+   Mindestlaufzeit 1200 s, Mindestpause 600 s, 3 Schaltungen pro Stunde - einverstanden?
+5. **RC-Modell:** Verluste werden gegen die Außentemperatur gelernt. Für Speicher im Haus wäre
+   ein Raumtemperatur-Eingang besser. Und kleine, schnelle Speicher bleiben bei 15-min-Daten
+   ohne Modell (nur Energie). Reicht das vorerst?
+6. **Sollwert-Anhebung bei unbekannter Temperatur:** kein Fail-safe, weil der Sollwert selbst
+   begrenzt (Komfortband, Entitätsbereich). Einverstanden?

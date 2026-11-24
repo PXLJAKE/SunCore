@@ -1,0 +1,39 @@
+# The heat pump is not part of the static demo house: its entities are those of the simulated
+# SG-Ready heat pump (suncore.sim.devices SimHeatPump, scenario heat_pump_sg_ready_surplus).
+# Every switch of the demo is a contact candidate, so the user picks the two contacts.
+template: generic.heat_pump_sg_ready
+sim_scenario: summer_day
+extra_entities:
+  - { entity_id: switch.sim_heat_pump_sg_a, platform: suncore_sim, state: "off" }
+  - { entity_id: switch.sim_heat_pump_sg_b, platform: suncore_sim, state: "off" }
+  - entity_id: sensor.sim_heat_pump_store_temperature
+    platform: suncore_sim
+    unit: "°C"
+    device_class: temperature
+    state: "48.0"
+  - { entity_id: sensor.sim_heat_pump_sg_power, platform: suncore_sim, unit: W, device_class: power }
+user_input:
+  nominal_w: 1500
+  comfort: {min_c: 45, max_c: 55}
+roles:
+  contact_a:
+    tied: [switch.sim_heat_pump_sg_a, switch.sim_heat_pump_sg_b, switch.sim_pool_pump,
+           switch.sim_water_heater_relay_1, switch.sim_water_heater_relay_2,
+           switch.sim_water_heater_relay_3]
+    pick: switch.sim_heat_pump_sg_a
+  contact_b:
+    tied: [switch.sim_heat_pump_sg_a, switch.sim_heat_pump_sg_b, switch.sim_pool_pump,
+           switch.sim_water_heater_relay_1, switch.sim_water_heater_relay_2,
+           switch.sim_water_heater_relay_3]
+    pick: switch.sim_heat_pump_sg_b
+  temperature:
+    tied: [sensor.sim_heat_pump_store_temperature, sensor.sim_water_heater_temperature]
+    pick: sensor.sim_heat_pump_store_temperature
+    unit: "°C"
+  power:
+    # Optional; every power sensor of the demo house ranks equal (no `same_device_as`).
+    tied: [sensor.sim_heat_pump_sg_power, sensor.sim_battery_power, sensor.sim_grid_power,
+           sensor.sim_house_power, sensor.sim_living_room_ac_energy_current,
+           sensor.sim_pool_pump_power, sensor.sim_pv_power]
+    pick: sensor.sim_heat_pump_sg_power
+    unit: W

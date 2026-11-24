@@ -567,6 +567,108 @@
  },
  {
   "lang": "en",
+  "key": "controller.heat_pump.dwell_wait",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Waiting for the minimum time in the SG-Ready state, abc s left."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.dwell_wait",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Waiting for the minimum time in the SG-Ready state, 42 s left."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "zzz"
+  },
+  "expected": "Back to normal operation at once because a safety rule applies."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "temperature_unknown"
+  },
+  "expected": "Back to normal operation at once because the store temperature is unknown or stale."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "heat_limit"
+  },
+  "expected": "Back to normal operation at once because the store is at its comfort maximum."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "no_probe"
+  },
+  "expected": "Back to normal operation at once because it has no store temperature probe."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "para14a"
+  },
+  "expected": "Back to normal operation at once because §14a dimming is active or unknown."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "island"
+  },
+  "expected": "Back to normal operation at once because the house runs in island mode."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "other"
+  },
+  "expected": "Back to normal operation at once because a safety rule applies."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.no_probe",
+  "args": {},
+  "expected": "Without a store temperature probe and a comfort band SunCore does not intensify the heat pump."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.restart_wait",
+  "args": {
+   "temperature_c": "abc",
+   "restart_c": "abc"
+  },
+  "expected": "The store is at abc °C: SunCore intensifies the heat pump again once it has cooled to abc °C."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.restart_wait",
+  "args": {
+   "temperature_c": 42,
+   "restart_c": 42
+  },
+  "expected": "The store is at 42 °C: SunCore intensifies the heat pump again once it has cooled to 42 °C."
+ },
+ {
+  "lang": "en",
+  "key": "controller.heat_pump.state_unknown",
+  "args": {},
+  "expected": "The SG-Ready contacts show no state SunCore may write: the heat pump is left alone."
+ },
+ {
+  "lang": "en",
   "key": "controller.heat_temperature_unknown",
   "args": {},
   "expected": "The tank temperature is unknown or not current: no heat until it is known again."
@@ -6698,6 +6800,62 @@
  },
  {
   "lang": "en",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "zzz"
+  },
+  "expected": "Not written: the heat pump stays in normal operation because a safety rule applies."
+ },
+ {
+  "lang": "en",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "temperature_unknown"
+  },
+  "expected": "Not written: the heat pump stays in normal operation because the store temperature is unknown or stale."
+ },
+ {
+  "lang": "en",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "heat_limit"
+  },
+  "expected": "Not written: the heat pump stays in normal operation because the store is at its comfort maximum."
+ },
+ {
+  "lang": "en",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "no_probe"
+  },
+  "expected": "Not written: the heat pump stays in normal operation because it has no store temperature probe."
+ },
+ {
+  "lang": "en",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "para14a"
+  },
+  "expected": "Not written: the heat pump stays in normal operation because §14a dimming is active or unknown."
+ },
+ {
+  "lang": "en",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "island"
+  },
+  "expected": "Not written: the heat pump stays in normal operation because the house runs in island mode."
+ },
+ {
+  "lang": "en",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "other"
+  },
+  "expected": "Not written: the heat pump stays in normal operation because a safety rule applies."
+ },
+ {
+  "lang": "en",
   "key": "safety.heat_temperature_unknown",
   "args": {},
   "expected": "Not written: the tank temperature is unknown or not current, so no more heat is added."
@@ -6731,6 +6889,24 @@
   "key": "safety.late_confirmed",
   "args": {},
   "expected": "The device confirmed the earlier write late."
+ },
+ {
+  "lang": "en",
+  "key": "safety.lift_below_base",
+  "args": {
+   "setpoint_c": "abc",
+   "base_c": "abc"
+  },
+  "expected": "Not written: the set-point abc °C would be below your own set-point of abc °C."
+ },
+ {
+  "lang": "en",
+  "key": "safety.lift_below_base",
+  "args": {
+   "setpoint_c": 42,
+   "base_c": 42
+  },
+  "expected": "Not written: the set-point 42 °C would be below your own set-point of 42 °C."
  },
  {
   "lang": "en",
@@ -7072,9 +7248,55 @@
  },
  {
   "lang": "en",
-  "key": "safety.sg_ready_not_supported",
+  "key": "safety.sg_action_invalid",
   "args": {},
-  "expected": "SG-Ready control of the heat pump is not available yet in this version; nothing was written."
+  "expected": "Not written: an SG-Ready heat pump is only switched between its SG states."
+ },
+ {
+  "lang": "en",
+  "key": "safety.sg_dwell",
+  "args": {
+   "state": "abc",
+   "remaining_s": "abc"
+  },
+  "expected": "Not written: SG-Ready state abc waits for the minimum dwell time, abc s left."
+ },
+ {
+  "lang": "en",
+  "key": "safety.sg_dwell",
+  "args": {
+   "state": 42,
+   "remaining_s": 42
+  },
+  "expected": "Not written: SG-Ready state 42 waits for the minimum dwell time, 42 s left."
+ },
+ {
+  "lang": "en",
+  "key": "safety.sg_forced_not_allowed",
+  "args": {},
+  "expected": "Not written: SG-Ready state 4 (forced on) is not allowed for this heat pump."
+ },
+ {
+  "lang": "en",
+  "key": "safety.sg_needs_probe",
+  "args": {},
+  "expected": "Not written: the heat pump is only intensified with a store temperature probe and a comfort band."
+ },
+ {
+  "lang": "en",
+  "key": "safety.sg_state_invalid",
+  "args": {
+   "step": "abc"
+  },
+  "expected": "Not written: step abc is no SG-Ready state SunCore may write (state 1, the utility block, is never written)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.sg_state_invalid",
+  "args": {
+   "step": 42
+  },
+  "expected": "Not written: step 42 is no SG-Ready state SunCore may write (state 1, the utility block, is never written)."
  },
  {
   "lang": "en",
@@ -7791,6 +8013,108 @@
    "max_c": 42
   },
   "expected": "Der Speicher hat 42 °C, das Komfortmaximum ist 42 °C: keine weitere Wärme."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.dwell_wait",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Wartet auf die Mindestzeit im SG-Ready-Zustand, noch abc s."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.dwell_wait",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Wartet auf die Mindestzeit im SG-Ready-Zustand, noch 42 s."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "zzz"
+  },
+  "expected": "Sofort zurück in den Normalbetrieb, weil eine Sicherheitsregel greift."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "temperature_unknown"
+  },
+  "expected": "Sofort zurück in den Normalbetrieb, weil die Speichertemperatur ist unbekannt oder veraltet."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "heat_limit"
+  },
+  "expected": "Sofort zurück in den Normalbetrieb, weil der Speicher hat sein Komfortmaximum erreicht."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "no_probe"
+  },
+  "expected": "Sofort zurück in den Normalbetrieb, weil sie hat keinen Temperaturfühler im Speicher."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "para14a"
+  },
+  "expected": "Sofort zurück in den Normalbetrieb, weil die §14a-Dimmung ist aktiv oder unbekannt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "island"
+  },
+  "expected": "Sofort zurück in den Normalbetrieb, weil das Haus läuft im Inselbetrieb."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.failsafe",
+  "args": {
+   "cause": "other"
+  },
+  "expected": "Sofort zurück in den Normalbetrieb, weil eine Sicherheitsregel greift."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.no_probe",
+  "args": {},
+  "expected": "Ohne Temperaturfühler im Speicher und Komfortbereich betreibt SunCore die Wärmepumpe nicht verstärkt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.restart_wait",
+  "args": {
+   "temperature_c": "abc",
+   "restart_c": "abc"
+  },
+  "expected": "Der Speicher hat abc °C: SunCore betreibt die Wärmepumpe erst wieder verstärkt, wenn er auf abc °C abgekühlt ist."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.restart_wait",
+  "args": {
+   "temperature_c": 42,
+   "restart_c": 42
+  },
+  "expected": "Der Speicher hat 42 °C: SunCore betreibt die Wärmepumpe erst wieder verstärkt, wenn er auf 42 °C abgekühlt ist."
+ },
+ {
+  "lang": "de",
+  "key": "controller.heat_pump.state_unknown",
+  "args": {},
+  "expected": "Die SG-Ready-Kontakte zeigen keinen Zustand, den SunCore schreiben darf: Die Wärmepumpe bleibt unberührt."
  },
  {
   "lang": "de",
@@ -13925,6 +14249,62 @@
  },
  {
   "lang": "de",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "zzz"
+  },
+  "expected": "Nicht geschrieben: Die Wärmepumpe bleibt im Normalbetrieb, weil eine Sicherheitsregel greift."
+ },
+ {
+  "lang": "de",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "temperature_unknown"
+  },
+  "expected": "Nicht geschrieben: Die Wärmepumpe bleibt im Normalbetrieb, weil die Speichertemperatur ist unbekannt oder veraltet."
+ },
+ {
+  "lang": "de",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "heat_limit"
+  },
+  "expected": "Nicht geschrieben: Die Wärmepumpe bleibt im Normalbetrieb, weil der Speicher hat sein Komfortmaximum erreicht."
+ },
+ {
+  "lang": "de",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "no_probe"
+  },
+  "expected": "Nicht geschrieben: Die Wärmepumpe bleibt im Normalbetrieb, weil sie hat keinen Temperaturfühler im Speicher."
+ },
+ {
+  "lang": "de",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "para14a"
+  },
+  "expected": "Nicht geschrieben: Die Wärmepumpe bleibt im Normalbetrieb, weil die §14a-Dimmung ist aktiv oder unbekannt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "island"
+  },
+  "expected": "Nicht geschrieben: Die Wärmepumpe bleibt im Normalbetrieb, weil das Haus läuft im Inselbetrieb."
+ },
+ {
+  "lang": "de",
+  "key": "safety.heat_pump_failsafe",
+  "args": {
+   "cause": "other"
+  },
+  "expected": "Nicht geschrieben: Die Wärmepumpe bleibt im Normalbetrieb, weil eine Sicherheitsregel greift."
+ },
+ {
+  "lang": "de",
   "key": "safety.heat_temperature_unknown",
   "args": {},
   "expected": "Nicht geschrieben: Die Speichertemperatur ist unbekannt oder nicht aktuell, daher keine weitere Wärme."
@@ -13958,6 +14338,24 @@
   "key": "safety.late_confirmed",
   "args": {},
   "expected": "Das Gerät hat den früheren Schreibvorgang verspätet bestätigt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.lift_below_base",
+  "args": {
+   "setpoint_c": "abc",
+   "base_c": "abc"
+  },
+  "expected": "Nicht geschrieben: Der Sollwert abc °C läge unter deinem eigenen Sollwert von abc °C."
+ },
+ {
+  "lang": "de",
+  "key": "safety.lift_below_base",
+  "args": {
+   "setpoint_c": 42,
+   "base_c": 42
+  },
+  "expected": "Nicht geschrieben: Der Sollwert 42 °C läge unter deinem eigenen Sollwert von 42 °C."
  },
  {
   "lang": "de",
@@ -14299,9 +14697,55 @@
  },
  {
   "lang": "de",
-  "key": "safety.sg_ready_not_supported",
+  "key": "safety.sg_action_invalid",
   "args": {},
-  "expected": "Die SG-Ready-Steuerung der Wärmepumpe ist in dieser Version noch nicht verfügbar; nichts geschrieben."
+  "expected": "Nicht geschrieben: Eine SG-Ready-Wärmepumpe wird nur zwischen ihren SG-Zuständen umgeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "safety.sg_dwell",
+  "args": {
+   "state": "abc",
+   "remaining_s": "abc"
+  },
+  "expected": "Nicht geschrieben: SG-Ready-Zustand abc wartet auf die Mindestverweildauer, noch abc s."
+ },
+ {
+  "lang": "de",
+  "key": "safety.sg_dwell",
+  "args": {
+   "state": 42,
+   "remaining_s": 42
+  },
+  "expected": "Nicht geschrieben: SG-Ready-Zustand 42 wartet auf die Mindestverweildauer, noch 42 s."
+ },
+ {
+  "lang": "de",
+  "key": "safety.sg_forced_not_allowed",
+  "args": {},
+  "expected": "Nicht geschrieben: SG-Ready-Zustand 4 (Zwangsein) ist für diese Wärmepumpe nicht freigegeben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.sg_needs_probe",
+  "args": {},
+  "expected": "Nicht geschrieben: Die Wärmepumpe wird nur mit Temperaturfühler im Speicher und Komfortbereich verstärkt betrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.sg_state_invalid",
+  "args": {
+   "step": "abc"
+  },
+  "expected": "Nicht geschrieben: Stufe abc ist kein SG-Ready-Zustand, den SunCore schreiben darf (Zustand 1, die EVU-Sperre, wird nie geschrieben)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.sg_state_invalid",
+  "args": {
+   "step": 42
+  },
+  "expected": "Nicht geschrieben: Stufe 42 ist kein SG-Ready-Zustand, den SunCore schreiben darf (Zustand 1, die EVU-Sperre, wird nie geschrieben)."
  },
  {
   "lang": "de",

@@ -26,6 +26,8 @@ Devices:
   ``temperature`` is ``None`` while off, state arrives by delayed push.
 * :class:`SimWaterHeater` - tank temperature model, three variants (``select`` level,
   ``relays`` 1-3 switches, a dedicated ``water_heater`` entity), maximum-temperature cut-off.
+* :class:`SimHeatPump` - air/water heat pump on a hot-water store (PR 6-K): SG-Ready contacts
+  or a ``water_heater`` set-point, its own thermostat per SG state and anti-short-cycle time.
 * :class:`SimSwitchLoad` (pool pump on ``switch`` / ``input_boolean``) and
   :class:`SimNumberLoad` (a W number such as a heating rod limit).
 * :class:`SimLoadpoint` (PR 6-J) - an evcc loadpoint behind the fake evcc (MQTT, no HA entities).
@@ -38,13 +40,14 @@ Devices:
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Annotated, Any, ClassVar, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from suncore.sim.fake_evcc import FakeEvccBus
 
@@ -1293,6 +1296,371 @@ class SimWaterHeater(SimDevice):
         return super().manual(action, value)
 
 
+# --- heat pump ----------------------------------------------------------------------------------
+
+_SG_PATTERN: Final = re.compile(r"^[01]{2}$")
+
+
+def _pair(text: str) -> tuple[bool, bool]:
+    if not _SG_PATTERN.match(text):
+        msg = f"an SG-Ready contact pair is two digits 0/1, got {text!r}"
+        raise ValueError(msg)
+    return text[0] == "1", text[1] == "1"
+
+
+class HeatPumpParams(_Frozen):
+    """An air/water heat pump heating a hot-water store (PR 6-K).
+
+    ``variant`` ``sg_ready``: two contact switches select the SG-Ready state (pairs as
+    ``"ab"`` digits, A first); the heat pump's own thermostat runs the compressor between
+    ``off_c - start_k`` and ``off_c`` of the state - state 1 (block) keeps it off, state 3
+    raises the stop temperature to ``intensified_off_c``, state 4 to ``forced_off_c``. An
+    unknown pair counts as state 2. ``water_heater``: a dedicated ``water_heater`` entity whose
+    target temperature is the thermostat's stop temperature (``set_temperature``), operation
+    modes ``off`` / ``heat_pump``. The compressor keeps its own minimum off time.
+    """
+
+    kind: Literal["heat_pump"] = "heat_pump"
+    variant: Literal["sg_ready", "water_heater"] = "sg_ready"
+    friendly_name: str | None = None
+    contact_a_entity_id: str | None = None
+    contact_b_entity_id: str | None = None
+    entity_id: str | None = None
+    """``water_heater`` variant: the entity (default ``water_heater.sim_<id>``)."""
+    temperature_entity_id: str | None = None
+    probe: bool = True
+    """``sg_ready``: whether the store has a temperature probe entity."""
+    power_sensor: bool = False
+    power_entity_id: str | None = None
+    normal: str = "00"
+    intensified: str = "01"
+    forced: str = "11"
+    block: str = "10"
+    initial_contacts: str = "00"
+    nominal_w: float = Field(default=1500.0, gt=0, le=50_000)
+    """Electrical power while the compressor runs."""
+    cop_at_7c: float = Field(default=3.0, gt=1, le=8)
+    cop_per_k: float = Field(default=0.08, ge=0, le=0.5)
+    """COP change per K of outdoor temperature (clamped to 1.5..6)."""
+    volume_l: float = Field(default=300.0, gt=0)
+    initial_temp_c: float = 47.0
+    ambient_c: float = 18.0
+    loss_w_per_k: float = Field(default=2.0, ge=0)
+    draw_w: tuple[float, ...] = Field(default=_DEFAULT_DRAW_W, min_length=24, max_length=24)
+    normal_off_c: float = 50.0
+    intensified_off_c: float = 55.0
+    forced_off_c: float = 60.0
+    start_k: float = Field(default=5.0, gt=0)
+    """Thermostat hysteresis in state 2 (and of the ``water_heater`` target)."""
+    boost_start_k: float = Field(default=2.0, gt=0)
+    """Hysteresis in states 3 and 4 (the heat pump starts soon after the signal)."""
+    max_temp_c: float = 62.0
+    """Hard limit of the store (the compressor never heats above it)."""
+    initial_target_c: float = 50.0
+    initial_mode: Literal["off", "heat_pump"] = "heat_pump"
+    min_off_s: float = Field(default=300.0, ge=0)
+    """The compressor's own anti-short-cycle time."""
+    push_delay_s: float = Field(default=0.0, ge=0)
+    call_s: float = Field(default=0.1, ge=0)
+
+    @model_validator(mode="after")
+    def _pairs(self) -> HeatPumpParams:
+        pairs = [_pair(p) for p in (self.normal, self.intensified, self.forced, self.block)]
+        if len(set(pairs)) != len(pairs):
+            msg = "the four SG-Ready states need four different contact pairs"
+            raise ValueError(msg)
+        _pair(self.initial_contacts)
+        return self
+
+
+WATER_HEATER_HP_MODES: Final = ("off", "heat_pump")
+
+
+class SimHeatPump(SimDevice):
+    """Heat pump with a hot-water store: SG-Ready contacts or a water heater set-point."""
+
+    kind: ClassVar[str] = "heat_pump"
+
+    def __init__(self, device_id: str, params: HeatPumpParams) -> None:
+        super().__init__(device_id)
+        p = params
+        self.p = p
+        self.temp_c = p.initial_temp_c
+        self.running = False
+        self._off_since: datetime | None = None
+        self.starts = 0
+        self.energy_wh = 0.0
+        self.max_seen_c = p.initial_temp_c
+        self.states_seen: set[int] = set()
+        """SG-Ready states the contacts selected at any physics sub-step (evidence)."""
+        if p.variant == "sg_ready":
+            self.contact_ids: tuple[str, ...] = (
+                p.contact_a_entity_id or f"switch.sim_{device_id}_sg_a",
+                p.contact_b_entity_id or f"switch.sim_{device_id}_sg_b",
+            )
+            self.entity = self.contact_ids[0]
+        else:
+            self.contact_ids = ()
+            self.entity = p.entity_id or f"water_heater.sim_{device_id}"
+        self.contacts = list(_pair(p.initial_contacts))
+        self._rep_contacts = list(self.contacts)
+        self.target_c = p.initial_target_c
+        self.mode: str = p.initial_mode
+        self._rep_target = self.target_c
+        self._rep_mode: str = self.mode
+        self._rep_temp = round(self.temp_c, 1)
+        self._rep_running = False
+        self.temp_entity: str | None = (
+            (p.temperature_entity_id or f"sensor.sim_{device_id}_temperature")
+            if p.probe and p.variant == "sg_ready"
+            else None
+        )
+        self.power_id = p.power_entity_id or (
+            f"sensor.sim_{device_id}_power" if p.power_sensor else None
+        )
+
+    # --- identity ---------------------------------------------------------------------------------
+
+    def entity_ids(self) -> tuple[str, ...]:
+        main = self.contact_ids or (self.entity,)
+        probe = (self.temp_entity,) if self.temp_entity else ()
+        extra = (self.power_id,) if self.power_id else ()
+        return (*main, *probe, *extra)
+
+    def roles(self) -> dict[str, str]:
+        if self.p.variant == "sg_ready":
+            out = {"contact_a": self.contact_ids[0], "contact_b": self.contact_ids[1]}
+        else:
+            out = {"water_heater": self.entity}
+        if self.temp_entity:
+            out["temperature"] = self.temp_entity
+        if self.power_id:
+            out["power"] = self.power_id
+        return out
+
+    def heartbeats(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+        if self.temp_entity:
+            out[self.temp_entity] = REPORT_PERIOD_S * 2
+        if self.power_id:
+            out[self.power_id] = REPORT_PERIOD_S
+        if self.p.variant == "water_heater":
+            out[self.entity] = REPORT_PERIOD_S * 2  # current_temperature moves
+        return out
+
+    # --- physics ----------------------------------------------------------------------------------
+
+    def sg_state(self) -> int:
+        """The SG-Ready state (1-4) the contacts select; an unknown pair counts as 2."""
+        pair = f"{int(self.contacts[0])}{int(self.contacts[1])}"
+        p = self.p
+        return {p.block: 1, p.normal: 2, p.intensified: 3, p.forced: 4}.get(pair, 2)
+
+    def _thermostat(self) -> tuple[float, float] | None:
+        """(stop temperature, hysteresis) of the current command; ``None`` = must stay off."""
+        p = self.p
+        if p.variant == "water_heater":
+            if self.mode == "off":
+                return None
+            return min(self.target_c, p.max_temp_c), p.start_k
+        state = self.sg_state()
+        if state == 1:
+            return None
+        if state == 3:
+            return p.intensified_off_c, p.boost_start_k
+        if state == 4:
+            return p.forced_off_c, p.boost_start_k
+        return p.normal_off_c, p.start_k
+
+    def cop(self, outdoor_c: float) -> float:
+        return _clamp(self.p.cop_at_7c + self.p.cop_per_k * (outdoor_c - 7.0), 1.5, 6.0)
+
+    def power_w(self) -> float:
+        return self.p.nominal_w if self.running else 0.0
+
+    def is_on(self) -> bool:
+        return self.running
+
+    def _may_start(self, at: datetime) -> bool:
+        if self._off_since is None:
+            return True
+        return (at - self._off_since).total_seconds() >= self.p.min_off_s
+
+    def _integrate(self, t0: datetime, t1: datetime, outdoor_c: float) -> None:
+        p = self.p
+        command = self._thermostat()
+        if command is None or self.temp_c >= p.max_temp_c:
+            if self.running:
+                self.running = False
+                self._off_since = t0
+        else:
+            stop_c, hysteresis = command
+            if self.running and self.temp_c >= stop_c:
+                self.running = False
+                self._off_since = t0
+            elif not self.running and self.temp_c <= stop_c - hysteresis and self._may_start(t0):
+                self.running = True
+                self.starts += 1
+        dt = (t1 - t0).total_seconds()
+        heat_w = self.power_w() * self.cop(outdoor_c)
+        loss_w = p.loss_w_per_k * (self.temp_c - p.ambient_c) + p.draw_w[t0.hour]
+        capacity_wh_per_k = p.volume_l * 1.163
+        self.temp_c = max(
+            p.ambient_c, self.temp_c + (heat_w - loss_w) * dt / 3600.0 / capacity_wh_per_k
+        )
+        self.energy_wh += self.power_w() * dt / 3600.0
+        self.max_seen_c = max(self.max_seen_c, self.temp_c)
+        self.states_seen.add(self.sg_state())
+        # the probe and the power sensor measure the physics (they report on their own, not
+        # only when the contacts or the set-point are pushed)
+        self._rep_temp = round(self.temp_c, 1)
+        self._rep_running = self.running
+
+    # --- HA side ----------------------------------------------------------------------------------
+
+    def report(self) -> None:
+        self._rep_contacts = list(self.contacts)
+        self._rep_target = self.target_c
+        self._rep_mode = self.mode
+        self._rep_temp = round(self.temp_c, 1)
+        self._rep_running = self.running
+
+    def states(self, now: datetime) -> list[StateOut]:
+        del now
+        p = self.p
+        name = p.friendly_name or f"Sim {self.id}"
+        out: list[StateOut] = []
+        if p.variant == "sg_ready":
+            for index, entity in enumerate(self.contact_ids):
+                out.append(
+                    StateOut(
+                        entity,
+                        "on" if self._rep_contacts[index] else "off",
+                        {"friendly_name": f"{name} SG-Ready contact {'AB'[index]}"},
+                    )
+                )
+        else:
+            out.append(
+                StateOut(
+                    self.entity,
+                    self._rep_mode,
+                    {
+                        "friendly_name": name,
+                        "operation_list": list(WATER_HEATER_HP_MODES),
+                        "operation_mode": self._rep_mode,
+                        "temperature": self._rep_target,
+                        "current_temperature": self._rep_temp,
+                        "min_temp": 30.0,
+                        "max_temp": 60.0,
+                        "target_temp_step": 0.5,
+                        "supported_features": 1 + 2 + 8,
+                    },
+                )
+            )
+        if self.temp_entity is not None:
+            out.append(
+                StateOut(
+                    self.temp_entity,
+                    _text(self._rep_temp),
+                    {
+                        "friendly_name": f"{name} store temperature",
+                        "unit_of_measurement": "°C",
+                        "device_class": "temperature",
+                        "state_class": "measurement",
+                    },
+                )
+            )
+        if self.power_id is not None:
+            out.append(
+                StateOut(
+                    self.power_id,
+                    _text(p.nominal_w if self._rep_running else 0.0),
+                    {
+                        "friendly_name": f"{name} power",
+                        "unit_of_measurement": "W",
+                        "device_class": "power",
+                        "state_class": "measurement",
+                    },
+                )
+            )
+        return out
+
+    # --- services ---------------------------------------------------------------------------------
+
+    def _set_contact(self, index: int, on: bool) -> None:
+        self.contacts[index] = on
+
+    def _set_contacts(self, pair: tuple[bool, bool]) -> None:
+        self.contacts = list(pair)
+
+    def _set_target(self, target: float) -> None:
+        self.target_c = target
+
+    def _set_mode(self, mode: str) -> None:
+        self.mode = mode
+
+    def call(
+        self, now: datetime, domain: str, service: str, entity_id: str, data: dict[str, Any]
+    ) -> Effect:
+        del now
+        p = self.p
+        push = p.push_delay_s
+        if (
+            p.variant == "sg_ready"
+            and domain == "switch"
+            and service in ("turn_on", "turn_off", "toggle")
+            and entity_id in self.contact_ids
+        ):
+            index = self.contact_ids.index(entity_id)
+            target = {"turn_on": True, "turn_off": False, "toggle": not self.contacts[index]}[
+                service
+            ]
+            return Effect(p.call_s, (Step(0.0, lambda: self._set_contact(index, target)),), push)
+        if p.variant == "water_heater" and domain == "water_heater":
+            return self._water_heater(service, entity_id, data)
+        raise validation_error(f"{entity_id} does not support {domain}.{service}")
+
+    def _check_mode(self, entity_id: str, mode: str) -> None:
+        if mode not in WATER_HEATER_HP_MODES:
+            raise validation_error(
+                f"Operation mode {mode} is not valid for {entity_id}. "
+                f"Valid operation modes are: {', '.join(WATER_HEATER_HP_MODES)}."
+            )
+
+    def _water_heater(self, service: str, entity_id: str, data: dict[str, Any]) -> Effect:
+        steps: list[Step] = []
+        if service == "set_temperature":
+            target = float(data["temperature"])  # core does not range check
+            steps.append(Step(0.0, lambda: self._set_target(target)))
+            if "operation_mode" in data:
+                mode = str(data["operation_mode"])
+                self._check_mode(entity_id, mode)
+                steps.append(Step(0.0, lambda: self._set_mode(mode)))
+        elif service == "set_operation_mode":
+            mode = str(data["operation_mode"])
+            self._check_mode(entity_id, mode)
+            steps.append(Step(0.0, lambda: self._set_mode(mode)))
+        elif service in ("turn_on", "turn_off"):
+            mode = "heat_pump" if service == "turn_on" else "off"
+            steps.append(Step(0.0, lambda: self._set_mode(mode)))
+        else:  # pragma: no cover - schema rejects the rest
+            raise ServiceError("not_found", f"Service water_heater.{service} not found.")
+        return Effect(self.p.call_s, tuple(steps), self.p.push_delay_s)
+
+    def manual(self, action: str, value: float | str | None) -> Effect:
+        """``set_contacts`` (``"10"`` = the utility block), ``set_temperature``, ``turn_off``."""
+        p = self.p
+        if action == "set_contacts" and isinstance(value, str) and p.variant == "sg_ready":
+            pair = _pair(value)
+            return Effect(0.0, (Step(0.0, lambda: self._set_contacts(pair)),), p.push_delay_s)
+        if action == "set_temperature" and p.variant == "water_heater" and value is not None:
+            target = float(value)
+            return Effect(0.0, (Step(0.0, lambda: self._set_target(target)),), p.push_delay_s)
+        if action == "turn_off" and p.variant == "water_heater":
+            return Effect(0.0, (Step(0.0, lambda: self._set_mode("off")),), p.push_delay_s)
+        return super().manual(action, value)
+
+
 # --- the set ----------------------------------------------------------------------------------
 
 # --- EV wallbox (PR 6-I) ----------------------------------------------------------------------
@@ -2035,7 +2403,9 @@ AnyDeviceParams = (
     | WallboxParams
     | LoadpointParams
     | ProgramParams
+    | HeatPumpParams
 )
+AnyParams = AnyDeviceParams
 DeviceParams = Annotated[AnyDeviceParams, Field(discriminator="kind")]
 
 
@@ -2053,6 +2423,8 @@ def build_device(device_id: str, params: AnyDeviceParams) -> SimDevice:  # noqa:
         return SimSwitchLoad(device_id, params)
     if isinstance(params, NumberParams):
         return SimNumberLoad(device_id, params)
+    if isinstance(params, HeatPumpParams):
+        return SimHeatPump(device_id, params)
     return SimWaterHeater(device_id, params)
 
 
@@ -2118,9 +2490,11 @@ __all__ = [
     "HVAC_MODES",
     "LG_FEATURES",
     "SUPPORTED_SERVICES",
+    "AnyParams",
     "ClimateParams",
     "DeviceParams",
     "Effect",
+    "HeatPumpParams",
     "HourlyCounter",
     "LoadpointParams",
     "NumberParams",
@@ -2130,6 +2504,7 @@ __all__ = [
     "SimClimate",
     "SimDevice",
     "SimDeviceSet",
+    "SimHeatPump",
     "SimLoadpoint",
     "SimNumberLoad",
     "SimProgram",

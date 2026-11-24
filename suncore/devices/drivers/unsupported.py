@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Placeholder actuator for the Phase 6 control variants before their drivers exist (PR 6-B).
 
-A device with a ``charger``, ``sg_ready`` or ``loadpoint`` control can be configured from PR 6-B
-on (contracts first), but its driver arrives with 6-I, 6-K and 6-J. The safety gate rejects
-every action but a release for such a device before mode handling; this driver is the second
+A device with a ``charger`` or ``loadpoint`` control can be configured from PR 6-B on
+(contracts first), but its driver arrives with 6-I and 6-J (``sg_ready`` has its own since 6-K).
+The safety gate rejects every action but a release for such a device before mode handling;
+this driver is the second
 line of defence: it never writes (``apply`` raises before any service call), reports no state
 it could be judged by. Its release is a no-op only without a baseline (SunCore never took the
 device over); with a baseline it raises, so the gate reports the release ``failed`` and keeps the

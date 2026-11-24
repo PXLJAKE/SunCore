@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+name: heat_pump_sg_ready_surplus
+description: An air/water heat pump on an 800 l combined store with an SG-Ready interface (two contact switches, store probe, measured power, 1.5 kW) takes the surplus of a sunny day (PR 6-K). SunCore selects state 3 (intensified) on surplus and returns to state 2 (normal) at the comfort maximum of 55 degrees, although the heat pump would heat to 58 in state 3, and intensifies again only below 52 degrees; a cloud (10:00-10:20) brings it back to state 2 after the minimum dwell; while the store probe is unavailable (10:30-10:40) it returns to state 2 at once and stays there. State 1 (block) and state 4 (forced, not allowed) are never written. Simulator only - the maintainer has no heat pump (UNVERIFIED).
+start: "2026-07-15T09:00:00+02:00"
+duration_s: 25200
+step_s: 5
+house:
+  seed: 83
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.03}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 24.0, amplitude_c: 5.0}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 3600, factor: 0.2}
+  - {at_s: 4800, factor: 1.0}
+faults:
+  - {kind: unavailable, target: sensor.sim_heat_pump_store_temperature, from_s: 5400, to_s: 6000}
+devices:
+  - id: heat_pump
+    template: generic.heat_pump_sg_ready
+    physics:
+      kind: heat_pump
+      variant: sg_ready
+      contact_a_entity_id: switch.sim_heat_pump_sg_a
+      contact_b_entity_id: switch.sim_heat_pump_sg_b
+      temperature_entity_id: sensor.sim_heat_pump_store_temperature
+      power_entity_id: sensor.sim_heat_pump_sg_power
+      nominal_w: 1500
+      initial_temp_c: 40
+      volume_l: 800
+      intensified_off_c: 58
+    control:
+      priority: 10
+      behaviour_confirmed: true
+      comfort: {min_c: 45, max_c: 55}
+      power_model: {kind: measured, power_role: power, nominal_w: 1500}

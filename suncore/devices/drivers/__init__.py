@@ -21,7 +21,9 @@ from suncore.devices.drivers.mode import ModeDriver
 from suncore.devices.drivers.number import NumberDriver
 from suncore.devices.drivers.onoff import OnOffDriver
 from suncore.devices.drivers.program import ProgramDriver
+from suncore.devices.drivers.sgready import SgReadyDriver
 from suncore.devices.drivers.steps import StepsDriver
+from suncore.devices.drivers.water_heater import WaterHeaterDriver
 
 __all__ = [
     "ActionNotSupportedError",
@@ -34,8 +36,10 @@ __all__ = [
     "OnOffDriver",
     "ProgramDriver",
     "ServiceWriter",
+    "SgReadyDriver",
     "StateLookup",
     "StepsDriver",
+    "WaterHeaterDriver",
     "WriteRefusedError",
     "WriteResult",
     "create_driver",

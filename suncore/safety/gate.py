@@ -98,7 +98,6 @@ from suncore.core.devices import (
     DeviceConfig,
     LoadpointControl,
     OverridePolicy,
-    SgReadyControl,
     behaviour_mode_capped,
 )
 from suncore.core.flex import (
@@ -257,8 +256,6 @@ REASON_LOADPOINT_NOT_LOADPOINT: Final = Reason(key="safety.loadpoint_not_loadpoi
 """A ``loadpoint`` action for a device that is not an evcc loadpoint (PR 6-J)."""
 REASON_LOADPOINT_NEEDS_LOADPOINT: Final = Reason(key="safety.loadpoint_needs_loadpoint")
 """Any action but ``loadpoint`` and a release for an evcc loadpoint (PR 6-J)."""
-REASON_SG_READY_NOT_SUPPORTED: Final = Reason(key="safety.sg_ready_not_supported")
-"""Any action but a release for an SG-Ready heat pump (until PR 6-K, ADR-0017 decision 8)."""
 PROGRAM_BASELINE_ON: Final = SwitchAction(on=True)
 """P3 (PR 6-L): the takeover baseline of a plug-started program: a release or the crash
 recovery switches the plug on, so laundry is never stranded."""
@@ -844,8 +841,6 @@ class SafetyGate:
                 if isinstance(action, ChargeAction)
                 else REASON_CHARGER_NEEDS_CHARGE
             )
-        if isinstance(control, SgReadyControl):
-            return REASON_SG_READY_NOT_SUPPORTED
         if isinstance(action, LoadpointAction) != isinstance(control, LoadpointControl):
             # 6-J: an evcc loadpoint takes only ``loadpoint`` actions, and only it takes them.
             return (

@@ -66,7 +66,7 @@ from suncore.ha.connection import RateLimiter
 from suncore.safety.modes import StaticModes
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
 from suncore.sim.demo_devices import sim_price
-from suncore.sim.devices import SimClimate, SimDevice, SimLoadpoint, SimWaterHeater
+from suncore.sim.devices import SimClimate, SimDevice, SimHeatPump, SimLoadpoint, SimWaterHeater
 from suncore.sim.fake_evcc import FakeEvccBus
 from suncore.sim.fake_ha import (
     BACKUP_ID,
@@ -194,6 +194,8 @@ def build_device_config(
         base["ev"] = d.ev.model_dump(mode="json", exclude_none=True)
     if d.program is not None:
         base["program"] = d.program.model_dump(mode="json", exclude_none=True)
+    if d.thermal is not None:  # PR 6-K: heat pumps carry their thermal options
+        base["thermal"] = d.thermal.model_dump(mode="json", exclude_none=True)
     return DeviceConfig.model_validate(_merge(base, spec.control))
 
 
@@ -670,7 +672,7 @@ class ScenarioRunner:
             setpoint = device.setpoint_c if isinstance(device, SimClimate) else None
             if isinstance(device, SimClimate):
                 temp: float | None = device.temp_c
-            elif isinstance(device, SimWaterHeater):
+            elif isinstance(device, SimWaterHeater | SimHeatPump):
                 temp = device.temp_c
             else:
                 temp = None
