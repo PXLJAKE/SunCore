@@ -3,13 +3,34 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PRs 6-F import side and 6-H planner flex) · **Phase:** 5 started
-(plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
+**Last update:** 2026-11-24 (Phase 6 PRs 6-F import side, 6-H planner flex and 6-K heat
+pump) · **Phase:** 5 started (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
 **Branch:** `claude/project-thread-7gkqcr`
 
 ## Done
+
+- **Phase 6 - PR 6-K, WP11 heat pump (branch `phase-6/k-heatpump`, on 6-F + 6-H;
+  `control-safety`)** - shadow stays the default, every write passes the gate:
+  - SG-Ready is supported: `core/sgready.py` (step <-> state <-> contacts, `contact_path` that
+    never passes the block pattern, fail-safe causes), `devices/drivers/sgready.py` (two contact
+    switches, read-back of unknown pairs as a mode, release to the baseline or state 2 - never
+    state 1), `safety/heatpump.py` (H1-H5: no state 1, state 4 only with `allow_forced`, dwell
+    600 s and switch limit, probe and comfort band, fail-safe to state 2 that waives dwell, min
+    run and the switch limit). `safety.sg_ready_not_supported` is gone.
+  - Hot-water lift: `devices/drivers/water_heater.py` (`water_heater.set_temperature`, snapped
+    and clamped to the entity range, never while `off`, release to the user's set-point).
+  - Controller: SG levels (state 2 = 0 W, state 3/4 nominal), fail-safe back-off also with an
+    unknown surplus, dwell wait, restart hysteresis 3 K below `comfort.max_c`.
+  - `forecast/thermal.py`: RC least squares on 15-minute data with a MAD outlier filter, quality
+    = NRMSE of a 24 h replay, stored in `learned_param` (`thermal_model`), refitted daily; the
+    planner runtime builds the thermal `FlexRequest` (probe temperatures, outdoor forecast,
+    learned models). Probe temperatures are recorded as `device.<id>.temperature_c`.
+  - Templates `generic.heat_pump_sg_ready`, `generic.heat_pump_dhw_setpoint` (sources,
+    `unverified`, en/de); simulator `SimHeatPump`; scenarios `heat_pump_sg_ready_surplus`,
+    `heat_pump_dhw_lift` and a planner-level history -> fit -> plan test. Deviations and the
+    safety self-review: plan section 8 (6-K).
 
 - **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
@@ -1132,6 +1153,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed; 0 W cannot be a legal dimming value given the 4.2 kW minimum, a positive value is used as min(value, limit)) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018, plan section 8 (6-F) | a grid operator's control box / documentation |
 | Backup-switch island state names (simulator: `island`/`on_grid`; Kostal BackUp Switch G3 entity and states unknown) | `suncore/core/grid.py` `BackupConfig`, `suncore/sim/fake_ha.py` | maintainer maps the entity (question 10) |
 | Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
+| Heat pump (6-K): SG-Ready contact mapping of the generic template (normal 00, intensified 01, forced 11, block 10); which integrations expose a heat pump's hot water as `water_heater` and how fast they apply a target; template defaults (dwell 600 s, min run 1200 s, min pause 600 s, 3/h, comfort 45-55 °C, restart 3 K); grid pre-heat planned but not executed; simulator only, no heat pump in the session | `templates/device/generic.heat_pump_*.yaml`, `suncore/core/sgready.py`, plan section 8 (6-K) | a user's heat pump with its manual; 6-I import mechanism |
+| RC learner (6-K): losses fitted against the outdoor series (stores indoors lose to the room); small fast stores miss the quality threshold on 15-minute data and stay energy-only | `suncore/forecast/thermal.py` | 14+ days of a real heat pump's probe, power and weather |
 | SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
