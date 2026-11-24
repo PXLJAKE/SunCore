@@ -379,3 +379,15 @@ def test_gate_unconfirmed_sg_device_is_capped_at_assisted() -> None:
     h.states["hp"] = DeviceState(step=0, on=False, temperature_c=45.0)
     decision = asyncio.run(h.gate.submit(make_intent(StepAction(step=1), asset_id="hp")))
     assert decision.kind is DecisionKind.PROPOSED
+
+
+def test_restart_hysteresis_after_the_comfort_maximum() -> None:
+    from suncore.core.sgready import SG_RESTART_K, sg_restart_c  # noqa: PLC0415
+
+    device = sg_device()
+    assert device.comfort is not None
+    restart = device.comfort.max_c - SG_RESTART_K
+    assert sg_restart_c(device, DeviceState(step=0, temperature_c=restart + 0.5)) == restart
+    assert sg_restart_c(device, DeviceState(step=0, temperature_c=restart)) is None
+    assert sg_restart_c(device, DeviceState(step=0)) is None  # unknown: a fail-safe cause
+    assert sg_restart_c(lift_device(), DeviceState(temperature_c=60.0)) is None

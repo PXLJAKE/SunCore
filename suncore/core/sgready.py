@@ -36,6 +36,10 @@ SG_INTENSIFIED: Final = 1
 """Step of SG state 3 (intensified operation, a recommendation to run more)."""
 SG_FORCED: Final = 2
 """Step of SG state 4 (forced on, a definitive command): only with ``allow_forced``."""
+SG_RESTART_K: Final = 3.0
+"""After the store reached ``comfort.max_c`` SunCore intensifies again only once it has cooled
+this far below it, so the contacts do not chatter at the comfort maximum (design default,
+``UNVERIFIED`` against a manufacturer rule)."""
 
 
 def sg_state(step: int) -> int:
@@ -101,6 +105,19 @@ def is_heat_pump_lift(device: DeviceConfig) -> bool:
     return device.kind is DeviceKind.HEAT_PUMP and isinstance(device.control, SetpointControl)
 
 
+def sg_restart_c(device: DeviceConfig, state: DeviceState | None) -> float | None:
+    """The temperature an SG-Ready store in state 2 must fall to before SunCore intensifies
+    it again, while it reads above it; ``None`` otherwise (not SG-Ready, no comfort band, no
+    reading - the last is a fail-safe cause of its own)."""
+    if not isinstance(device.control, SgReadyControl) or device.comfort is None:
+        return None
+    temperature = None if state is None else state.temperature_c
+    restart = device.comfort.max_c - SG_RESTART_K
+    if temperature is None or temperature <= restart:
+        return None
+    return restart
+
+
 def heat_pump_failsafe(  # noqa: PLR0911 - one return per cause
     device: DeviceConfig,
     state: DeviceState | None,
@@ -137,12 +154,14 @@ __all__ = [
     "SG_FORCED",
     "SG_INTENSIFIED",
     "SG_NORMAL",
+    "SG_RESTART_K",
     "FailsafeCause",
     "contact_path",
     "heat_pump_failsafe",
     "is_heat_pump_lift",
     "sg_contacts_label",
     "sg_has_probe",
+    "sg_restart_c",
     "sg_state",
     "sg_step_of",
 ]

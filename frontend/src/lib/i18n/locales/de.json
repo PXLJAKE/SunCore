@@ -1705,5 +1705,14 @@
   "controller.heat_pump.failsafe": "Sofort zurück in den Normalbetrieb, weil {cause, select, temperature_unknown {die Speichertemperatur ist unbekannt oder veraltet} heat_limit {der Speicher hat sein Komfortmaximum erreicht} no_probe {sie hat keinen Temperaturfühler im Speicher} para14a {die §14a-Dimmung ist aktiv oder unbekannt} island {das Haus läuft im Inselbetrieb} other {eine Sicherheitsregel greift}}.",
   "controller.heat_pump.dwell_wait": "Wartet auf die Mindestzeit im SG-Ready-Zustand, noch {remaining_s} s.",
   "controller.heat_pump.state_unknown": "Die SG-Ready-Kontakte zeigen keinen Zustand, den SunCore schreiben darf: Die Wärmepumpe bleibt unberührt.",
-  "controller.heat_pump.no_probe": "Ohne Temperaturfühler im Speicher und Komfortbereich betreibt SunCore die Wärmepumpe nicht verstärkt."
+  "controller.heat_pump.no_probe": "Ohne Temperaturfühler im Speicher und Komfortbereich betreibt SunCore die Wärmepumpe nicht verstärkt.",
+  "template.generic.heat_pump_sg_ready.name": "Wärmepumpe mit SG-Ready-Kontakten (zwei Schalter)",
+  "template.generic.heat_pump_sg_ready.role.contact_a": "Schalter des SG-Ready-Kontakts A",
+  "template.generic.heat_pump_sg_ready.role.contact_b": "Schalter des SG-Ready-Kontakts B",
+  "template.generic.heat_pump_sg_ready.role.temperature": "Speichertemperatur-Sensor (°C, nötig für verstärkten Betrieb)",
+  "template.generic.heat_pump_sg_ready.role.power": "Leistungssensor der Wärmepumpe (optional, W oder kW)",
+  "template.generic.heat_pump_dhw_setpoint.name": "Warmwasser-Sollwert der Wärmepumpe (Water-Heater-Entität)",
+  "template.generic.heat_pump_dhw_setpoint.role.water_heater": "Die Water-Heater-Entität des Warmwassers der Wärmepumpe",
+  "template.generic.heat_pump_dhw_setpoint.role.power": "Leistungssensor der Wärmepumpe (optional, W oder kW)",
+  "controller.heat_pump.restart_wait": "Der Speicher hat {temperature_c} °C: SunCore betreibt die Wärmepumpe erst wieder verstärkt, wenn er auf {restart_c} °C abgekühlt ist."
 }

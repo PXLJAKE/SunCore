@@ -72,12 +72,14 @@ HP_FAILSAFE: Final = "controller.heat_pump.failsafe"
 HP_DWELL_WAIT: Final = "controller.heat_pump.dwell_wait"
 HP_STATE_UNKNOWN: Final = "controller.heat_pump.state_unknown"
 HP_NO_PROBE: Final = "controller.heat_pump.no_probe"
+HP_RESTART_WAIT: Final = "controller.heat_pump.restart_wait"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
     HP_FAILSAFE,
     HP_DWELL_WAIT,
     HP_STATE_UNKNOWN,
     HP_NO_PROBE,
+    HP_RESTART_WAIT,
     GRID_ISLAND_SHED,
     GRID_ISLAND_KEEP,
     GRID_COOLDOWN,
@@ -240,6 +242,13 @@ def heat_pump_failsafe(cause: str) -> Reason:
 
 def heat_pump_dwell(remaining_s: float) -> Reason:
     return Reason(key=HP_DWELL_WAIT, args={"remaining_s": _ceil(remaining_s)})
+
+
+def heat_pump_restart(temperature_c: float, restart_c: float) -> Reason:
+    return Reason(
+        key=HP_RESTART_WAIT,
+        args={"temperature_c": round(temperature_c, 1), "restart_c": round(restart_c, 1)},
+    )
 
 
 def plain(key: str) -> Reason:

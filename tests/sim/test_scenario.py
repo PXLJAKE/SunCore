@@ -18,6 +18,8 @@ BUNDLED = [
     "grid_limit",
     "grid_outage_island",
     "ha_disconnect",
+    "heat_pump_dhw_lift",
+    "heat_pump_sg_ready_surplus",
     "import_limit_fuse_shed",
     "inverter_hang",
     "inverter_hang_battery",

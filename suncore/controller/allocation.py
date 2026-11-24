@@ -89,7 +89,7 @@ from suncore.core.devices import (
     TimeWindow,
 )
 from suncore.core.grid import GridState, Para14aStatus
-from suncore.core.sgready import FailsafeCause, heat_pump_failsafe, sg_has_probe
+from suncore.core.sgready import FailsafeCause, heat_pump_failsafe, sg_has_probe, sg_restart_c
 from suncore.core.signals import Quality
 
 POOR_ESTIMATE_REL: Final = 0.5
@@ -720,6 +720,12 @@ class Allocator:
         failsafe = self._failsafe(m, inputs)
         if failsafe is not None and heat is None:
             cap, cap_reason = 0, rs.heat_pump_failsafe(failsafe.value)
+        state = inputs.states.get(device.id)
+        restart = sg_restart_c(device, state) if m.level <= 0 else None
+        if restart is not None and heat is None and failsafe is None:
+            assert state is not None
+            assert state.temperature_c is not None
+            cap, cap_reason = 0, rs.heat_pump_restart(state.temperature_c, restart)
         grid_cap = self._caps.get(device.id)
         if grid_cap is not None and grid_cap.level < cap:
             cap, cap_reason = grid_cap.level, grid_cap.reason

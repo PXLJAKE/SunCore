@@ -233,7 +233,7 @@ def test_outdoor_forecast_from_the_weather_points() -> None:
     service = LoadForecastService(None, None, clock=lambda: T0)
     assert service.outdoor_forecast(T0) is None
     hour = timedelta(hours=1)
-    service._weather_points = [  # noqa: SLF001 - the hourly forecast as the refresh stores it
+    service._weather_points = [  # the hourly forecast as the refresh stores it
         (T0 - hour, 1.0),
         (T0, 2.0),
         (T0 + 2 * hour, 4.0),

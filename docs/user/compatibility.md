@@ -20,6 +20,8 @@ a template only tested in the simulator has never run against real hardware.
 | Id | Kind | Name | Integration / platforms | Capabilities | Tested with | Unverified |
 |---|---|---|---|---|---|---|
 | `generic.climate` | device | Generic climate device | any | `energy_counter`, `hvac_modes`, `power_measured`, `temperature_setpoint` | not tested on hardware | 3 |
+| `generic.heat_pump_dhw_setpoint` | device | Heat pump hot-water set-point (water heater entity) | any | `power_measured`, `temperature_setpoint` | not tested on hardware | 4 |
+| `generic.heat_pump_sg_ready` | device | Heat pump with SG-Ready contacts (two switches) | any | `power_measured`, `sg_ready` | not tested on hardware | 6 |
 | `generic.number_load` | device | Load with a number entity | any | `power_measured`, `power_setpoint` | not tested on hardware | 3 |
 | `generic.switch` | device | Switch or smart plug | any | `on_off`, `power_measured` | not tested on hardware | 2 |
 | `generic.water_heater_relays` | device | Water heater with 1-3 relays | any | `power_measured`, `power_setpoint` | not tested on hardware | 7 |
