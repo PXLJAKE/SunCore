@@ -14,6 +14,7 @@ BUNDLED = [
     "climate_measured_slow",
     "climate_min_run",
     "cloud_flicker",
+    "export_limit_zero_export",
     "grid_charge_price_level",
     "grid_limit",
     "grid_outage_island",
@@ -21,9 +22,11 @@ BUNDLED = [
     "import_limit_fuse_shed",
     "inverter_hang",
     "inverter_hang_battery",
+    "inverter_limit_heartbeat_lost",
     "kostal_rest_reserve",
     "manual_override",
     "modbus_heartbeat_lost",
+    "negative_price_curtail",
     "negative_prices",
     "para14a_dimming",
     "peak_shaving_month",
@@ -155,7 +158,7 @@ def test_outdoor_temperature_is_a_daily_cosine() -> None:
 def test_closed_loop_scenarios_declare_devices(name: str) -> None:
     sc = load_scenario(name)
     controlled = [d for d in sc.devices if d.template is not None]
-    assert controlled or sc.battery is not None, (
-        "a closed-loop scenario controls at least one device or the battery"
+    assert controlled or sc.battery is not None or sc.inverter is not None, (
+        "a closed-loop scenario controls a device, the battery or the inverter limit"
     )
     assert sc.step_s <= 60  # the controller tick (ControlSettings.tick_s <= 60)

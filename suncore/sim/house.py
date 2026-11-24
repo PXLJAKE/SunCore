@@ -22,6 +22,7 @@ from typing import Annotated
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from suncore.sim.inverter import InverterParams, SimInverter
+from suncore.sim.limiter import ExportLimiterParams, SimExportLimiter
 
 _DEFAULT_LOAD_PROFILE_W: tuple[float, ...] = (
     250, 220, 210, 210, 220, 300, 550, 700, 500, 400, 380, 450,
@@ -94,6 +95,8 @@ class HouseParams(BaseModel):
     inverter: InverterParams | None = None
     """Phase 4 WP10: a controllable hybrid inverter (limits, fallback timer, BMS drift) instead
     of the plain self-consumption battery; ``None`` = the plain battery."""
+    export_limiter: ExportLimiterParams | None = None
+    """PR 6-G: the inverter's export / AC output limit (``None`` = no limit at all)."""
 
 
 class HouseState(BaseModel):
@@ -117,6 +120,8 @@ class HouseState(BaseModel):
     """Grid outage (PR 6-F): the grid power is 0; the battery and PV carry the house."""
     unserved_w: float = 0.0
     """Island: the load neither PV nor the battery could cover (a brown-out in reality)."""
+    curtailed_w: float = 0.0
+    """PV the inverter's export / AC limit curtailed this step (PR 6-G)."""
 
 
 def sin_elevation(when: datetime, latitude: float, longitude: float) -> float:
@@ -193,6 +198,11 @@ class House:
                 start=start,
             )
         )
+        self.limiter: SimExportLimiter | None = (
+            None
+            if params.export_limiter is None
+            else SimExportLimiter(params.export_limiter, start=start)
+        )
 
     @property
     def index(self) -> int:
@@ -258,6 +268,10 @@ class House:
             true_soc = self.inverter.soc_pct
         else:
             battery_w = self._dispatch(pv_w - load_w)
+        curtailed = 0.0
+        if self.limiter is not None and not island:
+            limited = self.limiter.curtail(when, pv_w, load_w, battery_w)
+            curtailed, pv_w = pv_w - limited, limited
         grid_w = load_w + battery_w - pv_w
         unserved = 0.0
         if island:
@@ -278,6 +292,7 @@ class House:
             true_soc_pct=true_soc,
             island=island,
             unserved_w=unserved,
+            curtailed_w=curtailed,
         )
         self._index += 1
         return state
