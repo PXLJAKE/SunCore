@@ -124,6 +124,10 @@ export type HistoryHeatmap = S['HeatmapOut'];
 export type HistoryCycles = S['CyclesOut'];
 export type HistorySkill = S['ForecastSkillOut'];
 export type HistoryDevices = S['DeviceHistoryOut'];
+export type HistorySeries = S['SeriesResponse'];
+export type PlanAt = S['PlanAtOut'];
+export type PlanCompare = S['PlanCompareOut'];
+export type IntervalDiff = S['IntervalDiffOut'];
 
 export type SnapshotMessage = S['SnapshotMessage'];
 export type PlanMessage = S['PlanMessage'];

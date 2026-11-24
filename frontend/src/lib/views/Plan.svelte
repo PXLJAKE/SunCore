@@ -1,27 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { router } from '../router.svelte';
+  import { parseTarget, targetHash, todayOf } from '../plan/target';
   import ForecastPanel from '../components/ForecastPanel.svelte';
   import PlannedActions from '../components/PlannedActions.svelte';
-  import {
-    t,
-    tDateTime,
-    tDynamic,
-    tNumber,
-    tPercent,
-    tPower,
-    tClock,
-    tTime,
-    type MessageKey,
-  } from '../i18n/index.svelte';
-  import {
-    buildChartData,
-    hasIntervals,
-    plannedActions,
-    targetLines,
-    windowIntervals,
-    type HoursWindow,
-  } from '../plan/model';
+  import { i18n, t, tDateTime, tDynamic, tTime, type MessageKey } from '../i18n/index.svelte';
+  import { hasIntervals, plannedActions, windowIntervals, type HoursWindow } from '../plan/model';
   import { app } from '../stores/app.svelte';
   import { live } from '../stores/live.svelte';
   import { plan } from '../stores/plan.svelte';
@@ -66,22 +51,20 @@
   const view = $derived(plan.view);
   const now = $derived(new Date(plan.nowMs));
   const intervals = $derived(windowIntervals(view, hours, now));
-  const chart = $derived(buildChartData(intervals));
-  const lines = $derived(targetLines(plan.risk));
   const actions = $derived(plannedActions(intervals, now, 12));
   const source = $derived(view?.plan.source ?? 'default');
   const currency = $derived(app.region?.currency ?? '');
   const status = $derived(plan.status);
 
-  /** One row per full hour for the text alternative of the chart. */
-  const hourly = $derived(
-    intervals.filter((i) => tClock(new Date(i.start)).minute === 0 && i.expected != null),
-  );
-
-  const price = (v: number | undefined): string =>
-    v == null ? '–' : tNumber(v, { minimumFractionDigits: 2, maximumFractionDigits: 3 });
-  const signed = (w: number): string => (w > 0 ? '+' : '') + tPower(w);
-  const chartLabel = $derived(t('plan.chart.label', { hours }));
+  const zone = $derived(i18n.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const target = $derived(parseTarget(router.query, hours, zone));
+  const isLive = $derived(target.kind === 'live');
+  const todayHash = $derived(targetHash({ kind: 'day', day: todayOf(plan.nowMs, zone) }));
+  const dayIsToday = $derived(target.kind === 'day' && target.day === todayOf(plan.nowMs, zone));
+  function pick(h: HoursWindow): void {
+    hours = h;
+    if (!isLive) router.go('#/plan');
+  }
 </script>
 
 <section class="plan" aria-labelledby="plan-title" data-testid="plan-view">
@@ -125,11 +108,18 @@
           <button
             type="button"
             class="seg-btn"
-            aria-pressed={hours === h}
+            aria-pressed={isLive && hours === h}
             data-testid="range-{h}"
-            onclick={() => (hours = h)}>{t(h === 24 ? 'plan.range.24' : 'plan.range.48')}</button
+            onclick={() => pick(h)}>{t(h === 24 ? 'plan.range.24' : 'plan.range.48')}</button
           >
         {/each}
+        <button
+          type="button"
+          class="seg-btn"
+          aria-pressed={dayIsToday}
+          data-testid="range-day"
+          onclick={() => router.go(todayHash)}>{t('plan.range.today')}</button
+        >
       </div>
       <button
         type="button"
@@ -201,67 +191,20 @@
     {#if !hasIntervals(view)}
       <p class="card hint" data-testid="plan-empty">{t('plan.empty')}</p>
     {:else}
-      <div class="card chart-card">
-        <h3 id="{uid}-chart">{t('plan.chart.title')}</h3>
-        <p class="hint" id="{uid}-hint">{t('plan.chart.hint')}</p>
-        {#await import('../components/PlanChart.svelte')}
-          <p class="hint" role="status">{t('plan.chart.loading')}</p>
-        {:then mod}
-          {@const Chart = mod.default}
-          <Chart
-            data={chart}
-            {lines}
-            nowMs={now.getTime()}
-            {currency}
-            label={chartLabel}
-            describedby={hintId}
-          />
-        {:catch}
-          <p class="notice error" role="alert">{t('plan.chart.error')}</p>
-        {/await}
-      </div>
+      {#await import('../components/PlanChartPanel.svelte')}
+        <p class="hint" role="status">{t('plan.chart.loading')}</p>
+      {:then mod}
+        {@const Panel = mod.default}
+        <Panel {view} {target} nowMs={plan.nowMs} {currency} {hintId} />
+      {:catch}
+        <p class="notice error" role="alert">{t('plan.chart.error')}</p>
+      {/await}
 
       <div class="card stack" aria-labelledby="{uid}-next">
         <h3 id="{uid}-next">{t('plan.next.title')}</h3>
         <p class="hint">{t('plan.next.intro')}</p>
         <PlannedActions {actions} />
       </div>
-
-      <details class="card table" data-testid="plan-table">
-        <summary>{t('plan.table.summary')}</summary>
-        <div class="scroll">
-          <table>
-            <caption class="sr-only">{t('plan.table.caption')}</caption>
-            <thead>
-              <tr>
-                <th scope="col">{t('plan.table.time')}</th>
-                <th scope="col">{t('plan.table.pv')}</th>
-                <th scope="col">{t('plan.table.load')}</th>
-                <th scope="col">{t('plan.table.devices')}</th>
-                <th scope="col">{t('plan.table.battery')}</th>
-                <th scope="col">{t('plan.table.grid')}</th>
-                <th scope="col">{t('plan.table.soc')}</th>
-                <th scope="col">{t('plan.table.price')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each hourly as i (i.start)}
-                {@const e = i.expected!}
-                <tr>
-                  <th scope="row">{tDateTime(new Date(i.start))}</th>
-                  <td>{tPower(e.pv_p50_w)}</td>
-                  <td>{tPower(e.load_w)}</td>
-                  <td>{tPower(e.devices_w ?? 0)}</td>
-                  <td>{signed(e.battery_w ?? 0)}</td>
-                  <td>{signed(e.import_w - e.export_w)}</td>
-                  <td>{e.soc_pct == null ? '–' : tPercent(e.soc_pct)}</td>
-                  <td>{price(i.prices?.import_price)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      </details>
     {/if}
 
     <ForecastPanel
@@ -276,6 +219,7 @@
 <style>
   .plan {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--sc-gap);
   }
   .head {
@@ -345,11 +289,6 @@
     color: var(--error-color);
     font-weight: 600;
   }
-  .chart-card {
-    display: grid;
-    gap: 8px;
-    min-width: 0;
-  }
   summary {
     cursor: pointer;
     min-height: 32px;
@@ -357,25 +296,5 @@
     align-items: center;
     font-weight: 600;
     color: var(--primary-color);
-  }
-  .scroll {
-    overflow-x: auto;
-    margin-top: 8px;
-  }
-  table {
-    border-collapse: collapse;
-    width: 100%;
-    min-width: 36rem;
-    font-size: 0.9375rem;
-    font-variant-numeric: tabular-nums;
-  }
-  th,
-  td {
-    text-align: left;
-    padding: 5px 10px 5px 0;
-    border-top: 1px solid var(--divider-color);
-  }
-  thead th {
-    border-top: 0;
   }
 </style>

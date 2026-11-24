@@ -2,7 +2,8 @@
 // Reports the gzip size of dist/ and fails above the budgets:
 //   * everything except the ECharts chunk: 250 kB (Phase 1 budget, unchanged),
 //   * first paint (index.html plus its static import graph): 125 kB,
-//   * the ECharts chunk (Phase 4: loaded on demand with the plan view only): 200 kB,
+//   * every ECharts chunk (loaded on demand): 200 kB, and the chunks of one view together
+//     (`echarts-core` plus `echarts-plan` or `echarts-history`): 240 kB (Phase 5, decision 6),
 //   * ECharts must not be reachable from index.html through static imports.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -11,6 +12,7 @@ import { gzipSync } from 'node:zlib';
 const BUDGET_BYTES = 250 * 1000;
 const FIRST_PAINT_BYTES = 125 * 1000;
 const ECHARTS_BYTES = 200 * 1000;
+const ECHARTS_VIEW_BYTES = 240 * 1000;
 const dist = new URL('../dist/', import.meta.url).pathname;
 
 function* walk(dir) {
@@ -25,12 +27,13 @@ const gz = (file) => gzipSync(readFileSync(file), { level: 9 }).length;
 const isEcharts = (file) => /(^|\/)echarts-[^/]*\.js$/.test(file);
 
 let total = 0;
-let echarts = 0;
+const chunks = new Map();
 for (const file of walk(dist)) {
     if (!/\.(js|css|html|json|svg)$/.test(file)) continue;
     const size = gz(file);
-    if (isEcharts(file)) echarts += size;
-    else total += size;
+    if (isEcharts(file)) {
+        chunks.set(file.replace(/^.*\/echarts-([^./-]+).*$/, '$1'), size);
+    } else total += size;
     console.log(
         `${(size / 1000).toFixed(1).padStart(8)} kB  ${relative(dist, file)}${isEcharts(file) ? '  (on demand)' : ''}`,
     );
@@ -57,9 +60,18 @@ const kb = (n) => `${(n / 1000).toFixed(1)} kB`;
 console.log(
     `${kb(paint).padStart(8)}  first paint (index.html + static imports; budget ${FIRST_PAINT_BYTES / 1000} kB)`,
 );
-console.log(
-    `${kb(echarts).padStart(8)}  ECharts chunk, on demand (budget ${ECHARTS_BYTES / 1000} kB)`,
-);
+for (const [name, size] of chunks) {
+    console.log(
+        `${kb(size).padStart(8)}  ECharts chunk ${name} (budget ${ECHARTS_BYTES / 1000} kB)`,
+    );
+}
+const core = chunks.get('core') ?? 0;
+const views = [...chunks].filter(([name]) => name !== 'core');
+for (const [name, size] of views) {
+    console.log(
+        `${kb(core + size).padStart(8)}  ECharts core + ${name} (budget ${ECHARTS_VIEW_BYTES / 1000} kB)`,
+    );
+}
 console.log(
     `${kb(total).padStart(8)}  total gzip without ECharts (budget ${BUDGET_BYTES / 1000} kB)`,
 );
@@ -71,6 +83,11 @@ const fail = (msg) => {
 };
 if ([...firstPaint].some(isEcharts)) fail('ECharts is part of the first paint.');
 if (paint > FIRST_PAINT_BYTES) fail('First paint budget exceeded.');
-if (echarts > ECHARTS_BYTES) fail('ECharts chunk budget exceeded.');
+for (const [name, size] of chunks) {
+    if (size > ECHARTS_BYTES) fail(`ECharts chunk ${name} budget exceeded.`);
+}
+for (const [name, size] of views) {
+    if (core + size > ECHARTS_VIEW_BYTES) fail(`ECharts core + ${name} budget exceeded.`);
+}
 if (total > BUDGET_BYTES) fail('Bundle size budget exceeded.');
 if (failed) process.exit(1);

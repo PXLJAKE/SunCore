@@ -104,7 +104,8 @@
     </div>
   {/if}
 
-  <div class="scroll">
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
+  <div class="scroll" role="region" tabindex="0" aria-label={t('fc.accuracy.caption')}>
     <table data-testid="fc-accuracy">
       <caption>{t('fc.accuracy.caption')}</caption>
       <thead>
@@ -151,7 +152,8 @@
         <p class="hint">{t('fc.weights.single')}</p>
       {:else}
         <p class="hint">{t('fc.weights.intro')}</p>
-        <div class="scroll">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
+        <div class="scroll" role="region" tabindex="0" aria-label={t('fc.weights.title')}>
           <table>
             <caption class="sr-only">{t('fc.weights.title')}</caption>
             <thead>
@@ -233,7 +235,13 @@
       </p>
       <p data-testid="fc-ml-reason">{tDynamic(loadModel.reason.key, loadModel.reason.args)}</p>
       {#if loadModel.mode !== 'off'}
-        <div class="scroll">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
+        <div
+          class="scroll"
+          role="region"
+          tabindex="0"
+          aria-label={t('fc.ml.compare_caption', { n: loadModel.compared_n })}
+        >
           <table class="compact" data-testid="fc-ml-compare">
             <caption>{t('fc.ml.compare_caption', { n: loadModel.compared_n })}</caption>
             <thead>

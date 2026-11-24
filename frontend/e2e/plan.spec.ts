@@ -33,7 +33,7 @@ test.describe('Plan view', () => {
       .poll(
         async () => {
           // Hover on a desktop, tap on a phone: both end in a click on the same spot.
-          await chart.click({ position: { x, y: 150 } });
+          await chart.click({ position: { x, y: 260 } });
           return page.getByText('Why', { exact: true }).count();
         },
         { timeout: 15_000 },
@@ -77,6 +77,82 @@ test.describe('Plan view', () => {
       'href',
       'https://open-meteo.com/',
     );
+  });
+
+  test('opens a day from the history link: measured overlay, Gantt, exports and table', async ({
+    page,
+  }) => {
+    await page.goto('/#/plan?day=2026-06-20');
+    await expect(page.getByRole('heading', { level: 3, name: /20/ }).first()).toBeVisible();
+    await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
+    await expect(page.getByTestId('plan-snapshot')).toBeVisible();
+    await expect(page.getByTestId('csv-plan')).toHaveAttribute('href', /plan\/at\?ts=.*format=csv/);
+    await expect(page.getByTestId('csv-actual')).toHaveAttribute('href', /history\/series/);
+    await expect(page.getByTestId('range-day')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('range-24')).toHaveAttribute('aria-pressed', 'false');
+    // Measured columns in the data table, device schedule as text.
+    await page.getByTestId('plan-table').getByText('Chart data as a table').click();
+    await expect(page.getByTestId('plan-table').getByText('Solar (measured)')).toBeVisible();
+    await page.getByTestId('plan-schedule').getByText('Device schedule as text').click();
+    await expect(page.getByTestId('schedule-row').first()).toBeVisible();
+    // Back to the current plan.
+    await page.getByTestId('back-to-live').click();
+    await expect(page).toHaveURL(/#\/plan$/);
+    await expect(page.getByTestId('range-24')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('opens the plan of a decision time and marks it', async ({ page }) => {
+    await page.goto('/#/plan?at=2026-06-20T12:00:00%2B02:00');
+    await expect(page.getByRole('heading', { level: 3, name: /Plan as of/ })).toBeVisible();
+    await expect(page.getByTestId('plan-snapshot')).toContainText('Plan computed');
+    await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
+    await expect(page.getByTestId('range-24')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('says so when no plan is stored for the time', async ({ page }) => {
+    await page.goto('/#/plan?day=2026-05-01');
+    await expect(page.getByTestId('plan-snapshot-missing')).toBeVisible();
+    await expect(page.getByTestId('plan-chart')).toBeVisible();
+  });
+
+  test('compares two plans', async ({ page }) => {
+    await page.goto('/#/plan?at=2026-06-20T12:00:00%2B02:00&compare=2026-06-19T12:00:00%2B02:00');
+    await expect(page.getByTestId('plan-compare-summary')).toContainText('differ');
+    await expect(page.getByTestId('csv-compare')).toBeVisible();
+    await expect(page.getByTestId('plan-compare-table')).toBeVisible();
+    await page.getByTestId('compare-clear').click();
+    await expect(page.getByTestId('plan-compare-summary')).toHaveCount(0);
+  });
+
+  test('zooms and pans with the keyboard and the buttons', async ({ page }) => {
+    await page.goto('/#/plan?day=2026-06-20');
+    const frame = page.getByTestId('plan-chart-frame');
+    await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
+    await expect(page.getByTestId('zoom-reset')).toBeDisabled();
+    await frame.focus();
+    await page.keyboard.press('+');
+    await expect(page.getByTestId('zoom-status')).toContainText('Showing');
+    await page.keyboard.press('ArrowRight');
+    await page.getByTestId('zoom-out').click();
+    await page.keyboard.press('0');
+    await expect(page.getByTestId('zoom-status')).toHaveText('');
+    await expect(page.getByTestId('zoom-reset')).toBeDisabled();
+  });
+
+  test('jumps to a day with the date field', async ({ page }) => {
+    await page.goto('/#/plan');
+    await page.getByTestId('range-day').click();
+    await expect(page).toHaveURL(/#\/plan\?day=/);
+    await page.getByTestId('day-prev').click();
+    await expect(page).toHaveURL(/#\/plan\?day=2026-06-20/);
+    await expect(page.getByTestId('day-input')).toHaveValue('2026-06-20');
+  });
+
+  test('has no axe violations on a day with a comparison', async ({ page }) => {
+    await page.goto('/#/plan?day=2026-06-20&compare=2026-06-19T12:00:00%2B02:00');
+    await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
+    await expect(page.getByTestId('plan-compare-summary')).toBeVisible();
+    await expectNoAxeViolations(page);
   });
 
   test('says so when the planner is not running', async ({ page }) => {

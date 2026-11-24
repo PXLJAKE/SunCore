@@ -500,3 +500,19 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   without ECharts is 251.7 kB against 250 kB; trimming strings, merging chart helpers and
   re-using `NumberField` and existing keys was not enough. Options: raise the budget by 2 kB, or
   drop CSV export and the grid chart (about 0.8 kB) and more. Not decided here.
+
+- **5-F:** the chunks of decision 6 are split as `echarts-core` (183 kB gzip), `echarts-plan`
+  (`custom`, `dataZoom`; 9 kB) and `echarts-history` (Sankey, heatmap, visualMap; 13 kB). The size
+  script checks each chunk (200 kB) and core plus one view (240 kB: plan 192, history 196); the
+  total without ECharts is 232 of 250 kB. The live view now starts 3 hours before now so the plan
+  can be held against what was measured; the part of the window before the live plan starts
+  comes from `GET /plan/at` at the window start (one snapshot per window, not per hour, so the
+  past planned values are those of that snapshot). Measured values use `resolution=15m`; the
+  CSV link of the measured values covers the five site keys and at most three devices (the
+  endpoint takes eight keys). The comparison draws plan B's SoC and battery power as dashed lines
+  (plan A where the endpoint lists no difference) and lists the differing intervals; plan A is
+  identified by time (`referenceTime`), not by snapshot id. The Gantt shows planned bars by band
+  preference (`prefer_on`, allowed, `prefer_off`) and the battery's charge, discharge and lock
+  periods (from `expected.battery_w` with a 50 W threshold), measured bars from
+  `device.<id>.on` (share >= 0.5 ran, less partial) and `site.battery_w`. Devices outside the plan
+  have no lane. Zoom state is not in the URL.
