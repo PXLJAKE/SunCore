@@ -3,21 +3,27 @@
 
 It produces the same :class:`~suncore.planner.model.Schedule` as the LP, on the same flows
 (PV serves the base load first; devices only from the PV surplus; the battery discharges only
-for the base load), so :func:`suncore.planner.model.objective` costs both alike. Rules, slot
-by slot on the P50 forecast:
+for the base load and, Phase 6, for programs and heating), so
+:func:`suncore.planner.model.objective` costs both alike. Rules, slot by slot on the P50
+forecast:
 
+0. **Flexible loads' demanded power** (Phase 6, :mod:`suncore.planner.flexheuristic`):
+   programs at their chosen start, the heat pump's own heating, EV floors and EV targets -
+   surplus first.
 1. **Battery first** while the SoC is below the morning buffer (``priority_until``).
 2. Then **devices by value** (highest first), as far as every pending evening/user target is
    still reachable: a projection of the SoC at each target (all later surplus to the battery,
-   later deficits drawn from it) must stay above the target after the device's energy.
+   later deficits drawn from it) must stay above the target after the device's energy; then
+   the flexible loads' surplus charging and surplus pre-heating within the same budget.
 3. The battery takes the rest up to its charge limit and max SoC; the remainder is exported
    up to the export limit (curtailed when the export price is negative or above the limit).
 4. A deficit is covered by the battery down to the reserve - unless a pending evening/user
    target is projected to be missed, then the battery holds (discharge lock) and the house
-   imports.
+   imports. The flexible loads' remaining power comes from the battery after the house (when
+   it may discharge), else from the grid.
 5. **Grid charging** only when a target is still missed after rules 1-4: in the cheapest
    slots before the target whose allowance (policy, schedule and spread rule) is positive,
-   just enough to close the gap.
+   just enough to close the gap, within the import limit left by the flexible loads.
 """
 
 from __future__ import annotations
@@ -25,6 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from suncore.planner.flexheuristic import FlexSim, preplan
 from suncore.planner.inputs import PlannerInputs
 from suncore.planner.model import (
     Economics,
@@ -56,6 +63,14 @@ def _goals(inputs: PlannerInputs, econ: Economics) -> list[_Goal]:
     return out
 
 
+def _import_headroom(inputs: PlannerInputs, econ: Economics, t: int) -> float:
+    """Import the limit leaves above the deficit (``inf`` = no limit)."""
+    limit = inputs.import_limit_at(t)
+    if limit is None:
+        return float("inf")
+    return max(0.0, max(limit, econ.deficit_w[t]) - econ.deficit_w[t])
+
+
 def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module doc
     inputs: PlannerInputs, econ: Economics, extra_grid_w: list[float]
 ) -> Schedule:
@@ -66,6 +81,10 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
         range(len(inputs.devices)),
         key=lambda j: (-max(econ.device_value[j]), inputs.devices[j].priority),
     )
+    flex: FlexSim | None = None
+    if inputs.flex_loads and econ.flex is not None:
+        pre = preplan(inputs, econ.flex, econ.surplus_w, econ.deficit_w)
+        flex = FlexSim(inputs, econ.flex, pre, econ.deficit_w)
     gl = [0.0] * n
     bl = [0.0] * n
     pc = [0.0] * n
@@ -109,6 +128,8 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
             default=float("inf"),
         )
         rest = s
+        if flex is not None:
+            rest -= flex.forced(t, rest)
         # Same rule as the LP's FIRST slack (review n2): strictly before the buffer's slot.
         battery_first = buffer_wh is not None and e < buffer_wh - 1e-6 and t < econ.first_until
         if battery is not None and battery_first:
@@ -132,27 +153,43 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
             for slot in budget_left:
                 if slot >= t:
                     budget_left[slot] -= take * dt
+        if flex is not None and rest > EPS_W:
+            rest -= flex.discretionary(t, rest, budget_w)
         if battery is not None:
             room = max(0.0, ceiling - e) / (dt * eta_c) - pc[t]
             more = max(0.0, min(rest, max_ch - pc[t], room))
             pc[t] += more
             rest -= more
             room -= more
-            gc[t] = max(0.0, min(extra_grid_w[t], inputs.grid_charge_at(t), max_ch - pc[t], room))
+            headroom = _import_headroom(inputs, econ, t)
+            if flex is not None:
+                headroom -= flex.grid_reserved(t)
+            gc[t] = max(
+                0.0,
+                min(extra_grid_w[t], inputs.grid_charge_at(t), max_ch - pc[t], room, headroom),
+            )
         if rest > EPS_W:
             if inputs.export_price[t] < 0 or inputs.discouraged(t):
                 cu[t] = rest
             else:
-                cap = rest if inputs.export_limit_w is None else min(rest, inputs.export_limit_w)
+                limit = inputs.export_limit_at(t)
+                cap = rest if limit is None else min(rest, limit)
                 ex[t] = cap
                 cu[t] = rest - cap
+        hold = margin < 0 and any(g.holds for g in pending)
         if d > 0:
-            hold = margin < 0 and any(g.holds for g in pending)
             if battery is not None and not hold:
                 bl[t] = max(0.0, min(d, max_dis, (e - floor) * eta_d / dt))
             gl[t] = d - bl[t]
+        flex_b = 0.0
+        if flex is not None:
+            available = 0.0
+            if battery is not None and not hold:
+                energy = max(0.0, (e - floor) * eta_d / dt - bl[t])
+                available = max(0.0, min(max_dis - bl[t], energy))
+            flex_b = flex.settle(t, available)
         if battery is not None:
-            e = e + dt * (eta_c * (pc[t] + gc[t]) - bl[t] / eta_d)
+            e = e + dt * (eta_c * (pc[t] + gc[t]) - (bl[t] + flex_b) / eta_d)
             soc[t] = e
     return Schedule(
         grid_load_w=tuple(gl),
@@ -163,6 +200,7 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
         curtail_w=tuple(cu),
         soc_wh=tuple(soc),
         devices_w=tuple(tuple(d) for d in dev),
+        flex=() if flex is None else flex.flows(),
     )
 
 
