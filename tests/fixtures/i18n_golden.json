@@ -39,6 +39,12 @@
  },
  {
   "lang": "en",
+  "key": "controller.battery.ev_lock",
+  "args": {},
+  "expected": "The home battery is held back while the car charges from the grid (it does not discharge into the car)."
+ },
+ {
+  "lang": "en",
   "key": "controller.battery.grid_charge",
   "args": {
    "power_w": "abc"
@@ -172,6 +178,290 @@
    "wh": 42
   },
   "expected": "Backing off: the battery already covered 42 Wh for controlled devices."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.battery_wait",
+  "args": {},
+  "expected": "Waiting until the home battery is held back before charging from the grid."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.inputs_unknown",
+  "args": {},
+  "expected": "Grid or surplus values are unknown: charging is not raised and drops to the minimum."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.min_pv",
+  "args": {
+   "power_w": "abc"
+  },
+  "expected": "Charging at least at the minimum (abc W), more with surplus."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.min_pv",
+  "args": {
+   "power_w": 42
+  },
+  "expected": "Charging at least at the minimum (42 W), more with surplus."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.mode_off",
+  "args": {},
+  "expected": "EV charging is set to off."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.not_connected",
+  "args": {},
+  "expected": "No vehicle connected."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.now",
+  "args": {
+   "power_w": "abc"
+  },
+  "expected": "Charging now at full power (abc W), from the grid if needed."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.now",
+  "args": {
+   "power_w": 42
+  },
+  "expected": "Charging now at full power (42 W), from the grid if needed."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.phase_pause",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Charging pauses for abc s around the phase switch."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.phase_pause",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Charging pauses for 42 s around the phase switch."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.phase_switch",
+  "args": {
+   "phases": "abc"
+  },
+  "expected": "Switching the wallbox to abc phase(s)."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.phase_switch",
+  "args": {
+   "phases": 42
+  },
+  "expected": "Switching the wallbox to 42 phase(s)."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.target_grid",
+  "args": {
+   "power_w": "abc"
+  },
+  "expected": "The plan allows abc W from the grid now to reach the charging target."
+ },
+ {
+  "lang": "en",
+  "key": "controller.ev.target_grid",
+  "args": {
+   "power_w": 42
+  },
+  "expected": "The plan allows 42 W from the grid now to reach the charging target."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.backup_unknown",
+  "args": {},
+  "expected": "The backup power state is unknown: treated as connected to the grid."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.battery_island",
+  "args": {},
+  "expected": "Backup power: the battery follows its own settings."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.battery_no_grid_charge",
+  "args": {},
+  "expected": "No grid charging now: §14a reduction, unknown signal or the grid just returned."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.battery_support",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "The battery may discharge again: the import is close to the limit of abc W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.battery_support",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "The battery may discharge again: the import is close to the limit of 42 W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.cooldown",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Waiting: the grid is back, increases resume in abc s."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.cooldown",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Waiting: the grid is back, increases resume in 42 s."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.fuse_shed",
+  "args": {
+   "grid_w": "abc",
+   "limit_w": "abc"
+  },
+  "expected": "Load shedding at once: the house imports abc W, above the connection limit of abc W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.fuse_shed",
+  "args": {
+   "grid_w": 42,
+   "limit_w": 42
+  },
+  "expected": "Load shedding at once: the house imports 42 W, above the connection limit of 42 W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.island",
+  "args": {},
+  "expected": "Backup power: the grid is gone, the house runs on PV and the battery."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.island_keep",
+  "args": {},
+  "expected": "Kept as it is: backup power (island), the device is on the keep list."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.island_shed",
+  "args": {},
+  "expected": "Switched off: the house runs on backup power (island)."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.para14a_active",
+  "args": {
+   "budget_w": "abc"
+  },
+  "expected": "§14a: the grid operator reduces the power of the §14a devices to abc W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.para14a_active",
+  "args": {
+   "budget_w": 42
+  },
+  "expected": "§14a: the grid operator reduces the power of the §14a devices to 42 W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.para14a_cooldown",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Waiting: the §14a reduction ended, increases resume in abc s."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.para14a_cooldown",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Waiting: the §14a reduction ended, increases resume in 42 s."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.para14a_dim",
+  "args": {
+   "budget_w": "abc"
+  },
+  "expected": "Reduced: the grid operator allows abc W for the §14a devices together."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.para14a_dim",
+  "args": {
+   "budget_w": 42
+  },
+  "expected": "Reduced: the grid operator allows 42 W for the §14a devices together."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.para14a_no_signal",
+  "args": {},
+  "expected": "§14a is switched on but no signal is mapped: SunCore cannot see a reduction."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.para14a_unknown",
+  "args": {},
+  "expected": "Held: the §14a signal of the grid operator is unknown."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.peak_limit",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "Peak shaving: import limit this month abc W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.peak_limit",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "Peak shaving: import limit this month 42 W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.shed",
+  "args": {
+   "grid_w": "abc",
+   "limit_w": "abc"
+  },
+  "expected": "Load shedding: the house imports abc W, above the peak limit of abc W."
+ },
+ {
+  "lang": "en",
+  "key": "controller.grid.shed",
+  "args": {
+   "grid_w": 42,
+   "limit_w": 42
+  },
+  "expected": "Load shedding: the house imports 42 W, above the peak limit of 42 W."
  },
  {
   "lang": "en",
@@ -2837,6 +3127,366 @@
  },
  {
   "lang": "en",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": "abc",
+   "power_w": 0,
+   "mode": "zzz"
+  },
+  "expected": "abc charges 0 W at least at the minimum current (mode Min+PV)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": 42,
+   "power_w": 1,
+   "mode": "now"
+  },
+  "expected": "42 charges 1 W at full power (mode Now)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": "abc",
+   "power_w": 2,
+   "mode": "other"
+  },
+  "expected": "abc charges 2 W at least at the minimum current (mode Min+PV)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": 42,
+   "power_w": 5,
+   "mode": "zzz"
+  },
+  "expected": "42 charges 5 W at least at the minimum current (mode Min+PV)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": "abc",
+   "power_w": 21,
+   "mode": "now"
+  },
+  "expected": "abc charges 21 W at full power (mode Now)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5,
+   "mode": "other"
+  },
+  "expected": "42 charges 1,234.5 W at least at the minimum current (mode Min+PV)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25,
+   "mode": "zzz"
+  },
+  "expected": "abc charges -3.25 W at least at the minimum current (mode Min+PV)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": 42,
+   "power_w": 0.125,
+   "mode": "now"
+  },
+  "expected": "42 charges 0.125 W at full power (mode Now)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": "abc",
+   "power_w": 0,
+   "price": 0,
+   "time": "abc"
+  },
+  "expected": "abc charges 0 W from the grid at 0.000/kWh to reach its target by abc."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": 42,
+   "power_w": 1,
+   "price": 1,
+   "time": 42
+  },
+  "expected": "42 charges 1 W from the grid at 1.000/kWh to reach its target by 42."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": "abc",
+   "power_w": 2,
+   "price": 2,
+   "time": "abc"
+  },
+  "expected": "abc charges 2 W from the grid at 2.000/kWh to reach its target by abc."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": 42,
+   "power_w": 5,
+   "price": 5,
+   "time": 42
+  },
+  "expected": "42 charges 5 W from the grid at 5.000/kWh to reach its target by 42."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": "abc",
+   "power_w": 21,
+   "price": 21,
+   "time": "abc"
+  },
+  "expected": "abc charges 21 W from the grid at 21.000/kWh to reach its target by abc."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5,
+   "price": 1234.5,
+   "time": 42
+  },
+  "expected": "42 charges 1,234.5 W from the grid at 1,234.500/kWh to reach its target by 42."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25,
+   "price": -3.25,
+   "time": "abc"
+  },
+  "expected": "abc charges -3.25 W from the grid at -3.250/kWh to reach its target by abc."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": 42,
+   "power_w": 0.125,
+   "price": 0.125,
+   "time": 42
+  },
+  "expected": "42 charges 0.125 W from the grid at 0.125/kWh to reach its target by 42."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.need_unknown",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc: the energy the vehicle needs is unknown (no state of charge or capacity); only the coming quarter hour is planned for it."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.need_unknown",
+  "args": {
+   "device": 42
+  },
+  "expected": "42: the energy the vehicle needs is unknown (no state of charge or capacity); only the coming quarter hour is planned for it."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.not_connected",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc: no vehicle connected and no arrival known; the charger is left out of the plan."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.not_connected",
+  "args": {
+   "device": 42
+  },
+  "expected": "42: no vehicle connected and no arrival known; the charger is left out of the plan."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 0
+  },
+  "expected": "abc charges on solar surplus (0 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": 42,
+   "power_w": 1
+  },
+  "expected": "42 charges on solar surplus (1 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 2
+  },
+  "expected": "abc charges on solar surplus (2 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": 42,
+   "power_w": 5
+  },
+  "expected": "42 charges on solar surplus (5 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 21
+  },
+  "expected": "abc charges on solar surplus (21 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5
+  },
+  "expected": "42 charges on solar surplus (1,234.5 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25
+  },
+  "expected": "abc charges on solar surplus (-3.25 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": 42,
+   "power_w": 0.125
+  },
+  "expected": "42 charges on solar surplus (0.125 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "need_kwh": 0,
+   "planned_kwh": 0
+  },
+  "expected": "abc cannot reach its target by abc: 0.0 kWh needed, the plan expects 0.0 kWh."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "need_kwh": 1,
+   "planned_kwh": 1
+  },
+  "expected": "42 cannot reach its target by 42: 1.0 kWh needed, the plan expects 1.0 kWh."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "need_kwh": 2,
+   "planned_kwh": 2
+  },
+  "expected": "abc cannot reach its target by abc: 2.0 kWh needed, the plan expects 2.0 kWh."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "need_kwh": 5,
+   "planned_kwh": 5
+  },
+  "expected": "42 cannot reach its target by 42: 5.0 kWh needed, the plan expects 5.0 kWh."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "need_kwh": 21,
+   "planned_kwh": 21
+  },
+  "expected": "abc cannot reach its target by abc: 21.0 kWh needed, the plan expects 21.0 kWh."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "need_kwh": 1234.5,
+   "planned_kwh": 1234.5
+  },
+  "expected": "42 cannot reach its target by 42: 1,234.5 kWh needed, the plan expects 1,234.5 kWh."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "need_kwh": -3.25,
+   "planned_kwh": -3.25
+  },
+  "expected": "abc cannot reach its target by abc: -3.3 kWh needed, the plan expects -3.3 kWh."
+ },
+ {
+  "lang": "en",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "need_kwh": 0.125,
+   "planned_kwh": 0.125
+  },
+  "expected": "42 cannot reach its target by 42: 0.1 kWh needed, the plan expects 0.1 kWh."
+ },
+ {
+  "lang": "en",
   "key": "planner.export.limit",
   "args": {
    "limit_w": 0
@@ -3255,6 +3905,220 @@
  },
  {
   "lang": "en",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 0,
+   "import_w": 0
+  },
+  "expected": "The demanded loads exceed the import limit of 0 W (0 W planned); the safety layer will hold the limit."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 1,
+   "import_w": 1
+  },
+  "expected": "The demanded loads exceed the import limit of 1 W (1 W planned); the safety layer will hold the limit."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 2,
+   "import_w": 2
+  },
+  "expected": "The demanded loads exceed the import limit of 2 W (2 W planned); the safety layer will hold the limit."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 5,
+   "import_w": 5
+  },
+  "expected": "The demanded loads exceed the import limit of 5 W (5 W planned); the safety layer will hold the limit."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 21,
+   "import_w": 21
+  },
+  "expected": "The demanded loads exceed the import limit of 21 W (21 W planned); the safety layer will hold the limit."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 1234.5,
+   "import_w": 1234.5
+  },
+  "expected": "The demanded loads exceed the import limit of 1,234.5 W (1,234.5 W planned); the safety layer will hold the limit."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": -3.25,
+   "import_w": -3.25
+  },
+  "expected": "The demanded loads exceed the import limit of -3.25 W (-3.25 W planned); the safety layer will hold the limit."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 0.125,
+   "import_w": 0.125
+  },
+  "expected": "The demanded loads exceed the import limit of 0.125 W (0.125 W planned); the safety layer will hold the limit."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 0
+  },
+  "expected": "§14a EnWG: the grid operator dims controllable devices to 0 W together; no grid charging meanwhile."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 1
+  },
+  "expected": "§14a EnWG: the grid operator dims controllable devices to 1 W together; no grid charging meanwhile."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 2
+  },
+  "expected": "§14a EnWG: the grid operator dims controllable devices to 2 W together; no grid charging meanwhile."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 5
+  },
+  "expected": "§14a EnWG: the grid operator dims controllable devices to 5 W together; no grid charging meanwhile."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 21
+  },
+  "expected": "§14a EnWG: the grid operator dims controllable devices to 21 W together; no grid charging meanwhile."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 1234.5
+  },
+  "expected": "§14a EnWG: the grid operator dims controllable devices to 1,234.5 W together; no grid charging meanwhile."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": -3.25
+  },
+  "expected": "§14a EnWG: the grid operator dims controllable devices to -3.25 W together; no grid charging meanwhile."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 0.125
+  },
+  "expected": "§14a EnWG: the grid operator dims controllable devices to 0.125 W together; no grid charging meanwhile."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.para14a_unknown",
+  "args": {},
+  "expected": "§14a EnWG: the control signal is unknown; the flagged devices are not increased."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 0,
+   "price": 0
+  },
+  "expected": "Peak shaving: the plan expects a monthly peak of 0 W (capacity price 0.00 per kW and month)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 1,
+   "price": 1
+  },
+  "expected": "Peak shaving: the plan expects a monthly peak of 1 W (capacity price 1.00 per kW and month)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 2,
+   "price": 2
+  },
+  "expected": "Peak shaving: the plan expects a monthly peak of 2 W (capacity price 2.00 per kW and month)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 5,
+   "price": 5
+  },
+  "expected": "Peak shaving: the plan expects a monthly peak of 5 W (capacity price 5.00 per kW and month)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 21,
+   "price": 21
+  },
+  "expected": "Peak shaving: the plan expects a monthly peak of 21 W (capacity price 21.00 per kW and month)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 1234.5,
+   "price": 1234.5
+  },
+  "expected": "Peak shaving: the plan expects a monthly peak of 1,234.5 W (capacity price 1,234.50 per kW and month)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": -3.25,
+   "price": -3.25
+  },
+  "expected": "Peak shaving: the plan expects a monthly peak of -3.25 W (capacity price -3.25 per kW and month)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 0.125,
+   "price": 0.125
+  },
+  "expected": "Peak shaving: the plan expects a monthly peak of 0.125 W (capacity price 0.13 per kW and month)."
+ },
+ {
+  "lang": "en",
   "key": "planner.heuristic.rules",
   "args": {},
   "expected": "Rule-based plan: battery first up to the morning buffer, then consumers on surplus while the evening target stays reachable; grid charging only to reach a target."
@@ -3374,6 +4238,130 @@
   "key": "planner.interval.balanced",
   "args": {},
   "expected": "Nothing to plan: solar power and consumption balance."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.deadline_infeasible",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "abc cannot be finished by abc: it is planned to start as soon as possible."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.deadline_infeasible",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "42 cannot be finished by 42: it is planned to start as soon as possible."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.ignored",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc already has a job: another armed job is planned once it is done."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.ignored",
+  "args": {
+   "device": 42
+  },
+  "expected": "42 already has a job: another armed job is planned once it is done."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.running",
+  "args": {
+   "device": "abc",
+   "power_w": 0
+  },
+  "expected": "abc is running (0 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.running",
+  "args": {
+   "device": 42,
+   "power_w": 1
+  },
+  "expected": "42 is running (1 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.running",
+  "args": {
+   "device": "abc",
+   "power_w": 2
+  },
+  "expected": "abc is running (2 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.running",
+  "args": {
+   "device": 42,
+   "power_w": 5
+  },
+  "expected": "42 is running (5 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.running",
+  "args": {
+   "device": "abc",
+   "power_w": 21
+  },
+  "expected": "abc is running (21 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.running",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5
+  },
+  "expected": "42 is running (1,234.5 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.running",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25
+  },
+  "expected": "abc is running (-3.25 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.running",
+  "args": {
+   "device": 42,
+   "power_w": 0.125
+  },
+  "expected": "42 is running (0.125 W)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.start",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "abc starts in this quarter hour so that it is finished by abc."
+ },
+ {
+  "lang": "en",
+  "key": "planner.job.start",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "42 starts in this quarter hour so that it is finished by 42."
  },
  {
   "lang": "en",
@@ -3740,6 +4728,291 @@
   "key": "planner.status.waiting_for_soc",
   "args": {},
   "expected": "Waiting for the battery's state of charge before planning."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": "abc",
+   "temp_c": 0,
+   "min_c": 0
+  },
+  "expected": "abc falls below its comfort minimum: 0.0 °C instead of at least 0.0 °C."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": 42,
+   "temp_c": 1,
+   "min_c": 1
+  },
+  "expected": "42 falls below its comfort minimum: 1.0 °C instead of at least 1.0 °C."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": "abc",
+   "temp_c": 2,
+   "min_c": 2
+  },
+  "expected": "abc falls below its comfort minimum: 2.0 °C instead of at least 2.0 °C."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": 42,
+   "temp_c": 5,
+   "min_c": 5
+  },
+  "expected": "42 falls below its comfort minimum: 5.0 °C instead of at least 5.0 °C."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": "abc",
+   "temp_c": 21,
+   "min_c": 21
+  },
+  "expected": "abc falls below its comfort minimum: 21.0 °C instead of at least 21.0 °C."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": 42,
+   "temp_c": 1234.5,
+   "min_c": 1234.5
+  },
+  "expected": "42 falls below its comfort minimum: 1,234.5 °C instead of at least 1,234.5 °C."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": "abc",
+   "temp_c": -3.25,
+   "min_c": -3.25
+  },
+  "expected": "abc falls below its comfort minimum: -3.3 °C instead of at least -3.3 °C."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": 42,
+   "temp_c": 0.125,
+   "min_c": 0.125
+  },
+  "expected": "42 falls below its comfort minimum: 0.1 °C instead of at least 0.1 °C."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": "abc",
+   "cause": "zzz"
+  },
+  "expected": "abc is planned without its thermal model: no outdoor temperature forecast."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": 42,
+   "cause": "model"
+  },
+  "expected": "42 is planned without its thermal model: no learned model of sufficient quality yet."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": "abc",
+   "cause": "comfort"
+  },
+  "expected": "abc is planned without its thermal model: no comfort band is set."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": 42,
+   "cause": "temperature"
+  },
+  "expected": "42 is planned without its thermal model: its temperature is unknown."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": "abc",
+   "cause": "other"
+  },
+  "expected": "abc is planned without its thermal model: no outdoor temperature forecast."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": "abc",
+   "power_w": 0,
+   "price": 0
+  },
+  "expected": "abc pre-heats with 0 W of cheap grid power at 0.000/kWh (allowed in its settings)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": 42,
+   "power_w": 1,
+   "price": 1
+  },
+  "expected": "42 pre-heats with 1 W of cheap grid power at 1.000/kWh (allowed in its settings)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": "abc",
+   "power_w": 2,
+   "price": 2
+  },
+  "expected": "abc pre-heats with 2 W of cheap grid power at 2.000/kWh (allowed in its settings)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": 42,
+   "power_w": 5,
+   "price": 5
+  },
+  "expected": "42 pre-heats with 5 W of cheap grid power at 5.000/kWh (allowed in its settings)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": "abc",
+   "power_w": 21,
+   "price": 21
+  },
+  "expected": "abc pre-heats with 21 W of cheap grid power at 21.000/kWh (allowed in its settings)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5,
+   "price": 1234.5
+  },
+  "expected": "42 pre-heats with 1,234.5 W of cheap grid power at 1,234.500/kWh (allowed in its settings)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25,
+   "price": -3.25
+  },
+  "expected": "abc pre-heats with -3.25 W of cheap grid power at -3.250/kWh (allowed in its settings)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": 42,
+   "power_w": 0.125,
+   "price": 0.125
+  },
+  "expected": "42 pre-heats with 0.125 W of cheap grid power at 0.125/kWh (allowed in its settings)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 0,
+   "temp_c": 0
+  },
+  "expected": "abc stores 0 W of solar surplus as heat (0.0 °C)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": 42,
+   "power_w": 1,
+   "temp_c": 1
+  },
+  "expected": "42 stores 1 W of solar surplus as heat (1.0 °C)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 2,
+   "temp_c": 2
+  },
+  "expected": "abc stores 2 W of solar surplus as heat (2.0 °C)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": 42,
+   "power_w": 5,
+   "temp_c": 5
+  },
+  "expected": "42 stores 5 W of solar surplus as heat (5.0 °C)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 21,
+   "temp_c": 21
+  },
+  "expected": "abc stores 21 W of solar surplus as heat (21.0 °C)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5,
+   "temp_c": 1234.5
+  },
+  "expected": "42 stores 1,234.5 W of solar surplus as heat (1,234.5 °C)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25,
+   "temp_c": -3.25
+  },
+  "expected": "abc stores -3.25 W of solar surplus as heat (-3.3 °C)."
+ },
+ {
+  "lang": "en",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": 42,
+   "power_w": 0.125,
+   "temp_c": 0.125
+  },
+  "expected": "42 stores 0.125 W of solar surplus as heat (0.1 °C)."
  },
  {
   "lang": "en",
@@ -4113,9 +5386,21 @@
  },
  {
   "lang": "en",
+  "key": "safety.charge_not_charger",
+  "args": {},
+  "expected": "Only a wallbox takes a charging current; nothing was written."
+ },
+ {
+  "lang": "en",
   "key": "safety.charge_not_supported",
   "args": {},
   "expected": "EV charging control is not available yet in this version; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.charger_needs_charge",
+  "args": {},
+  "expected": "A wallbox is controlled through its charging current only; nothing was written."
  },
  {
   "lang": "en",
@@ -4190,6 +5475,148 @@
   "key": "safety.emergency_stop",
   "args": {},
   "expected": "Emergency stop is active: nothing is switched."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_battery_unlocked",
+  "args": {},
+  "expected": "Charging from the grid needs the home battery held back first (it must not discharge into the car); nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_current_range",
+  "args": {
+   "current_a": "abc",
+   "min_a": "abc",
+   "max_a": "abc"
+  },
+  "expected": "Charging current abc A is outside the wallbox's range abc–abc A."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_current_range",
+  "args": {
+   "current_a": 42,
+   "min_a": 42,
+   "max_a": 42
+  },
+  "expected": "Charging current 42 A is outside the wallbox's range 42–42 A."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_import_exception",
+  "args": {
+   "need_w": "abc",
+   "allowed_w": "abc"
+  },
+  "expected": "Charging would draw abc W, more than the allowed abc W (surplus plus the permitted grid power)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_import_exception",
+  "args": {
+   "need_w": 42,
+   "allowed_w": 42
+  },
+  "expected": "Charging would draw 42 W, more than the allowed 42 W (surplus plus the permitted grid power)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_mode_off",
+  "args": {},
+  "expected": "EV charging is set to off: SunCore does not start or raise charging."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_not_connected",
+  "args": {},
+  "expected": "No vehicle is connected: charging is not started."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_pause_unsupported",
+  "args": {},
+  "expected": "The wallbox cannot be paused (no pause switch and its current cannot go to 0 A); nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_phase_pause",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Waiting abc s around the phase switch before charging resumes."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_phase_pause",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Waiting 42 s around the phase switch before charging resumes."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_phase_switches",
+  "args": {
+   "count": "abc",
+   "limit": "abc"
+  },
+  "expected": "Phase switch limit reached (abc of abc per hour)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_phase_switches",
+  "args": {
+   "count": 42,
+   "limit": 42
+  },
+  "expected": "Phase switch limit reached (42 of 42 per hour)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_phases_charging",
+  "args": {},
+  "expected": "Phases are only switched while charging is paused."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_phases_now",
+  "args": {},
+  "expected": "No phase switch in mode \"now\" (charging continues at full power)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_phases_unknown",
+  "args": {},
+  "expected": "The wallbox's active phases are unknown: no phase switch."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_phases_unsupported",
+  "args": {},
+  "expected": "The wallbox cannot switch phases; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.ev_release_staged",
+  "args": {},
+  "expected": "The wallbox is paused first; its previous phases and current return once the phase pause has passed and §14a dimming has ended."
+ },
+ {
+  "lang": "en",
+  "key": "safety.grid_cooldown",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Not raised: the grid is back for too short a time (another abc s)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.grid_cooldown",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Not raised: the grid is back for too short a time (another 42 s)."
  },
  {
   "lang": "en",
@@ -4284,6 +5711,18 @@
   "key": "safety.inverter_limit_not_supported",
   "args": {},
   "expected": "Writing an inverter limit is not available yet in this version; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.island_battery",
+  "args": {},
+  "expected": "Not applied: in backup power (island) the battery follows its own settings."
+ },
+ {
+  "lang": "en",
+  "key": "safety.island_no_increase",
+  "args": {},
+  "expected": "Not raised: the house runs on backup power (island), no load is added."
  },
  {
   "lang": "en",
@@ -4416,6 +5855,58 @@
    "setpoint_c": 42
   },
   "expected": "Set-point changed manually to 42 °C: it is the new base value."
+ },
+ {
+  "lang": "en",
+  "key": "safety.para14a_cooldown",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Not raised: the §14a reduction ended a moment ago (another abc s)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.para14a_cooldown",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Not raised: the §14a reduction ended a moment ago (another 42 s)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.para14a_grid_charge",
+  "args": {},
+  "expected": "No grid charging: the grid operator reduces the power (§14a) or the signal is unknown."
+ },
+ {
+  "lang": "en",
+  "key": "safety.para14a_limit",
+  "args": {
+   "total_w": "abc",
+   "budget_w": "abc"
+  },
+  "expected": "Not raised: the §14a devices would draw abc W, above the allowed abc W."
+ },
+ {
+  "lang": "en",
+  "key": "safety.para14a_limit",
+  "args": {
+   "total_w": 42,
+   "budget_w": 42
+  },
+  "expected": "Not raised: the §14a devices would draw 42 W, above the allowed 42 W."
+ },
+ {
+  "lang": "en",
+  "key": "safety.para14a_unknown",
+  "args": {},
+  "expected": "Not raised: the §14a signal of the grid operator is unknown."
+ },
+ {
+  "lang": "en",
+  "key": "safety.power_unknown",
+  "args": {},
+  "expected": "Not switched on: how much power the device would draw is unknown."
  },
  {
   "lang": "en",
@@ -4695,6 +6186,12 @@
  },
  {
   "lang": "de",
+  "key": "controller.battery.ev_lock",
+  "args": {},
+  "expected": "Die Hausbatterie wird gesperrt, während das Auto aus dem Netz lädt (sie entlädt nicht ins Auto)."
+ },
+ {
+  "lang": "de",
   "key": "controller.battery.grid_charge",
   "args": {
    "power_w": "abc"
@@ -4828,6 +6325,290 @@
    "wh": 42
   },
   "expected": "Rücknahme: Der Akku hat bereits 42 Wh für gesteuerte Geräte gedeckt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.battery_wait",
+  "args": {},
+  "expected": "Wartet, bis die Hausbatterie gesperrt ist, bevor aus dem Netz geladen wird."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.inputs_unknown",
+  "args": {},
+  "expected": "Netz- oder Überschusswerte sind unbekannt: Das Laden wird nicht erhöht und fällt aufs Minimum."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.min_pv",
+  "args": {
+   "power_w": "abc"
+  },
+  "expected": "Lädt mindestens mit dem Minimum (abc W), mit Überschuss mehr."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.min_pv",
+  "args": {
+   "power_w": 42
+  },
+  "expected": "Lädt mindestens mit dem Minimum (42 W), mit Überschuss mehr."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.mode_off",
+  "args": {},
+  "expected": "Das Laden ist auf Aus gestellt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.not_connected",
+  "args": {},
+  "expected": "Kein Fahrzeug angeschlossen."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.now",
+  "args": {
+   "power_w": "abc"
+  },
+  "expected": "Lädt sofort mit voller Leistung (abc W), wenn nötig aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.now",
+  "args": {
+   "power_w": 42
+  },
+  "expected": "Lädt sofort mit voller Leistung (42 W), wenn nötig aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.phase_pause",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Das Laden pausiert abc s um die Phasenumschaltung."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.phase_pause",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Das Laden pausiert 42 s um die Phasenumschaltung."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.phase_switch",
+  "args": {
+   "phases": "abc"
+  },
+  "expected": "Die Wallbox wird auf abc Phase(n) umgeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.phase_switch",
+  "args": {
+   "phases": 42
+  },
+  "expected": "Die Wallbox wird auf 42 Phase(n) umgeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.target_grid",
+  "args": {
+   "power_w": "abc"
+  },
+  "expected": "Der Plan erlaubt jetzt abc W aus dem Netz, um das Ladeziel zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "controller.ev.target_grid",
+  "args": {
+   "power_w": 42
+  },
+  "expected": "Der Plan erlaubt jetzt 42 W aus dem Netz, um das Ladeziel zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.backup_unknown",
+  "args": {},
+  "expected": "Der Notstrom-Zustand ist unbekannt: Es wird Netzbetrieb angenommen."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.battery_island",
+  "args": {},
+  "expected": "Notstrom: Der Akku folgt seinen eigenen Einstellungen."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.battery_no_grid_charge",
+  "args": {},
+  "expected": "Jetzt kein Laden aus dem Netz: §14a-Reduzierung, unbekanntes Signal oder das Netz ist gerade erst zurück."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.battery_support",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "Der Akku darf wieder entladen: Der Netzbezug ist nahe an der Grenze von abc W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.battery_support",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "Der Akku darf wieder entladen: Der Netzbezug ist nahe an der Grenze von 42 W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.cooldown",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Warten: Das Netz ist zurück, Erhöhungen erst wieder in abc s."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.cooldown",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Warten: Das Netz ist zurück, Erhöhungen erst wieder in 42 s."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.fuse_shed",
+  "args": {
+   "grid_w": "abc",
+   "limit_w": "abc"
+  },
+  "expected": "Sofortiger Lastabwurf: Das Haus bezieht abc W, mehr als die Anschlussgrenze von abc W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.fuse_shed",
+  "args": {
+   "grid_w": 42,
+   "limit_w": 42
+  },
+  "expected": "Sofortiger Lastabwurf: Das Haus bezieht 42 W, mehr als die Anschlussgrenze von 42 W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.island",
+  "args": {},
+  "expected": "Notstrom: Das Netz ist weg, das Haus läuft mit PV und Akku."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.island_keep",
+  "args": {},
+  "expected": "Unverändert: Notstrombetrieb (Inselbetrieb), das Gerät steht auf der Behalten-Liste."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.island_shed",
+  "args": {},
+  "expected": "Ausgeschaltet: Das Haus läuft im Notstrombetrieb (Inselbetrieb)."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.para14a_active",
+  "args": {
+   "budget_w": "abc"
+  },
+  "expected": "§14a: Der Netzbetreiber reduziert die Leistung der §14a-Geräte auf abc W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.para14a_active",
+  "args": {
+   "budget_w": 42
+  },
+  "expected": "§14a: Der Netzbetreiber reduziert die Leistung der §14a-Geräte auf 42 W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.para14a_cooldown",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Warten: Die §14a-Reduzierung ist vorbei, Erhöhungen erst wieder in abc s."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.para14a_cooldown",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Warten: Die §14a-Reduzierung ist vorbei, Erhöhungen erst wieder in 42 s."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.para14a_dim",
+  "args": {
+   "budget_w": "abc"
+  },
+  "expected": "Reduziert: Der Netzbetreiber erlaubt den §14a-Geräten zusammen abc W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.para14a_dim",
+  "args": {
+   "budget_w": 42
+  },
+  "expected": "Reduziert: Der Netzbetreiber erlaubt den §14a-Geräten zusammen 42 W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.para14a_no_signal",
+  "args": {},
+  "expected": "§14a ist eingeschaltet, aber kein Signal zugeordnet: SunCore kann eine Reduzierung nicht erkennen."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.para14a_unknown",
+  "args": {},
+  "expected": "Gehalten: Das §14a-Signal des Netzbetreibers ist unbekannt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.peak_limit",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "Spitzenlast-Kappung: Bezugsgrenze in diesem Monat abc W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.peak_limit",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "Spitzenlast-Kappung: Bezugsgrenze in diesem Monat 42 W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.shed",
+  "args": {
+   "grid_w": "abc",
+   "limit_w": "abc"
+  },
+  "expected": "Lastabwurf: Das Haus bezieht abc W, mehr als die Spitzenlastgrenze von abc W."
+ },
+ {
+  "lang": "de",
+  "key": "controller.grid.shed",
+  "args": {
+   "grid_w": 42,
+   "limit_w": 42
+  },
+  "expected": "Lastabwurf: Das Haus bezieht 42 W, mehr als die Spitzenlastgrenze von 42 W."
  },
  {
   "lang": "de",
@@ -7493,6 +9274,366 @@
  },
  {
   "lang": "de",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": "abc",
+   "power_w": 0,
+   "mode": "zzz"
+  },
+  "expected": "abc lädt mit 0 W mindestens mit dem Mindeststrom (Modus Min+PV)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": 42,
+   "power_w": 1,
+   "mode": "now"
+  },
+  "expected": "42 lädt mit 1 W mit voller Leistung (Modus Sofort)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": "abc",
+   "power_w": 2,
+   "mode": "other"
+  },
+  "expected": "abc lädt mit 2 W mindestens mit dem Mindeststrom (Modus Min+PV)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": 42,
+   "power_w": 5,
+   "mode": "zzz"
+  },
+  "expected": "42 lädt mit 5 W mindestens mit dem Mindeststrom (Modus Min+PV)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": "abc",
+   "power_w": 21,
+   "mode": "now"
+  },
+  "expected": "abc lädt mit 21 W mit voller Leistung (Modus Sofort)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5,
+   "mode": "other"
+  },
+  "expected": "42 lädt mit 1.234,5 W mindestens mit dem Mindeststrom (Modus Min+PV)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25,
+   "mode": "zzz"
+  },
+  "expected": "abc lädt mit -3,25 W mindestens mit dem Mindeststrom (Modus Min+PV)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.floor",
+  "args": {
+   "device": 42,
+   "power_w": 0.125,
+   "mode": "now"
+  },
+  "expected": "42 lädt mit 0,125 W mit voller Leistung (Modus Sofort)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": "abc",
+   "power_w": 0,
+   "price": 0,
+   "time": "abc"
+  },
+  "expected": "abc lädt 0 W aus dem Netz zu 0,000/kWh, um das Ziel bis abc zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": 42,
+   "power_w": 1,
+   "price": 1,
+   "time": 42
+  },
+  "expected": "42 lädt 1 W aus dem Netz zu 1,000/kWh, um das Ziel bis 42 zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": "abc",
+   "power_w": 2,
+   "price": 2,
+   "time": "abc"
+  },
+  "expected": "abc lädt 2 W aus dem Netz zu 2,000/kWh, um das Ziel bis abc zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": 42,
+   "power_w": 5,
+   "price": 5,
+   "time": 42
+  },
+  "expected": "42 lädt 5 W aus dem Netz zu 5,000/kWh, um das Ziel bis 42 zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": "abc",
+   "power_w": 21,
+   "price": 21,
+   "time": "abc"
+  },
+  "expected": "abc lädt 21 W aus dem Netz zu 21,000/kWh, um das Ziel bis abc zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5,
+   "price": 1234.5,
+   "time": 42
+  },
+  "expected": "42 lädt 1.234,5 W aus dem Netz zu 1.234,500/kWh, um das Ziel bis 42 zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25,
+   "price": -3.25,
+   "time": "abc"
+  },
+  "expected": "abc lädt -3,25 W aus dem Netz zu -3,250/kWh, um das Ziel bis abc zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.grid_for_target",
+  "args": {
+   "device": 42,
+   "power_w": 0.125,
+   "price": 0.125,
+   "time": 42
+  },
+  "expected": "42 lädt 0,125 W aus dem Netz zu 0,125/kWh, um das Ziel bis 42 zu erreichen."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.need_unknown",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc: Der Energiebedarf des Fahrzeugs ist unbekannt (kein Ladestand oder keine Kapazität); nur die nächste Viertelstunde wird eingeplant."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.need_unknown",
+  "args": {
+   "device": 42
+  },
+  "expected": "42: Der Energiebedarf des Fahrzeugs ist unbekannt (kein Ladestand oder keine Kapazität); nur die nächste Viertelstunde wird eingeplant."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.not_connected",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc: Kein Fahrzeug angesteckt und keine Ankunft bekannt; die Wallbox wird nicht eingeplant."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.not_connected",
+  "args": {
+   "device": 42
+  },
+  "expected": "42: Kein Fahrzeug angesteckt und keine Ankunft bekannt; die Wallbox wird nicht eingeplant."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 0
+  },
+  "expected": "abc lädt mit Solarüberschuss (0 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": 42,
+   "power_w": 1
+  },
+  "expected": "42 lädt mit Solarüberschuss (1 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 2
+  },
+  "expected": "abc lädt mit Solarüberschuss (2 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": 42,
+   "power_w": 5
+  },
+  "expected": "42 lädt mit Solarüberschuss (5 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 21
+  },
+  "expected": "abc lädt mit Solarüberschuss (21 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5
+  },
+  "expected": "42 lädt mit Solarüberschuss (1.234,5 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25
+  },
+  "expected": "abc lädt mit Solarüberschuss (-3,25 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.surplus",
+  "args": {
+   "device": 42,
+   "power_w": 0.125
+  },
+  "expected": "42 lädt mit Solarüberschuss (0,125 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "need_kwh": 0,
+   "planned_kwh": 0
+  },
+  "expected": "abc erreicht das Ziel bis abc nicht: 0,0 kWh nötig, der Plan erwartet 0,0 kWh."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "need_kwh": 1,
+   "planned_kwh": 1
+  },
+  "expected": "42 erreicht das Ziel bis 42 nicht: 1,0 kWh nötig, der Plan erwartet 1,0 kWh."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "need_kwh": 2,
+   "planned_kwh": 2
+  },
+  "expected": "abc erreicht das Ziel bis abc nicht: 2,0 kWh nötig, der Plan erwartet 2,0 kWh."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "need_kwh": 5,
+   "planned_kwh": 5
+  },
+  "expected": "42 erreicht das Ziel bis 42 nicht: 5,0 kWh nötig, der Plan erwartet 5,0 kWh."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "need_kwh": 21,
+   "planned_kwh": 21
+  },
+  "expected": "abc erreicht das Ziel bis abc nicht: 21,0 kWh nötig, der Plan erwartet 21,0 kWh."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "need_kwh": 1234.5,
+   "planned_kwh": 1234.5
+  },
+  "expected": "42 erreicht das Ziel bis 42 nicht: 1.234,5 kWh nötig, der Plan erwartet 1.234,5 kWh."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "need_kwh": -3.25,
+   "planned_kwh": -3.25
+  },
+  "expected": "abc erreicht das Ziel bis abc nicht: -3,3 kWh nötig, der Plan erwartet -3,3 kWh."
+ },
+ {
+  "lang": "de",
+  "key": "planner.ev.target_shortfall",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "need_kwh": 0.125,
+   "planned_kwh": 0.125
+  },
+  "expected": "42 erreicht das Ziel bis 42 nicht: 0,1 kWh nötig, der Plan erwartet 0,1 kWh."
+ },
+ {
+  "lang": "de",
   "key": "planner.export.limit",
   "args": {
    "limit_w": 0
@@ -7911,6 +10052,220 @@
  },
  {
   "lang": "de",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 0,
+   "import_w": 0
+  },
+  "expected": "Die angeforderten Verbraucher überschreiten die Bezugsgrenze von 0 W (0 W geplant); die Sicherheitsschicht hält die Grenze ein."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 1,
+   "import_w": 1
+  },
+  "expected": "Die angeforderten Verbraucher überschreiten die Bezugsgrenze von 1 W (1 W geplant); die Sicherheitsschicht hält die Grenze ein."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 2,
+   "import_w": 2
+  },
+  "expected": "Die angeforderten Verbraucher überschreiten die Bezugsgrenze von 2 W (2 W geplant); die Sicherheitsschicht hält die Grenze ein."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 5,
+   "import_w": 5
+  },
+  "expected": "Die angeforderten Verbraucher überschreiten die Bezugsgrenze von 5 W (5 W geplant); die Sicherheitsschicht hält die Grenze ein."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 21,
+   "import_w": 21
+  },
+  "expected": "Die angeforderten Verbraucher überschreiten die Bezugsgrenze von 21 W (21 W geplant); die Sicherheitsschicht hält die Grenze ein."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 1234.5,
+   "import_w": 1234.5
+  },
+  "expected": "Die angeforderten Verbraucher überschreiten die Bezugsgrenze von 1.234,5 W (1.234,5 W geplant); die Sicherheitsschicht hält die Grenze ein."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": -3.25,
+   "import_w": -3.25
+  },
+  "expected": "Die angeforderten Verbraucher überschreiten die Bezugsgrenze von -3,25 W (-3,25 W geplant); die Sicherheitsschicht hält die Grenze ein."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.import_limit_exceeded",
+  "args": {
+   "limit_w": 0.125,
+   "import_w": 0.125
+  },
+  "expected": "Die angeforderten Verbraucher überschreiten die Bezugsgrenze von 0,125 W (0,125 W geplant); die Sicherheitsschicht hält die Grenze ein."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 0
+  },
+  "expected": "§14a EnWG: Der Netzbetreiber dimmt die steuerbaren Geräte zusammen auf 0 W; so lange kein Laden aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 1
+  },
+  "expected": "§14a EnWG: Der Netzbetreiber dimmt die steuerbaren Geräte zusammen auf 1 W; so lange kein Laden aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 2
+  },
+  "expected": "§14a EnWG: Der Netzbetreiber dimmt die steuerbaren Geräte zusammen auf 2 W; so lange kein Laden aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 5
+  },
+  "expected": "§14a EnWG: Der Netzbetreiber dimmt die steuerbaren Geräte zusammen auf 5 W; so lange kein Laden aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 21
+  },
+  "expected": "§14a EnWG: Der Netzbetreiber dimmt die steuerbaren Geräte zusammen auf 21 W; so lange kein Laden aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 1234.5
+  },
+  "expected": "§14a EnWG: Der Netzbetreiber dimmt die steuerbaren Geräte zusammen auf 1.234,5 W; so lange kein Laden aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": -3.25
+  },
+  "expected": "§14a EnWG: Der Netzbetreiber dimmt die steuerbaren Geräte zusammen auf -3,25 W; so lange kein Laden aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a",
+  "args": {
+   "budget_w": 0.125
+  },
+  "expected": "§14a EnWG: Der Netzbetreiber dimmt die steuerbaren Geräte zusammen auf 0,125 W; so lange kein Laden aus dem Netz."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.para14a_unknown",
+  "args": {},
+  "expected": "§14a EnWG: Das Steuersignal ist unbekannt; die markierten Geräte werden nicht hochgeregelt."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 0,
+   "price": 0
+  },
+  "expected": "Spitzenlast: Der Plan erwartet eine Monatsspitze von 0 W (Leistungspreis 0,00 je kW und Monat)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 1,
+   "price": 1
+  },
+  "expected": "Spitzenlast: Der Plan erwartet eine Monatsspitze von 1 W (Leistungspreis 1,00 je kW und Monat)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 2,
+   "price": 2
+  },
+  "expected": "Spitzenlast: Der Plan erwartet eine Monatsspitze von 2 W (Leistungspreis 2,00 je kW und Monat)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 5,
+   "price": 5
+  },
+  "expected": "Spitzenlast: Der Plan erwartet eine Monatsspitze von 5 W (Leistungspreis 5,00 je kW und Monat)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 21,
+   "price": 21
+  },
+  "expected": "Spitzenlast: Der Plan erwartet eine Monatsspitze von 21 W (Leistungspreis 21,00 je kW und Monat)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 1234.5,
+   "price": 1234.5
+  },
+  "expected": "Spitzenlast: Der Plan erwartet eine Monatsspitze von 1.234,5 W (Leistungspreis 1.234,50 je kW und Monat)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": -3.25,
+   "price": -3.25
+  },
+  "expected": "Spitzenlast: Der Plan erwartet eine Monatsspitze von -3,25 W (Leistungspreis -3,25 je kW und Monat)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.grid.peak",
+  "args": {
+   "peak_w": 0.125,
+   "price": 0.125
+  },
+  "expected": "Spitzenlast: Der Plan erwartet eine Monatsspitze von 0,125 W (Leistungspreis 0,13 je kW und Monat)."
+ },
+ {
+  "lang": "de",
   "key": "planner.heuristic.rules",
   "args": {},
   "expected": "Regelbasierter Plan: Akku zuerst bis zum Morgenpuffer, dann Verbraucher mit Überschuss, solange das Abendziel erreichbar bleibt; Netzladen nur, um ein Ziel zu erreichen."
@@ -8030,6 +10385,130 @@
   "key": "planner.interval.balanced",
   "args": {},
   "expected": "Nichts zu planen: Solarstrom und Verbrauch gleichen sich aus."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.deadline_infeasible",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "abc kann bis abc nicht fertig werden: Der Start ist so früh wie möglich geplant."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.deadline_infeasible",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "42 kann bis 42 nicht fertig werden: Der Start ist so früh wie möglich geplant."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.ignored",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc hat schon einen Auftrag: Ein weiterer wird eingeplant, sobald dieser fertig ist."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.ignored",
+  "args": {
+   "device": 42
+  },
+  "expected": "42 hat schon einen Auftrag: Ein weiterer wird eingeplant, sobald dieser fertig ist."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.running",
+  "args": {
+   "device": "abc",
+   "power_w": 0
+  },
+  "expected": "abc läuft (0 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.running",
+  "args": {
+   "device": 42,
+   "power_w": 1
+  },
+  "expected": "42 läuft (1 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.running",
+  "args": {
+   "device": "abc",
+   "power_w": 2
+  },
+  "expected": "abc läuft (2 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.running",
+  "args": {
+   "device": 42,
+   "power_w": 5
+  },
+  "expected": "42 läuft (5 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.running",
+  "args": {
+   "device": "abc",
+   "power_w": 21
+  },
+  "expected": "abc läuft (21 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.running",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5
+  },
+  "expected": "42 läuft (1.234,5 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.running",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25
+  },
+  "expected": "abc läuft (-3,25 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.running",
+  "args": {
+   "device": 42,
+   "power_w": 0.125
+  },
+  "expected": "42 läuft (0,125 W)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.start",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "abc startet in dieser Viertelstunde, damit es bis abc fertig ist."
+ },
+ {
+  "lang": "de",
+  "key": "planner.job.start",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "42 startet in dieser Viertelstunde, damit es bis 42 fertig ist."
  },
  {
   "lang": "de",
@@ -8396,6 +10875,291 @@
   "key": "planner.status.waiting_for_soc",
   "args": {},
   "expected": "Warte auf den Ladestand der Batterie, bevor geplant wird."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": "abc",
+   "temp_c": 0,
+   "min_c": 0
+  },
+  "expected": "abc unterschreitet das Komfortminimum: 0,0 °C statt mindestens 0,0 °C."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": 42,
+   "temp_c": 1,
+   "min_c": 1
+  },
+  "expected": "42 unterschreitet das Komfortminimum: 1,0 °C statt mindestens 1,0 °C."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": "abc",
+   "temp_c": 2,
+   "min_c": 2
+  },
+  "expected": "abc unterschreitet das Komfortminimum: 2,0 °C statt mindestens 2,0 °C."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": 42,
+   "temp_c": 5,
+   "min_c": 5
+  },
+  "expected": "42 unterschreitet das Komfortminimum: 5,0 °C statt mindestens 5,0 °C."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": "abc",
+   "temp_c": 21,
+   "min_c": 21
+  },
+  "expected": "abc unterschreitet das Komfortminimum: 21,0 °C statt mindestens 21,0 °C."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": 42,
+   "temp_c": 1234.5,
+   "min_c": 1234.5
+  },
+  "expected": "42 unterschreitet das Komfortminimum: 1.234,5 °C statt mindestens 1.234,5 °C."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": "abc",
+   "temp_c": -3.25,
+   "min_c": -3.25
+  },
+  "expected": "abc unterschreitet das Komfortminimum: -3,3 °C statt mindestens -3,3 °C."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.comfort_shortfall",
+  "args": {
+   "device": 42,
+   "temp_c": 0.125,
+   "min_c": 0.125
+  },
+  "expected": "42 unterschreitet das Komfortminimum: 0,1 °C statt mindestens 0,1 °C."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": "abc",
+   "cause": "zzz"
+  },
+  "expected": "abc wird ohne Wärmemodell geplant: keine Vorhersage der Außentemperatur."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": 42,
+   "cause": "model"
+  },
+  "expected": "42 wird ohne Wärmemodell geplant: noch kein gelerntes Modell mit ausreichender Güte."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": "abc",
+   "cause": "comfort"
+  },
+  "expected": "abc wird ohne Wärmemodell geplant: kein Komfortbereich eingestellt."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": 42,
+   "cause": "temperature"
+  },
+  "expected": "42 wird ohne Wärmemodell geplant: die Temperatur ist unbekannt."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.energy_only",
+  "args": {
+   "device": "abc",
+   "cause": "other"
+  },
+  "expected": "abc wird ohne Wärmemodell geplant: keine Vorhersage der Außentemperatur."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": "abc",
+   "power_w": 0,
+   "price": 0
+  },
+  "expected": "abc heizt mit 0 W günstigem Netzstrom zu 0,000/kWh vor (in den Einstellungen erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": 42,
+   "power_w": 1,
+   "price": 1
+  },
+  "expected": "42 heizt mit 1 W günstigem Netzstrom zu 1,000/kWh vor (in den Einstellungen erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": "abc",
+   "power_w": 2,
+   "price": 2
+  },
+  "expected": "abc heizt mit 2 W günstigem Netzstrom zu 2,000/kWh vor (in den Einstellungen erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": 42,
+   "power_w": 5,
+   "price": 5
+  },
+  "expected": "42 heizt mit 5 W günstigem Netzstrom zu 5,000/kWh vor (in den Einstellungen erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": "abc",
+   "power_w": 21,
+   "price": 21
+  },
+  "expected": "abc heizt mit 21 W günstigem Netzstrom zu 21,000/kWh vor (in den Einstellungen erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5,
+   "price": 1234.5
+  },
+  "expected": "42 heizt mit 1.234,5 W günstigem Netzstrom zu 1.234,500/kWh vor (in den Einstellungen erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25,
+   "price": -3.25
+  },
+  "expected": "abc heizt mit -3,25 W günstigem Netzstrom zu -3,250/kWh vor (in den Einstellungen erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_grid",
+  "args": {
+   "device": 42,
+   "power_w": 0.125,
+   "price": 0.125
+  },
+  "expected": "42 heizt mit 0,125 W günstigem Netzstrom zu 0,125/kWh vor (in den Einstellungen erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 0,
+   "temp_c": 0
+  },
+  "expected": "abc speichert 0 W Solarüberschuss als Wärme (0,0 °C)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": 42,
+   "power_w": 1,
+   "temp_c": 1
+  },
+  "expected": "42 speichert 1 W Solarüberschuss als Wärme (1,0 °C)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 2,
+   "temp_c": 2
+  },
+  "expected": "abc speichert 2 W Solarüberschuss als Wärme (2,0 °C)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": 42,
+   "power_w": 5,
+   "temp_c": 5
+  },
+  "expected": "42 speichert 5 W Solarüberschuss als Wärme (5,0 °C)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": "abc",
+   "power_w": 21,
+   "temp_c": 21
+  },
+  "expected": "abc speichert 21 W Solarüberschuss als Wärme (21,0 °C)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": 42,
+   "power_w": 1234.5,
+   "temp_c": 1234.5
+  },
+  "expected": "42 speichert 1.234,5 W Solarüberschuss als Wärme (1.234,5 °C)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": "abc",
+   "power_w": -3.25,
+   "temp_c": -3.25
+  },
+  "expected": "abc speichert -3,25 W Solarüberschuss als Wärme (-3,3 °C)."
+ },
+ {
+  "lang": "de",
+  "key": "planner.thermal.preheat_surplus",
+  "args": {
+   "device": 42,
+   "power_w": 0.125,
+   "temp_c": 0.125
+  },
+  "expected": "42 speichert 0,125 W Solarüberschuss als Wärme (0,1 °C)."
  },
  {
   "lang": "de",
@@ -8769,9 +11533,21 @@
  },
  {
   "lang": "de",
+  "key": "safety.charge_not_charger",
+  "args": {},
+  "expected": "Nur eine Wallbox nimmt einen Ladestrom an; nichts geschrieben."
+ },
+ {
+  "lang": "de",
   "key": "safety.charge_not_supported",
   "args": {},
   "expected": "Die Ladesteuerung für E-Autos ist in dieser Version noch nicht verfügbar; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.charger_needs_charge",
+  "args": {},
+  "expected": "Eine Wallbox wird nur über ihren Ladestrom gesteuert; nichts geschrieben."
  },
  {
   "lang": "de",
@@ -8846,6 +11622,148 @@
   "key": "safety.emergency_stop",
   "args": {},
   "expected": "Not-Aus ist aktiv: Es wird nichts geschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_battery_unlocked",
+  "args": {},
+  "expected": "Laden aus dem Netz braucht zuerst eine gesperrte Hausbatterie (sie darf nicht ins Auto entladen); nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_current_range",
+  "args": {
+   "current_a": "abc",
+   "min_a": "abc",
+   "max_a": "abc"
+  },
+  "expected": "Ladestrom abc A liegt außerhalb des Bereichs der Wallbox (abc–abc A)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_current_range",
+  "args": {
+   "current_a": 42,
+   "min_a": 42,
+   "max_a": 42
+  },
+  "expected": "Ladestrom 42 A liegt außerhalb des Bereichs der Wallbox (42–42 A)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_import_exception",
+  "args": {
+   "need_w": "abc",
+   "allowed_w": "abc"
+  },
+  "expected": "Das Laden würde abc W ziehen, mehr als die erlaubten abc W (Überschuss plus erlaubte Netzleistung)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_import_exception",
+  "args": {
+   "need_w": 42,
+   "allowed_w": 42
+  },
+  "expected": "Das Laden würde 42 W ziehen, mehr als die erlaubten 42 W (Überschuss plus erlaubte Netzleistung)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_mode_off",
+  "args": {},
+  "expected": "Das Laden ist auf Aus gestellt: SunCore startet oder erhöht das Laden nicht."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_not_connected",
+  "args": {},
+  "expected": "Kein Fahrzeug angeschlossen: Das Laden wird nicht gestartet."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_pause_unsupported",
+  "args": {},
+  "expected": "Die Wallbox kann nicht pausiert werden (kein Pause-Schalter und der Strom kann nicht auf 0 A); nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_phase_pause",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Noch abc s Pause um die Phasenumschaltung, bevor das Laden weitergeht."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_phase_pause",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Noch 42 s Pause um die Phasenumschaltung, bevor das Laden weitergeht."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_phase_switches",
+  "args": {
+   "count": "abc",
+   "limit": "abc"
+  },
+  "expected": "Grenze für Phasenumschaltungen erreicht (abc von abc pro Stunde)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_phase_switches",
+  "args": {
+   "count": 42,
+   "limit": 42
+  },
+  "expected": "Grenze für Phasenumschaltungen erreicht (42 von 42 pro Stunde)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_phases_charging",
+  "args": {},
+  "expected": "Die Phasen werden nur bei pausiertem Laden umgeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_phases_now",
+  "args": {},
+  "expected": "Im Modus „Sofort“ wird nicht umgeschaltet (es lädt mit voller Leistung weiter)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_phases_unknown",
+  "args": {},
+  "expected": "Die aktiven Phasen der Wallbox sind unbekannt: keine Phasenumschaltung."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_phases_unsupported",
+  "args": {},
+  "expected": "Die Wallbox kann die Phasen nicht umschalten; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.ev_release_staged",
+  "args": {},
+  "expected": "Die Wallbox pausiert zuerst; ihre vorherigen Phasen und ihr Strom kehren zurück, sobald die Phasenpause vorbei und die §14a-Dimmung beendet ist."
+ },
+ {
+  "lang": "de",
+  "key": "safety.grid_cooldown",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Nicht erhöht: Das Netz ist erst kurz zurück (noch abc s)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.grid_cooldown",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Nicht erhöht: Das Netz ist erst kurz zurück (noch 42 s)."
  },
  {
   "lang": "de",
@@ -8940,6 +11858,18 @@
   "key": "safety.inverter_limit_not_supported",
   "args": {},
   "expected": "Das Schreiben einer Wechselrichter-Begrenzung ist in dieser Version noch nicht verfügbar; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.island_battery",
+  "args": {},
+  "expected": "Nicht übernommen: Im Notstrombetrieb (Inselbetrieb) folgt der Akku seinen eigenen Einstellungen."
+ },
+ {
+  "lang": "de",
+  "key": "safety.island_no_increase",
+  "args": {},
+  "expected": "Nicht erhöht: Das Haus läuft im Notstrombetrieb (Inselbetrieb), es wird keine Last zugeschaltet."
  },
  {
   "lang": "de",
@@ -9072,6 +12002,58 @@
    "setpoint_c": 42
   },
   "expected": "Sollwert manuell auf 42 °C geändert: Das ist der neue Basiswert."
+ },
+ {
+  "lang": "de",
+  "key": "safety.para14a_cooldown",
+  "args": {
+   "remaining_s": "abc"
+  },
+  "expected": "Nicht erhöht: Die §14a-Reduzierung ist gerade erst zu Ende (noch abc s)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.para14a_cooldown",
+  "args": {
+   "remaining_s": 42
+  },
+  "expected": "Nicht erhöht: Die §14a-Reduzierung ist gerade erst zu Ende (noch 42 s)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.para14a_grid_charge",
+  "args": {},
+  "expected": "Kein Laden aus dem Netz: Der Netzbetreiber reduziert die Leistung (§14a) oder das Signal ist unbekannt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.para14a_limit",
+  "args": {
+   "total_w": "abc",
+   "budget_w": "abc"
+  },
+  "expected": "Nicht erhöht: Die §14a-Geräte würden abc W ziehen, mehr als die erlaubten abc W."
+ },
+ {
+  "lang": "de",
+  "key": "safety.para14a_limit",
+  "args": {
+   "total_w": 42,
+   "budget_w": 42
+  },
+  "expected": "Nicht erhöht: Die §14a-Geräte würden 42 W ziehen, mehr als die erlaubten 42 W."
+ },
+ {
+  "lang": "de",
+  "key": "safety.para14a_unknown",
+  "args": {},
+  "expected": "Nicht erhöht: Das §14a-Signal des Netzbetreibers ist unbekannt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.power_unknown",
+  "args": {},
+  "expected": "Nicht eingeschaltet: Die Leistung, die das Gerät aufnehmen würde, ist unbekannt."
  },
  {
   "lang": "de",
