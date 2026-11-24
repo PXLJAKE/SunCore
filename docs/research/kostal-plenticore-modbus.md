@@ -208,3 +208,13 @@ and **must read the value back** (modbus sensors or battery power) because a fai
 write is invisible to the caller. The heartbeat (20 s) shares the hub's lock with
 all polled entities. `UNVERIFIED` still: the fallback timer behaviour on the
 maintainer's inverter (measurement pending).
+
+### Phase 6 verification (2026-11-24): register 533 through Home Assistant
+
+`home-assistant/core` `dev`, `components/modbus/services.py`: `modbus.write_register` with a
+single `int` `value` writes one holding register (function 0x06), which matches 533 (U16 %,
+FC 0x06, §3.3). The `kostal_modbus` inverter adapter (PR 6-G) sends the percent as an `int`
+1..100 with `hub` and `slave`, re-writes it every heartbeat while it holds a limit (533 is
+volatile) and restores 100 % on release. `UNVERIFIED` still: whether 533 can be read back
+(Kostal lists only FC 0x06; without a readable modbus sensor the adapter is not built),
+whether it includes battery discharge, and its reset behaviour on the maintainer's inverter.
