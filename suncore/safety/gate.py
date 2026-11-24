@@ -138,6 +138,7 @@ from suncore.safety.inverter import (
     InverterGateConfig,
     InverterLive,
     as_limit,
+    check_takeover_baseline,
     evaluate_inverter,
 )
 from suncore.safety.inverter import lease_violations as inverter_lease_violations
@@ -1436,6 +1437,13 @@ class SafetyGate:
                     return await self._decide(
                         intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
                     )
+                refused = check_takeover_baseline(
+                    baseline, default=actuator.default_limit, static_limit_w=config.static_limit_w
+                )
+                if refused is not None:
+                    # Review A2: never take over from a value a release could not safely restore.
+                    self._limiter.release_slot(INVERTER_ASSET_ID, previous_slot)
+                    return await self._decide(intent, DecisionKind.REJECTED, now, (refused,), mode)
                 runtime = runtime.model_copy(
                     update={
                         "baseline": baseline,
@@ -1538,6 +1546,38 @@ class SafetyGate:
         held = as_limit(runtime.last_written) or as_limit(runtime.pending_action)
         if held is None:
             return None
+        reason, observed = await self._inverter_lease_reason(runtime, actuator, now)
+        if reason is not None:
+            return await self.release_device(INVERTER_ASSET_ID, reason, origin=Origin.SAFETY)
+        if observed is not None and runtime.pending_action is not None:
+            runtime = await self._inverter_settle_pending(runtime, observed)
+        confirmed = as_limit(runtime.last_written)
+        if (
+            observed is not None
+            and confirmed is not None
+            and runtime.pending_action is None
+            and not same_limit(observed, confirmed)
+        ):
+            verdict = await self._inverter_drift(actuator, runtime, confirmed, observed, now)
+            if verdict is not None:
+                return verdict
+        heartbeat = actuator.heartbeat_s
+        if (
+            heartbeat is not None
+            and confirmed is not None
+            and runtime.pending_action is None  # review A1: no beat while a write is open
+            and (
+                self._inverter_beat is None
+                or (now - self._inverter_beat).total_seconds() >= heartbeat
+            )
+        ):
+            await self._inverter_keep_alive(actuator, confirmed, now)
+        return None
+
+    async def _inverter_lease_reason(
+        self, runtime: DeviceRuntime, actuator: InverterActuator, now: datetime
+    ) -> tuple[Reason | None, InverterLimitAction | None]:
+        """Why the inverter lease ends now (``None`` = it holds) and the settled read-back."""
         reason: Reason | None = None
         if self.modes_of(INVERTER_ASSET_ID).effective is OperatingMode.SHADOW:
             reason = REASON_MODE_SHADOW
@@ -1545,10 +1585,6 @@ class SafetyGate:
             reason = self._watchdog.pause_reason(INVERTER_SCOPE, now)
         if reason is None:
             reason = actuator.refusal()
-        if reason is None:
-            ctx = self._inverter_context(held, actuator, as_limit(runtime.baseline), now)
-            violations = inverter_lease_violations(ctx)
-            reason = violations[0] if violations else None
         observed: InverterLimitAction | None = None
         settled = (
             runtime.last_write_ts is not None
@@ -1558,32 +1594,63 @@ class SafetyGate:
             observed = as_limit(await actuator.read_back())
             if observed is None:
                 reason = REASON_INVERTER_READBACK_LOST
-        if reason is not None:
-            return await self.release_device(INVERTER_ASSET_ID, reason, origin=Origin.SAFETY)
-        if (
-            observed is not None
-            and runtime.pending_action is None
-            and not same_limit(observed, held)
-        ):
-            verdict = await self._inverter_drift(actuator, runtime, observed, now)
-            if verdict is not None:
-                return verdict
-        heartbeat = actuator.heartbeat_s
-        if (
-            heartbeat is not None
-            and runtime.last_written is not None
-            and (
-                self._inverter_beat is None
-                or (now - self._inverter_beat).total_seconds() >= heartbeat
-            )
-        ):
-            await self._inverter_keep_alive(actuator, now)
-        return None
+        if reason is None:
+            # Review A1: the lease holds only while *every* limit that may be in force passes:
+            # the confirmed one, an unconfirmed attempt (it may land late) and SunCore's own
+            # earlier value the inverter shows now. The strictest of them decides about import.
+            baseline = as_limit(runtime.baseline)
+            for candidate in self._inverter_in_force(runtime, observed):
+                ctx = self._inverter_context(candidate, actuator, baseline, now)
+                violations = inverter_lease_violations(ctx)
+                if violations:
+                    reason = violations[0]
+                    break
+        return reason, observed
 
-    async def _inverter_keep_alive(self, actuator: InverterActuator, now: datetime) -> None:
+    @staticmethod
+    def _inverter_in_force(
+        runtime: DeviceRuntime, observed: InverterLimitAction | None
+    ) -> list[InverterLimitAction]:
+        """Every limit of SunCore's that may be in force in the inverter now (review A1)."""
+        limits: list[InverterLimitAction] = []
+        for value in (runtime.last_written, runtime.pending_action):
+            limit = as_limit(value)
+            if limit is not None:
+                limits.append(limit)
+        if observed is not None and any(
+            same_limit(observed, as_limit(a)) for a in runtime.attempted
+        ):
+            limits.append(observed)
+        return limits
+
+    async def _inverter_settle_pending(
+        self, runtime: DeviceRuntime, observed: InverterLimitAction
+    ) -> DeviceRuntime:
+        """An unconfirmed write after its settle time: the inverter shows it now (confirmed
+        late: it becomes the held limit) or still shows the confirmed limit (the write did not
+        land: dropped; should it land later, the drift check re-writes the confirmed one)."""
+        pending = as_limit(runtime.pending_action)
+        update: dict[str, object]
+        if same_limit(observed, pending):
+            update = {"last_written": pending, "pending_action": None, "pending_ts": None}
+        elif same_limit(observed, as_limit(runtime.last_written)):
+            update = {"pending_action": None, "pending_ts": None}
+        else:
+            return runtime
+        async with self._lock(INVERTER_ASSET_ID):
+            current = self._runtimes.get(INVERTER_ASSET_ID)
+            if current is None or current != runtime:
+                return runtime
+            settled = current.model_copy(update=update)
+            await self._save(settled)
+        return settled
+
+    async def _inverter_keep_alive(
+        self, actuator: InverterActuator, limit: InverterLimitAction, now: datetime
+    ) -> None:
         self._inverter_beat = now
         try:
-            await actuator.keep_alive()
+            await actuator.keep_alive(limit)
         except Exception as exc:
             log.warning("safety.inverter_heartbeat_failed", error=str(exc)[:200])
             await self._count_failure(INVERTER_ASSET_ID, now)
@@ -1592,6 +1659,7 @@ class SafetyGate:
         self,
         actuator: InverterActuator,
         runtime: DeviceRuntime,
+        held: InverterLimitAction,
         observed: InverterLimitAction,
         now: datetime,
     ) -> Decision | None:
@@ -1609,7 +1677,7 @@ class SafetyGate:
         )
         if own or reset:
             log.info("safety.inverter_rewrite", reset=reset, observed=observed.model_dump())
-            await self._inverter_keep_alive(actuator, now)
+            await self._inverter_keep_alive(actuator, held, now)
             if reset:
                 await self._decide(
                     Intent(

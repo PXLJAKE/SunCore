@@ -22,9 +22,12 @@ from suncore.core.inverter import (
 from suncore.core.signals import Quality
 from suncore.safety.inverter import (
     LEASE_MARGIN_SHARE,
+    NOMINAL_PER_KWP_RANGE,
     InverterContext,
     InverterGateConfig,
     InverterLive,
+    check_nominal,
+    check_takeover_baseline,
     evaluate_inverter,
     lease_violations,
     no_import_floor_w,
@@ -319,3 +322,51 @@ def test_a_limit_in_the_wrong_unit_is_refused() -> None:
         grid_state=GridState.CONNECTED,
     )
     assert "safety.inverter_capability_mismatch" in _keys(wrong)
+
+
+# --- review A2 and A4 ----------------------------------------------------------------------------
+
+
+@given(pcts, st.booleans())
+def test_a2_a_volatile_register_is_taken_over_only_at_its_default(
+    pct: float, volatile: bool
+) -> None:
+    default = InverterLimitAction(max_ac_pct=100.0) if volatile else None
+    baseline = InverterLimitAction(max_ac_pct=pct)
+    reason = check_takeover_baseline(baseline, default=default, static_limit_w=None)
+    if volatile and not same_limit(baseline, default):
+        assert reason is not None
+        assert reason.key == "safety.inverter_baseline_not_default"
+    else:
+        assert reason is None
+
+
+@given(watts, st.one_of(st.none(), watts))
+def test_a2_an_export_baseline_is_never_below_the_static_limit(
+    value: float, static: float | None
+) -> None:
+    baseline = InverterLimitAction(max_export_w=value)
+    reason = check_takeover_baseline(baseline, default=None, static_limit_w=static)
+    if reason is None:
+        assert static is None or value + EXPORT_TOLERANCE_W >= static
+    else:
+        assert reason.key == "safety.inverter_baseline_below_static"
+
+
+@given(
+    st.floats(min_value=100, max_value=100_000, allow_nan=False),
+    st.floats(min_value=0.5, max_value=50, allow_nan=False),
+)
+def test_a4_the_nominal_power_fits_the_installed_pv(nominal: float, kwp: float) -> None:
+    ctx = InverterContext(
+        requested=InverterLimitAction(max_ac_pct=50.0),
+        config=InverterGateConfig(
+            identity="inv", capability="ac_limit", nominal_ac_w=nominal, pv_kwp=kwp
+        ),
+        live=InverterLive(),
+        baseline=None,
+        limit_range=(0.0, 100.0),
+    )
+    low, high = NOMINAL_PER_KWP_RANGE
+    plausible = low * kwp * 1000 <= nominal <= high * kwp * 1000
+    assert (check_nominal(ctx) is None) == plausible

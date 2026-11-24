@@ -353,6 +353,7 @@ class ControlStack:
                 verified=inverter.config.limit_verified,
                 nominal_ac_w=inverter.config.nominal_ac_w,
                 static_limit_w=self._static_export_limit_w(),
+                pv_kwp=self._site.total_kwp if self._site is not None else None,
             )
         gate_battery: BatteryGateConfig | None = None
         if battery is not None and self.battery_driver is not None:

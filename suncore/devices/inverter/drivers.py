@@ -14,9 +14,11 @@ only logs a failed write (research ``ha-websocket-api.md`` "Modbus write action"
   code 0x06 (write single register; verified 2026-11-24 against ``home-assistant/core`` ``dev``
   ``components/modbus/services.py``, Kostal lists 0x06 for 533). The register is volatile
   (lost on an inverter reset, Kostal §3.3): the gate re-writes it every ``heartbeat_s`` while
-  its lease holds. Read-back through a ``modbus:`` YAML sensor on register 533 that the user
-  configures - **whether 533 can be read at all is ``UNVERIFIED``** (Kostal lists only FC 0x06
-  for it); without a readable sensor nothing is ever believed and the gate never takes over.
+  its lease holds, and a release always writes ``default_pct`` (100 %) - the gate takes the
+  register over only while it shows that default (review A2). Read-back through a ``modbus:``
+  YAML sensor on register 533 that the user configures - **whether 533 can be read at all is
+  ``UNVERIFIED``** (Kostal lists only FC 0x06 for it); without a readable sensor nothing is
+  ever believed and the gate never takes over.
 """
 
 from __future__ import annotations
@@ -70,6 +72,9 @@ class InverterDriver:
         self._states = states
         self._applied: InverterLimitAction | None = None
         self._context_ids: tuple[str, ...] = ()
+        self._unit: str | None = None
+        """The entity's unit of the last good read (review A5): a write while the entity is
+        unavailable converts with it; never read = no write."""
 
     # --- identity ---------------------------------------------------------------------------
 
@@ -101,6 +106,12 @@ class InverterDriver:
     def refusal(self) -> Reason | None:
         return None
 
+    @property
+    def default_limit(self) -> InverterLimitAction | None:
+        """The inverter's own default a volatile register falls back to (``None`` = not
+        volatile: the user's value is the baseline)."""
+        return None
+
     # --- reading ------------------------------------------------------------------------------
 
     def lookup(self) -> EntityStateView | None:
@@ -122,10 +133,17 @@ class InverterDriver:
         if value is None:
             return None
         if self._capability == "export_limit":
-            factor = _WATT_UNITS.get(str(view.attributes.get("unit_of_measurement", "W")))
-            return None if factor is None else value * factor
-        unit = view.attributes.get("unit_of_measurement", "%")
-        return value if unit == "%" else None
+            unit = str(view.attributes.get("unit_of_measurement", "W"))
+            factor = _WATT_UNITS.get(unit)
+            if factor is None:
+                return None
+            self._unit = unit
+            return value * factor
+        unit = str(view.attributes.get("unit_of_measurement", "%"))
+        if unit != "%":
+            return None
+        self._unit = unit
+        return value
 
     def _action(self, value: float) -> InverterLimitAction:
         if self._capability == "export_limit":
@@ -207,18 +225,21 @@ class InverterDriver:
         self._applied = action
         return context_id
 
-    async def keep_alive(self) -> None:
-        """Re-write the held limit (only while the gate's lease holds)."""
-        if self._applied is not None:
-            await self.write_value(self.value_of(self._applied))
+    async def keep_alive(self, limit: InverterLimitAction) -> None:
+        """Re-write ``limit``: the confirmed limit whose lease the gate just checked (review
+        A1 - never a later, unconfirmed attempt)."""
+        await self.write_value(self.value_of(limit))
 
     async def release(self, baseline: Action | None) -> None:
         """Give the user's own limit back: write the takeover baseline explicitly."""
         self._applied = None
+        await self.write_value(self.release_value(baseline))
+
+    def release_value(self, baseline: Action | None) -> float:
+        """The value a release writes: the takeover baseline, else the inverter's default."""
         if isinstance(baseline, InverterLimitAction):
-            await self.write_value(self.value_of(baseline))
-        else:
-            await self.write_value(self.release_default())
+            return self.value_of(baseline)
+        return self.release_default()
 
     def release_default(self) -> float:
         """What a release writes without a known baseline (the inverter's default)."""
@@ -231,10 +252,21 @@ class NumberLimitDriver(InverterDriver):
 
     async def write_value(self, value: float) -> str | None:
         view = self.lookup()
-        unit = None if view is None else str(view.attributes.get("unit_of_measurement", ""))
-        native = value
-        if self._capability == "export_limit" and unit == "kW":
-            native = value / 1000.0
+        unit = (
+            str(
+                view.attributes.get(
+                    "unit_of_measurement", "W" if self._capability == "export_limit" else "%"
+                )
+            )
+            if view is not None
+            else self._unit
+        )
+        allowed = _WATT_UNITS if self._capability == "export_limit" else {"%": 1.0}
+        if unit not in allowed:
+            # Review A5: a value in an unknown unit is never written (also not on release).
+            msg = f"the unit of {self._entity} is unknown"
+            raise WriteRefusedError(msg)
+        native = value / allowed[unit]
         return await self._call(
             "number", "set_value", data={"value": round(native, 3)}, entity_id=self._entity
         )
@@ -291,6 +323,20 @@ class ModbusLimitDriver(InverterDriver):
 
     def release_default(self) -> float:
         return self._spec.default_pct
+
+    @property
+    def default_limit(self) -> InverterLimitAction | None:
+        return (
+            InverterLimitAction(max_ac_pct=self._spec.default_pct) if self._spec.volatile else None
+        )
+
+    def release_value(self, baseline: Action | None) -> float:
+        """A volatile register always gets the inverter's default back (``default_pct``,
+        100 %), never a value read from a sensor (review A2): the gate takes over only when the
+        baseline is that default, so both are the same."""
+        if self._spec.volatile:
+            return self._spec.default_pct
+        return super().release_value(baseline)
 
 
 __all__ = [

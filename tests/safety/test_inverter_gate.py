@@ -49,6 +49,7 @@ class FakeInverter:
     applied: list[InverterLimitAction] = field(default_factory=list)
     released: list[Action | None] = field(default_factory=list)
     beats: int = 0
+    beat_values: list[InverterLimitAction] = field(default_factory=list)
     held: InverterLimitAction | None = None
 
     @property
@@ -73,10 +74,15 @@ class FakeInverter:
     def refusal(self) -> Any:
         return self.refuse
 
-    async def keep_alive(self) -> None:
+    @property
+    def default_limit(self) -> InverterLimitAction | None:
+        return BASE_PCT if self.beat is not None else None
+
+    async def keep_alive(self, limit: InverterLimitAction) -> None:
         self.beats += 1
-        if self.held is not None:
-            self.state = self.held
+        self.beat_values.append(limit)
+        if not self.silent_fail:
+            self.state = limit
 
     async def read_back(self) -> Action | None:
         return self.state
@@ -167,6 +173,8 @@ def rig(
     configured: bool = True,
     store: MemoryRuntimeStore | None = None,
     identity: str = "inv-1",
+    static_limit_w: float | None = 13_500.0,
+    pv_kwp: float | None = None,
 ) -> Rig:
     clock = FakeClock()
     inverter = inverter or FakeInverter()
@@ -182,7 +190,8 @@ def rig(
         capability=inverter.cap,
         verified=verified,
         nominal_ac_w=10_000.0,
-        static_limit_w=13_500.0,
+        static_limit_w=static_limit_w,
+        pv_kwp=pv_kwp,
     )
     gate = SafetyGate(
         clock=clock,
@@ -293,7 +302,7 @@ async def test_x5_stale_inputs_and_island_refuse_a_new_limit() -> None:
 
 
 async def test_x1_never_above_the_users_own_limit() -> None:
-    r = rig(FakeInverter(state=InverterLimitAction(max_export_w=4000.0)))
+    r = rig(FakeInverter(state=InverterLimitAction(max_export_w=4000.0)), static_limit_w=None)
     decision = await r.submit(InverterLimitAction(max_export_w=5000.0))
     assert keys(decision) == ["safety.inverter_above_baseline"]
 
@@ -498,3 +507,88 @@ async def test_a_user_value_during_the_release_is_kept() -> None:
     assert "safety.inverter_override" in keys(decision)
     assert r.inverter.released == []
     assert r.inverter.state == mine
+
+
+# --- review A1: the lease checks every limit that may be in force --------------------------------
+
+PCT60 = InverterLimitAction(max_ac_pct=60.0)
+PCT30 = InverterLimitAction(max_ac_pct=30.0)
+
+
+async def stricter_attempt_fails() -> Rig:
+    """60 % confirmed; a stricter 30 % fails its read-back (pending, may land late)."""
+    r = rig(FakeInverter(cap="ac_limit", state=BASE_PCT, beat=60.0))
+    assert (await r.submit(PCT60)).kind is DecisionKind.ACCEPTED
+    await r.tick(60)
+    r.inverter.silent_fail = True
+    decision = await r.submit(PCT30)
+    assert keys(decision) == ["safety.readback_mismatch"]
+    assert r.inverter.state == PCT60
+    return r
+
+
+async def test_a1_a_pending_stricter_limit_ends_the_lease_when_the_house_load_rises() -> None:
+    r = await stricter_attempt_fails()
+    r.at(house_w=3000.0)  # 30 % = 3000 W < 3000 + 250 W; 60 % would still pass
+    decisions = await r.tick(5)
+    assert r.inverter.released == [BASE_PCT]
+    assert any("safety.inverter_may_cause_import" in keys(d) for d in decisions)
+    assert PCT30 not in r.inverter.beat_values  # the heartbeat never wrote the attempt
+
+
+async def test_a1_no_heartbeat_while_a_write_is_open_and_only_the_confirmed_limit() -> None:
+    r = await stricter_attempt_fails()
+    for _ in range(30):
+        await r.tick(10)
+    assert r.inverter.beat_values  # the open write was dropped after its settle time ...
+    assert set(r.inverter.beat_values) == {PCT60}  # ... and only 60 % is kept alive
+    runtime = r.gate.runtime_of(INVERTER_ASSET_ID)
+    assert runtime is not None
+    assert runtime.pending_action is None
+    assert runtime.last_written == PCT60
+
+
+async def test_a1_a_late_landing_stricter_limit_is_judged_and_then_held() -> None:
+    r = await stricter_attempt_fails()
+    r.inverter.state = PCT30  # the 30 % lands late
+    r.inverter.silent_fail = False
+    await r.tick(30)
+    runtime = r.gate.runtime_of(INVERTER_ASSET_ID)
+    assert runtime is not None
+    assert runtime.last_written == PCT30  # confirmed late
+    assert runtime.pending_action is None
+    r.at(house_w=3000.0)
+    await r.tick(5)
+    assert r.inverter.released == [BASE_PCT]
+
+
+# --- review A2: takeover only from a baseline a release can restore -------------------------------
+
+
+async def test_a2_a_volatile_register_is_taken_over_only_at_its_default() -> None:
+    r = rig(FakeInverter(cap="ac_limit", state=InverterLimitAction(max_ac_pct=80.0), beat=60.0))
+    decision = await r.submit(PCT60)
+    assert decision.kind is DecisionKind.REJECTED
+    assert keys(decision) == ["safety.inverter_baseline_not_default"]
+    assert r.inverter.applied == []
+    assert r.gate.runtime_of(INVERTER_ASSET_ID) is None or not (
+        r.gate.runtime_of(INVERTER_ASSET_ID).under_control  # type: ignore[union-attr]
+    )
+
+
+async def test_a2_an_export_limit_below_the_static_limit_is_not_taken_over() -> None:
+    r = rig(FakeInverter(state=InverterLimitAction(max_export_w=8000.0)))
+    decision = await r.submit(ZERO)
+    assert keys(decision) == ["safety.inverter_baseline_below_static"]
+    assert r.inverter.applied == []
+
+
+# --- review A4: the percent base must fit the installed PV ----------------------------------------
+
+
+async def test_a4_an_implausible_nominal_power_refuses_an_ac_limit() -> None:
+    r = rig(FakeInverter(cap="ac_limit", state=BASE_PCT), pv_kwp=3.0)  # 10 kW on 3 kWp
+    decision = await r.submit(PCT60)
+    assert keys(decision) == ["safety.inverter_nominal_implausible"]
+    ok = rig(FakeInverter(cap="ac_limit", state=BASE_PCT), pv_kwp=8.0)
+    assert (await ok.submit(PCT60)).kind is DecisionKind.ACCEPTED

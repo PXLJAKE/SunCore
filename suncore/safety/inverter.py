@@ -40,6 +40,7 @@ from suncore.core.inverter import (
     capability_of,
     export_cap_w,
     looser,
+    same_limit,
 )
 from suncore.core.signals import Quality
 from suncore.safety.actuator import Actuator
@@ -85,8 +86,13 @@ class InverterActuator(Actuator, Protocol):
         """A precondition that forbids every write now (``None`` = may write)."""
         ...
 
-    async def keep_alive(self) -> None:
-        """Re-write the held limit (only while the lease holds)."""
+    @property
+    def default_limit(self) -> InverterLimitAction | None:
+        """The default a volatile register falls back to (``None`` = not volatile)."""
+        ...
+
+    async def keep_alive(self, limit: InverterLimitAction) -> None:
+        """Re-write ``limit`` - the confirmed limit the lease just checked (review A1)."""
         ...
 
 
@@ -108,6 +114,9 @@ class InverterGateConfig:
     static_limit_w: float | None = None
     """The configured static export limit (``core.grid.static_export_limit_w``)."""
     margin_w: float = NO_IMPORT_MARGIN_W
+    pv_kwp: float | None = None
+    """The installed PV peak power (``SiteConfig.total_kwp``) for the plausibility of
+    ``nominal_ac_w`` (review A4; ``None`` = not checked)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,8 +277,63 @@ def check_chain(ctx: InverterContext) -> Reason | None:
     return None
 
 
+NOMINAL_PER_KWP_RANGE: Final = (0.3, 2.0)
+"""A plausible ``nominal_ac_w`` in kW per installed kWp (review A4). A too large nominal power
+makes every percent allow less than X2 assumes; the verification test checks the base itself."""
+
+
+def check_nominal(ctx: InverterContext) -> Reason | None:
+    """X2 premise: the percent base of an AC limit fits the installed PV (rough check)."""
+    nominal, kwp = ctx.config.nominal_ac_w, ctx.config.pv_kwp
+    if ctx.requested.max_ac_pct is None or nominal is None or kwp is None or kwp <= 0:
+        return None
+    low, high = NOMINAL_PER_KWP_RANGE
+    if not low * kwp * 1000.0 <= nominal <= high * kwp * 1000.0:
+        return Reason(
+            key="safety.inverter_nominal_implausible",
+            args={"nominal_w": round(nominal), "kwp": round(kwp, 1)},
+        )
+    return None
+
+
+def check_takeover_baseline(
+    baseline: InverterLimitAction,
+    *,
+    default: InverterLimitAction | None,
+    static_limit_w: float | None,
+) -> Reason | None:
+    """Review A2: take the inverter over only from a baseline a release can safely restore.
+
+    A volatile register must show the inverter's default (a release writes that default; any
+    other value means a mis-mapped or scaled sensor, a foreign writer or a stuck own value, and
+    restoring it would throttle the inverter for good). An export limit below the static limit
+    is not the user's normal value (a stuck SunCore value or a mapping error).
+    """
+    if default is not None and not same_limit(baseline, default):
+        value = baseline.max_ac_pct if baseline.max_ac_pct is not None else baseline.max_export_w
+        default_value = (
+            default.max_ac_pct if default.max_ac_pct is not None else default.max_export_w
+        )
+        return Reason(
+            key="safety.inverter_baseline_not_default",
+            args={"value": round(value or 0.0, 1), "default": round(default_value or 0.0, 1)},
+        )
+    export = baseline.max_export_w
+    if (
+        export is not None
+        and static_limit_w is not None
+        and export < static_limit_w - EXPORT_TOLERANCE_W
+    ):
+        return Reason(
+            key="safety.inverter_baseline_below_static",
+            args={"value_w": round(export), "static_w": round(static_limit_w)},
+        )
+    return None
+
+
 _CHECKS: Final[tuple[Callable[[InverterContext], Reason | None], ...]] = (
     check_capability,
+    check_nominal,
     check_inputs,
     check_bounds,
     check_no_import,
@@ -310,6 +374,7 @@ def as_limit(action: Action | None) -> InverterLimitAction | None:
 
 __all__ = [
     "LEASE_MARGIN_SHARE",
+    "NOMINAL_PER_KWP_RANGE",
     "REASON_INVERTER_BASELINE_UNKNOWN",
     "REASON_INVERTER_CAPABILITY",
     "REASON_INVERTER_INPUTS_UNKNOWN",
@@ -326,6 +391,8 @@ __all__ = [
     "check_chain",
     "check_inputs",
     "check_no_import",
+    "check_nominal",
+    "check_takeover_baseline",
     "evaluate_inverter",
     "lease_violations",
     "no_import_floor_w",

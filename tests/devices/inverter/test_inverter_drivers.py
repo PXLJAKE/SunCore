@@ -145,8 +145,10 @@ async def test_kostal_modbus_writes_register_533_as_a_single_int() -> None:
     assert driver.heartbeat_s == 60
     assert driver.limit_range() == (1.0, 100.0)
     await driver.apply(limit(max_ac_pct=37.2))
-    await driver.keep_alive()
-    await driver.release(None)  # nothing read at takeover: the inverter's default 100 %
+    await driver.keep_alive(InverterLimitAction(max_ac_pct=37.2))
+    # Review A2: a volatile register always gets the inverter's default back, never a value
+    # read from a sensor.
+    await driver.release(InverterLimitAction(max_ac_pct=80.0))
     data = {"hub": "kostal", "slave": 71, "address": 533}
     assert ha.sent == [
         ("modbus", "write_register", {}, {**data, "value": 38}),
@@ -174,7 +176,8 @@ async def test_register_533_never_gets_less_than_asked_nor_outside_1_to_100(pct:
     assert value + 1e-9 >= pct
 
 
-async def test_keep_alive_without_a_held_limit_writes_nothing() -> None:
+async def test_keep_alive_writes_the_limit_the_gate_checked_not_the_last_attempt() -> None:
+    """Review A1: the heartbeat never re-writes a stricter, unconfirmed attempt."""
     ha = FakeHA()
     driver = create_inverter_driver(
         MODBUS,
@@ -184,8 +187,54 @@ async def test_keep_alive_without_a_held_limit_writes_nothing() -> None:
         write=ha.write,
         states=ha.lookup,
     )
-    await driver.keep_alive()
+    await driver.apply(limit(max_ac_pct=30.0))  # the stricter attempt (not confirmed)
+    await driver.keep_alive(InverterLimitAction(max_ac_pct=60.0))  # the confirmed one
+    assert [c.service_data["value"] for c in ha.calls if c.service_data] == [30, 60]
+
+
+def test_only_a_volatile_register_has_a_default() -> None:
+    ha = FakeHA()
+    modbus = create_inverter_driver(
+        MODBUS,
+        config(
+            "kostal_modbus", "ac_limit", "sensor.kostal_533", modbus=InverterModbusLink(slave=71)
+        ),
+        write=ha.write,
+        states=ha.lookup,
+    )
+    number = create_inverter_driver(
+        GENERIC,
+        config("generic_number", "export_limit", "number.export_limit"),
+        write=ha.write,
+        states=ha.lookup,
+    )
+    assert modbus.default_limit == InverterLimitAction(max_ac_pct=100.0)
+    assert number.default_limit is None
+
+
+async def test_a_number_in_an_unknown_unit_is_never_written() -> None:
+    """Review A5: unavailable at release, the unit of the last good read converts the value;
+    never read at all, nothing is written."""
+    ha = FakeHA()
+    driver = create_inverter_driver(
+        GENERIC,
+        config("generic_number", "export_limit", "number.export_limit"),
+        write=ha.write,
+        states=ha.lookup,
+    )
+    with pytest.raises(WriteRefusedError):
+        await driver.release(InverterLimitAction(max_export_w=13_500.0))
     assert ha.calls == []
+    ha.set("number.export_limit", "13.5", unit_of_measurement="kW")
+    assert await driver.read_back() == InverterLimitAction(max_export_w=13_500.0)
+    ha.set("number.export_limit", "unavailable")
+    await driver.release(InverterLimitAction(max_export_w=13_500.0))
+    assert ha.sent[-1] == (
+        "number",
+        "set_value",
+        {"entity_id": "number.export_limit"},
+        {"value": 13.5},
+    )
 
 
 async def test_the_wrong_action_or_unit_is_refused() -> None:

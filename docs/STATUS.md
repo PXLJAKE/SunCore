@@ -33,6 +33,11 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     `export_limit_zero_export`, `negative_price_curtail`, `inverter_limit_heartbeat_lost`
     (reset, lost read-back, crash and restart in the test).
     Deviations, safety self-review and questions: plan section 8 (6-G).
+  - Review conditions (PR #58): the lease checks every limit that may be in force and the
+    heartbeat re-writes only the confirmed one; takeover only from the register default or an
+    export limit not below the static limit (modbus release = 100 %); `nominal_ac_w`
+    plausibility; no write in an unknown unit. Residual risk: an AC limit (533) stays after a
+    crash or connection loss (no documented timeout) - plan question 6.
 
 - **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
