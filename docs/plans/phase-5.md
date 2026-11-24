@@ -419,3 +419,14 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   come from the planner's reference scenario (the maintainer's house), not from the demo's own
   devices. `suncore.storage.backtests` also ships the small repository (start/finish/prune to 5) so
   5-J only adds the engine.
+- **5-D:** decision 8 asks for 1 min up to 2 days, 15 min up to 31 days and at most 2 000 points;
+  both cannot hold (31 days of 15 min = 2 976 points). The series endpoint takes the finest
+  resolution the span allows that stays within 2 000 points, with an hourly step in between
+  (`1m` -> `15m` -> `1h` -> `1d`; `resolution_reason` says why), and `1m` only within the 30 days
+  the 1-minute table is kept. `layer` of the decision filter is the intent's origin (planner,
+  controller, user, safety); the `layer` column of the table is always `safety`. `q` searches the
+  device id and the stored decision (reason keys and arguments), not rendered text. Row ids and the
+  total of `/decisions` travel in headers so the list body keeps its shape. `plan/at` returns the
+  newest snapshot created at or before `ts` even when its intervals have run out
+  (`interval_index` is then `null`). The explain inputs are the raw site readings (grid, PV, house,
+  battery, SoC, the device's power and state), not a derived surplus.

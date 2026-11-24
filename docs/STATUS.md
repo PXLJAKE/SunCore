@@ -10,6 +10,20 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 – PR 5-D, WP4 history API (branch `phase-5/d-api`, on 5-C; `backend-engineer`)**:
+  - `GET /api/v1/history/{summary,series,sankey,heatmap,cycles,forecast-skill,devices}`, each with
+    `format=csv` (UTF-8, comma, dot, ISO time with the site offset, units in column names);
+    `GET /plan/at?ts=` (404 `api.error.snapshot_not_found` when pruned), `GET /plan/compare?a=&b=`
+    (snapshot ids or times), `GET /decisions` with `from`, `to`, `layer`, `reason`, `q`, `offset`,
+    `format=csv` and the headers `X-Total-Count` / `X-Decision-Ids` (row ids), and
+    `GET /decisions/{id}/explain`. Week/month/year sum the frozen `day_summary` rows; today and
+    yesterday (before the nightly job) are computed live (`DaySummaryJob.preview`).
+  - Wiring: `Services.history_sources()` returns `HistorySources` (stores, tz, clock, live day);
+    `None` -> `api.error.history_unavailable` (503). New keys in en+de; OpenAPI and `schema.d.ts`
+    regenerated. Tests: `tests/api/test_history_api.py` (demo history, DST day, empty, pruned
+    snapshot, filters, explain, validation, year read < 1 s).
+  - Deviations: see plan §8 (5-D).
+
 - **Phase 5 – PR 5-C, WP3 storage and recording (branch `phase-5/c-storage`, on 5-B; `backend-engineer`)**:
   - **Schema bump: `timeseries.db` 1 -> 2 (`day_summary`, `accuracy_day`) and `suncore.db` 4 -> 5
     (`backtest_run`). Earlier versions refuse the newer `suncore.db` and read a newer
