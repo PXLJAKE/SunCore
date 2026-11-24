@@ -22,6 +22,7 @@ const colors: ChartColors = {
   gridExport: '#7040b8',
   target: '#8a5100',
   now: '#555555',
+  batteryOut: '#c2185b',
 };
 const labels: ChartLabels = {
   pvBand: 'band',
@@ -37,6 +38,15 @@ const labels: ChartLabels = {
   morningBuffer: (p) => `morning ${p}`,
   eveningTarget: (p) => `evening ${p}`,
   now: 'now',
+  decision: 'decision',
+  actualPv: 'a-pv',
+  actualHouse: 'a-house',
+  actualGrid: 'a-grid',
+  actualBattery: 'a-battery',
+  actualSoc: 'a-soc',
+  comparedSoc: 'c-soc',
+  comparedBattery: 'c-battery',
+  laneName: (id) => `lane ${id}`,
   power: (w) => `${w} W`,
   percent: (p) => `${p} %`,
   price: (v) => String(v),

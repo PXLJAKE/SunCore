@@ -3,8 +3,12 @@
 // the translated labels. No ECharts runtime is imported here (types only), so the logic is
 // unit-testable without a canvas and stays out of the first-paint bundle.
 import type { EChartsCoreOption } from 'echarts/core';
+import type { ActualData } from './actual';
+import type { CompareSeries } from './compare';
+import { SEG_KINDS, type GanttLane, type SegKind } from './gantt';
 import type { ChartData, TargetLines } from './model';
 import { indexAt } from './model';
+import type { TimeWindow } from './target';
 
 /** Theme colours, read from the CSS variables (HA names) of the chart's container. */
 export interface ChartColors {
@@ -20,6 +24,8 @@ export interface ChartColors {
   gridExport: string;
   target: string;
   now: string;
+  /** Discharge of the battery (Gantt). */
+  batteryOut: string;
 }
 
 /** Everything the chart says, already translated and formatted for the active locale. */
@@ -37,12 +43,23 @@ export interface ChartLabels {
   morningBuffer: (pct: number) => string;
   eveningTarget: (pct: number) => string;
   now: string;
+  /** The marker of a decision (`#/plan?at=`). */
+  decision: string;
+  actualPv: string;
+  actualHouse: string;
+  actualGrid: string;
+  actualBattery: string;
+  actualSoc: string;
+  comparedSoc: string;
+  comparedBattery: string;
+  /** Name of a Gantt lane (a device name, or the battery). */
+  laneName: (id: string) => string;
   power: (w: number) => string;
   percent: (pct: number) => string;
   price: (value: number) => string;
   axisTime: (ms: number) => string;
   /** DOM content of the tooltip for the interval at `index`. */
-  tooltip: (index: number) => HTMLElement;
+  tooltip: (index: number, ms: number) => HTMLElement;
 }
 
 export interface ChartInput {
@@ -53,6 +70,15 @@ export interface ChartInput {
   labels: ChartLabels;
   /** Narrow screens need more room for the legend. */
   compact: boolean;
+  /** The time axis; defaults to the span of the plan data. */
+  window?: TimeWindow;
+  /** What was measured; drawn as wide, faint lines under the planned ones. */
+  actual?: ActualData | null;
+  lanes?: readonly GanttLane[];
+  /** Plan B of a comparison. */
+  compare?: CompareSeries | null;
+  /** The decision a link points at: its time and the interval it falls into. */
+  marker?: { atMs: number; fromMs: number; toMs: number } | null;
 }
 
 /** Colour with alpha from a CSS colour string (`#rrggbb`, `#rgb` or `rgb()`); unchanged if unknown. */
@@ -73,9 +99,125 @@ type Point = [number, number | null];
 const points = (start: readonly number[], values: readonly (number | null)[]): Point[] =>
   start.map((ms, i) => [ms, values[i] ?? null]);
 
+/** Height of one Gantt lane: its name, the planned bar and the measured bar. */
+export const LANE_HEIGHT = 48;
+const GAP = 24;
+const SOC_H = 90;
+const PRICE_H = 80;
+
+/** Rows the legend needs for `entries` names (the canvas wraps it by width). */
+const legendRows = (entries: number, compact: boolean): number =>
+  Math.ceil(entries / (compact ? 2 : 5));
+
+interface Layout {
+  gridTop: number;
+  mainH: number;
+  ganttH: number;
+  total: number;
+}
+
+function layout(compact: boolean, entries: number, laneCount: number): Layout {
+  const gridTop = 10 + legendRows(entries, compact) * 22 + 12;
+  const mainH = compact ? 190 : 230;
+  const ganttH = laneCount > 0 ? laneCount * LANE_HEIGHT + 6 : 0;
+  const panels = mainH + GAP + SOC_H + GAP + PRICE_H + (ganttH > 0 ? GAP + ganttH : 0);
+  return { gridTop, mainH, ganttH, total: gridTop + panels + 28 };
+}
+
+/** Height of the chart container in px for the layout above. */
+export function chartHeight(compact: boolean, entries = 10, laneCount = 0): number {
+  return layout(compact, entries, laneCount).total;
+}
+
+/** Number of legend names for the given extras (the container height depends on it). */
+export const legendCount = (actual: boolean, compare: boolean): number =>
+  10 + (actual ? 5 : 0) + (compare ? 2 : 0);
+
+/** Fill colour of a segment kind (planned ones are drawn outlined and lighter). */
+export function segColor(c: ChartColors, kind: SegKind): string {
+  switch (kind) {
+    case 'prefer_on':
+    case 'run':
+      return c.devices;
+    case 'allowed':
+      return withAlpha(c.devices, 0.5);
+    case 'partial':
+      return withAlpha(c.devices, 0.6);
+    case 'prefer_off':
+      return c.textSecondary;
+    case 'charge':
+      return c.battery;
+    case 'discharge':
+      return c.batteryOut;
+    case 'lock':
+      return c.target;
+  }
+}
+
+interface RenderApi {
+  value(dim: number): number;
+  coord(value: [number, number]): [number, number];
+  size(value: [number, number]): [number, number];
+}
+interface RenderParams {
+  coordSys: { x: number; y: number; width: number; height: number };
+}
+
+/** A segment as a rectangle of the lane, cut at the plot area (zoom moves it past the edges). */
+function renderSegment(c: ChartColors) {
+  return (params: RenderParams, api: RenderApi) => {
+    const cs = params.coordSys;
+    const [x0, yCentre] = api.coord([api.value(0), api.value(2)]);
+    const [x1] = api.coord([api.value(1), api.value(2)]);
+    const band = api.size([0, 1])[1];
+    const planned = api.value(3) === 0;
+    const kind = SEG_KINDS[api.value(4)] ?? 'allowed';
+    const barH = 12;
+    const top = yCentre - band / 2 + 18 + (planned ? 0 : barH + 4);
+    const left = Math.max(x0, cs.x);
+    const right = Math.min(x1, cs.x + cs.width);
+    if (right <= left) return { type: 'group', children: [] };
+    const color = segColor(c, kind);
+    return {
+      type: 'rect',
+      shape: { x: left, y: top, width: Math.max(1, right - left), height: barH, r: 2 },
+      style: planned
+        ? { fill: withAlpha(color, kind === 'allowed' ? 0.25 : 0.4), stroke: color, lineWidth: 1.5 }
+        : { fill: color },
+    };
+  };
+}
+
+/** The name of a lane, above its bars. */
+function renderLaneName(c: ChartColors, name: (lane: number) => string) {
+  return (params: RenderParams, api: RenderApi) => {
+    const cs = params.coordSys;
+    const lane = api.value(2);
+    const [, yCentre] = api.coord([api.value(0), lane]);
+    const band = api.size([0, 1])[1];
+    return {
+      type: 'text',
+      style: {
+        text: name(lane),
+        x: cs.x + 4,
+        y: yCentre - band / 2 + 2,
+        fill: c.text,
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      silent: true,
+    };
+  };
+}
+
 export function buildOption(input: ChartInput): EChartsCoreOption {
   const { data, lines, nowMs, colors: c, labels: l, compact } = input;
   const start = data.start;
+  const win = input.window ?? { fromMs: start[0] ?? 0, toMs: data.endMs };
+  const actual = input.actual ?? null;
+  const lanes = input.lanes ?? [];
+  const compare = input.compare ?? null;
+  const marker = input.marker ?? null;
   // A step line needs a closing point at the end of the last interval.
   const closed = (values: readonly (number | null)[]): Point[] => {
     const pts = points(start, values);
@@ -89,28 +231,54 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
       return lo != null && hi != null ? Math.max(0, hi - lo) : null;
     }),
   );
+  const actualClosed = (values: readonly (number | null)[]): Point[] => {
+    if (!actual) return [];
+    const pts = points(actual.times, values);
+    const end = (actual.times.at(-1) ?? 0) + actual.stepMs;
+    if (pts.length > 0) pts.push([end, null]);
+    return pts;
+  };
   const axisLabel = { color: c.textSecondary, fontSize: 11, hideOverlap: true };
-  const legendTop = 0;
-  const gridTop = compact ? 92 : 56;
-  const grids = [
-    { left: 52, right: compact ? 12 : 56, top: gridTop, height: compact ? 190 : 230 },
-    { left: 52, right: compact ? 12 : 56, top: gridTop + (compact ? 190 : 230) + 24, height: 90 },
-    {
-      left: 52,
-      right: compact ? 12 : 56,
-      top: gridTop + (compact ? 190 : 230) + 24 + 90 + 24,
-      height: 80,
-    },
+
+  const legend = [
+    l.pvBand,
+    l.pvP50,
+    l.load,
+    l.devices,
+    l.batteryPower,
+    l.gridImport,
+    l.gridExport,
+    l.soc,
+    l.importPrice,
+    l.exportPrice,
+    ...(actual ? [l.actualPv, l.actualHouse, l.actualGrid, l.actualBattery, l.actualSoc] : []),
+    ...(compare ? [l.comparedSoc, l.comparedBattery] : []),
   ];
-  const xAxis = (gridIndex: number, show: boolean) => ({
+  const lay = layout(compact, legend.length, lanes.length);
+  const right = compact ? 12 : 56;
+  const socTop = lay.gridTop + lay.mainH + GAP;
+  const priceTop = socTop + SOC_H + GAP;
+  const ganttTop = priceTop + PRICE_H + GAP;
+  const grids = [
+    { left: 52, right, top: lay.gridTop, height: lay.mainH },
+    { left: 52, right, top: socTop, height: SOC_H },
+    { left: 52, right, top: priceTop, height: PRICE_H },
+    ...(lanes.length > 0 ? [{ left: 52, right, top: ganttTop, height: lay.ganttH }] : []),
+  ];
+  const lastGrid = grids.length - 1;
+  const xAxis = (gridIndex: number) => ({
     type: 'time' as const,
     gridIndex,
-    min: start[0],
-    max: data.endMs,
+    min: win.fromMs,
+    max: win.toMs,
     axisLine: { lineStyle: { color: c.divider } },
     splitLine: { show: true, lineStyle: { color: c.divider, opacity: 0.5 } },
-    axisTick: { show },
-    axisLabel: { ...axisLabel, show, formatter: (v: number) => l.axisTime(v) },
+    axisTick: { show: gridIndex === lastGrid },
+    axisLabel: {
+      ...axisLabel,
+      show: gridIndex === lastGrid,
+      formatter: (v: number) => l.axisTime(v),
+    },
     axisPointer: { show: true, lineStyle: { color: c.textSecondary } },
   });
   const yAxis = (gridIndex: number, format: (v: number) => string, extra: object = {}) => ({
@@ -122,6 +290,7 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
     splitLine: { lineStyle: { color: c.divider, opacity: 0.5 } },
     ...extra,
   });
+  const nowInside = nowMs >= win.fromMs && nowMs <= win.toMs;
   const nowLine = {
     silent: true,
     symbol: 'none',
@@ -134,8 +303,32 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
       fontSize: 11,
       position: 'insideStartTop' as const,
     },
-    data: nowMs >= (start[0] ?? 0) && nowMs <= data.endMs ? [{ xAxis: nowMs }] : [],
+    data: [
+      ...(nowInside ? [{ xAxis: nowMs }] : []),
+      ...(marker
+        ? [
+            {
+              xAxis: marker.atMs,
+              lineStyle: { color: c.target, type: 'dashed' as const, width: 2 },
+              label: {
+                show: true,
+                formatter: l.decision,
+                color: c.text,
+                fontSize: 11,
+                position: 'insideEndTop' as const,
+              },
+            },
+          ]
+        : []),
+    ],
   };
+  const markArea = marker
+    ? {
+        silent: true,
+        itemStyle: { color: withAlpha(c.target, 0.15) },
+        data: [[{ xAxis: marker.fromMs }, { xAxis: marker.toMs }]],
+      }
+    : undefined;
   const targetLine = (value: number | null, name: string) =>
     value == null
       ? []
@@ -168,31 +361,95 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
       ),
     ],
   };
+  /** What was measured: a wide, faint line behind the thin planned one of the same colour. */
+  const actualLine = (
+    name: string,
+    gridIndex: number,
+    values: readonly (number | null)[],
+    color: string,
+    stepped = true,
+  ) => ({
+    name,
+    type: 'line',
+    xAxisIndex: gridIndex,
+    yAxisIndex: gridIndex,
+    data: stepped
+      ? actualClosed(values)
+      : points(
+          (actual?.times ?? []).map((ms) => ms + (actual?.stepMs ?? 0) / 2),
+          values,
+        ),
+    symbol: 'none',
+    step: stepped ? ('start' as const) : false,
+    z: 1,
+    lineStyle: { color, width: 5, opacity: 0.35 },
+    itemStyle: { color },
+  });
+  const comparedLine = (
+    name: string,
+    gridIndex: number,
+    data: Point[],
+    color: string,
+    stepped: boolean,
+  ) => ({
+    name,
+    type: 'line',
+    xAxisIndex: gridIndex,
+    yAxisIndex: gridIndex,
+    data,
+    symbol: 'none',
+    step: stepped ? ('start' as const) : false,
+    z: 4,
+    lineStyle: { color, width: 2, type: [6, 3] as number[] },
+    itemStyle: { color },
+  });
+
+  const laneIndex = lanes.map((_, i) => i);
+  const segData = lanes.flatMap((lane, i) =>
+    [lane.planned, lane.actual].flatMap((segs, sub) =>
+      segs.map((s) => [s.fromMs, s.toMs, i, sub, SEG_KINDS.indexOf(s.kind)]),
+    ),
+  );
+  const ganttSeries =
+    lanes.length > 0
+      ? [
+          {
+            name: 'gantt',
+            type: 'custom',
+            xAxisIndex: 3,
+            yAxisIndex: 3,
+            data: segData,
+            encode: { x: [0, 1], y: 2 },
+            renderItem: renderSegment(c),
+            z: 2,
+          },
+          {
+            name: 'gantt-names',
+            type: 'custom',
+            xAxisIndex: 3,
+            yAxisIndex: 3,
+            data: laneIndex.map((i) => [win.fromMs, win.fromMs, i]),
+            encode: { x: [0, 1], y: 2 },
+            renderItem: renderLaneName(c, (i) => l.laneName(lanes[i]?.id ?? '')),
+            silent: true,
+            z: 3,
+          },
+        ]
+      : [];
 
   return {
     animation: false,
     backgroundColor: 'transparent',
     textStyle: { color: c.text },
     legend: {
-      top: legendTop,
+      top: 0,
       left: 0,
       itemWidth: 16,
       itemHeight: 8,
       itemGap: 10,
       textStyle: { color: c.text, fontSize: 12 },
       inactiveColor: c.textSecondary,
-      data: [
-        l.pvBand,
-        l.pvP50,
-        l.load,
-        l.devices,
-        l.batteryPower,
-        l.gridImport,
-        l.gridExport,
-        l.soc,
-        l.importPrice,
-        l.exportPrice,
-      ],
+      data: legend,
     },
     tooltip: {
       trigger: 'axis',
@@ -209,27 +466,42 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
         const first = (Array.isArray(params) ? params[0] : params) as
           { axisValue?: number } | undefined;
         const ms = typeof first?.axisValue === 'number' ? first.axisValue : (start[0] ?? 0);
-        return l.tooltip(Math.max(0, indexAt(start, ms)));
+        return l.tooltip(Math.max(0, indexAt(start, ms)), ms);
       },
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
     dataZoom: [
       {
         type: 'inside',
-        xAxisIndex: [0, 1, 2],
+        xAxisIndex: grids.map((_, i) => i),
         filterMode: 'none',
         zoomOnMouseWheel: 'ctrl',
         moveOnMouseMove: true,
         moveOnMouseWheel: false,
         preventDefaultMouseMove: false,
+        minSpan: 4,
       },
     ],
     grid: grids,
-    xAxis: [xAxis(0, false), xAxis(1, false), xAxis(2, true)],
+    xAxis: grids.map((_, i) => xAxis(i)),
     yAxis: [
       yAxis(0, (v) => l.power(v)),
       yAxis(1, (v) => l.percent(v), { min: 0, max: 100, interval: 25 }),
       yAxis(2, (v) => l.price(v), { scale: true }),
+      ...(lanes.length > 0
+        ? [
+            {
+              type: 'category' as const,
+              gridIndex: 3,
+              data: laneIndex,
+              inverse: true,
+              axisLine: { show: false },
+              axisTick: { show: false },
+              axisLabel: { show: false },
+              splitLine: { show: true, lineStyle: { color: c.divider, opacity: 0.6 } },
+            },
+          ]
+        : []),
     ],
     series: [
       {
@@ -267,6 +539,7 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
         lineStyle: { color: c.pv, width: 2 },
         itemStyle: { color: c.pv },
         markLine: nowLine,
+        ...(markArea ? { markArea } : {}),
       },
       {
         name: l.load,
@@ -359,6 +632,28 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
         lineStyle: { color: c.gridExport, width: 2, type: 'dashed' },
         itemStyle: { color: c.gridExport },
       },
+      ...(actual
+        ? [
+            actualLine(l.actualPv, 0, actual.pvW, c.pv),
+            actualLine(l.actualHouse, 0, actual.houseW, c.load),
+            actualLine(l.actualGrid, 0, actual.gridW, c.gridImport),
+            actualLine(l.actualBattery, 0, actual.batteryW, c.battery),
+            actualLine(l.actualSoc, 1, actual.socPct, c.battery, false),
+          ]
+        : []),
+      ...(compare
+        ? [
+            comparedLine(
+              l.comparedSoc,
+              1,
+              start.map((ms, i): Point => [ms + intervalMs(data, i), compare.socPct[i] ?? null]),
+              c.target,
+              false,
+            ),
+            comparedLine(l.comparedBattery, 0, closed(compare.batteryW), c.target, true),
+          ]
+        : []),
+      ...ganttSeries,
     ],
   };
 }
@@ -367,9 +662,4 @@ export function buildOption(input: ChartInput): EChartsCoreOption {
 function intervalMs(data: ChartData, i: number): number {
   const next = i + 1 < data.start.length ? data.start[i + 1]! : data.endMs;
   return Math.max(0, next - data.start[i]!);
-}
-
-/** Height of the chart container in px for the layout above. */
-export function chartHeight(compact: boolean): number {
-  return (compact ? 92 : 56) + (compact ? 190 : 230) + 24 + 90 + 24 + 80 + 28;
 }
