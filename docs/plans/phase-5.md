@@ -430,3 +430,11 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   newest snapshot created at or before `ts` even when its intervals have run out
   (`interval_index` is then `null`). The explain inputs are the raw site readings (grid, PV, house,
   battery, SoC, the device's power and state), not a derived surplus.
+- **5-H:** the plan chart does not read `#/plan?at=<ts>` yet (5-F); the "Why?" panel links to it and
+  shows the plan interval itself, so the deep link only becomes a highlight once 5-F lands. The
+  date filter sends a bare date (the server reads it in the site zone); `to` is inclusive in the UI
+  and sent as the next day (exclusive on the server). The log reloads on the live feed only on the
+  first page. The old `controlApi.decisions` stays for other callers; the log uses
+  `decisionPage`. First paint is 124.7 kB of the 125 kB budget: both language catalogues sit in
+  the first-paint chunk, so every new key counts; 5-G/5-I will exceed it unless the catalogue is
+  split per language or per view (not done here).

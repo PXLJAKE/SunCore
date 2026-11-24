@@ -10,6 +10,22 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 - PR 5-H, WP9 decision log and "why" (branch `phase-5/h-decisions`, on 5-D;
+  `frontend-engineer`)**:
+  - `#/decisions` is a table (cards on phones) with filters for device, outcome, layer
+    (`intent.origin`), reason key or prefix, free text and a date range. The filters live in the
+    hash (`#/decisions?device=..&kind=..&from=..`), so a link restores them; invalid values in a
+    pasted link are dropped. Paging of 50 rows by `offset`, total from `X-Total-Count`, CSV export
+    as a plain link to `GET /decisions?format=csv` with the same filters.
+  - "Why?" per row (button, `aria-expanded`, Escape closes and returns the focus) loads
+    `GET /decisions/{id}/explain` (row id from `X-Decision-Ids`): decision, reasons, plan band and
+    expected flows of the interval, site readings, neighbouring decisions; links to the plan
+    (`#/plan?at=<ts>`), the device card (`#/?device=<id>`, scrolls and focuses the card) and the
+    log of that device.
+  - Tests: Vitest (filters, store, readings, table/panel), Playwright `decisions.spec.ts`
+    (filters, URL, CSV, keyboard, phone width, axe); screenshots `decisions-*` refreshed.
+  - Bundle: first paint 124.7 kB of 125 kB (catalogue growth), see plan section 8 (5-H).
+
 - **Phase 5 – PR 5-D, WP4 history API (branch `phase-5/d-api`, on 5-C; `backend-engineer`)**:
   - `GET /api/v1/history/{summary,series,sankey,heatmap,cycles,forecast-skill,devices}`, each with
     `format=csv` (UTF-8, comma, dot, ISO time with the site offset, units in column names);
