@@ -112,3 +112,20 @@ abbreviations,sensor,event,text}.py`, `components/sensor/const.py`) and `home-as
   topic is never configured (SunCore listens on the default `homeassistant/status`), the ingress
   URL for the device's `configuration_url` (`cu`, left out), and TLS to the Mosquitto app with
   certificate verification on (default context; a failure shows `mqtt.reason.tls_failed`).
+
+### Phase 6 (PR 6-D), commands, 2026-11-24
+
+The `home-assistant/core` source was **not reachable** in this session (the repository is not
+configured for the tools), so these are `UNVERIFIED` and used as documented on
+`home-assistant.io/integrations/mqtt`:
+
+- Command topic key `command_topic` (abbreviation `cmd_t`, listed above); `switch` publishes
+  `ON`/`OFF` by default (`payload_on`, `payload_off`), `button` `PRESS` (`payload_press`); SunCore
+  sets none of them and accepts exactly these defaults.
+- `number`: `min`, `max`, `step`, `mode` (`auto|box|slider`), `unit_of_measurement`; SunCore sends
+  `mode: box`. `entity_category: config` for the boost duration.
+- A `button` has no state topic, so none is sent for it.
+- HA publishes commands with `retain` off unless the entity sets `retain`; SunCore treats every
+  retained command as a replay and removes it with an empty retained payload.
+- `select` and `text` commands (battery strategy, EV mode, target time, program deadline) are not
+  announced yet.

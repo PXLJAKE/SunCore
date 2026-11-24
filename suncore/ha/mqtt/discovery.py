@@ -66,6 +66,10 @@ class Topology:
     """Catalogue keys the entity source can fill with values (nothing else is announced)."""
     currency: str | None = None
     version: str = "0"
+    commands: bool = False
+    """A command port is wired: the command entities of ``supported`` are announced."""
+    allow_mode_raise: bool = False
+    """``mqtt.allow_mode_raise``: only then is the "clear emergency stop" button announced."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +95,19 @@ class Topics:
     def command(self, object_id: str) -> str:
         return f"{self.base}/{object_id}/set"
 
+    @property
+    def command_filter(self) -> str:
+        """Subscription filter of every command topic (``+`` = the object id)."""
+        return f"{self.base}/+/set"
+
+    def object_id_of_command(self, topic: str) -> str | None:
+        """The object id a command topic belongs to, ``None`` for any other topic."""
+        head = f"{self.base}/"
+        if not (topic.startswith(head) and topic.endswith("/set")):
+            return None
+        object_id = topic[len(head) : -len("/set")]
+        return object_id if object_id and "/" not in object_id else None
+
     def config(self, device_object_id: str) -> str:
         return f"{self.prefix}/device/{device_object_id}/config"
 
@@ -113,10 +130,12 @@ class HaDevice:
 
 
 def _wanted(spec: EntitySpec, topology: Topology) -> bool:
-    if spec.command:
-        return False  # command entities need the command path of PR 6-D (never announced here)
+    if spec.command and not topology.commands:
+        return False  # no command port wired: command entities are not announced
     if spec.key not in topology.supported:
         return False
+    if spec.key == "emergency_stop_clear" and not topology.allow_mode_raise:
+        return False  # clearing the stop from HA is part of the opt-in (ADR-0016 decision 5)
     return not (spec.device_class == "monetary" and not topology.currency)
 
 
@@ -183,7 +202,7 @@ def render_state(spec: EntitySpec, value: object, render: Renderer) -> str:
     return str(value)
 
 
-def _component(
+def _component(  # noqa: PLR0912 - one branch per platform key
     entity: Entity,
     topics: Topics,
     topology: Topology,
@@ -202,7 +221,20 @@ def _component(
         payload["stat_t"] = topics.event
         payload["evt_typ"] = list(EVENT_TYPES)
         return payload
-    payload["stat_t"] = topics.state(entity.object_id)
+    if spec.command:
+        payload["cmd_t"] = topics.command(entity.object_id)
+    if spec.platform is not Platform.BUTTON:  # a button has no state
+        payload["stat_t"] = topics.state(entity.object_id)
+    if spec.platform is Platform.NUMBER:
+        if spec.unit is not None:
+            payload["unit_of_meas"] = spec.unit
+        if spec.min_value is not None:
+            payload["min"] = spec.min_value
+        if spec.max_value is not None:
+            payload["max"] = spec.max_value
+        if spec.step is not None:
+            payload["step"] = spec.step
+        payload["mode"] = "box"
     if spec.platform is Platform.SENSOR:
         if spec.device_class is not None:
             payload["dev_cla"] = spec.device_class

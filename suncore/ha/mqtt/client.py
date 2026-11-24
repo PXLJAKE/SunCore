@@ -63,7 +63,8 @@ def classify_error(exc: BaseException) -> str:
     return "mqtt.reason.unknown"
 
 
-OnMessage = Callable[[str, bytes], Awaitable[None] | None]
+OnMessage = Callable[[str, bytes, bool], Awaitable[None] | None]
+"""``(topic, payload, retain)``; ``retain`` is the broker's retained flag (a replay)."""
 OnLink = Callable[[LinkState, str | None], None]
 
 
@@ -135,7 +136,9 @@ class MqttClient:
                     self._on_link(LinkState.CONNECTED, None)
                     await self._on_connected()
                     async for message in client.messages:
-                        result = self._on_message(message.topic.value, bytes(message.payload))
+                        result = self._on_message(
+                            message.topic.value, bytes(message.payload), bool(message.retain)
+                        )
                         if result is not None:
                             await result
                     reason = "mqtt.reason.connect_refused"

@@ -86,7 +86,6 @@ async def test_every_supported_key_exists_in_the_catalogue() -> None:
     from suncore.ha.mqtt.catalogue import spec_by_key  # noqa: PLC0415
 
     assert all(spec_by_key(k) is not None for k in SUPPORTED)
-    assert all(not spec_by_key(k).command for k in SUPPORTED)  # type: ignore[union-attr]
 
 
 async def test_events_follow_new_decisions(demo_runtime: Runtime) -> None:

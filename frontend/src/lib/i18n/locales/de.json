@@ -1749,5 +1749,14 @@
   "mqtt.state.battery_action.hold": "Halten",
   "mqtt.state.battery_lease.none": "Eigene Einstellungen",
   "mqtt.state.battery_lease.held": "Von SunCore gehalten",
-  "mqtt.state.battery_lease.released": "Zurückgegeben"
+  "mqtt.state.battery_lease.released": "Zurückgegeben",
+  "mqtt.command.accepted": "Befehl von Home Assistant für {entity} ausgeführt.",
+  "mqtt.command.unchanged": "Befehl von Home Assistant für {entity} hat nichts geändert: Der Zustand war schon so.",
+  "mqtt.command.invalid_payload": "Ein Befehl von Home Assistant wurde ignoriert: Der Inhalt ist für diese Entity nicht gültig.",
+  "mqtt.command.out_of_range": "Ein Befehl von Home Assistant wurde ignoriert: Der Wert liegt außerhalb des erlaubten Bereichs.",
+  "mqtt.command.rate_limited": "Ein Befehl von Home Assistant wurde ignoriert: zu viele Befehle in kurzer Zeit.",
+  "mqtt.command.retained_ignored": "Ein gespeicherter (retained) Befehl von Home Assistant wurde ignoriert und vom Broker entfernt.",
+  "mqtt.command.unknown_entity": "Ein Befehl von Home Assistant wurde ignoriert: SunCore hat keine solche Befehls-Entity.",
+  "mqtt.command.failed": "Ein Befehl von Home Assistant ist fehlgeschlagen ({error}); nichts wurde geändert.",
+  "safety.mqtt_mode_raise_disabled": "Home Assistant darf den Betriebsmodus nicht anheben und den Not-Aus nicht aufheben: Das ist in den SunCore-Einstellungen ausgeschaltet. Mach es im SunCore-Panel oder erlaube es dort."
 }

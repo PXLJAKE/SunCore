@@ -21,7 +21,7 @@ import json
 import random
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Final, Protocol
 
 import structlog
@@ -35,6 +35,7 @@ from suncore.ha.mqtt.broker import (
     lookup_broker,
 )
 from suncore.ha.mqtt.client import LinkState, MqttClient, Will
+from suncore.ha.mqtt.commands import CommandHandler, CommandPort
 from suncore.ha.mqtt.discovery import (
     BIRTH_PAYLOAD,
     BIRTH_TOPIC,
@@ -109,6 +110,8 @@ class _Session:
     devices: list[HaDevice] = field(default_factory=list)
     published: set[str] = field(default_factory=set)
     birth_task: asyncio.Task[None] | None = None
+    commands: CommandHandler | None = None
+    allow_mode_raise: bool = False
 
 
 class HaEntityService:
@@ -119,6 +122,7 @@ class HaEntityService:
         load_config: Callable[[], Awaitable[MqttConfig | None]],
         store: InstallStore,
         services: SupervisorServices | None,
+        commands: CommandPort | None = None,
         client_factory: Callable[..., Any] | None = None,
         retry_s: float = RETRY_S,
         poll_s: float = SYNC_POLL_S,
@@ -131,6 +135,7 @@ class HaEntityService:
         self._load_config = load_config
         self._store = store
         self._services = services
+        self._commands = commands
         self._client_factory = client_factory
         self._retry_s = retry_s
         self._poll_s = poll_s
@@ -220,7 +225,12 @@ class HaEntityService:
             publisher=None,  # type: ignore[arg-type]
             settings=settings,
             published=set(record.published),
+            allow_mode_raise=config.allow_mode_raise,
         )
+        if self._commands is not None:
+            session.commands = CommandHandler(
+                self._commands, allow_mode_raise=config.allow_mode_raise, clock=self._clock
+            )
         factory: dict[str, Any] = (
             {} if self._client_factory is None else {"client_factory": self._client_factory}
         )
@@ -228,9 +238,14 @@ class HaEntityService:
             settings,
             client_id=f"suncore-{record.iid}",
             will=Will(topics.status, PAYLOAD_OFFLINE, qos=1, retain=True),
-            subscriptions=[(BIRTH_TOPIC, 1)],
+            subscriptions=[
+                (BIRTH_TOPIC, 1),
+                *([(topics.command_filter, 1)] * (self._commands is not None)),
+            ],
             on_connected=lambda: self._connected(session),
-            on_message=lambda topic, payload: self._message(session, topic, payload),
+            on_message=lambda topic, payload, retain: self._message(
+                session, topic, payload, retain
+            ),
             on_link=lambda link, reason: self._link(session, lookup, link, reason),
             **factory,
         )
@@ -296,12 +311,35 @@ class HaEntityService:
         await session.client.publish(session.topics.status, PAYLOAD_ONLINE, 1, True)
         await self._announce(session)
 
-    async def _message(self, session: _Session, topic: str, payload: bytes) -> None:
+    async def _message(
+        self, session: _Session, topic: str, payload: bytes, retain: bool = False
+    ) -> None:
+        object_id = session.topics.object_id_of_command(topic)
+        if object_id is not None:
+            await self._command(session, topic, object_id, payload, retain)
+            return
         if topic != BIRTH_TOPIC or payload.decode("utf-8", "replace").strip() != BIRTH_PAYLOAD:
             return
         if session.birth_task is not None:
             session.birth_task.cancel()
         session.birth_task = asyncio.create_task(self._after_birth(session))
+
+    async def _command(
+        self, session: _Session, topic: str, object_id: str, payload: bytes, retain: bool
+    ) -> None:
+        handler = session.commands
+        if handler is None:
+            return
+        if not retain and not payload:
+            return  # the broker's echo of a cleared retained command
+        result = await handler.handle(object_id, payload, retain=retain)
+        if retain:
+            # A retained command would replay at every connect: remove it from the broker.
+            await session.client.publish(topic, "", 1, True)
+        session.publisher.forget(object_id)
+        self.refresh()  # the true state (also after a refusal) goes out at the next sync
+        if result.refused and not retain:
+            log.info("mqtt.command_refused", entity=object_id, reason=result.reason.key)
 
     async def _after_birth(self, session: _Session) -> None:
         await asyncio.sleep(self._rng(*self._birth_delay))
@@ -309,10 +347,20 @@ class HaEntityService:
 
     # --- announcing and states -------------------------------------------------------
 
+    def _topology(self, session: _Session) -> Topology:
+        """The source's topology plus what the session knows (command port, opt-in)."""
+        return replace(
+            self._source.topology(),
+            commands=self._commands is not None,
+            allow_mode_raise=session.allow_mode_raise,
+        )
+
     def _fingerprint(self, topology: Topology, language: str) -> str:
         return json.dumps(
             [
                 language,
+                topology.commands,
+                topology.allow_mode_raise,
                 topology.currency,
                 topology.has_battery,
                 sorted(topology.supported),
@@ -322,12 +370,16 @@ class HaEntityService:
         )
 
     async def _announce(self, session: _Session) -> None:
-        topology = self._source.topology()
+        topology = self._topology(session)
         language = self._source.language()
         catalogue = load_catalogue(language)
         render = catalogue.render
         devices = build_devices(session.iid, topology, render)
         session.devices = devices
+        if session.commands is not None:
+            session.commands.bind(
+                (e.spec, e.object_id) for d in devices for e in d.entities if e.spec.command
+            )
         session.fingerprint = self._fingerprint(topology, language)
         for device in devices:
             payload = device_payload(session.iid, device, session.topics, topology, render)
@@ -355,7 +407,9 @@ class HaEntityService:
             log.exception("mqtt.install_record_not_saved")
 
     async def _sync(self, session: _Session, render: Callable[..., str]) -> None:
-        values = self._source.values()
+        values = dict(self._source.values())
+        if session.commands is not None:
+            values.update(session.commands.local_values())
         items: list[StateItem] = []
         for device in session.devices:
             for entity in device.entities:
@@ -393,7 +447,7 @@ class HaEntityService:
                 continue
             try:
                 language = self._source.language()
-                topology = self._source.topology()
+                topology = self._topology(session)
                 if self._fingerprint(topology, language) != session.fingerprint:
                     await self._announce(session)
                 else:

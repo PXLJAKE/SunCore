@@ -3,8 +3,9 @@
 
 Object ids are stable: they form the ``unique_id`` and the topics. Names are rendered from
 ``mqtt.entity.<key>.name`` in the backend language; enum states from ``mqtt.state.<group>.<value>``.
-Entities with ``command=True`` need a command topic and are announced only from PR 6-D on; the
-read-only entities are announced when the entity source supports their ``key``.
+Entities with ``command=True`` get a command topic and are announced only when the entity source
+supports their ``key`` and a command port is wired (PR 6-D); the read-only entities are announced
+when the entity source supports their ``key``.
 
 The catalogue deliberately has **no energy-class sensors** that mirror the site meters (BRIEF
 section 4.13: no double counting in the Energy dashboard).
@@ -60,6 +61,10 @@ class EntitySpec:
     deadband_abs: float = 0.0
     deadband_rel: float = 0.0
     precision: int | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    step: float | None = None
+    """Number entities: the range the command handler enforces and HA's slider shows."""
 
     def object_id(self, device_id: str | None = None) -> str:
         if self.scope is Scope.DEVICE:
@@ -229,7 +234,18 @@ DEVICE_ENTITIES: Final[tuple[EntitySpec, ...]] = (
     _device("device_boost", Platform.BUTTON, "boost", command=True),
     _device("device_pause", Platform.BUTTON, "pause", command=True),
     _device("device_resume", Platform.BUTTON, "resume", command=True),
-    _device("device_boost_minutes", Platform.NUMBER, "boost_minutes", command=True),
+    _device(
+        "device_boost_minutes",
+        Platform.NUMBER,
+        "boost_minutes",
+        unit="min",
+        entity_category="config",
+        command=True,
+        precision=0,
+        min_value=1,
+        max_value=1440,
+        step=1,
+    ),
     _device("ev_mode", Platform.SELECT, "ev_mode", {DeviceKind.WALLBOX}, command=True),
     _device(
         "target_soc", Platform.NUMBER, "target_soc", {DeviceKind.WALLBOX}, unit="%", command=True

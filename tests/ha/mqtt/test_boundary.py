@@ -39,6 +39,11 @@ FORBIDDEN_CALLS = frozenset(
         "set_battery_mode",
         "confirm_proposal",
         "put_section",
+        "submit",
+        "hold",
+        "dismiss_proposal",
+        "set_section",
+        "restore_section",
     }
 )
 FORBIDDEN_IMPORTS = (
@@ -79,6 +84,39 @@ def test_mqtt_package_imports_only_core_i18n_and_the_ha_package(path: Path) -> N
             names = [node.module]
         for name in names:
             assert not name.startswith(FORBIDDEN_IMPORTS), f"{path.name} imports {name}"
+
+
+def test_commands_reach_the_system_only_through_the_command_port() -> None:
+    """Every call on the injected port is a ``command_*`` or ``stored_*`` method (PR 6-D)."""
+    tree = ast.parse((MQTT / "commands.py").read_text(encoding="utf-8"))
+    used: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "port"
+        ) or (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "_port"
+        ):
+            used.add(node.attr)
+    assert used
+    assert all(name.startswith(("command_", "stored_")) for name in used), used
+
+
+def test_the_app_command_port_calls_only_service_methods() -> None:
+    """``RuntimeCommandPort`` forwards to the application services (what the web UI calls) and
+    never reaches the gate, the stack, a driver or the write function."""
+    path = PACKAGE / "app" / "ha_entities.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    port = next(
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "RuntimeCommandPort"
+    )
+    banned = {"gate", "stack", "apply", "release", "submit", "hold", "resume", "put_section"}
+    for node in ast.walk(port):
+        if isinstance(node, ast.Attribute):
+            assert node.attr not in banned, f"RuntimeCommandPort uses .{node.attr}"
 
 
 def test_the_only_supervisor_rest_url_is_the_mqtt_service() -> None:

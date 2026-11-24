@@ -24,7 +24,7 @@ class Probe:
     async def on_connected(self) -> None:
         self.connected += 1
 
-    def on_message(self, topic: str, payload: bytes) -> None:
+    def on_message(self, topic: str, payload: bytes, _retain: bool = False) -> None:
         self.messages.append((topic, payload))
 
     def on_link(self, link: LinkState, reason: str | None) -> None:

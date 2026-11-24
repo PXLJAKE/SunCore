@@ -715,3 +715,65 @@ detection; CO₂ weighting.
   image's `--only-binary --require-hashes` install is unaffected. CI's smoke job covers it.
 - `UNVERIFIED`: `get_config` language key, custom HA birth topic, monetary unit rule, TLS to the
   Mosquitto app with verification (see `docs/research/mqtt-discovery.md`).
+
+### 6-D (MQTT commands)
+
+- **Scope: the commands that have a service today.** Announced: `auto`, `replan`,
+  `emergency_stop_button`, `emergency_stop_clear`, and per device `<dev>_auto`, `<dev>_boost`,
+  `<dev>_pause`, `<dev>_resume`, `<dev>_boost_minutes`. Not announced (catalogue entries stay):
+  `battery_strategy`, `battery_reserve`, `battery_evening_target` (a config edit of the `battery`
+  and `goals` sections through `put_section`; it rebuilds the control stack and needs the author
+  `mqtt` in the config history, which the history table does not have, so it follows with a
+  schema-free solution decided by the maintainer, see question 17), EV, comfort and program
+  entities (6-I, 6-K, 6-L, no service yet). `select` and `text` parsing is therefore not written.
+- **`auto` switch semantics:** state = the *stored* mode is `automatic` (global, or the device's own
+  stored mode; the effective mode is `min(global, device)` and is shown by the mode sensor).
+  `ON` raises to `automatic`, `OFF` lowers to `shadow` (not to `assisted`: the least autonomous
+  state is the safe reading of "off"). A device raise sends the device's *current* identity token
+  (`DeviceControlState.identity`), which is what the opt-in means; a re-mapped device is not
+  protected by the token here, only by the opt-in.
+- **"Back to normal"** is read as: `resume` (gives the device back to SunCore), `OFF` (shadow) and
+  the emergency stop; they always work. Clearing the emergency stop is a raise (ADR-0016
+  decision 5, plan decision 2) and needs the opt-in; its button is announced only then.
+- **Rate limits:** per entity 1 token/s, burst 3; over all entities 20 commands per 10 s; the
+  emergency stop is exempt from both. Commands are handled in the MQTT task, never in the control
+  tick; every service call is bounded by those limits.
+- **No persistent notification yet** (6-E owns notifications): a refusal is logged with its
+  `Reason` (`safety.mqtt_mode_raise_disabled`, `mqtt.command.*`) and the true state is
+  republished; the notification hook follows in 6-E.
+- **No config author `mqtt`** (no config command exists yet); mode changes are stored through the
+  same `operation` path as the panel's.
+- **No API change** (the plan title says `feat(ha,api)`): the status endpoint is unchanged; the
+  decision log is the structured log (`mqtt.command`, with entity, accepted, reason, args).
+- **`MqttClient.on_message`** now receives the broker's retain flag as third argument.
+- **Boost duration** (`<dev>_boost_minutes`) is held in memory (default 60, 1..1440) and sent
+  with the boost press; it is not stored across restarts.
+- **`UNVERIFIED`:** the default payloads and number keys listed in the research note (HA source was
+  not reachable); that HA sends commands with retain off.
+
+**Safety self-review (6-D), for the `control-safety` review**
+
+| # | Requirement | Where | Evidence |
+|---|---|---|---|
+| S1 | A command reaches the system only through the services layer, never a device | `commands.py` talks to `CommandPort`; `RuntimeCommandPort` calls `Runtime` methods | `test_commands_reach_the_system_only_through_the_command_port`, `test_the_app_command_port_calls_only_service_methods`, boundary list extended (`submit`, `hold`, ...) |
+| S2 | No `apply()`, no direct gate access | same | `test_mqtt_package_never_calls_a_write_path`; port test bans `gate`, `stack`, `apply`, `put_section` |
+| S3 | Raising autonomy refused by default | `_mode`, `emergency_stop_clear` | `test_raising_a_mode_is_refused_by_default`, `test_clearing_the_emergency_stop_is_refused_by_default`, runtime e2e |
+| S4 | Emergency stop and lowering always work, even flooded | exempt from limits, no opt-in check | `test_emergency_stop_is_never_rate_limited`, `test_emergency_stop_and_resume_work_with_the_opt_in_off`, `test_lowering_always_works_and_goes_to_shadow` |
+| S5 | Payloads validated | `_parse`: exact `ON`/`OFF`/`PRESS`, finite numbers, range, integer, 64 bytes, UTF-8 | parametrised invalid/oversize/binary tests |
+| S6 | Rate limited, no tick delay | token bucket plus global window, handled in the MQTT task | flood tests (unit, broker, 200 messages and the state sync keeps running) |
+| S7 | Retained commands ignored | `retain` flag, removal from the broker | `test_a_retained_command_is_ignored_and_removed` |
+| S8 | Unknown or unannounced entities ignored | target map built from the announced entities only | `test_unknown_object_ids_are_refused`, `test_garbage_is_ignored` |
+| S9 | A decision/Reason per command | `mqtt.command` log with `Reason(key, args)`; keys in en/de catalogue | all result tests; catalogue check |
+| S10 | The true state is republished after a command | `StatePublisher.forget` + sync | `test_raise_is_refused_and_the_true_state_is_republished` |
+| S11 | A failing service never kills the session | `except Exception` in `_handle` | `test_a_failing_service_call_is_a_refusal_not_an_exception` |
+
+Residual risks: anyone with broker credentials can still stop SunCore, pause devices and lower
+modes (by design; stopping is always safe); with the opt-in on, a broker client can arm devices
+(R1, documented, default off); the opt-in is checked against the config loaded at session start
+(a change reconnects the session).
+
+**New question for the maintainer (17):** Batterie-Strategie, -Reserve und Abend-Ziel als
+HA-Entities brauchen eine Konfigurationsänderung durch HA. Soll ich dafür den Verlauf der
+Konfiguration um einen „Urheber“ (`mqtt`) erweitern (eine kleine Migration) oder reichen die
+Betriebsmodi und der Not-Aus aus HA vorerst? **Empfehlung:** vorerst nur Modi und Not-Aus; die
+Batterie-Einstellungen bleiben im Panel.

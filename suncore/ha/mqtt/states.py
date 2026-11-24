@@ -60,6 +60,11 @@ class StatePublisher:
         self._last.clear()
         self.pending = False
 
+    def forget(self, object_id: str) -> None:
+        """Publish this entity's state at the next sync, whatever it was before (after a
+        command, so HA shows the true state at once, also past the per-entity rate limit)."""
+        self._last.pop(object_id, None)
+
     @staticmethod
     def _moved(item: StateItem, last: _Last) -> bool:
         if item.payload == last.payload:

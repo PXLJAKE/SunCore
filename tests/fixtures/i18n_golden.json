@@ -1155,6 +1155,84 @@
  },
  {
   "lang": "en",
+  "key": "mqtt.command.accepted",
+  "args": {
+   "entity": "abc"
+  },
+  "expected": "Home Assistant command for abc carried out."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.accepted",
+  "args": {
+   "entity": 42
+  },
+  "expected": "Home Assistant command for 42 carried out."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.failed",
+  "args": {
+   "error": "abc"
+  },
+  "expected": "A Home Assistant command failed (abc); nothing was changed."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.failed",
+  "args": {
+   "error": 42
+  },
+  "expected": "A Home Assistant command failed (42); nothing was changed."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.invalid_payload",
+  "args": {},
+  "expected": "A Home Assistant command was ignored: the payload is not valid for this entity."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.out_of_range",
+  "args": {},
+  "expected": "A Home Assistant command was ignored: the value is outside the allowed range."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.rate_limited",
+  "args": {},
+  "expected": "A Home Assistant command was ignored: too many commands in a short time."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.retained_ignored",
+  "args": {},
+  "expected": "A retained Home Assistant command was ignored and removed from the broker."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.unchanged",
+  "args": {
+   "entity": "abc"
+  },
+  "expected": "Home Assistant command for abc changed nothing: it was already in that state."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.unchanged",
+  "args": {
+   "entity": 42
+  },
+  "expected": "Home Assistant command for 42 changed nothing: it was already in that state."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.command.unknown_entity",
+  "args": {},
+  "expected": "A Home Assistant command was ignored: SunCore has no such command entity."
+ },
+ {
+  "lang": "en",
   "key": "mqtt.device.battery",
   "args": {
    "name": "abc"
@@ -4361,6 +4439,12 @@
  },
  {
   "lang": "en",
+  "key": "safety.mqtt_mode_raise_disabled",
+  "args": {},
+  "expected": "Home Assistant may not raise the operating mode or clear the emergency stop: this is switched off in the SunCore settings. Do it in the SunCore panel, or allow it there."
+ },
+ {
+  "lang": "en",
   "key": "safety.no_actuator",
   "args": {},
   "expected": "No driver is registered for this device."
@@ -5808,6 +5892,84 @@
   "key": "grid.sensors",
   "args": {},
   "expected": "Netzsensoren"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.accepted",
+  "args": {
+   "entity": "abc"
+  },
+  "expected": "Befehl von Home Assistant für abc ausgeführt."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.accepted",
+  "args": {
+   "entity": 42
+  },
+  "expected": "Befehl von Home Assistant für 42 ausgeführt."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.failed",
+  "args": {
+   "error": "abc"
+  },
+  "expected": "Ein Befehl von Home Assistant ist fehlgeschlagen (abc); nichts wurde geändert."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.failed",
+  "args": {
+   "error": 42
+  },
+  "expected": "Ein Befehl von Home Assistant ist fehlgeschlagen (42); nichts wurde geändert."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.invalid_payload",
+  "args": {},
+  "expected": "Ein Befehl von Home Assistant wurde ignoriert: Der Inhalt ist für diese Entity nicht gültig."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.out_of_range",
+  "args": {},
+  "expected": "Ein Befehl von Home Assistant wurde ignoriert: Der Wert liegt außerhalb des erlaubten Bereichs."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.rate_limited",
+  "args": {},
+  "expected": "Ein Befehl von Home Assistant wurde ignoriert: zu viele Befehle in kurzer Zeit."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.retained_ignored",
+  "args": {},
+  "expected": "Ein gespeicherter (retained) Befehl von Home Assistant wurde ignoriert und vom Broker entfernt."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.unchanged",
+  "args": {
+   "entity": "abc"
+  },
+  "expected": "Befehl von Home Assistant für abc hat nichts geändert: Der Zustand war schon so."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.unchanged",
+  "args": {
+   "entity": 42
+  },
+  "expected": "Befehl von Home Assistant für 42 hat nichts geändert: Der Zustand war schon so."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.command.unknown_entity",
+  "args": {},
+  "expected": "Ein Befehl von Home Assistant wurde ignoriert: SunCore hat keine solche Befehls-Entity."
  },
  {
   "lang": "de",
@@ -9014,6 +9176,12 @@
   "key": "safety.mode_shadow",
   "args": {},
   "expected": "Modus auf Schatten geändert: Das Gerät wurde in den vorherigen Zustand zurückgesetzt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.mqtt_mode_raise_disabled",
+  "args": {},
+  "expected": "Home Assistant darf den Betriebsmodus nicht anheben und den Not-Aus nicht aufheben: Das ist in den SunCore-Einstellungen ausgeschaltet. Mach es im SunCore-Panel oder erlaube es dort."
  },
  {
   "lang": "de",

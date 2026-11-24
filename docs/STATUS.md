@@ -3,13 +3,34 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PR 6-C MQTT base and backend ICU) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PR 6-D MQTT commands) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
 **Branch:** `claude/project-thread-7gkqcr`
 
 ## Done
+
+- **Phase 6 - PR 6-D, WP4 MQTT commands (branch `phase-6/d-mqtt-commands`, on 6-C;
+  `ha-integration`, `control-safety` review pending)** - Home Assistant can now command SunCore,
+  only through the services layer:
+  - `suncore/ha/mqtt/commands.py`: parse (`ON`/`OFF`, `PRESS`, finite numbers in range, at most
+    64 bytes), rate limit (1/s per entity, burst 3, 20 per 10 s over all; the emergency stop is
+    exempt), the mode-raise rule, one `CommandPort` call per command, a `Reason` per outcome in the
+    log; retained commands are ignored and removed from the broker; the true state is republished
+    after every command (also after a refusal).
+  - `app/ha_entities.py` `RuntimeCommandPort`: forwards to `Runtime.set_global_mode`,
+    `set_device_mode`, `emergency_stop`, `clear_emergency_stop`, `override_device`, `replan` (the
+    methods of the REST API). Never `apply()`, never the gate directly (boundary tests).
+  - Announced command entities: `auto`, `replan`, `emergency_stop_button`,
+    `emergency_stop_clear` (only with `mqtt.allow_mode_raise`), per device `<dev>_auto`,
+    `<dev>_boost`, `<dev>_pause`, `<dev>_resume`, `<dev>_boost_minutes`.
+  - Raising (`auto` ON, clearing the emergency stop) is refused unless `mqtt.allow_mode_raise`
+    (default off): `safety.mqtt_mode_raise_disabled`. `auto` OFF lowers to shadow; stop, pause,
+    resume, boost and replan always work.
+  - Not in this PR (no config path or values yet): battery strategy/reserve/evening target, EV,
+    comfort and program commands, the `mqtt` config author, the persistent notification (6-E).
+    Deviations and open questions: plan section 8 (6-D).
 
 - **Phase 6 - PR 6-C, WP3 MQTT base and backend ICU (branch `phase-6/c-mqtt`, on 6-B;
   `ha-integration`, `backend-engineer`)** - read-only HA entities, no commands, nothing writes:
@@ -1070,6 +1091,7 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 | Item | Where | Needed to resolve |
 |---|---|---|
+| 6-D MQTT commands: default payloads of the MQTT `switch` (`ON`/`OFF`), `button` (`PRESS`) and the `number` keys `min`, `max`, `step`, `mode` (HA source was not reachable in the session; used as documented); that HA sends commands with retain off | `research/mqtt-discovery.md`, `suncore/ha/mqtt/commands.py`, `discovery.py` | maintainer's HA: press the buttons, set the switches and the boost duration, see the true state come back |
 | 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); the unit rule of `monetary` sensors; TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
 | Kostal §3.4 set-point timeout and how external battery management is enabled (register map itself is verified from KOSTAL rev 2.9) | `research/kostal-plenticore-modbus.md` | Phase 4 measurement on the maintainer's inverter |
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |

@@ -1749,5 +1749,14 @@
   "mqtt.state.battery_action.hold": "Holding",
   "mqtt.state.battery_lease.none": "Own settings",
   "mqtt.state.battery_lease.held": "Held by SunCore",
-  "mqtt.state.battery_lease.released": "Released"
+  "mqtt.state.battery_lease.released": "Released",
+  "mqtt.command.accepted": "Home Assistant command for {entity} carried out.",
+  "mqtt.command.unchanged": "Home Assistant command for {entity} changed nothing: it was already in that state.",
+  "mqtt.command.invalid_payload": "A Home Assistant command was ignored: the payload is not valid for this entity.",
+  "mqtt.command.out_of_range": "A Home Assistant command was ignored: the value is outside the allowed range.",
+  "mqtt.command.rate_limited": "A Home Assistant command was ignored: too many commands in a short time.",
+  "mqtt.command.retained_ignored": "A retained Home Assistant command was ignored and removed from the broker.",
+  "mqtt.command.unknown_entity": "A Home Assistant command was ignored: SunCore has no such command entity.",
+  "mqtt.command.failed": "A Home Assistant command failed ({error}); nothing was changed.",
+  "safety.mqtt_mode_raise_disabled": "Home Assistant may not raise the operating mode or clear the emergency stop: this is switched off in the SunCore settings. Do it in the SunCore panel, or allow it there."
 }
