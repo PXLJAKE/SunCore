@@ -88,11 +88,17 @@ from suncore.core.measurements import (
     SITE_SOC_PCT,
     device_on_key,
     device_power_key,
+    device_temperature_key,
 )
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.devices.battery import BatteryDriver, create_battery_driver
-from suncore.devices.drivers import ClimateDriver, NumberDriver, create_driver
+from suncore.devices.drivers import (
+    ClimateDriver,
+    NumberDriver,
+    WaterHeaterDriver,
+    create_driver,
+)
 from suncore.devices.power import create_power_model, restore_power_model
 from suncore.devices.power.common import PowerEstimator
 from suncore.ha.cache import EntityCache
@@ -341,7 +347,7 @@ class ControlStack:
             setpoint_steps={
                 k: v.effective_step_c
                 for k, v in self.drivers.items()
-                if isinstance(v, ClimateDriver)
+                if isinstance(v, ClimateDriver | WaterHeaterDriver)
             },
             power_snaps={
                 k: v.snap_power_w for k, v in self.drivers.items() if isinstance(v, NumberDriver)
@@ -931,7 +937,8 @@ class ControlStack:
 
         Per controlled device: the estimated power (``device.<id>.power_w``) and, when the
         driver reports it, the on/off state (``device.<id>.on``, 1.0 / 0.0; the history view's
-        run times and the plan chart's actual Gantt overlay read it).
+        run times and the plan chart's actual Gantt overlay read it); for a thermal device with
+        a probe its temperature (``device.<id>.temperature_c``, the thermal learner reads it).
         """
         if self._on_measurements is None:
             return
@@ -954,6 +961,12 @@ class ControlStack:
                 values[device_on_key(device_id)] = (
                     None if state.on is None or state.quality is not Quality.OK else float(state.on)
                 )
+            for device in self._devices.values():
+                # PR 6-K: the probe of a thermal device, for the learned RC model.
+                if device.thermal is not None and TEMPERATURE_ROLE in device.entities:
+                    values[device_temperature_key(device.id)] = probe_temperature_c(
+                        self.cache, device
+                    )
             self._on_measurements(now, values)
         except Exception:
             log.exception("control.measurement_sink_failed")

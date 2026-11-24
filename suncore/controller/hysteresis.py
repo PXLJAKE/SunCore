@@ -40,7 +40,7 @@ from suncore.core.decisions import (
     Reason,
     SwitchAction,
 )
-from suncore.core.devices import DeviceConfig
+from suncore.core.devices import DeviceConfig, SgReadyControl
 
 SWITCH_WINDOW: Final = timedelta(hours=1)
 WRITE_NO_CHANGE: Final = "safety.write_no_change"
@@ -70,6 +70,9 @@ class Transition:
     fuse_shed: bool = False
     """A switch-off above the fuse limit of a non-thermal kind: min run and the switch limit
     are waived (invariant G2, PR 6-F)."""
+    failsafe: bool = False
+    """A heat pump back to SG state 2 / its base for a fail-safe cause: dwell, min run and the
+    switch limit are waived (invariant H5, PR 6-K)."""
 
 
 @dataclass
@@ -93,6 +96,8 @@ class DeviceMachine:
     switch_times: list[datetime] = field(default_factory=list)
     last_on_ts: datetime | None = None
     last_off_ts: datetime | None = None
+    level_ts: datetime | None = None
+    """When the applied level last changed (the SG-Ready dwell, PR 6-K)."""
     base_setpoint_c: float | None = None
     switched_on_by_us: bool = False
     reasons: tuple[Reason, ...] = ()
@@ -191,13 +196,25 @@ class DeviceMachine:
         return max(0.0, self.hysteresis_delay_s - elapsed)
 
     def blocked_by_protection(  # noqa: PLR0911 - one return per rule
-        self, now: datetime, target: int, *, waive_run: bool = False
+        self, now: datetime, target: int, *, waive_run: bool = False, failsafe: bool = False
     ) -> Reason | None:
-        """Min run / min pause / switches per hour for a move to ``target``.
+        """SG dwell / min run / min pause / switches per hour for a move to ``target``.
 
         ``waive_run``: a switch-off above the fuse limit (G2) skips min run and the switch
-        limit; it never waives min pause (a switch-on).
+        limit; it never waives min pause (a switch-on). ``failsafe``: a heat pump back to its
+        normal state for a fail-safe cause (H5) skips every protection.
         """
+        if failsafe:
+            return None
+        control = self.device.control
+        if (
+            isinstance(control, SgReadyControl)
+            and target != self.level
+            and self.level_ts is not None
+        ):
+            remaining = control.min_dwell_s - (now - self.level_ts).total_seconds()
+            if remaining > 0:
+                return rs.heat_pump_dwell(remaining)
         if self.table is None or not self.table.switchable:
             return None
         before = self.table.level(self.level).on
@@ -293,6 +310,8 @@ class DeviceMachine:
         return True
 
     def _apply_level(self, now: datetime, target: int, action: Action) -> None:
+        if target != self.level:
+            self.level_ts = now
         if self.table is not None and self.table.switchable:
             before = self.table.level(self.level).on
             after = self.table.level(target).on

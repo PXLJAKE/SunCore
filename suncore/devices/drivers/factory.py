@@ -11,6 +11,7 @@ from suncore.core.devices import (
     OnOffControl,
     RelaysControl,
     SetpointControl,
+    SgReadyControl,
     StepsControl,
 )
 from suncore.devices.drivers.base import EntityDriver, ServiceWriter, StateLookup
@@ -18,11 +19,13 @@ from suncore.devices.drivers.climate import ClimateDriver
 from suncore.devices.drivers.mode import ModeDriver
 from suncore.devices.drivers.number import NumberDriver
 from suncore.devices.drivers.onoff import OnOffDriver
+from suncore.devices.drivers.sgready import SgReadyDriver
 from suncore.devices.drivers.steps import StepsDriver
 from suncore.devices.drivers.unsupported import UnsupportedDriver
+from suncore.devices.drivers.water_heater import WaterHeaterDriver
 
 
-def create_driver(
+def create_driver(  # noqa: PLR0911 - one return per control kind
     device: DeviceConfig, *, write: ServiceWriter, states: StateLookup
 ) -> EntityDriver:
     """The actuator for ``device`` (structurally a ``suncore.safety.actuator.Actuator``).
@@ -34,6 +37,8 @@ def create_driver(
     if isinstance(control, OnOffControl):
         return OnOffDriver(device, write=write, states=states)
     if isinstance(control, SetpointControl):
+        if device.entities[control.role].entity_id.startswith("water_heater."):
+            return WaterHeaterDriver(device, write=write, states=states)  # set-point lift (6-K)
         return ClimateDriver(device, write=write, states=states)
     if isinstance(control, StepsControl | RelaysControl):
         return StepsDriver(device, write=write, states=states)
@@ -41,8 +46,10 @@ def create_driver(
         return NumberDriver(device, write=write, states=states)
     if isinstance(control, ModeControl):
         return ModeDriver(device, write=write, states=states)
+    if isinstance(control, SgReadyControl):
+        return SgReadyDriver(device, write=write, states=states)
     if isinstance(control, PHASE6_CONTROLS):
-        return UnsupportedDriver(device, write=write, states=states)  # until 6-I/6-J/6-K
+        return UnsupportedDriver(device, write=write, states=states)  # until 6-I/6-J
     msg = f"no driver for control kind {control!r}"  # pragma: no cover - exhaustive
     raise TypeError(msg)  # pragma: no cover
 

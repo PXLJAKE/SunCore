@@ -1064,7 +1064,6 @@
   "safety.charge_not_supported": "EV charging control is not available yet in this version; nothing was written.",
   "safety.loadpoint_not_supported": "Control of an evcc loadpoint is not available yet in this version; nothing was written.",
   "safety.inverter_limit_not_supported": "Writing an inverter limit is not available yet in this version; nothing was written.",
-  "safety.sg_ready_not_supported": "SG-Ready control of the heat pump is not available yet in this version; nothing was written.",
   "safety.program_not_supported": "Starting shiftable programs is not available yet in this version; nothing was written.",
   "safety.battery_model_missing": "No battery model (capacity, limits, reserve) is configured: the battery is only observed.",
   "safety.battery_min_soc_below_reserve": "Minimum state of charge {min_soc_pct} % is below the reserve of {reserve_pct} %.",
@@ -1695,5 +1694,16 @@
   "controller.grid.peak_limit": "Peak shaving: import limit this month {limit_w} W.",
   "controller.grid.battery_support": "The battery may discharge again: the import is close to the limit of {limit_w} W.",
   "controller.grid.battery_island": "Backup power: the battery follows its own settings.",
-  "controller.grid.battery_no_grid_charge": "No grid charging now: §14a reduction, unknown signal or the grid just returned."
+  "controller.grid.battery_no_grid_charge": "No grid charging now: §14a reduction, unknown signal or the grid just returned.",
+  "safety.sg_action_invalid": "Not written: an SG-Ready heat pump is only switched between its SG states.",
+  "safety.sg_forced_not_allowed": "Not written: SG-Ready state 4 (forced on) is not allowed for this heat pump.",
+  "safety.sg_state_invalid": "Not written: step {step} is no SG-Ready state SunCore may write (state 1, the utility block, is never written).",
+  "safety.sg_needs_probe": "Not written: the heat pump is only intensified with a store temperature probe and a comfort band.",
+  "safety.sg_dwell": "Not written: SG-Ready state {state} waits for the minimum dwell time, {remaining_s} s left.",
+  "safety.lift_below_base": "Not written: the set-point {setpoint_c} °C would be below your own set-point of {base_c} °C.",
+  "safety.heat_pump_failsafe": "Not written: the heat pump stays in normal operation because {cause, select, temperature_unknown {the store temperature is unknown or stale} heat_limit {the store is at its comfort maximum} no_probe {it has no store temperature probe} para14a {§14a dimming is active or unknown} island {the house runs in island mode} other {a safety rule applies}}.",
+  "controller.heat_pump.failsafe": "Back to normal operation at once because {cause, select, temperature_unknown {the store temperature is unknown or stale} heat_limit {the store is at its comfort maximum} no_probe {it has no store temperature probe} para14a {§14a dimming is active or unknown} island {the house runs in island mode} other {a safety rule applies}}.",
+  "controller.heat_pump.dwell_wait": "Waiting for the minimum time in the SG-Ready state, {remaining_s} s left.",
+  "controller.heat_pump.state_unknown": "The SG-Ready contacts show no state SunCore may write: the heat pump is left alone.",
+  "controller.heat_pump.no_probe": "Without a store temperature probe and a comfort band SunCore does not intensify the heat pump."
 }

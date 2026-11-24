@@ -129,11 +129,11 @@ def program_device() -> DeviceConfig:
     )
 
 
-PHASE6_DEVICES = (charger_device(), loadpoint_device(), sg_device(), program_device())
+PHASE6_DEVICES = (charger_device(), loadpoint_device(), program_device())
+"""Device families still rejected (6-K lifted SG-Ready: ``tests/safety/test_heatpump.py``)."""
 EXPECTED_DEVICE_REASON = {
     "wallbox": "safety.charge_not_supported",
     "evcc_lp": "safety.loadpoint_not_supported",
-    "hp": "safety.sg_ready_not_supported",
     "washer": "safety.program_not_supported",
 }
 
@@ -251,11 +251,12 @@ def test_a_release_of_a_phase6_device_writes_nothing(device: DeviceConfig) -> No
     assert h.apply_calls == 0
 
 
-def test_sg_ready_step_is_rejected_even_in_shadow() -> None:
+def test_sg_ready_step_is_judged_in_shadow_since_6k() -> None:
     h = make_harness(devices=(sg_device(),), global_mode=OperatingMode.SHADOW)
     decision = asyncio.run(h.gate.submit(make_intent(StepAction(step=1), asset_id="hp")))
-    assert decision.kind is DecisionKind.REJECTED
-    assert keys(decision) == ["safety.sg_ready_not_supported"]
+    assert decision.kind is DecisionKind.SHADOW
+    assert "safety.sg_ready_not_supported" not in keys(decision)
+    assert h.apply_calls == 0
 
 
 def test_phase3_devices_are_unaffected() -> None:

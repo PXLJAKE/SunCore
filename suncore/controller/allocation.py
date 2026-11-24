@@ -81,7 +81,15 @@ from suncore.core.control import (
     heat_capped,
 )
 from suncore.core.decisions import Decision, DecisionKind, Intent, Origin, Reason, SetpointAction
-from suncore.core.devices import THERMAL_KINDS, DeviceConfig, SetpointControl, TimeWindow
+from suncore.core.devices import (
+    THERMAL_KINDS,
+    DeviceConfig,
+    SetpointControl,
+    SgReadyControl,
+    TimeWindow,
+)
+from suncore.core.grid import GridState, Para14aStatus
+from suncore.core.sgready import FailsafeCause, heat_pump_failsafe, sg_has_probe
 from suncore.core.signals import Quality
 
 POOR_ESTIMATE_REL: Final = 0.5
@@ -437,6 +445,7 @@ class Allocator:
                     fresh.switch_times = list(machine.switch_times)
                     fresh.last_on_ts = machine.last_on_ts
                     fresh.last_off_ts = machine.last_off_ts
+                    fresh.level_ts = machine.level_ts
                 machine = fresh
             keep[device.id] = machine
         self._machines = keep
@@ -483,6 +492,9 @@ class Allocator:
 
         self._caps = self._grid_caps(synced, inputs, out.draws)
         backoff = self._deficit_backoff(now, site, synced, committed, inputs, out)
+        # H5 (PR 6-K): a heat pump with a fail-safe cause goes back to its normal state now,
+        # also while the surplus is unknown; it wins over any other back-off.
+        backoff = {**backoff, **self._failsafe_backoff(synced, inputs)}
 
         wanted_by_id: dict[str, Wanted] = {}
         if out.total_w is not None:
@@ -510,6 +522,31 @@ class Allocator:
 
     def _ordered(self) -> list[DeviceMachine]:
         return [self._machines[i] for i in self._order]
+
+    @staticmethod
+    def _failsafe(m: DeviceMachine, inputs: AllocationInputs) -> FailsafeCause | None:
+        grid = inputs.grid_inputs
+        return heat_pump_failsafe(
+            m.device,
+            inputs.states.get(m.device.id),
+            island=grid.grid_state is GridState.ISLAND,
+            para14a_dimmed=grid.para14a.status is not Para14aStatus.INACTIVE,
+        )
+
+    def _failsafe_backoff(
+        self, synced: Sequence[DeviceMachine], inputs: AllocationInputs
+    ) -> dict[str, Transition]:
+        """Heat pumps above their floor with a fail-safe cause: level 0 at once (H5)."""
+        out: dict[str, Transition] = {}
+        for m in synced:
+            if m.level <= 0 or m.table is None:
+                continue
+            cause = self._failsafe(m, inputs)
+            if cause is not None:
+                out[m.device.id] = Transition(
+                    0, rs.heat_pump_failsafe(cause.value), forced=True, failsafe=True
+                )
+        return out
 
     @property
     def caps(self) -> GridCaps:
@@ -619,6 +656,11 @@ class Allocator:
 
     @staticmethod
     def _uncontrollable_reason(device: DeviceConfig, state: DeviceState) -> Reason:
+        if isinstance(device.control, SgReadyControl):
+            if not sg_has_probe(device):
+                return rs.plain(rs.HP_NO_PROBE)
+            if state.step is None:
+                return rs.plain(rs.HP_STATE_UNKNOWN)
         if isinstance(device.control, SetpointControl):
             if not _is_on(state) and not device.allow_switch_on:
                 return rs.plain(rs.CLIMATE_OFF)
@@ -675,6 +717,9 @@ class Allocator:
         heat = _heat_cap_reason(device, inputs.states.get(device.id))
         if heat is not None:
             cap, cap_reason = 0, heat
+        failsafe = self._failsafe(m, inputs)
+        if failsafe is not None and heat is None:
+            cap, cap_reason = 0, rs.heat_pump_failsafe(failsafe.value)
         grid_cap = self._caps.get(device.id)
         if grid_cap is not None and grid_cap.level < cap:
             cap, cap_reason = grid_cap.level, grid_cap.reason
@@ -771,7 +816,12 @@ class Allocator:
         if remaining > 0:
             m.reasons = (transition.reason, rs.waiting_delay(remaining))
             return
-        blocked = m.blocked_by_protection(now, transition.level, waive_run=transition.fuse_shed)
+        blocked = m.blocked_by_protection(
+            now,
+            transition.level,
+            waive_run=transition.fuse_shed,
+            failsafe=transition.failsafe,
+        )
         if blocked is not None:
             m.reasons = (transition.reason, blocked)
             return

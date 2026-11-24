@@ -41,14 +41,24 @@ from suncore.core.devices import (
     DeviceConfig,
     DeviceKind,
     ModeControl,
+    SgReadyControl,
     step_power_w,
 )
+from suncore.core.sgready import SG_NORMAL
 from suncore.core.signals import Quality
 from suncore.safety.grid import (
     NO_GRID_SAFETY,
     GridSafety,
     device_grid_violation,
     fuse_shed_waiver,
+)
+from suncore.safety.heatpump import (
+    check_heat_pump_failsafe,
+    check_lift_base,
+    check_sg_action,
+    check_sg_dwell,
+    check_sg_probe,
+    failsafe_reduction,
 )
 from suncore.safety.runtime import DeviceRuntime
 
@@ -146,6 +156,12 @@ def expected_power_w(  # noqa: PLR0911, PLR0912 - one branch per action kind
                 return 0.0
             return nominal if nominal is not None else _upper(estimate)
         case StepAction(step=step):
+            if isinstance(device.control, SgReadyControl):
+                # SG state 2 is the heat pump's own operation (nothing SunCore adds, like a
+                # climate base set-point); states 3/4 may run it flat out (H4, PR 6-K).
+                if step == SG_NORMAL:
+                    return 0.0
+                return nominal if nominal is not None else _upper(estimate)
             return step_power_w(device.control, step)
         case ModeAction(mode=mode):
             if mode == HVAC_OFF:
@@ -283,6 +299,8 @@ def check_min_run_pause(ctx: InvariantContext) -> Reason | None:  # noqa: PLR091
     target = action_turns_on(ctx.action, ctx.device)
     if target is False and _fuse_shed(ctx):
         return None  # G2: shedding above the fuse limit (non-thermal kinds)
+    if _failsafe(ctx):
+        return None  # H5: back to SG state 2 for a fail-safe cause
     if target is True:
         since, limit = ctx.runtime.last_off_ts, ctx.device.min_pause_s
     else:
@@ -306,6 +324,8 @@ def check_switch_rate(ctx: InvariantContext) -> Reason | None:
         return None
     if action_turns_on(ctx.action, ctx.device) is False and _fuse_shed(ctx):
         return None  # G2: shedding above the fuse limit (non-thermal kinds)
+    if _failsafe(ctx):
+        return None  # H5: back to SG state 2 for a fail-safe cause
     limit = ctx.device.max_switches_per_hour
     if limit is None:
         limit = ctx.settings.default_max_switches_per_hour
@@ -410,6 +430,44 @@ def _fuse_shed(ctx: InvariantContext) -> bool:
     return fuse_shed_waiver(ctx.device.kind, True, ctx.flows, ctx.grid)
 
 
+def _failsafe(ctx: InvariantContext) -> bool:
+    return failsafe_reduction(
+        ctx.action, ctx.device, ctx.state, ctx.grid.grid_state, ctx.grid.para14a_status
+    )
+
+
+def check_heat_pump(ctx: InvariantContext) -> Reason | None:
+    """H1-H5 of a heat pump (``safety.heatpump``): writable SG states only, state 4 only with
+    ``allow_forced``, a probe for intensifying, the SG dwell, a lift never below the base, no
+    increase while §14a dims a flagged heat pump or in island."""
+    action, device = ctx.action, ctx.device
+    if isinstance(action, ReleaseAction):
+        return None
+    for reason in (
+        check_sg_action(action, device),
+        check_sg_probe(action, device),
+        check_sg_dwell(
+            action,
+            device,
+            ctx.state,
+            ctx.runtime.last_write_ts,
+            ctx.now,
+            waived=_failsafe(ctx),
+        ),
+        check_lift_base(action, device, ctx.runtime.base_setpoint_c),
+        check_heat_pump_failsafe(
+            is_load_increase(ctx),
+            device,
+            ctx.state,
+            ctx.grid.grid_state,
+            ctx.grid.para14a_status,
+        ),
+    ):
+        if reason is not None:
+            return reason
+    return None
+
+
 def is_load_increase(ctx: InvariantContext) -> bool:
     """The action may add load: not a release, not a switch-off, and a positive or unknown
     added demand (an unknown one counts as an increase - the conservative direction)."""
@@ -437,6 +495,7 @@ def check_grid_situation(ctx: InvariantContext) -> Reason | None:
 
 
 ALL_CHECKS: Final = (
+    check_heat_pump,
     check_climate_switch_on,
     check_comfort,
     check_heat_limit,
@@ -520,6 +579,7 @@ __all__ = [
     "check_comfort",
     "check_grid",
     "check_grid_situation",
+    "check_heat_pump",
     "check_min_run_pause",
     "check_switch_rate",
     "check_write_rate",

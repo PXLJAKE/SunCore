@@ -67,8 +67,17 @@ GRID_PEAK_LIMIT: Final = "controller.grid.peak_limit"
 GRID_BATTERY_SUPPORT: Final = "controller.grid.battery_support"
 GRID_BATTERY_ISLAND: Final = "controller.grid.battery_island"
 GRID_BATTERY_NO_GRID_CHARGE: Final = "controller.grid.battery_no_grid_charge"
+# Phase 6 PR 6-K: heat pump (``controller.heat_pump``).
+HP_FAILSAFE: Final = "controller.heat_pump.failsafe"
+HP_DWELL_WAIT: Final = "controller.heat_pump.dwell_wait"
+HP_STATE_UNKNOWN: Final = "controller.heat_pump.state_unknown"
+HP_NO_PROBE: Final = "controller.heat_pump.no_probe"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
+    HP_FAILSAFE,
+    HP_DWELL_WAIT,
+    HP_STATE_UNKNOWN,
+    HP_NO_PROBE,
     GRID_ISLAND_SHED,
     GRID_ISLAND_KEEP,
     GRID_COOLDOWN,
@@ -222,6 +231,15 @@ def grid_cooldown(remaining_s: float) -> Reason:
 
 def para14a_cooldown(remaining_s: float) -> Reason:
     return Reason(key=GRID_PARA14A_COOLDOWN, args={"remaining_s": _ceil(remaining_s)})
+
+
+def heat_pump_failsafe(cause: str) -> Reason:
+    """Back to SG state 2 / the base set-point at once (``core.sgready.FailsafeCause``)."""
+    return Reason(key=HP_FAILSAFE, args={"cause": cause})
+
+
+def heat_pump_dwell(remaining_s: float) -> Reason:
+    return Reason(key=HP_DWELL_WAIT, args={"remaining_s": _ceil(remaining_s)})
 
 
 def plain(key: str) -> Reason:

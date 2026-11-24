@@ -32,6 +32,7 @@ SITE_KEYS: Final[tuple[str, ...]] = (
 _DEVICE_PREFIX: Final = "device."
 _DEVICE_SUFFIX: Final = ".power_w"
 _ON_SUFFIX: Final = ".on"
+_TEMPERATURE_SUFFIX: Final = ".temperature_c"
 
 
 def device_power_key(device_id: str) -> str:
@@ -50,6 +51,18 @@ def device_on_key(device_id: str) -> str:
     return f"{_DEVICE_PREFIX}{device_id}{_ON_SUFFIX}"
 
 
+def device_temperature_key(device_id: str) -> str:
+    """Key of a thermal device's probe temperature (°C, PR 6-K) for the thermal learner."""
+    return f"{_DEVICE_PREFIX}{device_id}{_TEMPERATURE_SUFFIX}"
+
+
+def is_temperature_key(key: str) -> bool:
+    """Whether the measurement is a temperature in °C (the weather or a device probe)."""
+    return key == WEATHER_TEMPERATURE_C or (
+        key.startswith(_DEVICE_PREFIX) and key.endswith(_TEMPERATURE_SUFFIX)
+    )
+
+
 def is_percent_key(key: str) -> bool:
     """Whether the measurement is a state in percent (not a power in W)."""
     return key == SITE_SOC_PCT
@@ -65,6 +78,8 @@ __all__ = [
     "WEATHER_TEMPERATURE_C",
     "device_on_key",
     "device_power_key",
+    "device_temperature_key",
     "is_percent_key",
     "is_state_key",
+    "is_temperature_key",
 ]

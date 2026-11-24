@@ -87,7 +87,6 @@ from suncore.core.devices import (
     DeviceConfig,
     LoadpointControl,
     OverridePolicy,
-    SgReadyControl,
     behaviour_mode_capped,
 )
 from suncore.core.grid import (
@@ -212,8 +211,6 @@ REASON_NOT_SUPPORTED: Final[Mapping[ActionKind, Reason]] = MappingProxyType(
 invariants yet; the gate rejects each before mode handling (also in shadow and assisted), writes
 nothing and creates no proposal. Lifted per kind with its ``control-safety`` sign-off (6-G
 inverter limit, 6-I charge, 6-J loadpoint)."""
-REASON_SG_READY_NOT_SUPPORTED: Final = Reason(key="safety.sg_ready_not_supported")
-"""Any action but a release for an SG-Ready heat pump (until PR 6-K, ADR-0017 decision 8)."""
 REASON_PROGRAM_NOT_SUPPORTED: Final = Reason(key="safety.program_not_supported")
 """Any action but a release for a job-driven program device (``DeviceConfig.program``) until
 PR 6-L: its invariants P1-P6 (never interrupt a running program) do not exist yet."""
@@ -741,8 +738,6 @@ class SafetyGate:
         if device is None:
             return None
         control = device.control
-        if isinstance(control, SgReadyControl):
-            return REASON_SG_READY_NOT_SUPPORTED
         if isinstance(control, ChargerControl):
             return REASON_NOT_SUPPORTED[ActionKind.CHARGE]
         if isinstance(control, LoadpointControl):

@@ -1064,7 +1064,6 @@
   "safety.charge_not_supported": "Die Ladesteuerung für E-Autos ist in dieser Version noch nicht verfügbar; nichts geschrieben.",
   "safety.loadpoint_not_supported": "Die Steuerung eines evcc-Ladepunkts ist in dieser Version noch nicht verfügbar; nichts geschrieben.",
   "safety.inverter_limit_not_supported": "Das Schreiben einer Wechselrichter-Begrenzung ist in dieser Version noch nicht verfügbar; nichts geschrieben.",
-  "safety.sg_ready_not_supported": "Die SG-Ready-Steuerung der Wärmepumpe ist in dieser Version noch nicht verfügbar; nichts geschrieben.",
   "safety.program_not_supported": "Das Starten verschiebbarer Programme ist in dieser Version noch nicht verfügbar; nichts geschrieben.",
   "safety.battery_model_missing": "Kein Akkumodell (Kapazität, Grenzen, Reserve) konfiguriert: der Akku wird nur beobachtet.",
   "safety.battery_min_soc_below_reserve": "Mindest-Ladestand {min_soc_pct} % liegt unter der Reserve von {reserve_pct} %.",
@@ -1695,5 +1694,16 @@
   "controller.grid.peak_limit": "Spitzenlast-Kappung: Bezugsgrenze in diesem Monat {limit_w} W.",
   "controller.grid.battery_support": "Der Akku darf wieder entladen: Der Netzbezug ist nahe an der Grenze von {limit_w} W.",
   "controller.grid.battery_island": "Notstrom: Der Akku folgt seinen eigenen Einstellungen.",
-  "controller.grid.battery_no_grid_charge": "Jetzt kein Laden aus dem Netz: §14a-Reduzierung, unbekanntes Signal oder das Netz ist gerade erst zurück."
+  "controller.grid.battery_no_grid_charge": "Jetzt kein Laden aus dem Netz: §14a-Reduzierung, unbekanntes Signal oder das Netz ist gerade erst zurück.",
+  "safety.sg_action_invalid": "Nicht geschrieben: Eine SG-Ready-Wärmepumpe wird nur zwischen ihren SG-Zuständen umgeschaltet.",
+  "safety.sg_forced_not_allowed": "Nicht geschrieben: SG-Ready-Zustand 4 (Zwangsein) ist für diese Wärmepumpe nicht freigegeben.",
+  "safety.sg_state_invalid": "Nicht geschrieben: Stufe {step} ist kein SG-Ready-Zustand, den SunCore schreiben darf (Zustand 1, die EVU-Sperre, wird nie geschrieben).",
+  "safety.sg_needs_probe": "Nicht geschrieben: Die Wärmepumpe wird nur mit Temperaturfühler im Speicher und Komfortbereich verstärkt betrieben.",
+  "safety.sg_dwell": "Nicht geschrieben: SG-Ready-Zustand {state} wartet auf die Mindestverweildauer, noch {remaining_s} s.",
+  "safety.lift_below_base": "Nicht geschrieben: Der Sollwert {setpoint_c} °C läge unter deinem eigenen Sollwert von {base_c} °C.",
+  "safety.heat_pump_failsafe": "Nicht geschrieben: Die Wärmepumpe bleibt im Normalbetrieb, weil {cause, select, temperature_unknown {die Speichertemperatur ist unbekannt oder veraltet} heat_limit {der Speicher hat sein Komfortmaximum erreicht} no_probe {sie hat keinen Temperaturfühler im Speicher} para14a {die §14a-Dimmung ist aktiv oder unbekannt} island {das Haus läuft im Inselbetrieb} other {eine Sicherheitsregel greift}}.",
+  "controller.heat_pump.failsafe": "Sofort zurück in den Normalbetrieb, weil {cause, select, temperature_unknown {die Speichertemperatur ist unbekannt oder veraltet} heat_limit {der Speicher hat sein Komfortmaximum erreicht} no_probe {sie hat keinen Temperaturfühler im Speicher} para14a {die §14a-Dimmung ist aktiv oder unbekannt} island {das Haus läuft im Inselbetrieb} other {eine Sicherheitsregel greift}}.",
+  "controller.heat_pump.dwell_wait": "Wartet auf die Mindestzeit im SG-Ready-Zustand, noch {remaining_s} s.",
+  "controller.heat_pump.state_unknown": "Die SG-Ready-Kontakte zeigen keinen Zustand, den SunCore schreiben darf: Die Wärmepumpe bleibt unberührt.",
+  "controller.heat_pump.no_probe": "Ohne Temperaturfühler im Speicher und Komfortbereich betreibt SunCore die Wärmepumpe nicht verstärkt."
 }

@@ -431,7 +431,8 @@ ControlSpec = Annotated[
 
 
 PHASE6_CONTROLS: Final = (ChargerControl, SgReadyControl, LoadpointControl)
-"""Control variants of Phase 6 whose writes the gate rejects until their PR (6-I, 6-J, 6-K)."""
+"""Control variants of Phase 6 (behaviour cap, decision 17). The gate rejects writes of
+``charger`` and ``loadpoint`` until 6-I/6-J; ``sg_ready`` is judged by H1-H5 since 6-K."""
 
 
 def control_roles(control: ControlSpec) -> tuple[RoleName, ...]:
