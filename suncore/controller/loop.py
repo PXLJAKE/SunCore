@@ -69,7 +69,17 @@ from suncore.controller.battery import (
     BatteryIntents,
     BatteryView,
 )
+from suncore.controller.export import (
+    DeviceHeadroom,
+    ExportChain,
+    ExportControlInputs,
+    ExportControlSettings,
+    ExportView,
+    absorb_headroom_w,
+    export_over_limit,
+)
 from suncore.controller.grid import GridHolds, GridInputs, situation_reasons
+from suncore.controller.hysteresis import Phase
 from suncore.controller.levels import ConfigQuantiser, Quantiser
 from suncore.controller.surplus import SiteSurplus, SurplusTracker
 from suncore.core.balance import FlowSnapshot
@@ -113,6 +123,9 @@ class ControllerInputs:
     battery: BatteryControlInputs | None = None
     """The battery adapter's capabilities, ranges and what the gate holds (``None`` = no battery
     adapter: the battery is only observed, no battery intents; Phase 4 WP10)."""
+    inverter: ExportControlInputs | None = None
+    """PR 6-G: the inverter limit adapter (``None`` = none configured: no inverter intents,
+    the export limit stays the inverter's own)."""
     grid: GridInputs | None = None
     """PR 6-F: effective import limit (fuse and peak), §14a, island
     (``controller.grid.resolve_grid_inputs``); ``None`` = only ``import_limit_w`` (Phase 3)."""
@@ -148,6 +161,8 @@ class TickResult:
     battery: BatteryView | None = None
     """The battery decision of the tick (``None`` without a battery adapter)."""
     grid: GridView | None = None
+    export: ExportView | None = None
+    """The export-chain decision of the tick (``None`` without an inverter adapter)."""
 
 
 class Controller:
@@ -161,9 +176,11 @@ class Controller:
         tz: tzinfo = UTC,
         quantiser: Quantiser | None = None,
         battery: BatteryControlSettings | None = None,
+        export: ExportControlSettings | None = None,
     ) -> None:
         self._settings = settings if settings is not None else ControlSettings()
         self._battery = BatteryIntents(battery)
+        self._export = ExportChain(export)
         self._tz = tz
         devices = list(devices)
         if quantiser is None:
@@ -258,8 +275,13 @@ class Controller:
             holds=holds,
             deficit_w=_house_deficit_w(inputs.flows),
             reserve_w=self._settings.reserve_w,
+            export_over_limit=export_over_limit(inputs.flows, grid),
         )
-        intents = (*outcome.intents, battery_intent) if battery_intent else tuple(outcome.intents)
+        headroom = _headroom_w(outcome.views, inputs)
+        export_intent = self._export.step(now, inputs.inverter, inputs.flows, grid, headroom)
+        intents = tuple(outcome.intents) + tuple(
+            i for i in (battery_intent, export_intent) if i is not None
+        )
         gate_inputs = GateInputs(
             flows=inputs.flows,
             surplus=surplus,
@@ -273,6 +295,7 @@ class Controller:
             grid_state=grid.grid_state,
             fuse_limit_w=grid.fuse_limit_w,
             para14a_devices=self._para14a_ids,
+            export_headroom_w=headroom,
         )
         return TickResult(
             ts=now,
@@ -287,17 +310,54 @@ class Controller:
             attributable_deficit_w=outcome.attributable_deficit_w,
             battery=self._battery.view,
             grid=GridView(grid, situation_reasons(grid), holds),
+            export=self._export.view,
         )
 
     def report(self, decision: Decision) -> bool:
         """Feed the gate's decision on an intent back; ``True`` if it was ours and pending."""
         if self._battery.report(decision):
             return True
+        if self._export.report(decision):
+            return True
         return self._allocator.report(decision)
 
     @property
     def battery(self) -> BatteryIntents:
         return self._battery
+
+    @property
+    def export(self) -> ExportChain:
+        return self._export
+
+
+def _headroom_w(views: Mapping[str, DeviceView], inputs: ControllerInputs) -> float:
+    """``GateInputs.export_headroom_w``: chain steps 1 and 2 not yet exhausted (X3)."""
+    devices = [
+        DeviceHeadroom(
+            v.device_id,
+            rising=v.phase is Phase.PENDING_UP
+            or (
+                v.phase is Phase.IN_FLIGHT
+                and v.pending_level is not None
+                and v.pending_level > v.level
+            ),
+            step_w=0.0,
+        )
+        for v in views.values()
+    ]
+    battery = inputs.battery
+    flow = None if inputs.flows is None else inputs.flows.battery_w
+    battery_w = flow.value if flow is not None and flow.quality is Quality.OK else None
+    high = None
+    if battery is not None and battery.ranges.max_charge_w is not None:
+        high = battery.ranges.max_charge_w.high
+    return absorb_headroom_w(
+        devices,
+        None if battery is None else battery.held,
+        battery_w,
+        battery_blocked=battery is None or battery.blocked is not None,
+        battery_high_w=high,
+    )
 
 
 def _house_deficit_w(flows: FlowSnapshot | None) -> float | None:
@@ -371,6 +431,8 @@ class ControllerLoop:
             log.warning("controller.submit_failed", intent_id=intent.id, error=str(exc)[:200])
             if intent.id.startswith("battery:"):
                 self._controller.battery.reset_pending()
+            elif intent.id.startswith("inverter:"):
+                self._controller.export.reset_pending()
             return
         self._controller.report(decision)
 

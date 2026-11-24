@@ -75,6 +75,8 @@ ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
 BATTERY_DRIVERS = "suncore.devices.battery"
+INVERTER_DRIVERS = "suncore.devices.inverter"
+"""PR 6-G: the inverter limit adapters follow the battery adapters' rule."""
 SIM = "suncore.sim"
 DRIVER_IMPORTERS = (SAFETY, "suncore.app", SIM)
 WRITE_CALLS = ("apply", "release", "arm_fallback", "keep_alive")
@@ -237,6 +239,7 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
     if (
         in_package(module, DRIVERS)
         or in_package(module, BATTERY_DRIVERS)
+        or in_package(module, INVERTER_DRIVERS)
         or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS)
     ):
         return
@@ -245,7 +248,9 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
         (
             line
             for line, imported in imported_modules(path, parse(path))
-            if in_package(imported, DRIVERS) or in_package(imported, BATTERY_DRIVERS)
+            if in_package(imported, DRIVERS)
+            or in_package(imported, BATTERY_DRIVERS)
+            or in_package(imported, INVERTER_DRIVERS)
         ),
     )
     assert not offenders, f"driver module imported outside safety/app: {offenders}"

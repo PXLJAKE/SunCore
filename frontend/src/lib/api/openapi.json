@@ -5876,7 +5876,7 @@
       },
       "InverterConfig": {
         "additionalProperties": false,
-        "description": "The inverter limit adapter (ADR-0018 decision 3; writes arrive with PR 6-G).\n\n``limit_verified`` is set only after the documented verification test; until then the\ninverter asset runs at most assisted (X6). ``nominal_ac_w`` is needed for ``ac_limit``\n(the percent base, invariant X2). ``limit_entity`` is the number entity of the generic\nadapter (W for ``export_limit``, % for ``ac_limit``).",
+        "description": "The inverter limit adapter (ADR-0018 decision 3; writes since PR 6-G).\n\n``limit_verified`` is set only after the documented verification test; until then the\ninverter asset runs at most assisted (X6) and the dynamic 0 W limit at negative prices stays\noff. A change of the adapter's identity (:meth:`identity_token`) resets it and drops\n``operation.inverter_mode`` to shadow (storage). ``nominal_ac_w`` is needed for ``ac_limit``\n(the percent base, invariant X2). ``limit_entity`` is the entity that shows the limit: the\nnumber entity of the generic adapter (W for ``export_limit``, % for ``ac_limit``) and of\n``kostal_rest`` (``Inverter:ActivePowerLimitation``), the modbus sensor that reads register\n533 back for ``kostal_modbus``; without it the adapter cannot read back and is not built.\n``enforce_static``: ``False`` (default) = the static export limit is enforced by the\ninverter's own setting (the maintainer's 13.5 kW, plan §6 question 6) and SunCore writes a\nlimit only below it (dynamic or zero export); ``True`` = SunCore enforces it too.",
         "properties": {
           "adapter": {
             "default": "none",
@@ -5904,6 +5904,11 @@
             ],
             "title": "Capability"
           },
+          "enforce_static": {
+            "default": false,
+            "title": "Enforce Static",
+            "type": "boolean"
+          },
           "limit_entity": {
             "anyOf": [
               {
@@ -5918,6 +5923,16 @@
             "default": false,
             "title": "Limit Verified",
             "type": "boolean"
+          },
+          "modbus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterModbusLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "nominal_ac_w": {
             "anyOf": [
@@ -5936,6 +5951,19 @@
             "default": 1,
             "title": "Schema Version",
             "type": "integer"
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
           }
         },
         "title": "InverterConfig",
@@ -5979,6 +6007,36 @@
           }
         },
         "title": "InverterLimitAction",
+        "type": "object"
+      },
+      "InverterModbusLink": {
+        "additionalProperties": false,
+        "description": "How the ``kostal_modbus`` inverter adapter writes register 533 (``modbus.write_register``).\n\n``hub`` is the ``name`` of the user's ``modbus:`` YAML hub, ``slave`` the inverter's unit id\n(Kostal default 71; mandatory because the action defaults to 1). Register 533 is volatile\n(lost on an inverter reset, Kostal §3.3): ``heartbeat_s`` is the re-write period while\nSunCore holds a limit. Verified 2026-11-24 against ``home-assistant/core`` ``dev``\n``components/modbus/services.py``: an ``int`` value is written with function code 0x06\n(write single register), which is what Kostal lists for 533.",
+        "properties": {
+          "heartbeat_s": {
+            "default": 60.0,
+            "maximum": 3600.0,
+            "minimum": 10.0,
+            "title": "Heartbeat S",
+            "type": "number"
+          },
+          "hub": {
+            "default": "modbus_hub",
+            "pattern": "^[A-Za-z0-9_\\-]{1,64}$",
+            "title": "Hub",
+            "type": "string"
+          },
+          "slave": {
+            "maximum": 255.0,
+            "minimum": 1.0,
+            "title": "Slave",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "slave"
+        ],
+        "title": "InverterModbusLink",
         "type": "object"
       },
       "KpiOut": {
@@ -7280,6 +7338,10 @@
             },
             "title": "Device Modes",
             "type": "object"
+          },
+          "inverter_mode": {
+            "$ref": "#/components/schemas/OperatingMode",
+            "default": "shadow"
           },
           "mode": {
             "$ref": "#/components/schemas/OperatingMode",

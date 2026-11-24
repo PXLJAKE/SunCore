@@ -181,6 +181,7 @@ VALIDATION_KEYS: Final[dict[str, str]] = {
     "suncore.inverter_entity": "api.validation.inverter_entity",
     "suncore.inverter_entity_invert": "api.validation.inverter_entity_invert",
     "suncore.inverter_limit_one": "api.validation.inverter_limit_one",
+    "suncore.inverter_modbus_only": "api.validation.inverter_modbus_only",
     "suncore.inverter_needs_capability": "api.validation.inverter_needs_capability",
     "suncore.inverter_none_extra": "api.validation.inverter_none_extra",
     "suncore.job_deadline_past": "api.validation.job_deadline_past",

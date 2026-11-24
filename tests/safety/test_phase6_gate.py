@@ -163,13 +163,21 @@ def test_every_action_kind_is_handled_or_rejected() -> None:
         ActionKind.MODE,
         ActionKind.RELEASE,
         ActionKind.BATTERY,  # safety.battery (B1-B9), not_supported without an adapter
+        ActionKind.INVERTER_LIMIT,  # safety.inverter (X1-X6, PR 6-G), not_supported without one
     }
     assert judged | NOT_YET_SUPPORTED_KINDS == set(ActionKind)
     assert judged.isdisjoint(NOT_YET_SUPPORTED_KINDS)
     assert set(REASON_NOT_SUPPORTED) == NOT_YET_SUPPORTED_KINDS
     for kind, reason in REASON_NOT_SUPPORTED.items():
         assert reason.key == f"safety.{kind.value}_not_supported"
-    assert {a.kind for a in NEW_ACTIONS} == NOT_YET_SUPPORTED_KINDS
+    assert {a.kind for a in NEW_ACTIONS} == NOT_YET_SUPPORTED_KINDS | {ActionKind.INVERTER_LIMIT}
+
+
+def rejection_of(kind: ActionKind) -> str:
+    """The rejection key of a Phase 6 kind without its adapter (inverter: PR 6-G)."""
+    if kind is ActionKind.INVERTER_LIMIT:
+        return "safety.inverter_limit_not_supported"
+    return REASON_NOT_SUPPORTED[kind].key
 
 
 @pytest.mark.parametrize("action", NEW_ACTIONS, ids=lambda a: a.kind.value)
@@ -215,8 +223,8 @@ def test_new_action_kinds_are_always_rejected_without_side_effects(  # noqa: PLR
     decision, releases = asyncio.run(scenario())
     assert decision.kind is DecisionKind.REJECTED
     assert not decision.wrote_hardware
-    expected = REASON_EMERGENCY_STOP if stopped else REASON_NOT_SUPPORTED[action.kind]
-    assert decision.reasons == (expected,)
+    expected = REASON_EMERGENCY_STOP.key if stopped else rejection_of(action.kind)
+    assert keys(decision) == [expected]
     assert h.apply_calls == 0
     assert h.release_calls == releases
     assert h.gate.proposals() == ()
@@ -235,8 +243,8 @@ def test_phase6_devices_reject_every_action_but_a_release(
     h = make_harness(devices=(device,), global_mode=mode, device_mode=mode)
     decision = asyncio.run(h.gate.submit(make_intent(action, asset_id=device.id, origin=origin)))
     assert decision.kind is DecisionKind.REJECTED
-    if action.kind in NOT_YET_SUPPORTED_KINDS:
-        assert keys(decision) == [REASON_NOT_SUPPORTED[action.kind].key]
+    if action.kind in NOT_YET_SUPPORTED_KINDS | {ActionKind.INVERTER_LIMIT}:
+        assert keys(decision) == [rejection_of(action.kind)]
     else:
         assert keys(decision) == [EXPECTED_DEVICE_REASON[device.id]]
     assert h.apply_calls == 0

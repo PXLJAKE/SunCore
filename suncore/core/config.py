@@ -7,7 +7,9 @@ but never read by the safety gate before Phase 3: the gate stays shadow-only.
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
 import re
 from collections.abc import Collection, Mapping
 from typing import Annotated, Any, Final, Literal, Self
@@ -537,6 +539,10 @@ class OperationConfig(_Frozen):
     """Mode of the battery asset (ADR-0013 decision 6; additive in v1, Phase 4 WP10). The
     same rules as a device's: raising it needs the battery's identity token, a changed battery
     identity or an import drops it to shadow."""
+    inverter_mode: OperatingMode = OperatingMode.SHADOW
+    """Mode of the inverter limit asset (ADR-0018 decision 3; additive in v1, PR 6-G): capped at
+    assisted until ``inverter.limit_verified``; a changed inverter adapter or an import drops
+    it to shadow."""
 
     def without_modes_of(self, device_ids: frozenset[str]) -> Self:
         """Drop the non-shadow entries of ``device_ids`` (they fall back to shadow)."""
@@ -548,6 +554,12 @@ class OperationConfig(_Frozen):
         if len(kept) == len(self.device_modes):
             return self
         return self.model_copy(update={"device_modes": kept})
+
+    def without_inverter_mode(self) -> Self:
+        """The inverter limit back in shadow (adapter changed, import)."""
+        if self.inverter_mode is OperatingMode.SHADOW:
+            return self
+        return self.model_copy(update={"inverter_mode": OperatingMode.SHADOW})
 
     def without_battery_mode(self) -> Self:
         """The battery back in shadow (identity changed, import)."""
@@ -746,13 +758,36 @@ _ADAPTER_CAPABILITY: Final[dict[str, InverterCapability]] = {
 }
 
 
+class InverterModbusLink(_Frozen):
+    """How the ``kostal_modbus`` inverter adapter writes register 533 (``modbus.write_register``).
+
+    ``hub`` is the ``name`` of the user's ``modbus:`` YAML hub, ``slave`` the inverter's unit id
+    (Kostal default 71; mandatory because the action defaults to 1). Register 533 is volatile
+    (lost on an inverter reset, Kostal §3.3): ``heartbeat_s`` is the re-write period while
+    SunCore holds a limit. Verified 2026-11-24 against ``home-assistant/core`` ``dev``
+    ``components/modbus/services.py``: an ``int`` value is written with function code 0x06
+    (write single register), which is what Kostal lists for 533.
+    """
+
+    hub: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_\-]{1,64}$")] = "modbus_hub"
+    slave: Annotated[int, Field(ge=1, le=255)]
+    heartbeat_s: Annotated[float, Field(ge=10, le=3600)] = 60.0
+
+
 class InverterConfig(_Frozen):
-    """The inverter limit adapter (ADR-0018 decision 3; writes arrive with PR 6-G).
+    """The inverter limit adapter (ADR-0018 decision 3; writes since PR 6-G).
 
     ``limit_verified`` is set only after the documented verification test; until then the
-    inverter asset runs at most assisted (X6). ``nominal_ac_w`` is needed for ``ac_limit``
-    (the percent base, invariant X2). ``limit_entity`` is the number entity of the generic
-    adapter (W for ``export_limit``, % for ``ac_limit``).
+    inverter asset runs at most assisted (X6) and the dynamic 0 W limit at negative prices stays
+    off. A change of the adapter's identity (:meth:`identity_token`) resets it and drops
+    ``operation.inverter_mode`` to shadow (storage). ``nominal_ac_w`` is needed for ``ac_limit``
+    (the percent base, invariant X2). ``limit_entity`` is the entity that shows the limit: the
+    number entity of the generic adapter (W for ``export_limit``, % for ``ac_limit``) and of
+    ``kostal_rest`` (``Inverter:ActivePowerLimitation``), the modbus sensor that reads register
+    533 back for ``kostal_modbus``; without it the adapter cannot read back and is not built.
+    ``enforce_static``: ``False`` (default) = the static export limit is enforced by the
+    inverter's own setting (the maintainer's 13.5 kW, plan §6 question 6) and SunCore writes a
+    limit only below it (dynamic or zero export); ``True`` = SunCore enforces it too.
     """
 
     schema_version: int = 1
@@ -761,11 +796,22 @@ class InverterConfig(_Frozen):
     limit_entity: EntityRef | None = None
     nominal_ac_w: Annotated[float, Field(gt=0, le=1_000_000, allow_inf_nan=False)] | None = None
     limit_verified: bool = False
+    # PR 6-G (additive):
+    template_id: TemplateId | None = None
+    """The ``inverter`` template the roles were resolved from (informational, identity)."""
+    modbus: InverterModbusLink | None = None
+    enforce_static: bool = False
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
         if self.adapter == "none":
-            if self.capability is not None or self.limit_entity is not None or self.limit_verified:
+            if (
+                self.capability is not None
+                or self.limit_entity is not None
+                or self.limit_verified
+                or self.modbus is not None
+                or self.template_id is not None
+            ):
                 raise invalid(
                     "inverter_none_extra",
                     "inverter: without an adapter there is no capability, entity or verification",
@@ -781,9 +827,11 @@ class InverterConfig(_Frozen):
                 adapter=self.adapter,
                 capability=fixed,
             )
-        if (self.adapter == "generic_number") != (self.limit_entity is not None):
+        if self.adapter == "generic_number" and self.limit_entity is None:
+            raise invalid("inverter_entity", "inverter: the generic adapter needs `limit_entity`")
+        if self.modbus is not None and self.adapter != "kostal_modbus":
             raise invalid(
-                "inverter_entity", "inverter: `limit_entity` belongs to the generic adapter only"
+                "inverter_modbus_only", "inverter: `modbus` belongs to the kostal_modbus adapter"
             )
         if self.limit_entity is not None and self.limit_entity.invert_sign:
             raise invalid("inverter_entity_invert", "inverter: invert_sign is meaningless here")
@@ -798,6 +846,27 @@ class InverterConfig(_Frozen):
 
     def entity_refs(self) -> list[EntityRef]:
         return [self.limit_entity] if self.limit_entity is not None else []
+
+    def identity_token(self) -> str | None:
+        """What makes the adapter the same adapter (``None`` = no adapter).
+
+        Adapter, capability, template, entity, nominal power and the modbus link; the
+        verification flag, the heartbeat and ``enforce_static`` are settings, not identity.
+        """
+        if self.adapter == "none":
+            return None
+        payload = json.dumps(
+            [
+                self.adapter,
+                self.capability,
+                self.template_id,
+                None if self.limit_entity is None else self.limit_entity.entity_id,
+                self.nominal_ac_w,
+                None if self.modbus is None else [self.modbus.hub, self.modbus.slave],
+            ],
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 # --- wizard -------------------------------------------------------------------

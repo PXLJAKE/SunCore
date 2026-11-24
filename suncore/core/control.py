@@ -127,6 +127,11 @@ class GateInputs:
     kinds skips min run (G2)."""
     para14a_devices: frozenset[str] = frozenset()
     """Ids of the devices flagged ``para14a`` (the gate sums their power against the budget)."""
+    # PR 6-G (additive): the export chain (ADR-0018 decision 3, invariant X3).
+    export_headroom_w: float | None = None
+    """What the controlled devices and the battery could still absorb this tick (W): devices
+    still rising and SunCore's own battery charge cap. ``None`` = unknown; the gate then never
+    lets an inverter limit go below the current export (X3)."""
 
 
 # --- settings -----------------------------------------------------------------

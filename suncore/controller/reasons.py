@@ -67,8 +67,29 @@ GRID_PEAK_LIMIT: Final = "controller.grid.peak_limit"
 GRID_BATTERY_SUPPORT: Final = "controller.grid.battery_support"
 GRID_BATTERY_ISLAND: Final = "controller.grid.battery_island"
 GRID_BATTERY_NO_GRID_CHARGE: Final = "controller.grid.battery_no_grid_charge"
+# Phase 6 PR 6-G: the export chain (``controller.export``).
+EXPORT_LIMIT: Final = "controller.export.limit"
+EXPORT_AC_LIMIT: Final = "controller.export.ac_limit"
+EXPORT_NOT_NEEDED: Final = "controller.export.not_needed"
+EXPORT_ABSORBING: Final = "controller.export.absorbing"
+EXPORT_WAITING: Final = "controller.export.waiting"
+EXPORT_INPUTS_UNKNOWN: Final = "controller.export.inputs_unknown"
+EXPORT_ISLAND: Final = "controller.export.island"
+EXPORT_BLOCKED: Final = "controller.export.blocked"
+EXPORT_RELEASE: Final = "controller.export.release"
+EXPORT_BATTERY_CAP_LIFTED: Final = "controller.export.battery_cap_lifted"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
+    EXPORT_LIMIT,
+    EXPORT_AC_LIMIT,
+    EXPORT_NOT_NEEDED,
+    EXPORT_ABSORBING,
+    EXPORT_WAITING,
+    EXPORT_INPUTS_UNKNOWN,
+    EXPORT_ISLAND,
+    EXPORT_BLOCKED,
+    EXPORT_RELEASE,
+    EXPORT_BATTERY_CAP_LIFTED,
     GRID_ISLAND_SHED,
     GRID_ISLAND_KEEP,
     GRID_COOLDOWN,
