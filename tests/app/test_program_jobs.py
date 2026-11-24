@@ -108,3 +108,39 @@ def test_notices_of_program_events() -> None:
         assert notice.quiet_hours is quiet
         assert notice.key == f"program:j1:{kind}"
     assert program_notice(ProgramEvent("started", "washer", job, NOW), str, UTC) is None
+
+
+def test_l1_l4_start_now_and_missed_pass_the_daily_cap_an_unseen_run_is_unknown() -> None:
+    armed = ProgramJob(id="j1", device_id="washer", deadline=DEADLINE, armed_at=NOW)
+    start = program_notice(ProgramEvent("start_now", "washer", armed, NOW), str, UTC)
+    done_job = transition(transition(armed, JobState.RUNNING, NOW), JobState.DONE, NOW)
+    done = program_notice(ProgramEvent("done", "washer", done_job, NOW), str, UTC)
+    missed_job = transition(armed, JobState.CANCELLED, DEADLINE)
+    missed = program_notice(ProgramEvent("missed", "washer", missed_job, DEADLINE), str, UTC)
+    unknown = program_notice(
+        ProgramEvent("missed", "washer", missed_job, DEADLINE, power_known=False), str, UTC
+    )
+    assert start is not None
+    assert start.cap_exempt
+    assert done is not None
+    assert not done.cap_exempt
+    assert missed is not None
+    assert missed.cap_exempt
+    assert missed.reason.key == "notify.program.missed"
+    assert unknown is not None
+    assert unknown.cap_exempt
+    assert unknown.reason.key == "notify.program.unknown"
+
+
+async def test_l2_the_notified_flag_is_kept_by_the_book_and_the_store(
+    store: FlexStateStore,
+) -> None:
+    book = ProgramJobBook(store)
+    job = await book.arm(PLUG, DEADLINE, now=NOW)
+    assert book.update_jobs([job.model_copy(update={"notified_at": NOW})])
+    await book.flush()
+    again = ProgramJobBook(store)
+    await again.load()
+    current = again.current("washer")
+    assert current is not None
+    assert current.notified_at == NOW

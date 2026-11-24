@@ -187,6 +187,35 @@ Ein Schalter (Poolpumpe, Steckdose) geht mit der Hysterese und den oben genannte
 an und aus. Eine regelbare Last (ein Heizstab über eine Number-Entität) folgt dem Überschuss in
 ihrem eingestellten Bereich mit einer Totzone.
 
+### Verschiebbare Programme (Waschmaschine, Geschirrspüler)
+
+Du wählst das Programm, drückst Start und sagst SunCore, bis wann es fertig sein muss. Mit
+einer Steckdose schaltet SunCore sie direkt danach aus (solange das Gerät noch fast nichts
+zieht) und zum geplanten Start wieder ein; das Gerät muss sein Programm fortsetzen, wenn der
+Strom zurückkommt (das bestätigst du pro Gerät). Ein laufendes Programm wird nie ausgeschaltet.
+Immer wenn SunCore die Steckdose loslässt (du brichst den Auftrag ab, „Zurück zu normal“, ein
+Update oder ein Absturz), schaltet es sie **ein**: Die Maschine startet dann sofort.
+
+**Empfohlenes Sicherheitsnetz:** Läuft SunCore nicht, während die Steckdose aus ist, schaltet
+sie niemand wieder ein. Lege in Home Assistant eine Automation an, die die Steckdose einschaltet,
+wenn sie länger aus ist, als du ein Programm je verschieben würdest, zum Beispiel:
+
+```yaml
+alias: Steckdose Waschmaschine wieder ein
+triggers:
+  - trigger: state
+    entity_id: switch.steckdose_waschmaschine
+    to: "off"
+    for: {hours: 12}
+actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.steckdose_waschmaschine
+```
+
+Ersetze die Entitäts-ID durch deine Steckdose und wähle die Stunden passend zu deinem längsten
+„fertig bis“.
+
 ## 4. Wenn du selbst etwas änderst
 
 SunCore respektiert manuelle Änderungen. Es erkennt sie am **Wert**: Befindet sich ein Gerät

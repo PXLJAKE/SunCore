@@ -1920,5 +1920,7 @@
   "template.generic.program_remote.name": "Shiftable program (remote start switch)",
   "template.generic.program_remote.role.start": "Switch that starts the appliance remotely",
   "template.generic.program_remote.role.power": "Power sensor of the appliance (W or kW)",
-  "safety.program_arm_window": "Not switched off: the plug is only switched off right after arming; later it stays on."
+  "safety.program_arm_window": "Not switched off: the plug is only switched off right after arming; later it stays on.",
+  "notify.program.unknown.title": "SunCore: status of {device} unknown",
+  "notify.program.unknown": "SunCore could not see the power of {device} for a while and does not know whether it ran in time for {deadline}. The job was closed; a smart plug is switched back on."
 }

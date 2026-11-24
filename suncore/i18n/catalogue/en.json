@@ -306,6 +306,8 @@
   "notify.program.missed.title": "SunCore: {device} did not start",
   "notify.program.start_now": "Now is a good time to start {device}, so it is finished by {deadline}.",
   "notify.program.start_now.title": "SunCore: start {device} now",
+  "notify.program.unknown": "SunCore could not see the power of {device} for a while and does not know whether it ran in time for {deadline}. The job was closed; a smart plug is switched back on.",
+  "notify.program.unknown.title": "SunCore: status of {device} unknown",
   "notify.proposal.confirmed": "{device} was switched as proposed.",
   "notify.proposal.confirmed.title": "SunCore: confirmed",
   "notify.proposal.gone": "The proposal for {device} has expired or was already handled. Nothing was changed.",

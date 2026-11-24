@@ -16,7 +16,9 @@ from datetime import datetime, timedelta
 from hypothesis import given
 from hypothesis import strategies as st
 
+from suncore.controller.loop import Controller, ControllerLoop
 from suncore.controller.programs import (
+    IN_FLIGHT_TIMEOUT_S,
     RETRY_QUIET_S,
     RETRY_S,
     ProgramController,
@@ -29,6 +31,7 @@ from suncore.core.decisions import (
     DecisionKind,
     Intent,
     OperatingMode,
+    Reason,
     ReleaseAction,
     SwitchAction,
 )
@@ -104,9 +107,15 @@ class Rig:
             self.jobs[changed.id] = changed
         return out
 
-    def answer(self, intent: Intent, kind: DecisionKind = DecisionKind.ACCEPTED) -> None:
+    def answer(
+        self, intent: Intent, kind: DecisionKind = DecisionKind.ACCEPTED, *reasons: str
+    ) -> None:
         decision = Decision(
-            intent=intent, kind=kind, ts=self.now, mode=OperatingMode.AUTOMATIC, reasons=()
+            intent=intent,
+            kind=kind,
+            ts=self.now,
+            mode=OperatingMode.AUTOMATIC,
+            reasons=tuple(Reason(key=k) for k in reasons),
         )
         assert self.ctrl.report(decision)
         if kind is DecisionKind.ACCEPTED and isinstance(intent.action, SwitchAction):
@@ -332,3 +341,121 @@ def test_the_controller_is_deterministic() -> None:
         return trace
 
     assert run() == run()
+
+
+# --- review 6-L: releases are retried, nothing in flight blocks them, notices -----------------
+
+
+def run_to_done(rig: Rig) -> None:
+    """Start at the latest start (accepted), run, and finish; the job is ``done`` after it."""
+    rig.now = LATEST
+    (start,) = switch_ons(rig.step())
+    rig.answer(start)
+    rig.power = 1500.0
+    rig.step(30)
+    rig.now = LATEST + timedelta(minutes=121)
+    rig.power = 0.0
+    rig.step()
+    rig.step(300)
+    assert rig.state() is JobState.DONE
+
+
+def releases(out: ProgramOutcome) -> list[Intent]:
+    return [i for i in out.intents if isinstance(i.action, ReleaseAction)]
+
+
+def test_h1_a_failed_release_is_sent_again_until_it_is_settled() -> None:
+    rig = Rig(jobs=[job()])
+    run_to_done(rig)
+    (first,) = releases(rig.step(30))
+    rig.answer(first, DecisionKind.FAILED)
+    assert releases(rig.step(RETRY_S - 1)) == []
+    (second,) = releases(rig.step(1))
+    rig.answer(second, DecisionKind.REJECTED, "safety.state_unknown")
+    (third,) = releases(rig.step(RETRY_S))
+    rig.answer(third, DecisionKind.ACCEPTED)
+    for _ in range(5):
+        assert releases(rig.step(RETRY_S)) == []
+
+
+def test_h1_a_held_or_not_under_control_release_is_settled() -> None:
+    for kind, reasons in (
+        (DecisionKind.HELD, ()),
+        (DecisionKind.REJECTED, ("safety.not_under_control",)),
+    ):
+        rig = Rig(jobs=[job()])
+        run_to_done(rig)
+        (release,) = releases(rig.step(30))
+        rig.answer(release, kind, *reasons)
+        for _ in range(5):
+            assert releases(rig.step(RETRY_S)) == []
+
+
+def test_m1_a_submit_error_does_not_block_the_release() -> None:
+    rig = Rig(jobs=[job()])
+    run_to_done(rig)
+    (release,) = releases(rig.step(30))
+    rig.ctrl.reset_pending(release)  # the submission raised: no decision comes
+    assert releases(rig.step(RETRY_S - 31)) == []
+    assert len(releases(rig.step(31))) == 1
+
+
+def test_m1_an_intent_without_a_decision_expires_and_the_release_follows() -> None:
+    rig = Rig(jobs=[job()])
+    rig.now = LATEST
+    (start,) = switch_ons(rig.step())
+    rig.answer(start)  # the start was written: a release is due when the job ends
+    rig.jobs["j1"] = transition(rig.job, JobState.RUNNING, LATEST)
+    rig.step(30)
+    rig.jobs["j1"] = transition(rig.job, JobState.DONE, rig.now)
+    assert len(releases(rig.step(30))) == 1  # never answered (transport lost)
+    assert releases(rig.step(IN_FLIGHT_TIMEOUT_S - 1)) == []
+    assert len(releases(rig.step(1))) == 1
+
+
+def test_l2_a_notify_job_asked_before_a_restart_is_not_asked_again() -> None:
+    rig = Rig(device=NOTIFY, jobs=[job()])
+    rig.on = None
+    rig.now = LATEST
+    out = rig.step()
+    (asked,) = out.events
+    assert asked.job.notified_at == LATEST
+    assert rig.job.notified_at == LATEST  # persisted with the job
+    restarted = Rig(device=NOTIFY, jobs=[rig.job])
+    restarted.on, restarted.now = None, LATEST + timedelta(minutes=5)
+    for _ in range(5):
+        assert restarted.step(60).events == ()
+
+
+def test_l4_a_missed_job_with_a_power_gap_has_an_unknown_outcome() -> None:
+    rig = Rig(jobs=[job()])
+    rig.power = None
+    rig.step()
+    rig.power = 0.0
+    rig.now = DEADLINE
+    out = rig.step()
+    (missed,) = out.events
+    assert missed.kind == "missed"
+    assert not missed.power_known
+    clean = Rig(jobs=[job()])
+    clean.site_ok = False  # known power, never started: really missed
+    clean.step()
+    clean.now = DEADLINE
+    (really,) = clean.step().events
+    assert really.power_known
+
+
+async def test_m1_the_loop_resets_a_program_intent_whose_submission_raised() -> None:
+    controller = Controller([PLUG])
+    rig = Rig(jobs=[job()])
+    rig.ctrl = controller.programs
+    rig.now = LATEST
+    (start,) = switch_ons(rig.step())
+
+    async def broken(_: Intent) -> Decision:
+        raise ConnectionError("gate unreachable")
+
+    loop = ControllerLoop(controller, submit=broken)
+    await loop._submit_one(start)
+    assert switch_ons(rig.step(RETRY_S - 1)) == []
+    assert len(switch_ons(rig.step(1))) == 1  # no longer in flight: retried

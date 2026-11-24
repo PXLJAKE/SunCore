@@ -39,6 +39,11 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     `program_deadline_plug` (with and without the real planner, cloud flicker),
     `program_notify_start`, `program_crash_recovery`; e2e gallery count 10.
   - Deviations, safety self-review and questions: plan section 8 (6-L).
+  - Review conditions of PR #62 done (H1, M1, M2, L1-L4): a release after a job is retried
+    until settled, nothing in flight blocks it (timeout, submit errors), docs recommend an HA
+    automation "plug off for hours -> on", `start_now`/`missed` pass the daily push cap, the
+    "start now" request is persisted (`notified_at`), `idle_w > 0`, an unseen run is reported
+    as "status unknown"; e2e wizard search adjusted for the new plug template.
 
 - **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;
   `control-safety`)** - shadow stays the default, every write still passes the gate:

@@ -72,8 +72,13 @@ class NotifyLimiter:
         )
         if quiet and in_quiet_hours(config.quiet_hours, now, tz):
             return Verdict.QUIET_HOURS
-        if event.category is not Category.SAFETY and self._pushed >= config.daily_push_cap:
-            # Safety events are never starved by the cap (proposals and errors can use it up).
+        if (
+            event.category is not Category.SAFETY
+            and not event.cap_exempt
+            and self._pushed >= config.daily_push_cap
+        ):
+            # Safety events are never starved by the cap (proposals and errors can use it up),
+            # nor are the events that must reach the user (``NotifyEvent.cap_exempt``).
             return Verdict.DAILY_CAP
         return Verdict.SEND
 

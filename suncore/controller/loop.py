@@ -73,6 +73,9 @@ from suncore.controller.ev import battery_holds_lock
 from suncore.controller.grid import GridHolds, GridInputs, situation_reasons
 from suncore.controller.levels import ConfigQuantiser, Quantiser
 from suncore.controller.programs import (
+    INTENT_PREFIX as PROGRAM_INTENT_PREFIX,
+)
+from suncore.controller.programs import (
     ProgramController,
     ProgramEvent,
     ProgramInputs,
@@ -433,6 +436,8 @@ class ControllerLoop:
             log.warning("controller.submit_failed", intent_id=intent.id, error=str(exc)[:200])
             if intent.id.startswith("battery:"):
                 self._controller.battery.reset_pending()
+            elif intent.id.startswith(PROGRAM_INTENT_PREFIX):
+                self._controller.programs.reset_pending(intent)
             return
         self._controller.report(decision)
 

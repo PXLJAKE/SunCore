@@ -1920,5 +1920,7 @@
   "template.generic.program_remote.name": "Verschiebbares Programm (Fernstart-Schalter)",
   "template.generic.program_remote.role.start": "Schalter, der das Gerät aus der Ferne startet",
   "template.generic.program_remote.role.power": "Leistungssensor des Geräts (W oder kW)",
-  "safety.program_arm_window": "Nicht ausgeschaltet: Die Steckdose wird nur direkt nach dem Vormerken ausgeschaltet; danach bleibt sie an."
+  "safety.program_arm_window": "Nicht ausgeschaltet: Die Steckdose wird nur direkt nach dem Vormerken ausgeschaltet; danach bleibt sie an.",
+  "notify.program.unknown.title": "SunCore: Status von {device} unbekannt",
+  "notify.program.unknown": "SunCore konnte die Leistung von {device} eine Zeit lang nicht sehen und weiß nicht, ob es rechtzeitig für {deadline} gelaufen ist. Der Auftrag wurde beendet; eine Steckdose wird wieder eingeschaltet."
 }

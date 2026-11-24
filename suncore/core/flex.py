@@ -154,6 +154,9 @@ class ProgramJob(_Frozen):
     planned_start: AwareDatetime | None = None
     started_at: AwareDatetime | None = None
     finished_at: AwareDatetime | None = None
+    notified_at: AwareDatetime | None = None
+    """When the user was asked to start a notify-only program (PR 6-L, review L2: persisted so
+    a restart does not ask twice)."""
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:

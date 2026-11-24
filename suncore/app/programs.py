@@ -46,6 +46,11 @@ NOTICE_KEYS: Final[Mapping[str, str]] = {
     "missed": "notify.program.missed",
 }
 """Program events that are announced; ``started`` is only logged."""
+NOTICE_UNKNOWN: Final = "notify.program.unknown"
+"""``missed`` while the appliance's power was unknown at some time: the outcome is unknown."""
+CAP_EXEMPT: Final = frozenset({"start_now", "missed"})
+"""Never held back by the daily push cap: the only start path of a notify-only program, and
+the message that a job did not run."""
 
 
 class ProgramJobError(ValueError):
@@ -181,6 +186,8 @@ def program_notice(
     key = NOTICE_KEYS.get(event.kind)
     if key is None:
         return None
+    if event.kind == "missed" and not event.power_known:
+        key = NOTICE_UNKNOWN  # review 6-L L4: it may have run unseen
     when = event.job.deadline.astimezone(tz)
     return NotifyEvent(
         category=Category.PROGRAM,
@@ -190,6 +197,7 @@ def program_notice(
         ),
         ts=event.ts,
         quiet_hours=event.kind != "start_now",
+        cap_exempt=event.kind in CAP_EXEMPT,  # review 6-L L1
     )
 
 

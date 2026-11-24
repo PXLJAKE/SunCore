@@ -176,6 +176,34 @@ A switch (a pool pump, a smart plug) goes on and off with the hysteresis and pro
 above. An adjustable load (a heating rod through a number entity) follows the surplus in its
 configured range with a dead band.
 
+### Shiftable programs (washing machine, dishwasher)
+
+You select the programme, press start and tell SunCore when it must be finished. With a smart
+plug SunCore switches the plug off right after that (while the appliance still draws almost
+nothing) and on again at the planned start; the appliance must resume its programme when the
+power returns (you confirm that per device). A running programme is never switched off.
+Whenever SunCore lets go of the plug (you cancel the job, "back to normal", an update or a
+crash), it switches the plug **on**: the machine then starts at once.
+
+**Recommended safety net:** if SunCore is not running while the plug is off, nobody switches
+it on again. Add a Home Assistant automation that switches the plug on when it has been off
+longer than you would ever delay a programme, for example:
+
+```yaml
+alias: Washing machine plug back on
+triggers:
+  - trigger: state
+    entity_id: switch.washing_machine_plug
+    to: "off"
+    for: {hours: 12}
+actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.washing_machine_plug
+```
+
+Replace the entity id with your plug and choose the hours to fit your longest "finished by".
+
 ## 4. If you change something yourself
 
 SunCore respects manual changes. It recognises them by the **value**: after the settle time, a

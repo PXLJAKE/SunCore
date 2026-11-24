@@ -597,7 +597,8 @@ class ProgramSpec(_Frozen):
         Field(max_length=96),
     ] = ()
     start_method: Literal["plug", "remote", "notify"]
-    idle_w: Annotated[float, Field(ge=0, le=500, allow_inf_nan=False)] = 5.0
+    idle_w: Annotated[float, Field(gt=0, le=500, allow_inf_nan=False)] = 5.0
+    """The "finished" threshold in W; above 0, or a run could never end (review 6-L L3)."""
     resume_confirmed: bool = False
 
     @model_validator(mode="after")

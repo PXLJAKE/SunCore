@@ -78,6 +78,9 @@ class NotifyEvent:
     """Dedupe keys of earlier persistent notifications this event dismisses."""
     persist: bool | None = None
     """Overrides the category's persistent rule (``None`` = category rule)."""
+    cap_exempt: bool = False
+    """Never held back by the daily push cap (review 6-L L1: a program's "start now", the only
+    start path of a notify-only device, and its "missed" message)."""
 
 
 class Verdict(StrEnum):

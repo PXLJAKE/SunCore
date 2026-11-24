@@ -2618,6 +2618,40 @@
  },
  {
   "lang": "en",
+  "key": "notify.program.unknown",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "SunCore could not see the power of abc for a while and does not know whether it ran in time for abc. The job was closed; a smart plug is switched back on."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.unknown",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "SunCore could not see the power of 42 for a while and does not know whether it ran in time for 42. The job was closed; a smart plug is switched back on."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.unknown.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: status of abc unknown"
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.unknown.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: status of 42 unknown"
+ },
+ {
+  "lang": "en",
   "key": "notify.proposal.confirmed",
   "args": {
    "device": "abc"
@@ -9684,6 +9718,40 @@
    "device": 42
   },
   "expected": "SunCore: 42 jetzt starten"
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.unknown",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "SunCore konnte die Leistung von abc eine Zeit lang nicht sehen und weiß nicht, ob es rechtzeitig für abc gelaufen ist. Der Auftrag wurde beendet; eine Steckdose wird wieder eingeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.unknown",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "SunCore konnte die Leistung von 42 eine Zeit lang nicht sehen und weiß nicht, ob es rechtzeitig für 42 gelaufen ist. Der Auftrag wurde beendet; eine Steckdose wird wieder eingeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.unknown.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: Status von abc unbekannt"
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.unknown.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: Status von 42 unbekannt"
  },
  {
   "lang": "de",

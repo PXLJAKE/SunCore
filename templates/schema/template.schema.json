@@ -1887,8 +1887,8 @@
       "properties": {
         "idle_w": {
           "default": 5.0,
+          "exclusiveMinimum": 0,
           "maximum": 500,
-          "minimum": 0,
           "title": "Idle W",
           "type": "number"
         },

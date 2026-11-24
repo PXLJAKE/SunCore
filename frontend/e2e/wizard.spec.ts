@@ -91,7 +91,7 @@ test.describe('setup wizard', () => {
     await expect(page.getByTestId('no-devices')).toBeVisible();
     await page.getByTestId('add-device').click();
     await expect(page.getByTestId('gallery')).toBeVisible();
-    await page.getByLabel('Search').fill('plug');
+    await page.getByLabel('Search').fill('switch or smart plug');
     await expect(page.getByTestId('gallery').getByRole('listitem')).toHaveCount(1);
     await expectNoAxeViolations(page);
     await page.getByRole('button', { name: /^Choose/ }).click();

@@ -106,6 +106,17 @@ def test_the_daily_cap_counts_pushes_and_resets_at_local_midnight() -> None:
     assert limiter.pushed_today == 0
 
 
+def test_a_cap_exempt_event_is_sent_beyond_the_daily_cap() -> None:
+    """Review 6-L L1: a program's "start now" and "missed" are never dropped by the cap."""
+    limiter = NotifyLimiter()
+    cfg = config(daily_push_cap=1)
+    first = event(key="k0")
+    limiter.commit(first, NOON, BERLIN, pushed=True)
+    assert limiter.judge_push(event(key="k1"), cfg, NOON, BERLIN) is Verdict.DAILY_CAP
+    exempt = event(Category.PROGRAM, key="k2", cap_exempt=True)
+    assert limiter.judge_push(exempt, cfg, NOON, BERLIN) is Verdict.SEND
+
+
 def test_a_persistent_only_delivery_does_not_count_against_the_cap() -> None:
     limiter = NotifyLimiter()
     limiter.commit(event(), NOON, BERLIN, pushed=False)

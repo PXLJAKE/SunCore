@@ -1194,7 +1194,10 @@ reconnect is not detected (the service stays `active`, taps just never arrive).
    frei, und die Freigabe schaltet sie ein – die wartende Maschine läuft dann sofort los
    (früher als geplant, aber sicher fertig). Dasselbe gilt für Absturz, Not-Aus-„Zurück zu
    normal“ und einen verpassten Auftrag. **Empfehlung:** so lassen („lieber zu früh als nie“).
-   Einverstanden?
+   Einverstanden? Läuft SunCore gar nicht, während die Steckdose aus ist (Review M2), schaltet
+   sie niemand ein: Die Nutzerdoku (`docs/user/*/surplus-control.md`, Abschnitt „Verschiebbare
+   Programme“) und die Kompatibilitätsliste empfehlen deshalb eine HA-Automation „Steckdose
+   länger als X h aus → ein“. Soll SunCore diese Automation später selbst anlegen?
 2. **„Jetzt starten“ auch im Schattenmodus:** Bei Programmen mit Benachrichtigung schickt
    SunCore die Bitte „jetzt starten“ auch im Schattenmodus, weil nichts geschaltet wird.
    **Empfehlung:** so lassen. Oder soll der Schattenmodus auch Benachrichtigungen unterdrücken?
@@ -1205,3 +1208,35 @@ reconnect is not detected (the service stays `active`, taps just never arrive).
    6-I). Einverstanden?
 5. **Startfenster 600 s:** SunCore schaltet die Steckdose nur in den ersten 10 Minuten nach
    dem Vormerken aus. Reicht das, oder soll das Fenster einstellbar sein?
+
+#### Review conditions 6-L (control-safety, PR #62)
+
+Approved with conditions; all done in the follow-up commit:
+
+- **H1 (done):** the release after a job is an intent in flight (`kind="release"`); it is
+  settled only by `accepted`, `held` or `rejected` with `safety.not_under_control`, otherwise
+  sent again after `RETRY_S` (`test_h1_a_failed_release_is_sent_again_until_it_is_settled`,
+  `test_h1_a_held_or_not_under_control_release_is_settled`). The optional gate-side
+  `release_due_ts` on `failed` was not added: the controller's retry covers it.
+- **M1 (done):** the in-flight timeout is checked at the start of every device tick, and
+  `ControllerLoop._submit_one` resets a `program:` intent whose submission raised
+  (`ProgramController.reset_pending`; `test_m1_a_submit_error_does_not_block_the_release`,
+  `test_m1_an_intent_without_a_decision_expires_and_the_release_follows`,
+  `test_m1_the_loop_resets_a_program_intent_whose_submission_raised`).
+- **M2 (done):** user docs (en/de `surplus-control.md`) and the compatibility list recommend
+  an HA automation that switches the plug on after many hours off; question 1 extended.
+- **L1 (done):** `NotifyEvent.cap_exempt`; `start_now` and `missed` (also `unknown`) are never
+  held back by the daily push cap (`test_a_cap_exempt_event_is_sent_beyond_the_daily_cap`).
+- **L2 (done):** `ProgramJob.notified_at` (additive, persisted in `flex_state`); a restart
+  does not ask again (`test_l2_a_notify_job_asked_before_a_restart_is_not_asked_again`).
+- **L3 (done):** `ProgramSpec.idle_w` must be above 0 (`test_program_spec_rules`).
+- **L4 (done):** a missed job whose appliance power was unknown at some tick is announced as
+  `notify.program.unknown` ("Status unbekannt") instead of `missed`
+  (`test_l4_a_missed_job_with_a_power_gap_has_an_unknown_outcome`).
+- **CI (done):** `e2e/wizard.spec.ts` searches the gallery for "switch or smart plug" (the
+  new `generic.program_plug` also matched "plug").
+
+#### Notes for 6-M (from the 6-L review)
+
+- The UI must warn before cancelling a job and before "back to normal" on a program device
+  that the plug is switched **on**, so the machine starts immediately.

@@ -307,6 +307,10 @@ def test_program_spec_rules() -> None:
     with pytest.raises(ValidationError) as exc:
         ProgramSpec(runtime_min=95, start_method="notify", profile_wh=(1,) * 6)
     assert err_type(exc) == "suncore.program_profile_length"
+    # review 6-L L3: an idle threshold of 0 W would never let a run end
+    with pytest.raises(ValidationError) as exc:
+        ProgramSpec(runtime_min=60, start_method="notify", idle_w=0)
+    assert err_type(exc) == "greater_than"
     # PR 6-L: the spec (a template default) may say `plug`; the device needs the confirmation.
     unconfirmed = ProgramSpec(runtime_min=60, start_method="plug")
     switch = {

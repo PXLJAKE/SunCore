@@ -35,7 +35,11 @@ deadline passed without a start (``missed``). Per device and tick:
 A running program is never switched off and never shed: the controller emits no switch-off for
 it, and it has no surplus levels, so neither the deficit back-off nor the grid shedding of the
 allocator touch it. After ``done``, ``missed`` or a cancellation by the user the device is
-released once (the plug goes back to its baseline, on - P3).
+released (the plug goes back to its baseline, on - P3). The release is an intent in flight like
+a start: it is sent again after :data:`RETRY_S` until the gate accepted it, held it or answered
+that the device is no longer under control (review 6-L H1). An intent without a decision (a
+transport error, :meth:`ProgramController.reset_pending`, or :data:`IN_FLIGHT_TIMEOUT_S`) never
+blocks the release (review 6-L M1).
 """
 
 from __future__ import annotations
@@ -95,6 +99,9 @@ RETRY_QUIET_S: Final = 900.0
 MANUAL_START_S: Final = 30.0
 """The appliance drew ``idle_w`` or more this long: it runs (a manual or notified start)."""
 INTENT_PREFIX: Final = "program:"
+REASON_NOT_UNDER_CONTROL_KEY: Final = "safety.not_under_control"
+"""The gate's answer to a release of a device it does not control (``safety.gate``; the
+controller depends on ``core`` only, so the key is repeated here)."""
 IN_FLIGHT_TIMEOUT_S: Final = 300.0
 """An intent without a decision after this long (a transport error) no longer blocks."""
 
@@ -109,6 +116,9 @@ class ProgramEvent:
     device_id: str
     job: ProgramJob
     ts: datetime
+    power_known: bool = True
+    """``missed``: the appliance's power was known throughout the job; ``False`` = it may have
+    run unseen, so the job's outcome is unknown rather than missed (review 6-L L4)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +162,10 @@ class _Memory:
     """The job id whose end still needs a release."""
     wrote_job: str | None = None
     """The job for which the gate accepted a write (only then is a release due)."""
+    release_retry_at: datetime | None = None
+    """A release that failed (or got no decision) is sent again from this time."""
+    power_gap: bool = False
+    """The appliance's power was unknown at some tick of the current job."""
 
     def reset(self, job_id: str | None) -> None:
         self.job_id = job_id
@@ -160,6 +174,7 @@ class _Memory:
         self.retry_at = None
         self.started_at = None
         self.notified = False
+        self.power_gap = False
 
 
 class ProgramController:
@@ -208,23 +223,28 @@ class ProgramController:
     ) -> tuple[Reason, ...]:
         spec = device.program
         assert spec is not None
+        self._expire_in_flight(now, memory)
         if job is None or job.id != memory.job_id:
             if memory.job_id is not None and memory.job_id == memory.wrote_job:
-                # The previous job ended (done, missed, cancelled by the user): release once.
+                # The previous job ended (done, missed, cancelled by the user): release it.
                 memory.pending_release = memory.job_id
             memory.reset(None if job is None else job.id)
         if (
             memory.pending_release is not None
             and memory.in_flight is None
             and device.id not in inputs.blocked
+            and (memory.release_retry_at is None or now >= memory.release_retry_at)
         ):
-            intents.append(self._intent(now, device.id, ReleaseAction(), PROGRAM_RELEASE))
-            memory.pending_release = None
-            memory.wrote_job = None
+            intent = self._intent(now, device.id, ReleaseAction(), PROGRAM_RELEASE)
+            memory.in_flight, memory.in_flight_kind = intent.id, "release"
+            memory.in_flight_ts = now
+            intents.append(intent)
         if job is None:
             return (Reason(key=PROGRAM_NO_JOB),)
         power = _power(device, inputs.estimates.get(device.id))
         self._track_power(now, memory, power, spec.idle_w)
+        if power is None:
+            memory.power_gap = True
         if job.state is JobState.RUNNING:
             return self._running(now, device, memory, job, power, changed, events)
         # armed or scheduled
@@ -238,10 +258,12 @@ class ProgramController:
         if now >= job.deadline:
             missed = transition(job, JobState.CANCELLED, now)
             changed.append(missed)
-            events.append(ProgramEvent("missed", device.id, missed, now))
+            events.append(
+                ProgramEvent("missed", device.id, missed, now, power_known=not memory.power_gap)
+            )
             return (Reason(key=PROGRAM_NO_JOB),)
         job = self._schedule(now, device, job, inputs.plan, changed)
-        return self._waiting(now, device, memory, job, power, inputs, intents, events)
+        return self._waiting(now, device, memory, job, power, inputs, intents, events, changed)
 
     def _waiting(  # noqa: PLR0911, PLR0917 - one return per verdict
         self,
@@ -253,6 +275,7 @@ class ProgramController:
         inputs: ProgramInputs,
         intents: list[Intent],
         events: list[ProgramEvent],
+        changed: list[ProgramJob],
     ) -> tuple[Reason, ...]:
         """An armed or scheduled job: notify, start, or power the appliance down (P4)."""
         spec = device.program
@@ -274,16 +297,14 @@ class ProgramController:
         state = inputs.states.get(device.id)
         on = None if state is None or not state.known else state.on
         if spec.start_method == "notify":
+            if job.notified_at is not None:
+                memory.notified = True  # asked before a restart (review 6-L L2)
             if due and not memory.notified:
                 memory.notified = True
-                events.append(ProgramEvent("start_now", device.id, job, now))
+                asked = job.model_copy(update={"notified_at": now})
+                changed.append(asked)
+                events.append(ProgramEvent("start_now", device.id, asked, now))
             return (Reason(key=PROGRAM_START_NOW),) if memory.notified else (waiting,)
-        if (
-            memory.in_flight is not None
-            and memory.in_flight_ts is not None
-            and _sustained(memory.in_flight_ts, now, IN_FLIGHT_TIMEOUT_S)
-        ):
-            memory.in_flight = None
         if memory.in_flight is not None or (memory.retry_at is not None and now < memory.retry_at):
             return (waiting,)
         if due and on is False:
@@ -363,6 +384,18 @@ class ProgramController:
         changed.append(updated)
         return updated
 
+    @staticmethod
+    def _expire_in_flight(now: datetime, memory: _Memory) -> None:
+        """M1: an intent without a decision after :data:`IN_FLIGHT_TIMEOUT_S` no longer blocks
+        (a pending release is then sent again at once)."""
+        if (
+            memory.in_flight is not None
+            and memory.in_flight_ts is not None
+            and _sustained(memory.in_flight_ts, now, IN_FLIGHT_TIMEOUT_S)
+        ):
+            memory.in_flight = None
+            memory.in_flight_kind = None
+
     def _waiting_reason(self, job: ProgramJob, latest: datetime) -> Reason:
         if job.state is JobState.SCHEDULED and job.planned_start is not None:
             return Reason(key=PROGRAM_SCHEDULED, args={"start": self._hhmm(job.planned_start)})
@@ -407,6 +440,21 @@ class ProgramController:
 
     # --- feedback --------------------------------------------------------------------------
 
+    def reset_pending(self, intent: Intent) -> None:
+        """The submission of one of this controller's intents raised (no decision will come):
+        it no longer blocks; a start or a release is tried again after :data:`RETRY_S` (M1)."""
+        memory = self._memory.get(intent.asset_id)
+        if memory is None or memory.in_flight != intent.id:
+            return
+        kind = memory.in_flight_kind
+        memory.in_flight = None
+        memory.in_flight_kind = None
+        again = intent.ts + timedelta(seconds=RETRY_S)
+        if kind == "release":
+            memory.release_retry_at = again
+        else:
+            memory.retry_at = again
+
     def report(self, decision: Decision) -> bool:
         """A decision on one of this controller's intents; ``True`` if it was ours."""
         intent = decision.intent
@@ -418,6 +466,9 @@ class ProgramController:
         kind = memory.in_flight_kind
         memory.in_flight = None
         memory.in_flight_kind = None
+        if kind == "release":
+            self._released(memory, decision)
+            return True
         if decision.kind is DecisionKind.ACCEPTED:
             memory.retry_at = None
             memory.wrote_job = memory.job_id
@@ -431,6 +482,26 @@ class ProgramController:
         )
         memory.retry_at = decision.ts + timedelta(seconds=wait)
         return True
+
+    @staticmethod
+    def _released(memory: _Memory, decision: Decision) -> None:
+        if not _release_done(decision):
+            memory.release_retry_at = decision.ts + timedelta(seconds=RETRY_S)
+            return
+        if memory.wrote_job == memory.pending_release:
+            memory.wrote_job = None
+        memory.pending_release = None
+        memory.release_retry_at = None
+
+
+def _release_done(decision: Decision) -> bool:
+    """H1: a release is settled once the gate restored (or staged) the baseline, or the device
+    is not under SunCore's control any more; a failure or another rejection is retried."""
+    if decision.kind in (DecisionKind.ACCEPTED, DecisionKind.HELD):
+        return True
+    return decision.kind is DecisionKind.REJECTED and any(
+        r.key == REASON_NOT_UNDER_CONTROL_KEY for r in decision.reasons
+    )
 
 
 def _power(device: DeviceConfig, estimate: PowerEstimate | None) -> float | None:
@@ -448,6 +519,7 @@ def _sustained(since: datetime | None, now: datetime, seconds: float) -> bool:
 
 __all__ = [
     "INTENT_PREFIX",
+    "IN_FLIGHT_TIMEOUT_S",
     "MANUAL_START_S",
     "RETRY_QUIET_S",
     "RETRY_S",
