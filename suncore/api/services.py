@@ -22,6 +22,7 @@ from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.haentities import HaEntitiesStatus
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
 from suncore.forecast.views import (
@@ -309,6 +310,14 @@ class Services(Protocol):
 
     def plan_summary(self) -> PlanSummary:
         """The short form of the current plan for the live feed."""
+        ...
+
+    def ha_entities_status(self) -> HaEntitiesStatus:
+        """State of the Home Assistant entity surface (MQTT discovery, ADR-0016)."""
+        ...
+
+    async def ha_entities_republish(self) -> bool:
+        """Announce the entities and their states again; ``False`` = no broker session."""
         ...
 
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:

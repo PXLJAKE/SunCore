@@ -18,6 +18,7 @@ from suncore.core.balance import Flow, FlowSnapshot
 from suncore.core.controlstate import ControlState, DeviceModeRequest, ModeRequest
 from suncore.core.decisions import Decision, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.haentities import HaEntitiesStatus
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, worst_severity
 from suncore.planner.views import PlanSummary
@@ -176,6 +177,40 @@ class EmergencyStopOut(_Model):
     """State of the global emergency stop after the call."""
 
     active: bool
+
+
+# --- Home Assistant entities (Phase 6 WP3, ADR-0016) ---------------------------
+
+
+class HaEntitiesStatusOut(_Model):
+    """``GET /api/v1/ha-entities/status``: the MQTT entity surface."""
+
+    state: Literal["disabled", "no_broker", "connecting", "connected", "error"]
+    source: Literal["supervisor", "manual"] | None
+    """Where the broker comes from (``null`` while none is looked up)."""
+    entity_count: int
+    """Entities announced to Home Assistant (0 while not connected)."""
+    reason_key: str | None
+    """Why the surface is not connected (``mqtt.reason.*``, rendered by the frontend)."""
+    hint_key: str | None
+    """``mqtt.hint.install_broker`` while no broker was found, else ``null``."""
+
+    @classmethod
+    def from_core(cls, status: HaEntitiesStatus) -> HaEntitiesStatusOut:
+        return cls(
+            state=status.state.value,
+            source=status.source,
+            entity_count=status.entity_count,
+            reason_key=status.reason_key,
+            hint_key="mqtt.hint.install_broker" if status.state.value == "no_broker" else None,
+        )
+
+
+class HaEntitiesRepublishOut(_Model):
+    """Result of ``POST /api/v1/ha-entities/republish``."""
+
+    republished: bool
+    """``false`` = there is no broker session to publish on."""
 
 
 # --- config history ------------------------------------------------------------

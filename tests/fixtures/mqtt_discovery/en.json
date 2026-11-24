@@ -1,0 +1,523 @@
+{
+ "suncore_a1b2c3d4": {
+  "avty_t": "suncore/a1b2c3d4/status",
+  "cmps": {
+   "autarky_today": {
+    "def_ent_id": "sensor.suncore_autarky_today",
+    "name": "Autarky today",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/autarky_today/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_autarky_today",
+    "unit_of_meas": "%"
+   },
+   "available_surplus": {
+    "def_ent_id": "sensor.suncore_available_surplus",
+    "dev_cla": "power",
+    "name": "Available surplus",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/available_surplus/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_available_surplus",
+    "unit_of_meas": "W"
+   },
+   "emergency_stop": {
+    "def_ent_id": "binary_sensor.suncore_emergency_stop",
+    "name": "Emergency stop",
+    "p": "binary_sensor",
+    "stat_t": "suncore/a1b2c3d4/emergency_stop/state",
+    "uniq_id": "suncore_a1b2c3d4_emergency_stop"
+   },
+   "events": {
+    "def_ent_id": "event.suncore_events",
+    "evt_typ": [
+     "cheap_window_start",
+     "cheap_window_end",
+     "device_switched",
+     "proposal",
+     "proposal_expired",
+     "island_start",
+     "island_end",
+     "para14a_start",
+     "para14a_end",
+     "program_start_now",
+     "program_done",
+     "ev_target_at_risk",
+     "error"
+    ],
+    "name": "Events",
+    "p": "event",
+    "stat_t": "suncore/a1b2c3d4/event",
+    "uniq_id": "suncore_a1b2c3d4_events"
+   },
+   "grid_state": {
+    "def_ent_id": "sensor.suncore_grid_state",
+    "dev_cla": "enum",
+    "name": "Grid state",
+    "ops": [
+     "Normal",
+     "Limited by the grid operator",
+     "Island operation"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/grid_state/state",
+    "uniq_id": "suncore_a1b2c3d4_grid_state"
+   },
+   "healthy": {
+    "def_ent_id": "binary_sensor.suncore_healthy",
+    "name": "Healthy",
+    "p": "binary_sensor",
+    "stat_t": "suncore/a1b2c3d4/healthy/state",
+    "uniq_id": "suncore_a1b2c3d4_healthy"
+   },
+   "island": {
+    "def_ent_id": "binary_sensor.suncore_island",
+    "name": "Island operation",
+    "p": "binary_sensor",
+    "stat_t": "suncore/a1b2c3d4/island/state",
+    "uniq_id": "suncore_a1b2c3d4_island"
+   },
+   "mode": {
+    "def_ent_id": "sensor.suncore_mode",
+    "dev_cla": "enum",
+    "name": "Operating mode",
+    "ops": [
+     "Shadow",
+     "Assisted",
+     "Automatic"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/mode/state",
+    "uniq_id": "suncore_a1b2c3d4_mode"
+   },
+   "month_peak": {
+    "def_ent_id": "sensor.suncore_month_peak",
+    "dev_cla": "power",
+    "name": "Peak import this month",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/month_peak/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_month_peak",
+    "unit_of_meas": "W"
+   },
+   "next_action": {
+    "def_ent_id": "sensor.suncore_next_action",
+    "name": "Next action",
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/next_action/state",
+    "uniq_id": "suncore_a1b2c3d4_next_action"
+   },
+   "para14a_active": {
+    "def_ent_id": "binary_sensor.suncore_para14a_active",
+    "name": "Grid operator limit (§14a) active",
+    "p": "binary_sensor",
+    "stat_t": "suncore/a1b2c3d4/para14a_active/state",
+    "uniq_id": "suncore_a1b2c3d4_para14a_active"
+   },
+   "plan_cost_today": {
+    "def_ent_id": "sensor.suncore_plan_cost_today",
+    "dev_cla": "monetary",
+    "name": "Planned cost today",
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/plan_cost_today/state",
+    "sug_dsp_prc": 2,
+    "uniq_id": "suncore_a1b2c3d4_plan_cost_today",
+    "unit_of_meas": "EUR"
+   },
+   "pv_forecast_error": {
+    "def_ent_id": "sensor.suncore_pv_forecast_error",
+    "name": "PV forecast error",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/pv_forecast_error/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_pv_forecast_error",
+    "unit_of_meas": "%"
+   },
+   "savings_month": {
+    "def_ent_id": "sensor.suncore_savings_month",
+    "dev_cla": "monetary",
+    "name": "Savings this month",
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/savings_month/state",
+    "sug_dsp_prc": 2,
+    "uniq_id": "suncore_a1b2c3d4_savings_month",
+    "unit_of_meas": "EUR"
+   },
+   "savings_today": {
+    "def_ent_id": "sensor.suncore_savings_today",
+    "dev_cla": "monetary",
+    "name": "Savings today",
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/savings_today/state",
+    "sug_dsp_prc": 2,
+    "uniq_id": "suncore_a1b2c3d4_savings_today",
+    "unit_of_meas": "EUR"
+   },
+   "shadow_mode": {
+    "def_ent_id": "binary_sensor.suncore_shadow_mode",
+    "name": "Shadow mode",
+    "p": "binary_sensor",
+    "stat_t": "suncore/a1b2c3d4/shadow_mode/state",
+    "uniq_id": "suncore_a1b2c3d4_shadow_mode"
+   },
+   "status": {
+    "def_ent_id": "sensor.suncore_status",
+    "dev_cla": "enum",
+    "name": "Status",
+    "ops": [
+     "Starting",
+     "Running",
+     "Emergency stop",
+     "Home Assistant unavailable"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/status/state",
+    "uniq_id": "suncore_a1b2c3d4_status"
+   }
+  },
+  "dev": {
+   "ids": [
+    "suncore_a1b2c3d4"
+   ],
+   "mdl": "Site",
+   "mf": "SunCore",
+   "name": "SunCore",
+   "sw": "9.9.9"
+  },
+  "o": {
+   "name": "SunCore",
+   "sw": "9.9.9",
+   "url": "https://github.com/pxljake/suncore"
+  },
+  "pl_avail": "online",
+  "pl_not_avail": "offline"
+ },
+ "suncore_a1b2c3d4_ac": {
+  "avty_t": "suncore/a1b2c3d4/status",
+  "cmps": {
+   "ac_last_decision": {
+    "def_ent_id": "sensor.suncore_ac_last_decision",
+    "dev_cla": "enum",
+    "name": "Last decision",
+    "ops": [
+     "None yet",
+     "Switched",
+     "Rejected",
+     "Would have switched",
+     "Proposed",
+     "Held by you",
+     "Failed"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/ac_last_decision/state",
+    "uniq_id": "suncore_a1b2c3d4_ac_last_decision"
+   },
+   "ac_mode": {
+    "def_ent_id": "sensor.suncore_ac_mode",
+    "dev_cla": "enum",
+    "name": "Mode",
+    "ops": [
+     "Shadow",
+     "Assisted",
+     "Automatic"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/ac_mode/state",
+    "uniq_id": "suncore_a1b2c3d4_ac_mode"
+   },
+   "ac_power": {
+    "def_ent_id": "sensor.suncore_ac_power",
+    "dev_cla": "power",
+    "name": "Power",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/ac_power/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_ac_power",
+    "unit_of_meas": "W"
+   }
+  },
+  "dev": {
+   "ids": [
+    "suncore_a1b2c3d4_ac"
+   ],
+   "mdl": "climate",
+   "mf": "SunCore",
+   "name": "Air conditioner",
+   "sw": "9.9.9",
+   "via_device": "suncore_a1b2c3d4"
+  },
+  "o": {
+   "name": "SunCore",
+   "sw": "9.9.9",
+   "url": "https://github.com/pxljake/suncore"
+  },
+  "pl_avail": "online",
+  "pl_not_avail": "offline"
+ },
+ "suncore_a1b2c3d4_battery": {
+  "avty_t": "suncore/a1b2c3d4/status",
+  "cmps": {
+   "battery_action": {
+    "def_ent_id": "sensor.suncore_battery_action",
+    "dev_cla": "enum",
+    "name": "Battery action",
+    "ops": [
+     "Idle",
+     "Charging",
+     "Discharging",
+     "Holding"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/battery_action/state",
+    "uniq_id": "suncore_a1b2c3d4_battery_action"
+   },
+   "battery_lease": {
+    "def_ent_id": "sensor.suncore_battery_lease",
+    "dev_cla": "enum",
+    "name": "Battery control",
+    "ops": [
+     "Own settings",
+     "Held by SunCore",
+     "Released"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/battery_lease/state",
+    "uniq_id": "suncore_a1b2c3d4_battery_lease"
+   }
+  },
+  "dev": {
+   "ids": [
+    "suncore_a1b2c3d4_battery"
+   ],
+   "mdl": "Battery",
+   "mf": "SunCore",
+   "name": "SunCore battery",
+   "sw": "9.9.9",
+   "via_device": "suncore_a1b2c3d4"
+  },
+  "o": {
+   "name": "SunCore",
+   "sw": "9.9.9",
+   "url": "https://github.com/pxljake/suncore"
+  },
+  "pl_avail": "online",
+  "pl_not_avail": "offline"
+ },
+ "suncore_a1b2c3d4_car": {
+  "avty_t": "suncore/a1b2c3d4/status",
+  "cmps": {
+   "car_last_decision": {
+    "def_ent_id": "sensor.suncore_car_last_decision",
+    "dev_cla": "enum",
+    "name": "Last decision",
+    "ops": [
+     "None yet",
+     "Switched",
+     "Rejected",
+     "Would have switched",
+     "Proposed",
+     "Held by you",
+     "Failed"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/car_last_decision/state",
+    "uniq_id": "suncore_a1b2c3d4_car_last_decision"
+   },
+   "car_mode": {
+    "def_ent_id": "sensor.suncore_car_mode",
+    "dev_cla": "enum",
+    "name": "Mode",
+    "ops": [
+     "Shadow",
+     "Assisted",
+     "Automatic"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/car_mode/state",
+    "uniq_id": "suncore_a1b2c3d4_car_mode"
+   },
+   "car_power": {
+    "def_ent_id": "sensor.suncore_car_power",
+    "dev_cla": "power",
+    "name": "Power",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/car_power/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_car_power",
+    "unit_of_meas": "W"
+   }
+  },
+  "dev": {
+   "ids": [
+    "suncore_a1b2c3d4_car"
+   ],
+   "mdl": "wallbox",
+   "mf": "SunCore",
+   "name": "Car charger",
+   "sw": "9.9.9",
+   "via_device": "suncore_a1b2c3d4"
+  },
+  "o": {
+   "name": "SunCore",
+   "sw": "9.9.9",
+   "url": "https://github.com/pxljake/suncore"
+  },
+  "pl_avail": "online",
+  "pl_not_avail": "offline"
+ },
+ "suncore_a1b2c3d4_heater": {
+  "avty_t": "suncore/a1b2c3d4/status",
+  "cmps": {
+   "heater_last_decision": {
+    "def_ent_id": "sensor.suncore_heater_last_decision",
+    "dev_cla": "enum",
+    "name": "Last decision",
+    "ops": [
+     "None yet",
+     "Switched",
+     "Rejected",
+     "Would have switched",
+     "Proposed",
+     "Held by you",
+     "Failed"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/heater_last_decision/state",
+    "uniq_id": "suncore_a1b2c3d4_heater_last_decision"
+   },
+   "heater_mode": {
+    "def_ent_id": "sensor.suncore_heater_mode",
+    "dev_cla": "enum",
+    "name": "Mode",
+    "ops": [
+     "Shadow",
+     "Assisted",
+     "Automatic"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/heater_mode/state",
+    "uniq_id": "suncore_a1b2c3d4_heater_mode"
+   },
+   "heater_power": {
+    "def_ent_id": "sensor.suncore_heater_power",
+    "dev_cla": "power",
+    "name": "Power",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/heater_power/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_heater_power",
+    "unit_of_meas": "W"
+   }
+  },
+  "dev": {
+   "ids": [
+    "suncore_a1b2c3d4_heater"
+   ],
+   "mdl": "switch",
+   "mf": "SunCore",
+   "name": "Heater",
+   "sw": "9.9.9",
+   "via_device": "suncore_a1b2c3d4"
+  },
+  "o": {
+   "name": "SunCore",
+   "sw": "9.9.9",
+   "url": "https://github.com/pxljake/suncore"
+  },
+  "pl_avail": "online",
+  "pl_not_avail": "offline"
+ },
+ "suncore_a1b2c3d4_washer": {
+  "avty_t": "suncore/a1b2c3d4/status",
+  "cmps": {
+   "washer_job_state": {
+    "def_ent_id": "sensor.suncore_washer_job_state",
+    "dev_cla": "enum",
+    "name": "Job state",
+    "ops": [
+     "Idle",
+     "Armed",
+     "Running",
+     "Done",
+     "Cancelled"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/washer_job_state/state",
+    "uniq_id": "suncore_a1b2c3d4_washer_job_state"
+   },
+   "washer_last_decision": {
+    "def_ent_id": "sensor.suncore_washer_last_decision",
+    "dev_cla": "enum",
+    "name": "Last decision",
+    "ops": [
+     "None yet",
+     "Switched",
+     "Rejected",
+     "Would have switched",
+     "Proposed",
+     "Held by you",
+     "Failed"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/washer_last_decision/state",
+    "uniq_id": "suncore_a1b2c3d4_washer_last_decision"
+   },
+   "washer_mode": {
+    "def_ent_id": "sensor.suncore_washer_mode",
+    "dev_cla": "enum",
+    "name": "Mode",
+    "ops": [
+     "Shadow",
+     "Assisted",
+     "Automatic"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/washer_mode/state",
+    "uniq_id": "suncore_a1b2c3d4_washer_mode"
+   },
+   "washer_planned_start": {
+    "def_ent_id": "sensor.suncore_washer_planned_start",
+    "dev_cla": "timestamp",
+    "name": "Planned start",
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/washer_planned_start/state",
+    "uniq_id": "suncore_a1b2c3d4_washer_planned_start"
+   },
+   "washer_power": {
+    "def_ent_id": "sensor.suncore_washer_power",
+    "dev_cla": "power",
+    "name": "Power",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/washer_power/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_washer_power",
+    "unit_of_meas": "W"
+   }
+  },
+  "dev": {
+   "ids": [
+    "suncore_a1b2c3d4_washer"
+   ],
+   "mdl": "program",
+   "mf": "SunCore",
+   "name": "Washer",
+   "sw": "9.9.9",
+   "via_device": "suncore_a1b2c3d4"
+  },
+  "o": {
+   "name": "SunCore",
+   "sw": "9.9.9",
+   "url": "https://github.com/pxljake/suncore"
+  },
+  "pl_avail": "online",
+  "pl_not_avail": "offline"
+ }
+}

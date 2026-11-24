@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PR 6-I wallbox/EV) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT base, 6-I wallbox/EV) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
@@ -96,6 +96,32 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     heuristic objective -0.37 vs solver -12.88. Reference house unchanged (5 ms solve, 31 ms
     run). Slow CI test: full house < 5 s. aarch64 not measured (`UNVERIFIED`).
   - Deviations: plan section 8 (6-H).
+- **Phase 6 - PR 6-C, WP3 MQTT base and backend ICU (branch `phase-6/c-mqtt`, on 6-B;
+  `ha-integration`, `backend-engineer`)** - read-only HA entities, no commands, nothing writes:
+  - `suncore/i18n/`: minimal ICU renderer (arguments, `number` with `::.0`/`0` skeletons, `plural`
+    with `=n`/`one`/`other`/`offset`, `select`, apostrophes; en/de plural rules and separators,
+    `other` fallback), generated `catalogue/{en,de}.json` (`scripts/gen_backend_catalogue.py`,
+    `--check` in `check.sh` and CI, prefixes `mqtt. notify. safety. controller. planner. device.
+    grid.`), golden file `tests/fixtures/i18n_golden.json` from a Vitest helper with
+    `intl-messageformat` (1 200 cases, Python equals it). Closes the ADR-0007 follow-up.
+  - `suncore/ha/mqtt/`: `catalogue.py` (the v1 entity catalogue as data), `discovery.py`
+    (device-based payloads with `via_device`, origin `SunCore`, topics, install id),
+    `states.py` (on change, deadbands, 5 s per entity, retained), `broker.py` (Supervisor
+    `GET /services/mqtt` or manual settings; status `disabled|no_broker|connecting|connected|error`
+    with a reason key), `client.py` (`aiomqtt` on `paho-mqtt` 2.2: connect, back-off, last will,
+    TLS, error classification), `service.py` (session, announce on connect and on the HA birth
+    message after 1-5 s, removal of vanished devices and on disable, events), `check.py`
+    (system-check item). Composition in `app/ha_entities.py`; runs only outside demo mode.
+  - API `GET /api/v1/ha-entities/status` (state, source, entity count, reason key, install hint
+    key), `POST /api/v1/ha-entities/republish`; system check "Home Assistant entities";
+    `schema.d.ts` regenerated. Frontend settings page for it follows in 6-M.
+  - **`hassio_api` stays off** (the Supervisor lets apps call `/services*` without it, verified);
+    a boundary test pins `GET /services/mqtt` as the only Supervisor REST URL. In-process stub
+    MQTT broker for the tests (no `amqtt`). Deviations and open questions: plan section 8 (6-C)
+    and questions 15-16.
+  - Announced so far: status, mode, available surplus, healthy, shadow mode, emergency stop,
+    event entity; per device mode, power and last decision. Everything else of the catalogue waits
+    for the PR that produces its values.
 
 - **Phase 6 - PR 6-B, WP2 contracts and configuration (branch `phase-6/b-contracts`, on 6-A;
   `control-safety`)** - additive, no behaviour yet:
@@ -1129,6 +1155,7 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 | Item | Where | Needed to resolve |
 |---|---|---|
+| 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); the unit rule of `monetary` sensors; TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
 | Kostal §3.4 set-point timeout and how external battery management is enabled (register map itself is verified from KOSTAL rev 2.9) | `research/kostal-plenticore-modbus.md` | Phase 4 measurement on the maintainer's inverter |
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
 | Energy-Charts and aWATTar APIs and terms (not shipped in Phase 4) | `research/integrations.md` | session with network access (Phase 6) |

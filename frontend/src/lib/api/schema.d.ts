@@ -551,6 +551,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ha-entities/republish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ha Entities Republish
+         * @description Publish the discovery configs and all states again (for a broker without the Home
+         *     Assistant birth message). ``republished`` is ``false`` when there is no broker session.
+         */
+        post: operations["ha_entities_republish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ha-entities/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ha Entities Status
+         * @description Whether SunCore's entities are published in Home Assistant: the state (``disabled``,
+         *     ``no_broker``, ``connecting``, ``connected``, ``error``), where the broker comes from,
+         *     the number of entities and, when something is wrong, a reason key and (without a
+         *     broker) the hint key for installing the Mosquitto broker app. Everything else in
+         *     SunCore works without it.
+         */
+        get: operations["ha_entities_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/history/cycles": {
         parameters: {
             query?: never;
@@ -3034,6 +3079,33 @@ export interface components {
             /** Months */
             months?: number[] | null;
             window: components["schemas"]["TouWindow"];
+        };
+        /**
+         * HaEntitiesRepublishOut
+         * @description Result of ``POST /api/v1/ha-entities/republish``.
+         */
+        HaEntitiesRepublishOut: {
+            /** Republished */
+            republished: boolean;
+        };
+        /**
+         * HaEntitiesStatusOut
+         * @description ``GET /api/v1/ha-entities/status``: the MQTT entity surface.
+         */
+        HaEntitiesStatusOut: {
+            /** Entity Count */
+            entity_count: number;
+            /** Hint Key */
+            hint_key: string | null;
+            /** Reason Key */
+            reason_key: string | null;
+            /** Source */
+            source: ("supervisor" | "manual") | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "disabled" | "no_broker" | "connecting" | "connected" | "error";
         };
         /** HealthMessage */
         HealthMessage: {
@@ -6982,6 +7054,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RiskView"];
+                };
+            };
+        };
+    };
+    ha_entities_republish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HaEntitiesRepublishOut"];
+                };
+            };
+        };
+    };
+    ha_entities_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HaEntitiesStatusOut"];
                 };
             };
         };

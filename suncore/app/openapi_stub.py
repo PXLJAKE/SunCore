@@ -25,6 +25,7 @@ from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
 from suncore.forecast.accuracy import accuracy_view
@@ -189,6 +190,12 @@ class StubServices:
 
     def plan_summary(self) -> PlanSummary:
         return self._planning().summary()
+
+    def ha_entities_status(self) -> HaEntitiesStatus:
+        return HaEntitiesStatus(BrokerState.DISABLED, None, 0, None)
+
+    async def ha_entities_republish(self) -> bool:
+        return False
 
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
         return lambda: None
