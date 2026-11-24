@@ -1340,5 +1340,15 @@
   "api.error.history_range_invalid": "Dieser Zeitraum ist ungültig oder zu lang.",
   "api.error.history_key_invalid": "Eine der angeforderten Datenreihen existiert nicht.",
   "api.error.snapshot_not_found": "Zu diesem Zeitpunkt ist kein Plan mehr gespeichert.",
-  "api.error.decision_not_found": "Diese Entscheidung gibt es nicht mehr. Ältere Einträge werden automatisch gelöscht."
+  "api.error.decision_not_found": "Diese Entscheidung gibt es nicht mehr. Ältere Einträge werden automatisch gelöscht.",
+  "api.error.unknown_param": "Diesen Parameter oder diese Gruppe gibt es nicht.",
+  "api.error.param_section_missing": "Der Konfigurationsabschnitt dieses Parameters existiert noch nicht. Schließen Sie zuerst die Einrichtung ab.",
+  "api.validation.param_unknown": "Unbekannter Parameter {param}.",
+  "api.validation.param_wrong_type": "Der Wert von {param} hat den falschen Typ (erwartet: {expected}).",
+  "api.validation.param_out_of_range": "Der Wert von {param} muss zwischen {min} und {max} liegen.",
+  "api.validation.param_not_in_choices": "Der Wert von {param} muss einer von diesen sein: {choices}.",
+  "api.validation.param_invalid": "Der Wert von {param} macht die Konfiguration ungültig.",
+  "api.validation.param_confirm_required": "Die Änderung von {param} betrifft die Sicherheit und braucht Ihre Bestätigung.",
+  "api.validation.param_reset_target": "Nennen Sie entweder einen Parameter oder eine Gruppe zum Zurücksetzen.",
+  "api.validation.export_reference_domain": "{entity_id} ist kein Sensor."
 }

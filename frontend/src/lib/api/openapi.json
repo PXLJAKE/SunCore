@@ -3722,6 +3722,40 @@
         "title": "ErrorOut",
         "type": "object"
       },
+      "ExpertConfig": {
+        "additionalProperties": false,
+        "description": "Configuration section ``expert``: overrides of expert-mode parameters.",
+        "properties": {
+          "overrides": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "maxProperties": 200,
+            "title": "Overrides",
+            "type": "object"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "ExpertConfig",
+        "type": "object"
+      },
       "ExplainInputOut": {
         "additionalProperties": false,
         "properties": {
@@ -3826,6 +3860,34 @@
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "negative_reference_entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "param": {
+              "group": "tariff",
+              "tags": [
+                "expert"
+              ]
+            }
+          },
+          "remunerate_negative": {
+            "default": false,
+            "param": {
+              "group": "tariff",
+              "see": "docs/user/tariffs.md",
+              "tags": [
+                "expert"
+              ]
+            },
+            "title": "Remunerate Negative",
+            "type": "boolean"
           },
           "tiers": {
             "default": [],
@@ -5405,6 +5467,12 @@
               "shadow",
               "auto"
             ],
+            "param": {
+              "group": "forecast",
+              "tags": [
+                "expert"
+              ]
+            },
             "title": "Load Ml Mode",
             "type": "string"
           },
@@ -5412,6 +5480,13 @@
             "default": 30,
             "maximum": 365.0,
             "minimum": 1.0,
+            "param": {
+              "group": "forecast",
+              "tags": [
+                "expert"
+              ],
+              "unit": "d"
+            },
             "title": "Min History Days",
             "type": "integer"
           }
@@ -6279,6 +6354,302 @@
           }
         },
         "title": "OverridePolicy",
+        "type": "object"
+      },
+      "ParamOut": {
+        "additionalProperties": false,
+        "description": "One parameter: spec, default, current value.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "choices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "help_key": {
+            "title": "Help Key",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "modified": {
+            "title": "Modified",
+            "type": "boolean"
+          },
+          "name_key": {
+            "title": "Name Key",
+            "type": "string"
+          },
+          "restart": {
+            "title": "Restart",
+            "type": "boolean"
+          },
+          "safety": {
+            "title": "Safety",
+            "type": "boolean"
+          },
+          "see": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "See"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "enum": [
+              "float",
+              "int",
+              "bool",
+              "enum",
+              "entity"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "group",
+          "unit",
+          "tags",
+          "default",
+          "value",
+          "modified",
+          "minimum",
+          "maximum",
+          "choices",
+          "name_key",
+          "help_key",
+          "see",
+          "restart",
+          "safety",
+          "available"
+        ],
+        "title": "ParamOut",
+        "type": "object"
+      },
+      "ParamsApplied": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamOut"
+            },
+            "title": "Params",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups",
+          "params",
+          "changed"
+        ],
+        "title": "ParamsApplied",
+        "type": "object"
+      },
+      "ParamsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamOut"
+            },
+            "title": "Params",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups",
+          "params"
+        ],
+        "title": "ParamsOut",
+        "type": "object"
+      },
+      "ParamsPut": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxProperties": 100,
+            "minProperties": 1,
+            "title": "Changes",
+            "type": "object"
+          },
+          "confirm_safety": {
+            "default": false,
+            "title": "Confirm Safety",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "changes"
+        ],
+        "title": "ParamsPut",
+        "type": "object"
+      },
+      "ParamsReset": {
+        "additionalProperties": false,
+        "description": "Exactly one of ``key`` and ``group``.",
+        "properties": {
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          }
+        },
+        "title": "ParamsReset",
         "type": "object"
       },
       "Plan": {
@@ -10274,6 +10645,78 @@
         "summary": "Replace the devices section"
       }
     },
+    "/api/v1/config/expert": {
+      "get": {
+        "operationId": "get_config_expert",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ExpertConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Expert"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the expert section"
+      },
+      "put": {
+        "operationId": "put_config_expert",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpertConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpertConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the expert section"
+      }
+    },
     "/api/v1/config/export": {
       "get": {
         "operationId": "export_config_api_v1_config_export_get",
@@ -12540,6 +12983,131 @@
           }
         },
         "summary": "Set Global Mode"
+      }
+    },
+    "/api/v1/params": {
+      "get": {
+        "description": "Every tunable parameter: type, unit, hard range, tags (``safety``: confirmation\nneeded, ``restart``), the catalogue keys of its name and help text, the default, the\ncurrent value and whether it differs from the default.",
+        "operationId": "get_params",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParamsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Params"
+      },
+      "put": {
+        "description": "Change parameters, all or nothing. A value outside its hard range, of the wrong type\nor for an unknown key is a 422 (nothing is stored). Changing a ``safety``-tagged value\nneeds ``confirm_safety: true`` (422 otherwise); the range is never widened by it.",
+        "operationId": "put_params",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParamsPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParamsApplied"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "A parameter's section is not configured"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Put Params"
+      }
+    },
+    "/api/v1/params/reset": {
+      "post": {
+        "description": "Restore the default of one ``key`` or of every parameter of a ``group``. Needs no\nconfirmation: a default is inside the hard range by construction.",
+        "operationId": "reset_params",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParamsReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParamsApplied"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown key or group"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Reset Params"
       }
     },
     "/api/v1/plan": {

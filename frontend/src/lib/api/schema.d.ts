@@ -40,6 +40,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/expert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the expert section */
+        get: operations["get_config_expert"];
+        /** Replace the expert section */
+        put: operations["put_config_expert"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/export": {
         parameters: {
             query?: never;
@@ -721,6 +739,55 @@ export interface paths {
          */
         put: operations["set_global_mode_api_v1_operation_mode_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Params
+         * @description Every tunable parameter: type, unit, hard range, tags (``safety``: confirmation
+         *     needed, ``restart``), the catalogue keys of its name and help text, the default, the
+         *     current value and whether it differs from the default.
+         */
+        get: operations["get_params"];
+        /**
+         * Put Params
+         * @description Change parameters, all or nothing. A value outside its hard range, of the wrong type
+         *     or for an unknown key is a 422 (nothing is stored). Changing a ``safety``-tagged value
+         *     needs ``confirm_safety: true`` (422 otherwise); the range is never widened by it.
+         */
+        put: operations["put_params"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/params/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Params
+         * @description Restore the default of one ``key`` or of every parameter of a ``group``. Needs no
+         *     confirmation: a default is inside the hard range by construction.
+         */
+        post: operations["reset_params"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2377,6 +2444,21 @@ export interface components {
             /** Detail */
             detail: string;
         };
+        /**
+         * ExpertConfig
+         * @description Configuration section ``expert``: overrides of expert-mode parameters.
+         */
+        ExpertConfig: {
+            /** Overrides */
+            overrides?: {
+                [key: string]: boolean | number | string;
+            };
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+        };
         /** ExplainInputOut */
         ExplainInputOut: {
             /** Key */
@@ -2413,6 +2495,12 @@ export interface components {
              * @enum {string}
              */
             kind: "fixed" | "tiered" | "none";
+            negative_reference_entity?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Remunerate Negative
+             * @default false
+             */
+            remunerate_negative: boolean;
             /**
              * Tiers
              * @default []
@@ -3416,6 +3504,87 @@ export interface components {
              * @default 04:00:00
              */
             resume_time: string;
+        };
+        /**
+         * ParamOut
+         * @description One parameter: spec, default, current value.
+         */
+        ParamOut: {
+            /** Available */
+            available: boolean;
+            /** Choices */
+            choices: string[];
+            /** Default */
+            default: boolean | number | string | null;
+            /** Group */
+            group: string;
+            /** Help Key */
+            help_key: string;
+            /** Key */
+            key: string;
+            /** Maximum */
+            maximum: number | null;
+            /** Minimum */
+            minimum: number | null;
+            /** Modified */
+            modified: boolean;
+            /** Name Key */
+            name_key: string;
+            /** Restart */
+            restart: boolean;
+            /** Safety */
+            safety: boolean;
+            /** See */
+            see: string | null;
+            /** Tags */
+            tags: string[];
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "float" | "int" | "bool" | "enum" | "entity";
+            /** Unit */
+            unit: string | null;
+            /** Value */
+            value: boolean | number | string | null;
+        };
+        /** ParamsApplied */
+        ParamsApplied: {
+            /** Changed */
+            changed: string[];
+            /** Groups */
+            groups: string[];
+            /** Params */
+            params: components["schemas"]["ParamOut"][];
+        };
+        /** ParamsOut */
+        ParamsOut: {
+            /** Groups */
+            groups: string[];
+            /** Params */
+            params: components["schemas"]["ParamOut"][];
+        };
+        /** ParamsPut */
+        ParamsPut: {
+            /** Changes */
+            changes: {
+                [key: string]: boolean | number | string | null;
+            };
+            /**
+             * Confirm Safety
+             * @default false
+             */
+            confirm_safety: boolean;
+        };
+        /**
+         * ParamsReset
+         * @description Exactly one of ``key`` and ``group``.
+         */
+        ParamsReset: {
+            /** Group */
+            group?: string | null;
+            /** Key */
+            key?: string | null;
         };
         /**
          * Plan
@@ -5045,6 +5214,68 @@ export interface operations {
             };
         };
     };
+    get_config_expert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpertConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_expert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpertConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpertConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
     export_config_api_v1_config_export_get: {
         parameters: {
             query?: never;
@@ -6468,6 +6699,119 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    get_params: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParamsOut"];
+                };
+            };
+        };
+    };
+    put_params: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParamsPut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParamsApplied"];
+                };
+            };
+            /** @description A parameter's section is not configured */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    reset_params: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParamsReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParamsApplied"];
+                };
+            };
+            /** @description Unknown key or group */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Validation error */

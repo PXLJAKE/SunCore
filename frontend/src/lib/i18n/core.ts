@@ -24,9 +24,12 @@ export interface Translator {
   /** Render `key` in `locale`; falls back to English, then to the key itself. */
   render(locale: Locale, key: string, args?: MessageArgs): string;
   has(key: string, locale?: Locale): boolean;
+  /** Add messages (a lazily loaded catalogue); existing keys are kept. */
+  extend(locale: Locale, messages: Catalogue): void;
 }
 
-export function createTranslator(catalogues: Record<Locale, Catalogue>): Translator {
+export function createTranslator(base: Record<Locale, Catalogue>): Translator {
+  const catalogues: Record<Locale, Catalogue> = { ...base };
   const cache = new Map<string, IntlMessageFormat>();
 
   const compile = (locale: Locale, key: string): IntlMessageFormat | null => {
@@ -61,6 +64,9 @@ export function createTranslator(catalogues: Record<Locale, Catalogue>): Transla
     },
     has(key, locale = FALLBACK_LOCALE) {
       return Object.hasOwn(catalogues[locale], key);
+    },
+    extend(locale, messages) {
+      catalogues[locale] = { ...messages, ...catalogues[locale] };
     },
   };
 }

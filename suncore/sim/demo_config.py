@@ -29,6 +29,7 @@ from suncore.core.config import (
 )
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
+from suncore.core.expert import ExpertConfig
 from suncore.core.site import EntityRef
 from suncore.sim.demo_devices import (
     AC_B_POWER_ID,
@@ -238,4 +239,5 @@ async def seed_demo_config(
             }
         )
     await config.put("battery", battery)
+    await config.put("expert", ExpertConfig())  # the expert page needs its section to exist
     await config.put("wizard", WizardState(completed=True, completed_steps=list(WIZARD_STEPS)))

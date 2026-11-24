@@ -112,6 +112,55 @@ class GateInputs:
 # --- settings -----------------------------------------------------------------
 
 
+SAFETY_LIMITS: Final[Mapping[str, tuple[float, float]]] = {
+    "reserve_w": (50.0, 10_000.0),
+    "deficit_delay_s": (5.0, 120.0),
+    "deficit_budget_wh": (0.0, 500.0),
+    "intent_max_age_s": (1.0, 120.0),
+    "inputs_max_age_ticks": (1, 10),
+    "default_settle_s": (1.0, 60.0),
+    "default_max_switches_per_hour": (1, 30),
+    "min_write_interval_s": (1.0, 60.0),
+    "release_deadline_s": (5.0, 10.0),
+    "safe_state_cooldown_s": (30.0, 3600.0),
+    "stale_cadence_factor": (1.5, 3.0),
+    "max_jump_w_per_s": (1_000.0, 50_000.0),
+    "frozen_pv_s": (60.0, 3600.0),
+    "frozen_pv_min_w": (50.0, 1000.0),
+    "balance_tolerance_w": (100.0, 1000.0),
+    "balance_tolerance_pct": (5.0, 30.0),
+}
+"""Hard bounds of the ``ControlSettings`` fields the safety layer relies on (ADR-0015 decision 4).
+
+``field -> (min, max)``, inclusive. The parameter registry (``core/params.py``) reads this
+table for the range of every ``safety``-tagged parameter, so expert mode cannot move a value
+outside it, and ``ExpertConfig`` rejects such a document. The bounds sit *inside* the model's
+own field bounds and contain the defaults. The direction that weakens a protection (a longer
+staleness window, a shorter write interval, more switches per hour, a wider plausibility
+tolerance) stops at the limit; no value disables a check. Per-device minimum run and pause
+times are device configuration, not part of this table.
+
+Why some upper bounds are tight (control-safety review of PR 5-E): ``default_settle_s`` and
+``min_write_interval_s`` also pace the back-off over the import limit and at the battery
+reserve (one step per settle time + tick, and no non-release write inside the write interval),
+so a long value would let SunCore-caused import last minutes. ``release_deadline_s`` bounds the
+release on shutdown: below 5 s a slow Home Assistant or Modbus call is cut off and the device
+stays held; above 10 s it outlives the Supervisor's stop timeout (10 s default, ``UNVERIFIED``
+for this app's config, which sets none). ``stale_cadence_factor`` below 1.5 trips on normal
+jitter of the 60 s resync (release/resume churn); above 3 a 300 s counter may be 15 min old.
+The balance tolerances above 1000 W / 30 % stop catching a battery sign error of ~1.5 kW."""
+
+INPUTS_MAX_AGE_LIMIT_S: Final = 180.0
+"""Hard bound of ``inputs_max_age_ticks * tick_s``: the age at which the gate's flows and
+surplus count as unknown (import limit, battery lease). 180 s = 3 ticks at the slowest app
+option tick (60 s), the worst case without expert mode; expert mode cannot go beyond it."""
+
+
+def inputs_max_age_ticks_within(tick_s: float, ticks: int) -> int:
+    """``ticks`` reduced so that ``ticks * tick_s <= INPUTS_MAX_AGE_LIMIT_S`` (at least 1)."""
+    return max(1, min(ticks, int(INPUTS_MAX_AGE_LIMIT_S // tick_s)))
+
+
 class ControlSettings(_Frozen):
     """Controller and safety parameters (expert mode, BRIEF §4.12) with Phase 3 defaults.
 

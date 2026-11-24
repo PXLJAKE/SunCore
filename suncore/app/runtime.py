@@ -81,7 +81,9 @@ from suncore.core.controlstate import (
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import DeviceConfig
+from suncore.core.expert import ExpertConfig
 from suncore.core.identity import battery_identity_token, identity_token
+from suncore.core.params import apply_controller, overrides_for
 from suncore.core.series import QuantileSeries
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
@@ -145,7 +147,7 @@ from suncore.tariff.report import PriceReport
 from suncore.templates import BatteryTemplate, TariffTemplate, TemplateCatalog
 
 PLANNING_SECTIONS = frozenset(
-    {"site", "region", "tariff", "forecast", "battery", "goals", "devices"}
+    {"site", "region", "tariff", "forecast", "battery", "goals", "devices", "expert"}
 )
 """Configuration sections whose change asks for a new plan."""
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
@@ -206,6 +208,8 @@ class Runtime:
     tariff_config: TariffConfig | None = None
     battery_config: BatterySettings | None = None
     """The ``battery`` section (adapter, model, policy); ``None`` = never stored."""
+    expert: ExpertConfig | None = None
+    """The ``expert`` section (parameter overrides); ``None`` = never stored = all defaults."""
     tariff: TariffService | None = None
     """Keeps the prices fresh (``None``: no tariff, no region or an unusable template)."""
     timeseries_db: Database | None = None
@@ -334,6 +338,9 @@ class Runtime:
         battery = await self.config.get("battery")
         assert battery is None or isinstance(battery, BatterySettings)
         self.battery_config = battery
+        expert = await self.config.get("expert")
+        assert expert is None or isinstance(expert, ExpertConfig)
+        self.expert = expert
         await self._load_modes()
 
     async def _load_modes(self) -> None:
@@ -361,11 +368,17 @@ class Runtime:
             self._live_reading,
             clock=self.clock,
             sleep=self.control_sleep,
-            settings=PlanningSettings(
-                budget_s=self.settings.planner_budget_s, mip_gap=self.settings.planner_mip_gap
-            ),
+            settings=self._planning_settings(),
             store=self.plans,
         )
+
+    def _planning_settings(self) -> PlanningSettings:
+        """The app options, then the expert overrides on top (``planner.*`` parameters)."""
+        base = PlanningSettings(
+            budget_s=self.settings.planner_budget_s, mip_gap=self.settings.planner_mip_gap
+        )
+        changes = overrides_for(self.expert, "planner")
+        return replace(base, **changes) if changes else base
 
     def _start_planning(self) -> None:
         if self.planning is not None and self._started and self._planning_task is None:
@@ -520,8 +533,10 @@ class Runtime:
     ) -> ControlStack:
         devices = list(self.devices.devices) if self.devices is not None else []
         site = self.site
-        settings = self.control_settings or ControlSettings(
-            tick_s=float(self.settings.controller_interval_s)
+        settings = apply_controller(
+            self.control_settings
+            or ControlSettings(tick_s=float(self.settings.controller_interval_s)),
+            self.expert,
         )
         stack = ControlStack(
             self.connection,
@@ -1396,6 +1411,9 @@ class Runtime:
             assert isinstance(stored, BatterySettings)
             self.battery_config = stored
             await self._load_modes()  # the identity rule may have dropped the battery mode
+        elif name == "expert":
+            assert isinstance(stored, ExpertConfig)
+            await self._apply_expert(stored)
         else:
             self._store_planning_input(name, stored)
         if name == "site":
@@ -1414,6 +1432,18 @@ class Runtime:
             await self._rebuild_load_service()
         if name == "devices":
             await self._sync_modes()
+
+    async def _apply_expert(self, stored: ExpertConfig) -> None:
+        """Hot-apply the expert overrides (Phase 5 WP5): the planner settings are swapped in
+        place, a changed controller or safety value rebuilds the control stack - the same
+        hand-over every device edit goes through (the old gate releases, the new one recovers),
+        so a new write interval or switch limit never applies half-way."""
+        before = overrides_for(self.expert, "controller")
+        self.expert = stored
+        if self.planning is not None:
+            self.planning.update_settings(self._planning_settings())
+        if overrides_for(stored, "controller") != before:
+            await self._rebuild_stack()
 
     # --- operating modes ----------------------------------------------------------
 
@@ -1626,7 +1656,7 @@ class Runtime:
     async def restore_section(self, name: str, entry_id: int) -> BaseModel:
         """Restore a history entry; live sections are reloaded like after a normal save."""
         restored = await self.config.restore(name, entry_id)
-        if name in ("site", "devices", "region", "goals", "operation", "forecast"):
+        if name in ("site", "devices", "region", "goals", "operation", "forecast", "expert"):
             await self._reload_live_sections(resubscribe=name in ("site", "devices", "forecast"))
         self._notify()
         return restored
@@ -1734,12 +1764,19 @@ class Runtime:
         forecast_before = self.forecast
         devices_before = self.devices
         tariff_before = self.tariff_config
+        controller_before = overrides_for(self.expert, "controller")
         await self._load_live_sections()
         if resubscribe:
             await self._resubscribe()
         if self.tariff_config != tariff_before or (self.site, self.region) != before[::2]:
             await self._rebuild_tariff()
-        if (self.site, self.devices, self.region) != before:
+        if self.planning is not None:
+            self.planning.update_settings(self._planning_settings())
+        # A restored or imported ``expert`` section takes effect through the same hand-over as
+        # a ``PUT`` (control-safety review of PR 5-E): never only at the next restart.
+        if (self.site, self.devices, self.region) != before or overrides_for(
+            self.expert, "controller"
+        ) != controller_before:
             await self._rebuild_stack()
         elif self.stack is not None and self.goals is not None:
             self.stack.set_goals(self.goals)

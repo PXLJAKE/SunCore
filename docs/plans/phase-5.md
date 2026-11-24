@@ -430,3 +430,21 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   newest snapshot created at or before `ts` even when its intervals have run out
   (`interval_index` is then `null`). The explain inputs are the raw site readings (grid, PV, house,
   battery, SoC, the device's power and state), not a derived surplus.
+
+- **5-E (parameter registry).** (1) The `expert` section is a *sparse override map*
+  (`overrides: {key: value}`), not a typed struct per parameter: the defaults stay in the registry,
+  an empty or missing document is today's behaviour, and a reset removes a key. (2) Config
+  parameters (`tariff.export.*`, `forecast.learning.*`) are **not** stored in `expert`; they are
+  written into their own section through the same `PUT /params` (a 409 while that section does not
+  exist yet). (3) `PUT /config/expert` stays available (storage, history, import use the same
+  model) but refuses a changed safety value: those need `/params` with `confirm_safety`. (4) No
+  parameter is tagged `restart`: planner settings are swapped in place and a changed controller
+  value rebuilds the control stack (the device-edit hand-over). (5) The reference spot source for
+  the negative-price rule is a **sensor with the current spot price** (`CurrentPriceSource`), so it
+  informs the current slot only; later slots of an all-in source keep the end-price proxy. A real
+  curve needs a second price template binding and stays open. (6) Per-device minimum run/pause
+  times are device configuration and are not registry parameters; their hard bounds stay with the
+  device model. (7) The hard bounds in `core/control.py::SAFETY_LIMITS` were proposals for the
+  `control-safety` review of 5-E (the maintainer's question 2 gave "inside the hard bounds of the
+  safety layer" without numbers); the review tightened six of them and added the combined
+  bound `INPUTS_MAX_AGE_LIMIT_S` (reasons in the `SAFETY_LIMITS` docstring).

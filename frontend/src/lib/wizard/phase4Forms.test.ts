@@ -198,7 +198,13 @@ describe('tariff form (phase 4 fields)', () => {
           ],
         },
       },
-      export: { kind: 'none', fixed_price: null, tiers: [] },
+      export: {
+        kind: 'none',
+        fixed_price: null,
+        tiers: [],
+        remunerate_negative: false,
+        negative_reference_entity: null,
+      },
     };
     expect(tariffFromForm(tariffFormFromConfig(cfg))).toEqual(cfg);
   });
@@ -230,7 +236,13 @@ describe('tariff form (phase 4 fields)', () => {
         },
         tou: null,
       },
-      export: { kind: 'fixed', fixed_price: 0.08, tiers: [] },
+      export: {
+        kind: 'fixed',
+        fixed_price: 0.08,
+        tiers: [],
+        remunerate_negative: false,
+        negative_reference_entity: null,
+      },
     };
     expect(tariffFromForm(tariffFormFromConfig(cfg))).toEqual(cfg);
   });

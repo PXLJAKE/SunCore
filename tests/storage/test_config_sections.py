@@ -42,6 +42,7 @@ from suncore.core.devices import (
     PowerModel,
     PowerModelKind,
 )
+from suncore.core.expert import ExpertConfig
 from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.tariff import NIGHT_WINDOW
 from suncore.storage import (
@@ -263,6 +264,14 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
         risk=st.sampled_from(list(RiskLevel)),
         grid_charge=st.sampled_from(
             [GridChargePolicy(), GridChargePolicy(enabled=True, max_price=0.12)]
+        ),
+    ),
+    "expert": st.builds(
+        ExpertConfig,
+        overrides=st.dictionaries(
+            st.sampled_from(["controller.tick_s", "planner.budget_s", "controller.reserve_w"]),
+            st.integers(50, 60),
+            max_size=3,
         ),
     ),
     "wizard": st.builds(
