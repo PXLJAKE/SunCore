@@ -110,6 +110,15 @@ export type BatteryTemplate = S['BatteryTemplate'];
 export type ForecastSourceConfig = S['ForecastSourceConfig'];
 export type LoadForecastConfig = S['LoadForecastConfig'];
 
+export type Granularity = S['Granularity'];
+export type HistorySummary = S['SummaryOut'];
+export type HistoryBucket = S['BucketOut'];
+export type HistorySankey = S['SankeyOut'];
+export type HistoryHeatmap = S['HeatmapOut'];
+export type HistoryCycles = S['CyclesOut'];
+export type HistorySkill = S['ForecastSkillOut'];
+export type HistoryDevices = S['DeviceHistoryOut'];
+
 export type SnapshotMessage = S['SnapshotMessage'];
 export type PlanMessage = S['PlanMessage'];
 export type FlowsMessage = S['FlowsMessage'];
