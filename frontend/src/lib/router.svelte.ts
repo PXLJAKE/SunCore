@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// Tiny hash router (`#/`, `#/plan`, `#/settings`, `#/decisions`, `#/setup[/<step>]`): independent of the ingress base path.
+// Tiny hash router (`#/`, `#/plan`, `#/settings`, `#/decisions`, `#/history`, `#/setup[/<step>]`): independent of the ingress base path.
+import { SvelteURLSearchParams } from 'svelte/reactivity';
 import { isStepId, type StepId } from './wizard/steps';
 
-export type Route = 'now' | 'plan' | 'settings' | 'setup' | 'decisions';
+export type Route = 'now' | 'plan' | 'settings' | 'setup' | 'decisions' | 'history';
 
 export interface Location {
   route: Route;
@@ -13,6 +14,7 @@ export interface Location {
 export function parseLocation(hash: string): Location {
   const path = hash.replace(/^#/, '').split('?')[0] ?? '';
   if (path === '/plan') return { route: 'plan', step: null };
+  if (path === '/history') return { route: 'history', step: null };
   if (path === '/decisions') return { route: 'decisions', step: null };
   if (path === '/settings') return { route: 'settings', step: null };
   if (path === '/setup' || path === '/setup/') return { route: 'setup', step: null };
@@ -23,6 +25,12 @@ export function parseLocation(hash: string): Location {
   return { route: 'now', step: null };
 }
 
+/** The query string of a hash (`#/decisions?device=ac` -> `device=ac`), without the `?`. */
+export function hashQuery(hash: string): URLSearchParams {
+  const i = hash.indexOf('?');
+  return new SvelteURLSearchParams(i < 0 ? '' : hash.slice(i + 1));
+}
+
 /** The hash that opens a step. */
 export const stepHash = (id: StepId): string => `#/setup/${id}`;
 
@@ -30,6 +38,12 @@ class Router {
   private current = $state<Location>(
     parseLocation(typeof location === 'undefined' ? '' : location.hash),
   );
+  /** The current hash, so views can read their `?query` reactively. */
+  private hash = $state(typeof location === 'undefined' ? '' : location.hash);
+
+  get query(): URLSearchParams {
+    return hashQuery(this.hash);
+  }
 
   get route(): Route {
     return this.current.route;
@@ -42,6 +56,7 @@ class Router {
   listen(): () => void {
     const onChange = () => {
       this.current = parseLocation(location.hash);
+      this.hash = location.hash;
     };
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
@@ -57,6 +72,7 @@ class Router {
   replace(hash: string): void {
     history.replaceState(null, '', hash);
     this.current = parseLocation(location.hash);
+    this.hash = location.hash;
   }
 }
 

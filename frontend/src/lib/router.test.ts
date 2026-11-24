@@ -9,6 +9,8 @@ describe('parseLocation', () => {
     expect(parseLocation('#/settings')).toEqual({ route: 'settings', step: null });
     expect(parseLocation('#/plan')).toEqual({ route: 'plan', step: null });
     expect(parseLocation('#/plan?x=1')).toEqual({ route: 'plan', step: null });
+    expect(parseLocation('#/history')).toEqual({ route: 'history', step: null });
+    expect(parseLocation('#/history?period=day')).toEqual({ route: 'history', step: null });
     expect(parseLocation('#/decisions')).toEqual({ route: 'decisions', step: null });
     expect(parseLocation('#/settings?x=1')).toEqual({ route: 'settings', step: null });
     expect(parseLocation('#/unknown')).toEqual({ route: 'now', step: null });

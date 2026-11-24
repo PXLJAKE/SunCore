@@ -116,6 +116,15 @@ export type BatteryTemplate = S['BatteryTemplate'];
 export type ForecastSourceConfig = S['ForecastSourceConfig'];
 export type LoadForecastConfig = S['LoadForecastConfig'];
 
+export type Granularity = S['Granularity'];
+export type HistorySummary = S['SummaryOut'];
+export type HistoryBucket = S['BucketOut'];
+export type HistorySankey = S['SankeyOut'];
+export type HistoryHeatmap = S['HeatmapOut'];
+export type HistoryCycles = S['CyclesOut'];
+export type HistorySkill = S['ForecastSkillOut'];
+export type HistoryDevices = S['DeviceHistoryOut'];
+
 export type SnapshotMessage = S['SnapshotMessage'];
 export type PlanMessage = S['PlanMessage'];
 export type FlowsMessage = S['FlowsMessage'];
@@ -124,3 +133,13 @@ export type DecisionsMessage = S['DecisionsMessage'];
 export type ControlMessage = S['ControlMessage'];
 export type LiveMessage =
   SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage | PlanMessage;
+
+export type DecisionExplain = S['DecisionExplainOut'];
+export type DecisionOrigin = S['Origin'];
+
+/** One page of the decision log: `ids[i]` is the row id of `items[i]`. */
+export interface DecisionPage {
+  items: Decision[];
+  ids: number[];
+  total: number;
+}

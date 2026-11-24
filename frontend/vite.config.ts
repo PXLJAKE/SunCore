@@ -12,8 +12,8 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        // The message catalogues and the ICU formatter change independently of the views and are
-        // needed on first paint anyway: one cacheable chunk instead of riding in a shared one.
+        // The message catalogues and the ICU formatter change independently of the views: separate
+        // cacheable chunks instead of riding in a shared one.
         manualChunks(id: string): string | undefined {
           if (
             id.includes('/node_modules/intl-messageformat') ||
@@ -23,7 +23,9 @@ export default defineConfig({
           }
           // The parameter help (expert area only) loads on demand, not on first paint.
           if (id.includes('/src/lib/i18n/locales/params.')) return 'catalogue-params';
-          if (id.includes('/src/lib/i18n/locales/')) return 'catalogues';
+          // One chunk per main catalogue: English is eager, the others load on demand.
+          const main = /\/src\/lib\/i18n\/locales\/(en|de)\.json$/.exec(id);
+          if (main) return `catalogue-${main[1]}`;
           // ECharts and its canvas layer ride along with the plan view only (dynamic import).
           if (id.includes('/node_modules/echarts') || id.includes('/node_modules/zrender')) {
             return 'echarts';
@@ -48,5 +50,6 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.ts', 'eslint/**/*.test.js'],
     globals: false,
+    setupFiles: ['src/test-setup.ts'],
   },
 });

@@ -19,6 +19,10 @@ const shots = [
   { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'en-US' },
   { view: 'plan', path: '/#/plan', scheme: 'light', locale: 'de-DE' },
   { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'de-DE' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'light', locale: 'en-US' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'dark', locale: 'en-US' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'light', locale: 'de-DE' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'dark', locale: 'de-DE' },
 ] as const;
 
 for (const shot of shots) {
@@ -40,6 +44,12 @@ for (const shot of shots) {
     if (shot.view === 'plan') {
       await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
       await expect(page.getByTestId('fc-accuracy')).toBeVisible();
+    }
+    if (shot.view === 'history') {
+      for (const chart of ['energy', 'sankey', 'heatmap', 'skill']) {
+        await expect(page.getByTestId(`chart-${chart}`).locator('canvas').first()).toBeVisible();
+      }
+      await expect(page.getByTestId('device-row').first()).toBeVisible();
     }
     // Let the live feed deliver a few updates before the capture.
     await page.waitForTimeout(1500);
@@ -118,7 +128,7 @@ for (const shot of controlShots) {
       await page.goto(shot.view === 'decisions' ? '/#/decisions' : '/');
       await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
       if (shot.view === 'decisions') {
-        await expect(page.getByTestId('log-list').locator('li').first()).toBeVisible({
+        await expect(page.getByTestId('decision-table').locator('tbody tr').first()).toBeVisible({
           timeout: 40_000,
         });
       } else {
@@ -126,6 +136,7 @@ for (const shot of controlShots) {
         await page.getByTestId('estop').click();
         await expect(page.getByTestId('estop-banner')).toBeVisible();
       }
+      if (shot.view === 'decisions') await page.getByTestId('why-button').first().click();
       await page.waitForTimeout(1500);
       const name = `${shot.view}-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
       await page.screenshot({

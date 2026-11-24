@@ -463,3 +463,28 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   own RSS is included and the Pi budget is 300 MB. (6) `DELETE /backtests/{id}` cancels a running
   run and deletes a finished one; there is no separate cancel route. (7) The "controller loop is
   late" refusal of R2 is not implemented; a run is refused only while the planner solves.
+
+- **5-G:** no free custom range (`/history/summary` takes a period and a day only); the date field
+  jumps to any day's period instead. The heatmap shows at least the last 28 days, cycles and
+  forecast skill the 14 days up to a single day (the caption names the range). The deep link to
+  the plan chart is `#/plan?day=YYYY-MM-DD`; the plan view reads it in 5-F. The shared chunks
+  `echarts-core`/`echarts-history` of decision 6 are not split yet: the history charts register
+  into the one existing `echarts` chunk (194 kB of 200 kB). First paint is at 124.9 of 125 kB
+  because the catalogues are part of it; the next PR with new strings needs lazy per-view or
+  per-locale catalogues. The router has a `history` route and parses the hash query. The
+  mobile navigation wraps (five links no longer fit 375 px).
+
+- **5-H:** the plan chart does not read `#/plan?at=<ts>` yet (5-F); the "Why?" panel links to it and
+  shows the plan interval itself, so the deep link only becomes a highlight once 5-F lands. The
+  date filter sends a bare date (the server reads it in the site zone); `to` is inclusive in the UI
+  and sent as the next day (exclusive on the server). The log reloads on the live feed only on the
+  first page. The old `controlApi.decisions` stays for other callers; the log uses
+  `decisionPage`. First paint is 124.7 kB of the 125 kB budget: both language catalogues sit in
+  the first-paint chunk, so every new key counts; 5-G/5-I will exceed it unless the catalogue is
+  split per language or per view (not done here).
+- **5-H (i18n loading):** English stays eager (typed key source and fallback, so no raw key can
+  show); German is its own chunk (`catalogue-de`), fetched before the first render when the browser
+  asks for German and otherwise when `region.language` or the wizard switches (English shows until
+  it arrived). First paint fell from 124.7 to 98.8 kB. `Translator.set()` adds a catalogue; lazy
+  extras such as `params.<lang>.json` (5-E) compose through the same `set`/`extend` idea and keep
+  their own chunks (`vite.config.ts` only names the `en`/`de` main files).

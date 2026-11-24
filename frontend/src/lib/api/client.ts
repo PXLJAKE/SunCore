@@ -7,6 +7,8 @@ import type {
   ConfigSectionName,
   ControlState,
   Decision,
+  DecisionExplain,
+  DecisionPage,
   DecisionKind,
   DeviceControlState,
   OperatingMode,
@@ -65,7 +67,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function fetchOk(path: string, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(apiUrl(path), {
@@ -87,6 +89,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, key, issues);
   }
+  return res;
+}
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetchOk(path, init);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -206,6 +213,31 @@ export const controlApi = {
     for (const k of opts.kinds ?? []) search.append('kind', k);
     return request<Decision[]>(`${API_PREFIX}decisions?${search.toString()}`);
   },
+  /** One page of the filtered decision log with the total and the row ids (for `explain`). */
+  decisionPage: async (params: URLSearchParams): Promise<DecisionPage> => {
+    const res = await fetchOk(`${API_PREFIX}decisions?${params.toString()}`);
+    const items = (await res.json()) as Decision[];
+    const total = Number(res.headers.get('X-Total-Count'));
+    const ids = (res.headers.get('X-Decision-Ids') ?? '')
+      .split(',')
+      .filter((s) => s !== '')
+      .map(Number);
+    return {
+      items,
+      ids,
+      total: Number.isFinite(total) && total >= items.length ? total : items.length,
+    };
+  },
+  /** Plain download link of the filtered log as CSV. */
+  decisionsCsvUrl: (params: URLSearchParams): string => {
+    const url = apiUrl(`${API_PREFIX}decisions`);
+    url.search = params.toString();
+    url.searchParams.set('format', 'csv');
+    return url.toString();
+  },
+  /** The "Why?" of one decision (row id from `decisionPage`). */
+  explain: (id: number) =>
+    request<DecisionExplain>(`${API_PREFIX}decisions/${encodeURIComponent(String(id))}/explain`),
   setGlobalMode: (mode: OperatingMode) =>
     request<OperationConfig>(`${API_PREFIX}operation/mode`, {
       method: 'PUT',
@@ -255,7 +287,7 @@ export const paramsApi = {
     send<ParamsApplied>('POST', `${API_PREFIX}params/reset`, { group }),
 };
 
-function query(params: Record<string, string | undefined>): string {
+export function query(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) search.set(key, value);

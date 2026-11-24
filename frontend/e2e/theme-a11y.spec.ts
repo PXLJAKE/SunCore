@@ -73,6 +73,8 @@ test('keyboard: skip link and navigation are reachable', async ({ page }) => {
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Plan', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
+  await expect(page.getByRole('link', { name: 'History', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Decision log', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
