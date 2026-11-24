@@ -112,7 +112,10 @@ Plan: [`plans/phase-5.md`](plans/phase-5.md) (stacked PRs 5-A…5-L).
 | What-if + backtesting | run plan with other parameters/tariffs against history |
 | Export | CSV, PNG |
 
-## Phase 6 – HA integration surface and remaining devices ⬜
+## Phase 6 – HA integration surface and remaining devices 🔨
+
+Planned: [`plans/phase-6.md`](plans/phase-6.md) (stacked PRs 6-A…6-N; ADR-0016, ADR-0017,
+ADR-0018), proceeding on the plan's defaults until the maintainer decides.
 
 | Milestone | Acceptance |
 |---|---|
