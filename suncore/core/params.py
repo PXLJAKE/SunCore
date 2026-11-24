@@ -615,6 +615,49 @@ def safety_keys_changed(
     return [k for k in keys if REGISTRY[k].safety and before.get(k) != after.get(k)]
 
 
+WHATIF_GROUPS: Final = frozenset({"planner", "forecast"})
+"""Groups a what-if or backtest overlay may change (Phase 5 WP6): planning, never control."""
+
+
+def whatif_spec(key: str) -> ParamSpec:
+    """The spec of a parameter a what-if overlay may change, or :class:`ParamError`.
+
+    Allowed are parameters tagged ``whatif`` in the ``planner`` or ``forecast`` group. A
+    ``safety``-tagged or controller parameter is refused (``param_not_whatif``) even if it were
+    tagged: a backtest replays the planner only and never writes configuration or devices.
+    """
+    parameter = spec(key)
+    if (
+        parameter.safety
+        or parameter.group not in WHATIF_GROUPS
+        or TAG_WHATIF not in parameter.tags
+        or parameter.target is None
+    ):
+        raise ParamError("param_not_whatif", key)
+    return parameter
+
+
+def check_whatif_overrides(overrides: Mapping[str, object]) -> dict[str, bool | int | float | str]:
+    """Check a what-if overlay (``{key: value}``) against the registry; first problem raises
+    :class:`ParamError` (``param_unknown``, ``param_not_whatif`` or a range/type code)."""
+    out: dict[str, bool | int | float | str] = {}
+    for key, value in overrides.items():
+        checked = whatif_spec(key).check(value)
+        assert checked is not None
+        out[key] = checked
+    return out
+
+
+def whatif_targets(overrides: Mapping[str, object], group: str) -> dict[str, Any]:
+    """``{field name: value}`` of a checked overlay for ``group`` (the ``planner`` settings)."""
+    checked = check_whatif_overrides(overrides)
+    return {
+        p.target: checked[p.key]
+        for p in (REGISTRY[k] for k in checked)
+        if p.group == group and p.target is not None
+    }
+
+
 def expert_safety_diff(old: ExpertConfig | None, new: ExpertConfig) -> list[str]:
     """Safety-tagged keys whose effective value differs between two ``expert`` documents."""
     keys = [k for k, s in REGISTRY.items() if s.store == "expert" and s.safety]
@@ -625,6 +668,7 @@ __all__ = [
     "GROUPS",
     "KNOWN_TAGS",
     "REGISTRY",
+    "WHATIF_GROUPS",
     "ParamChange",
     "ParamError",
     "ParamSpec",
@@ -632,6 +676,7 @@ __all__ = [
     "SectionMissingError",
     "apply_controller",
     "check_inputs_window",
+    "check_whatif_overrides",
     "current_value",
     "expert_safety_diff",
     "expert_value",
@@ -645,4 +690,6 @@ __all__ = [
     "sections_needed",
     "spec",
     "specs_of_group",
+    "whatif_spec",
+    "whatif_targets",
 ]
