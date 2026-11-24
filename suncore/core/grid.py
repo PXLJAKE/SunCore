@@ -42,7 +42,10 @@ class GridState(StrEnum):
     ISLAND = "island"
     """Backup power: the grid is gone, the house runs from PV and battery."""
     UNKNOWN = "unknown"
-    """No backup entity or it is unavailable: treated as connected, with a warning."""
+    """A backup entity is configured but unavailable or not in the cache: not island (no island
+    rules), with a warning (ADR-0018 decision 6, from 6-F)."""
+    NOT_CONFIGURED = "not_configured"
+    """No backup entity: the site is grid-connected as far as SunCore can know; no warning."""
 
 
 class PeakShaving(_Frozen):
@@ -92,7 +95,9 @@ UNAVAILABLE_STATES: Final = frozenset({"unavailable", "unknown", ""})
 
 def grid_state_from(backup: BackupConfig | None, entity_state: str | None) -> GridState:
     """The grid state from the backup entity's state (``None`` = not in the cache)."""
-    if backup is None or entity_state is None or entity_state in UNAVAILABLE_STATES:
+    if backup is None:
+        return GridState.NOT_CONFIGURED
+    if entity_state is None or entity_state in UNAVAILABLE_STATES:
         return GridState.UNKNOWN
     return GridState.ISLAND if entity_state in backup.island_states else GridState.CONNECTED
 

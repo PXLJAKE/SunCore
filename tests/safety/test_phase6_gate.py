@@ -50,8 +50,12 @@ from suncore.core.devices import (
     SgReadyControl,
 )
 from suncore.core.site import EntityRef
+from suncore.devices.drivers import create_driver
+from suncore.devices.drivers.unsupported import UnsupportedDriver
 from suncore.safety.gate import REASON_EMERGENCY_STOP, REASON_NOT_SUPPORTED
 from suncore.safety.invariants import action_matches_state, action_turns_on, expected_power_w
+from suncore.safety.runtime import DeviceRuntime, MemoryRuntimeStore
+from tests.devices.drivers.fakes import FakeHA
 from tests.safety.helpers import T0, make_intent, switch_device
 from tests.safety.test_gate import AUTO, make_harness
 
@@ -286,3 +290,31 @@ def test_battery_actions_keep_their_own_rejection() -> None:
     h = make_harness()
     decision = asyncio.run(h.gate.submit(make_intent(BatteryAction(min_soc_pct=20))))
     assert keys(decision) == ["safety.battery_not_supported"]
+
+
+@pytest.mark.parametrize(
+    "device", [d for d in PHASE6_DEVICES if d.program is None], ids=lambda d: d.id
+)
+def test_a_release_with_a_baseline_fails_and_keeps_the_runtime(device: DeviceConfig) -> None:
+    """Review A1: the placeholder driver cannot restore a baseline, so the release is
+    ``failed`` and the runtime (baseline included) is kept instead of silently dropped."""
+    ha = FakeHA()
+    driver = create_driver(device, write=ha.write, states=ha.lookup)
+    assert isinstance(driver, UnsupportedDriver)
+    store = MemoryRuntimeStore()
+    runtime = DeviceRuntime(
+        device_id=device.id, baseline=SwitchAction(on=False), last_written=SwitchAction(on=True)
+    )
+    h = make_harness(devices=(device,), store=store, actuator_overrides={device.id: driver})
+
+    async def scenario() -> Decision:
+        await store.save_runtime(runtime)
+        return await h.gate.release_device(device.id, REASON_EMERGENCY_STOP)
+
+    decision = asyncio.run(scenario())
+    assert decision.kind is DecisionKind.FAILED
+    assert keys(decision)[0] == "safety.release_failed"
+    kept = asyncio.run(store.load_runtime(device.id))
+    assert kept is not None
+    assert kept.baseline == SwitchAction(on=False)
+    assert ha.calls == []

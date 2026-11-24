@@ -117,8 +117,9 @@ class GateInputs:
     para14a_status: Para14aStatus = Para14aStatus.INACTIVE
     """``unknown`` = the signal is configured but unavailable: no increase of flagged devices
     (G5, from 6-F)."""
-    grid_state: GridState = GridState.UNKNOWN
-    """Connected, island or unknown (no backup entity: treated as connected)."""
+    grid_state: GridState = GridState.NOT_CONFIGURED
+    """Connected, island, unknown (backup entity unavailable: not island, with a warning) or
+    not configured (no backup entity). Only ``island`` applies island rules (from 6-F)."""
 
 
 # --- settings -----------------------------------------------------------------

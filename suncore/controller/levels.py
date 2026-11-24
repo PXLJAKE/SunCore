@@ -41,6 +41,7 @@ from suncore.core.decisions import (
     SwitchAction,
 )
 from suncore.core.devices import (
+    PHASE6_CONTROLS,
     ContinuousControl,
     DeviceConfig,
     ModeControl,
@@ -210,7 +211,14 @@ def build_levels(  # noqa: PLR0911 - one return per control kind
     base_setpoint_c: float | None = None,
     switched_on_by_us: bool = False,
 ) -> LevelTable | None:
-    """The level table of ``device`` in its current situation; ``None`` = not controllable."""
+    """The level table of ``device`` in its current situation; ``None`` = not controllable.
+
+    Job-driven programs (``device.program``) and the Phase 6 control variants are not
+    controllable by surplus levels until their PRs (6-L; 6-I, 6-J, 6-K): the gate rejects
+    their writes, so offering levels would only repeat rejected intents (review of 6-B, A2).
+    """
+    if device.program is not None or isinstance(device.control, PHASE6_CONTROLS):
+        return None
     control = device.control
     if isinstance(control, OnOffControl):
         nominal = nominal_power_w(device, estimate)

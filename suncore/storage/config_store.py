@@ -264,8 +264,12 @@ class ConfigStore:
                     "SELECT schema_version, body FROM config_doc WHERE section = 'mqtt'"
                 )
                 stored_mqtt = self._try_parse("mqtt", row)
-                model = model.keep_secret_of(
-                    stored_mqtt if isinstance(stored_mqtt, MqttConfig) else None
+                prior_mqtt = stored_mqtt if isinstance(stored_mqtt, MqttConfig) else None
+                # A mask with nothing to keep is rejected (MqttPasswordIsMaskError), never dropped.
+                model = (
+                    model.keep_secret_of(prior_mqtt)
+                    if restoring
+                    else model.require_secret_of(prior_mqtt)
                 )
             if isinstance(model, DevicesConfig):
                 previous = await self._stored_devices(tx)

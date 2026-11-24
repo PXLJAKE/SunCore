@@ -31,7 +31,9 @@ async def test_phase6_controls_get_a_driver_that_never_writes(device: object) ->
         await driver.apply(intent(ReleaseAction(), driver.asset_id))
     assert await driver.read_back() is None
     assert driver.device_state().quality is Quality.UNAVAILABLE
-    await driver.release(SwitchAction(on=True))
+    await driver.release(None)  # never taken over: nothing to restore
+    with pytest.raises(ActionNotSupportedError):  # review A1: never a silent "released"
+        await driver.release(SwitchAction(on=True))
     assert ha.calls == []
 
 
