@@ -5,7 +5,7 @@
 import type { EChartsCoreOption } from 'echarts/core';
 import type { BacktestDay, BacktestResult } from '../api/types';
 import { withAlpha } from '../plan/chartOption';
-import { rowsTooltip, type HistoryColors } from '../history/chartOptions';
+import { axisStyle, axisTooltip, base, type HistoryColors } from '../history/chartOptions';
 
 export interface WhatIfText {
   actual: string;
@@ -27,50 +27,6 @@ export interface Ctx {
 }
 
 type Cell = number | null;
-
-const base = (c: Ctx): Record<string, unknown> => ({
-  animation: false,
-  textStyle: { color: c.colors.text },
-  grid: { left: 8, right: 12, top: c.compact ? 64 : 40, bottom: 8, containLabel: true },
-  legend: {
-    top: 0,
-    type: 'scroll',
-    textStyle: { color: c.colors.text },
-    pageTextStyle: { color: c.colors.textSecondary },
-  },
-});
-
-const axisStyle = (c: Ctx) => ({
-  axisLine: { lineStyle: { color: c.colors.divider } },
-  axisLabel: { color: c.colors.textSecondary },
-  splitLine: { lineStyle: { color: c.colors.divider, opacity: 0.6 } },
-});
-
-interface AxisParam {
-  axisValue: string;
-  seriesName: string;
-  value: unknown;
-}
-
-function tooltip(
-  fmt: (v: number) => string,
-  heading: (axis: string) => string,
-): { trigger: 'axis'; formatter: (p: unknown) => HTMLElement } {
-  return {
-    trigger: 'axis',
-    formatter: (p) => {
-      const params = (Array.isArray(p) ? p : [p]) as AxisParam[];
-      const first = params[0];
-      if (!first) return rowsTooltip([]);
-      return rowsTooltip([
-        { strong: heading(first.axisValue) },
-        ...params.map(
-          (x) => `${x.seriesName}: ${typeof x.value === 'number' ? fmt(x.value) : '–'}`,
-        ),
-      ]);
-    },
-  };
-}
 
 const cents = (v: number): number => Math.round(v * 100) / 100;
 
@@ -108,7 +64,7 @@ export function dailyCostOption(days: readonly BacktestDay[], c: Ctx): EChartsCo
   }
   return {
     ...base(c),
-    tooltip: tooltip(c.text.money, (axis) => c.text.day(axis)),
+    tooltip: { trigger: 'axis', formatter: axisTooltip(c, c.text.money, c.text.day) },
     xAxis: {
       type: 'category',
       data: days.map((d) => d.day),
@@ -139,7 +95,7 @@ function lines(
 ): EChartsCoreOption {
   return {
     ...base(c),
-    tooltip: tooltip(fmt, (axis) => c.text.when(axis)),
+    tooltip: { trigger: 'axis', formatter: axisTooltip(c, fmt, c.text.when) },
     xAxis: {
       type: 'category',
       data: h.starts,

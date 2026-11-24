@@ -67,7 +67,9 @@ export interface Ctx {
 
 type Cell = number | null;
 
-const base = (c: Ctx): Record<string, unknown> => ({
+type Look = Pick<Ctx, 'colors' | 'compact'>;
+
+export const base = (c: Look): Record<string, unknown> => ({
   animation: false,
   textStyle: { color: c.colors.text },
   grid: { left: 8, right: 12, top: c.compact ? 64 : 40, bottom: 8, containLabel: true },
@@ -79,7 +81,7 @@ const base = (c: Ctx): Record<string, unknown> => ({
   },
 });
 
-const axisStyle = (c: Ctx) => ({
+export const axisStyle = (c: Pick<Ctx, 'colors'>) => ({
   axisLine: { lineStyle: { color: c.colors.divider } },
   axisLabel: { color: c.colors.textSecondary },
   splitLine: { lineStyle: { color: c.colors.divider, opacity: 0.6 } },
@@ -104,8 +106,8 @@ interface AxisParam {
   marker?: string;
 }
 
-function axisTooltip(
-  c: Ctx,
+export function axisTooltip(
+  c: unknown,
   fmt: (v: number) => string,
   heading: (axis: string, index: number) => string,
   note?: (index: number) => string | null,
