@@ -122,6 +122,19 @@ class ActionKind(StrEnum):
     MODE = "mode"
     RELEASE = "release"
     BATTERY = "battery"
+    # Phase 6 (PR 6-B, additive; rejected by the gate until their invariants exist):
+    CHARGE = "charge"
+    LOADPOINT = "loadpoint"
+    INVERTER_LIMIT = "inverter_limit"
+
+
+NOT_YET_SUPPORTED_KINDS: Final[frozenset[ActionKind]] = frozenset(
+    {ActionKind.CHARGE, ActionKind.LOADPOINT, ActionKind.INVERTER_LIMIT}
+)
+"""Action kinds that are in the contract but not judged by any invariant yet (ADR-0011
+addendum): the safety gate rejects each with ``safety.<kind>_not_supported`` before mode
+handling. A kind leaves this set only in the PR that adds its invariants, scenarios and the
+``control-safety`` sign-off (6-G inverter limit, 6-I charge, 6-J loadpoint)."""
 
 
 class SwitchAction(_FrozenModel):
@@ -232,6 +245,72 @@ class BatteryAction(_FrozenModel):
         return self
 
 
+class ChargeAction(_FrozenModel):
+    """Desired state of an EV charger (ADR-0017 decision 1; PR 6-I lifts the rejection).
+
+    **Full desired state.** ``current_a`` 0 = paused (the charger stays enabled, the car is not
+    charged), otherwise within the charger's ``[min_current_a, max_current_a]`` - the range
+    check needs the device and is invariant E1 of the gate, not of this contract.
+    ``phases`` ``None`` = leave the phases as they are. Release = the baseline captured at
+    takeover (current, phases, enable).
+    """
+
+    kind: Literal[ActionKind.CHARGE] = ActionKind.CHARGE
+    current_a: float = Field(ge=0, le=500, allow_inf_nan=False)
+    phases: Literal[1, 3] | None = None
+
+
+EVCC_MODES: Final = ("off", "smart", "now")
+"""evcc loadpoint ``mode`` values (evcc MQTT API, read 2026-11-24; ``pv``/``minpv`` are gone)."""
+
+
+class LoadpointAction(_FrozenModel):
+    """What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; PR 6-J lifts the rejection).
+
+    evcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle
+    plan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``
+    fields are left as evcc has them. SunCore never writes ``evcc/site/*``.
+    """
+
+    kind: Literal[ActionKind.LOADPOINT] = ActionKind.LOADPOINT
+    mode: Literal["off", "smart", "now"]
+    limit_soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    plan_soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    plan_time: AwareDatetime | None = None
+    max_current_a: float | None = Field(default=None, gt=0, le=500, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _plan_pair(self) -> Self:
+        if (self.plan_soc_pct is None) != (self.plan_time is None):
+            raise invalid(
+                "loadpoint_plan_pair",
+                "loadpoint action: `plan_soc_pct` and `plan_time` are set together",
+            )
+        return self
+
+
+class InverterLimitAction(_FrozenModel):
+    """An export or AC output limit for the inverter (ADR-0018 decision 3; PR 6-G).
+
+    Exactly one of ``max_export_w`` (capability ``export_limit``) and ``max_ac_pct``
+    (capability ``ac_limit``, % of the nominal AC power) is set. The asset id is ``inverter``.
+    Release = the baseline captured at takeover (100 % for a volatile register).
+    """
+
+    kind: Literal[ActionKind.INVERTER_LIMIT] = ActionKind.INVERTER_LIMIT
+    max_export_w: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    max_ac_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> Self:
+        if (self.max_export_w is None) == (self.max_ac_pct is None):
+            raise invalid(
+                "inverter_limit_one",
+                "inverter limit: set exactly one of `max_export_w` and `max_ac_pct`",
+            )
+        return self
+
+
 Action = Annotated[
     SwitchAction
     | PowerSetpointAction
@@ -239,7 +318,10 @@ Action = Annotated[
     | StepAction
     | ModeAction
     | ReleaseAction
-    | BatteryAction,
+    | BatteryAction
+    | ChargeAction
+    | LoadpointAction
+    | InverterLimitAction,
     Field(discriminator="kind"),
 ]
 """Typed action target; the ``kind`` field selects the variant."""
@@ -327,13 +409,18 @@ def decision_from_json(text: str) -> Decision:
 
 __all__ = [
     "DECISION_SCHEMA_VERSION",
+    "EVCC_MODES",
+    "NOT_YET_SUPPORTED_KINDS",
     "REASON_KEY_PATTERN",
     "Action",
     "ActionKind",
     "BatteryAction",
+    "ChargeAction",
     "Decision",
     "DecisionKind",
     "Intent",
+    "InverterLimitAction",
+    "LoadpointAction",
     "ModeAction",
     "OperatingMode",
     "Origin",

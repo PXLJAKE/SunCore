@@ -7,12 +7,9 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from suncore.core.grid import PARA14A_DEFAULT_LIMIT_W, BackupConfig, Para14aSignalKind, PeakShaving
+from suncore.core.validation import ENTITY_ID_PATTERN as ENTITY_ID_PATTERN  # noqa: PLC0414 - explicit re-export
 from suncore.core.validation import invalid
-
-# Equivalent to HA's ``valid_entity_id`` (research/device-integrations.md): lowercase
-# letters and digits in domain and object id, single underscores only between
-# characters, no look-arounds so the Rust regex engine behind Pydantic accepts it.
-ENTITY_ID_PATTERN = r"^[a-z0-9]+(?:_[a-z0-9]+)*\.[a-z0-9]+(?:_[a-z0-9]+)*$"
 
 EntityId = Annotated[str, StringConstraints(pattern=ENTITY_ID_PATTERN)]
 
@@ -48,7 +45,14 @@ class PvArray(_Frozen):
 
 
 class GridConfig(_Frozen):
-    """Grid connection: one signed sensor (+ = import) OR an import/export pair, plus limits."""
+    """Grid connection: one signed sensor (+ = import) OR an import/export pair, plus limits.
+
+    Phase 6 (PR 6-B, all optional with defaults, no version bump; ADR-0018): ``peak_shaving`` (off),
+    ``export_dynamic`` (0 W at negative export prices, only with a verified inverter adapter),
+    ``zero_export`` (off), ``para14a_limit_w`` (4 200 W) and ``para14a_signal_kind``
+    (``binary`` relay/contact or ``power_w`` allowed power), ``backup`` (island entity).
+    ``import_limit_w`` is the fuse/connection limit; ``core.grid`` resolves the effective ones.
+    """
 
     power: EntityRef | None = None
     import_power: EntityRef | None = None
@@ -62,6 +66,12 @@ class GridConfig(_Frozen):
     energy_import: EntityRef | None = None
     """Cumulative import counter (energy entity)."""
     energy_export: EntityRef | None = None
+    peak_shaving: PeakShaving = PeakShaving()
+    export_dynamic: bool = False
+    zero_export: bool = False
+    para14a_limit_w: PosW = PARA14A_DEFAULT_LIMIT_W
+    para14a_signal_kind: Para14aSignalKind = "binary"
+    backup: BackupConfig | None = None
 
     @model_validator(mode="after")
     def _exactly_one_variant(self) -> Self:
@@ -88,6 +98,17 @@ class GridConfig(_Frozen):
             )
         if self.para14a_signal is not None and not self.para14a:
             raise invalid("para14a_signal_needs_flag", "grid: `para14a_signal` needs `para14a`")
+        if (
+            self.import_limit_w is not None
+            and self.peak_shaving.enabled
+            and self.peak_shaving.peak_floor_w > self.import_limit_w
+        ):
+            raise invalid(
+                "peak_floor_above_fuse",
+                "grid: peak_floor_w ({floor}) above import_limit_w ({limit})",
+                floor=self.peak_shaving.peak_floor_w,
+                limit=self.import_limit_w,
+            )
         for name in ("para14a_signal", "energy_import", "energy_export"):
             ref: EntityRef | None = getattr(self, name)
             if ref is not None and ref.invert_sign:
@@ -137,7 +158,11 @@ class BatteryConfig(_Frozen):
 
 
 class SiteConfig(_Frozen):
-    """Site description. Entity ids come from the user; none are hard-coded."""
+    """Site description. Entity ids come from the user; none are hard-coded.
+
+    Phase 6 adds only optional grid fields with defaults (see :class:`GridConfig`) without a
+    version bump: every stored v2 document stays valid as it is (plan §8, PR 6-B).
+    """
 
     schema_version: int = 2
     grid: GridConfig
@@ -194,6 +219,8 @@ class SiteConfig(_Frozen):
             )
             if r is not None
         )
+        if g.backup is not None:
+            refs.append(EntityRef(entity_id=g.backup.entity_id))
         refs.extend(self.pv_power_refs)
         if self.battery is not None:
             refs.extend((self.battery.power, self.battery.soc))

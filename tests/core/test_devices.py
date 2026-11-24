@@ -14,18 +14,21 @@ from pydantic import TypeAdapter, ValidationError
 
 from suncore.core.devices import (
     THERMAL_KINDS,
+    ChargerControl,
     ComfortBand,
     ContinuousControl,
     ControlKind,
     ControlSpec,
     DeviceConfig,
     DeviceKind,
+    LoadpointControl,
     ModeControl,
     OnOffControl,
     PowerModel,
     PowerModelKind,
     RelaysControl,
     SetpointControl,
+    SgReadyControl,
     StepsControl,
     TimeWindow,
     control_roles,
@@ -228,6 +231,9 @@ def test_control_kinds_match_the_enum() -> None:
             SetpointControl,
             ModeControl,
             RelaysControl,
+            ChargerControl,
+            SgReadyControl,
+            LoadpointControl,
         )
     }
     assert kinds == {k.value for k in ControlKind}

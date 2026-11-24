@@ -285,6 +285,44 @@
         "title": "AttributeSeries",
         "type": "object"
       },
+      "BackupConfig": {
+        "additionalProperties": false,
+        "description": "Backup power: the entity that shows island operation (entity only, no heuristic).\n\n``island_states`` are the state values that mean \"island\" (case-sensitive, as HA reports\nthem; ``UNVERIFIED`` per backup device - the user or the template names them).\n``keep_devices`` are device ids that are not shed in island operation.",
+        "properties": {
+          "entity_id": {
+            "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*\\.[a-z0-9]+(?:_[a-z0-9]+)*$",
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "island_states": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Island States",
+            "type": "array"
+          },
+          "keep_devices": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]{0,47}$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Keep Devices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity_id",
+          "island_states"
+        ],
+        "title": "BackupConfig",
+        "type": "object"
+      },
       "BandPreference": {
         "description": "What the plan would like the controller to do inside an allowed band.",
         "enum": [
@@ -1478,6 +1516,165 @@
         "title": "Capability",
         "type": "string"
       },
+      "ChargeAction": {
+        "additionalProperties": false,
+        "description": "Desired state of an EV charger (ADR-0017 decision 1; PR 6-I lifts the rejection).\n\n**Full desired state.** ``current_a`` 0 = paused (the charger stays enabled, the car is not\ncharged), otherwise within the charger's ``[min_current_a, max_current_a]`` - the range\ncheck needs the device and is invariant E1 of the gate, not of this contract.\n``phases`` ``None`` = leave the phases as they are. Release = the baseline captured at\ntakeover (current, phases, enable).",
+        "properties": {
+          "current_a": {
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Current A",
+            "type": "number"
+          },
+          "kind": {
+            "const": "charge",
+            "default": "charge",
+            "title": "Kind",
+            "type": "string"
+          },
+          "phases": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  3
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phases"
+          }
+        },
+        "required": [
+          "current_a"
+        ],
+        "title": "ChargeAction",
+        "type": "object"
+      },
+      "ChargerControl": {
+        "additionalProperties": false,
+        "description": "An EV charger driven through Home Assistant entities (ADR-0017 decision 1, PR 6-I).\n\n``role`` is the charging current (number entity, A); ``enable_role`` an optional switch;\n``phases_role`` an optional select or switch whose option for one and for three phases is\n``phase_option_1`` / ``phase_option_3``. ``phases`` is the number of phases the charger is\nwired with; ``phase_switching`` needs a ``phases_role`` and a three-phase charger (plan §0\ndecision 6). ``phase_switch_pause_s`` is the pause around a switch (vendor-dependent,\n``UNVERIFIED``), ``max_phase_switches_per_hour`` the wear limit. Written by ``ChargeAction``.",
+        "properties": {
+          "enable_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Role"
+          },
+          "kind": {
+            "const": "charger",
+            "title": "Kind",
+            "type": "string"
+          },
+          "max_current_a": {
+            "exclusiveMinimum": 1.0,
+            "maximum": 500.0,
+            "title": "Max Current A",
+            "type": "number"
+          },
+          "max_phase_switches_per_hour": {
+            "default": 4,
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Max Phase Switches Per Hour",
+            "type": "integer"
+          },
+          "min_current_a": {
+            "default": 6.0,
+            "maximum": 80.0,
+            "minimum": 1.0,
+            "title": "Min Current A",
+            "type": "number"
+          },
+          "phase_option_1": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase Option 1"
+          },
+          "phase_option_3": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase Option 3"
+          },
+          "phase_switch_pause_s": {
+            "default": 120,
+            "maximum": 900.0,
+            "minimum": 0.0,
+            "title": "Phase Switch Pause S",
+            "type": "integer"
+          },
+          "phase_switching": {
+            "default": false,
+            "title": "Phase Switching",
+            "type": "boolean"
+          },
+          "phases": {
+            "default": 3,
+            "enum": [
+              1,
+              3
+            ],
+            "title": "Phases",
+            "type": "integer"
+          },
+          "phases_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phases Role"
+          },
+          "role": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "title": "Role",
+            "type": "string"
+          },
+          "voltage_v": {
+            "default": 230.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000.0,
+            "title": "Voltage V",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "role",
+          "max_current_a"
+        ],
+        "title": "ChargerControl",
+        "type": "object"
+      },
       "CheckItemOut": {
         "additionalProperties": false,
         "properties": {
@@ -1784,6 +1981,55 @@
         "title": "ControlState",
         "type": "object"
       },
+      "CopCurve": {
+        "additionalProperties": false,
+        "description": "COP over outdoor temperature: 2-8 points, piecewise linear, clamped at the ends.\n\n``assumed`` marks a curve that is not from a vendor source (the generic default); the UI\nlabels it as an assumption.",
+        "properties": {
+          "assumed": {
+            "default": false,
+            "title": "Assumed",
+            "type": "boolean"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/CopPoint"
+            },
+            "maxItems": 8,
+            "minItems": 2,
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "points"
+        ],
+        "title": "CopCurve",
+        "type": "object"
+      },
+      "CopPoint": {
+        "additionalProperties": false,
+        "description": "The coefficient of performance at one outdoor temperature.",
+        "properties": {
+          "cop": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Cop",
+            "type": "number"
+          },
+          "outdoor_c": {
+            "maximum": 50.0,
+            "minimum": -40.0,
+            "title": "Outdoor C",
+            "type": "number"
+          }
+        },
+        "required": [
+          "outdoor_c",
+          "cop"
+        ],
+        "title": "CopPoint",
+        "type": "object"
+      },
       "CostOut": {
         "additionalProperties": false,
         "description": "Grid cost of the days that have stored prices, and the two baselines (ADR-0014).\n\n``savings_vs_no_pv`` is what the plant adds (house load entirely from the grid minus actual\ncost), ``savings_vs_pv_only`` what SunCore adds on top of the plant (PV without battery and\ncontrol minus actual cost), ``pv_contribution`` the difference. Device shifting is not undone.",
@@ -2076,6 +2322,9 @@
                 "discriminator": {
                   "mapping": {
                     "battery": "#/components/schemas/BatteryAction",
+                    "charge": "#/components/schemas/ChargeAction",
+                    "inverter_limit": "#/components/schemas/InverterLimitAction",
+                    "loadpoint": "#/components/schemas/LoadpointAction",
                     "mode": "#/components/schemas/ModeAction",
                     "power_setpoint": "#/components/schemas/PowerSetpointAction",
                     "release": "#/components/schemas/ReleaseAction",
@@ -2106,6 +2355,15 @@
                   },
                   {
                     "$ref": "#/components/schemas/BatteryAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ChargeAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LoadpointAction"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InverterLimitAction"
                   }
                 ]
               },
@@ -2290,6 +2548,18 @@
             "title": "Allowed",
             "type": "boolean"
           },
+          "grid_power_max_w": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Power Max W"
+          },
           "max_power_w": {
             "anyOf": [
               {
@@ -2305,6 +2575,11 @@
           "preference": {
             "$ref": "#/components/schemas/BandPreference",
             "default": "neutral"
+          },
+          "start": {
+            "default": false,
+            "title": "Start",
+            "type": "boolean"
           }
         },
         "title": "DeviceBand",
@@ -2317,6 +2592,11 @@
           "allow_switch_on": {
             "default": false,
             "title": "Allow Switch On",
+            "type": "boolean"
+          },
+          "behaviour_confirmed": {
+            "default": false,
+            "title": "Behaviour Confirmed",
             "type": "boolean"
           },
           "comfort": {
@@ -2332,11 +2612,14 @@
           "control": {
             "discriminator": {
               "mapping": {
+                "charger": "#/components/schemas/ChargerControl",
                 "continuous": "#/components/schemas/ContinuousControl",
+                "loadpoint": "#/components/schemas/LoadpointControl",
                 "mode": "#/components/schemas/ModeControl",
                 "on_off": "#/components/schemas/OnOffControl",
                 "relays": "#/components/schemas/RelaysControl",
                 "setpoint": "#/components/schemas/SetpointControl",
+                "sg_ready": "#/components/schemas/SgReadyControl",
                 "steps": "#/components/schemas/StepsControl"
               },
               "propertyName": "kind"
@@ -2359,6 +2642,15 @@
               },
               {
                 "$ref": "#/components/schemas/RelaysControl"
+              },
+              {
+                "$ref": "#/components/schemas/ChargerControl"
+              },
+              {
+                "$ref": "#/components/schemas/SgReadyControl"
+              },
+              {
+                "$ref": "#/components/schemas/LoadpointControl"
               }
             ],
             "title": "Control"
@@ -2371,6 +2663,16 @@
             },
             "title": "Entities",
             "type": "object"
+          },
+          "ev": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "hysteresis_delay_s": {
             "anyOf": [
@@ -2447,6 +2749,11 @@
               "resume_time": "04:00:00"
             }
           },
+          "para14a": {
+            "default": false,
+            "title": "Para14A",
+            "type": "boolean"
+          },
           "planner_value_per_kwh": {
             "anyOf": [
               {
@@ -2470,6 +2777,16 @@
             "title": "Priority",
             "type": "integer"
           },
+          "program": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgramSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "settle_s": {
             "anyOf": [
               {
@@ -2482,6 +2799,19 @@
               }
             ],
             "title": "Settle S"
+          },
+          "shed_rank": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shed Rank"
           },
           "switch_on_hvac_mode": {
             "anyOf": [
@@ -2505,6 +2835,16 @@
             "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
             "title": "Template Id",
             "type": "string"
+          },
+          "thermal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ThermalSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "windows": {
             "default": [],
@@ -2801,11 +3141,14 @@
           "control": {
             "discriminator": {
               "mapping": {
+                "charger": "#/components/schemas/ChargerControl",
                 "continuous": "#/components/schemas/ContinuousControl",
+                "loadpoint": "#/components/schemas/LoadpointControl",
                 "mode": "#/components/schemas/ModeControl",
                 "on_off": "#/components/schemas/OnOffControl",
                 "relays": "#/components/schemas/RelaysControl",
                 "setpoint": "#/components/schemas/SetpointControl",
+                "sg_ready": "#/components/schemas/SgReadyControl",
                 "steps": "#/components/schemas/StepsControl"
               },
               "propertyName": "kind"
@@ -2828,6 +3171,15 @@
               },
               {
                 "$ref": "#/components/schemas/RelaysControl"
+              },
+              {
+                "$ref": "#/components/schemas/ChargerControl"
+              },
+              {
+                "$ref": "#/components/schemas/SgReadyControl"
+              },
+              {
+                "$ref": "#/components/schemas/LoadpointControl"
               }
             ],
             "title": "Control"
@@ -3722,6 +4074,86 @@
         "title": "ErrorOut",
         "type": "object"
       },
+      "EvMode": {
+        "description": "User-chosen EV charging mode (BRIEF §4.5).",
+        "enum": [
+          "off",
+          "now",
+          "min_pv",
+          "pv",
+          "target"
+        ],
+        "title": "EvMode",
+        "type": "string"
+      },
+      "EvSpec": {
+        "additionalProperties": false,
+        "description": "The vehicle behind a charger (kind ``wallbox``; one vehicle per charger in v1).\n\nRoles (all optional, mapped in ``DeviceConfig.entities``): ``vehicle_soc_role`` (sensor %),\n``connected_role`` (binary sensor), ``charging_role`` (binary sensor). Without a SoC the\ntargets are energy-based. ``efficiency`` is the charging efficiency (losses, default 0.9).",
+        "properties": {
+          "capacity_wh": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 500000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Wh"
+          },
+          "charging_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charging Role"
+          },
+          "connected_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected Role"
+          },
+          "default_mode": {
+            "$ref": "#/components/schemas/EvMode",
+            "default": "pv"
+          },
+          "efficiency": {
+            "default": 0.9,
+            "exclusiveMinimum": 0.5,
+            "maximum": 1.0,
+            "title": "Efficiency",
+            "type": "number"
+          },
+          "vehicle_soc_role": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Soc Role"
+          }
+        },
+        "title": "EvSpec",
+        "type": "object"
+      },
       "ExplainInputOut": {
         "additionalProperties": false,
         "properties": {
@@ -4496,8 +4928,18 @@
       },
       "GridConfig": {
         "additionalProperties": false,
-        "description": "Grid connection: one signed sensor (+ = import) OR an import/export pair, plus limits.",
+        "description": "Grid connection: one signed sensor (+ = import) OR an import/export pair, plus limits.\n\nPhase 6 (PR 6-B, all optional with defaults, no version bump; ADR-0018): ``peak_shaving`` (off),\n``export_dynamic`` (0 W at negative export prices, only with a verified inverter adapter),\n``zero_export`` (off), ``para14a_limit_w`` (4 200 W) and ``para14a_signal_kind``\n(``binary`` relay/contact or ``power_w`` allowed power), ``backup`` (island entity).\n``import_limit_w`` is the fuse/connection limit; ``core.grid`` resolves the effective ones.",
         "properties": {
+          "backup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackupConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "energy_export": {
             "anyOf": [
               {
@@ -4517,6 +4959,11 @@
                 "type": "null"
               }
             ]
+          },
+          "export_dynamic": {
+            "default": false,
+            "title": "Export Dynamic",
+            "type": "boolean"
           },
           "export_limit_pct_kwp": {
             "anyOf": [
@@ -4582,6 +5029,13 @@
             "title": "Para14A",
             "type": "boolean"
           },
+          "para14a_limit_w": {
+            "default": 4200.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Para14A Limit W",
+            "type": "number"
+          },
           "para14a_signal": {
             "anyOf": [
               {
@@ -4592,6 +5046,23 @@
               }
             ]
           },
+          "para14a_signal_kind": {
+            "default": "binary",
+            "enum": [
+              "binary",
+              "power_w"
+            ],
+            "title": "Para14A Signal Kind",
+            "type": "string"
+          },
+          "peak_shaving": {
+            "$ref": "#/components/schemas/PeakShaving",
+            "default": {
+              "capacity_price_per_kw_month": 0.0,
+              "enabled": false,
+              "peak_floor_w": 2500.0
+            }
+          },
           "power": {
             "anyOf": [
               {
@@ -4601,6 +5072,11 @@
                 "type": "null"
               }
             ]
+          },
+          "zero_export": {
+            "default": false,
+            "title": "Zero Export",
+            "type": "boolean"
           }
         },
         "title": "GridConfig",
@@ -5001,6 +5477,9 @@
             "discriminator": {
               "mapping": {
                 "battery": "#/components/schemas/BatteryAction",
+                "charge": "#/components/schemas/ChargeAction",
+                "inverter_limit": "#/components/schemas/InverterLimitAction",
+                "loadpoint": "#/components/schemas/LoadpointAction",
                 "mode": "#/components/schemas/ModeAction",
                 "power_setpoint": "#/components/schemas/PowerSetpointAction",
                 "release": "#/components/schemas/ReleaseAction",
@@ -5031,6 +5510,15 @@
               },
               {
                 "$ref": "#/components/schemas/BatteryAction"
+              },
+              {
+                "$ref": "#/components/schemas/ChargeAction"
+              },
+              {
+                "$ref": "#/components/schemas/LoadpointAction"
+              },
+              {
+                "$ref": "#/components/schemas/InverterLimitAction"
               }
             ],
             "title": "Action"
@@ -5349,6 +5837,113 @@
         "title": "IntervalPrices",
         "type": "object"
       },
+      "InverterConfig": {
+        "additionalProperties": false,
+        "description": "The inverter limit adapter (ADR-0018 decision 3; writes arrive with PR 6-G).\n\n``limit_verified`` is set only after the documented verification test; until then the\ninverter asset runs at most assisted (X6). ``nominal_ac_w`` is needed for ``ac_limit``\n(the percent base, invariant X2). ``limit_entity`` is the number entity of the generic\nadapter (W for ``export_limit``, % for ``ac_limit``).",
+        "properties": {
+          "adapter": {
+            "default": "none",
+            "enum": [
+              "none",
+              "generic_number",
+              "kostal_rest",
+              "kostal_modbus"
+            ],
+            "title": "Adapter",
+            "type": "string"
+          },
+          "capability": {
+            "anyOf": [
+              {
+                "enum": [
+                  "export_limit",
+                  "ac_limit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability"
+          },
+          "limit_entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit_verified": {
+            "default": false,
+            "title": "Limit Verified",
+            "type": "boolean"
+          },
+          "nominal_ac_w": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nominal Ac W"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "InverterConfig",
+        "type": "object"
+      },
+      "InverterLimitAction": {
+        "additionalProperties": false,
+        "description": "An export or AC output limit for the inverter (ADR-0018 decision 3; PR 6-G).\n\nExactly one of ``max_export_w`` (capability ``export_limit``) and ``max_ac_pct``\n(capability ``ac_limit``, % of the nominal AC power) is set. The asset id is ``inverter``.\nRelease = the baseline captured at takeover (100 % for a volatile register).",
+        "properties": {
+          "kind": {
+            "const": "inverter_limit",
+            "default": "inverter_limit",
+            "title": "Kind",
+            "type": "string"
+          },
+          "max_ac_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Ac Pct"
+          },
+          "max_export_w": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Export W"
+          }
+        },
+        "title": "InverterLimitAction",
+        "type": "object"
+      },
       "KpiOut": {
         "additionalProperties": false,
         "properties": {
@@ -5392,6 +5987,40 @@
           "equivalent_full_cycles"
         ],
         "title": "KpiOut",
+        "type": "object"
+      },
+      "LearnedThermal": {
+        "additionalProperties": false,
+        "description": "A fitted model with its quality (``nrmse`` of a 24 h replay) and history length.",
+        "properties": {
+          "fitted_at": {
+            "format": "date-time",
+            "title": "Fitted At",
+            "type": "string"
+          },
+          "history_days": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "History Days",
+            "type": "integer"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ThermalModel"
+          },
+          "nrmse": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Nrmse",
+            "type": "number"
+          }
+        },
+        "required": [
+          "model",
+          "nrmse",
+          "history_days",
+          "fitted_at"
+        ],
+        "title": "LearnedThermal",
         "type": "object"
       },
       "LearningSettings": {
@@ -5819,6 +6448,147 @@
         "title": "LoadTemperatureView",
         "type": "object"
       },
+      "LoadpointAction": {
+        "additionalProperties": false,
+        "description": "What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; PR 6-J lifts the rejection).\n\nevcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle\nplan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``\nfields are left as evcc has them. SunCore never writes ``evcc/site/*``.",
+        "properties": {
+          "kind": {
+            "const": "loadpoint",
+            "default": "loadpoint",
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Soc Pct"
+          },
+          "max_current_a": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 500.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Current A"
+          },
+          "mode": {
+            "enum": [
+              "off",
+              "smart",
+              "now"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "plan_soc_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Soc Pct"
+          },
+          "plan_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Time"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "LoadpointAction",
+        "type": "object"
+      },
+      "LoadpointControl": {
+        "additionalProperties": false,
+        "description": "An evcc loadpoint driven over evcc's MQTT API (ADR-0017 decision 2, PR 6-J).\n\nNo Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and\n``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.\nWhether loadpoint ids always start at 1 is ``UNVERIFIED``.",
+        "properties": {
+          "kind": {
+            "const": "loadpoint",
+            "title": "Kind",
+            "type": "string"
+          },
+          "loadpoint_id": {
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Loadpoint Id",
+            "type": "integer"
+          },
+          "max_current_a": {
+            "default": 16.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 500.0,
+            "title": "Max Current A",
+            "type": "number"
+          },
+          "phases": {
+            "default": 3,
+            "enum": [
+              1,
+              3
+            ],
+            "title": "Phases",
+            "type": "integer"
+          },
+          "topic_prefix": {
+            "default": "evcc",
+            "pattern": "^[A-Za-z0-9_-]{1,32}(/[A-Za-z0-9_-]{1,32}){0,3}$",
+            "title": "Topic Prefix",
+            "type": "string"
+          },
+          "vehicle": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle"
+          },
+          "voltage_v": {
+            "default": 230.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000.0,
+            "title": "Voltage V",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "loadpoint_id"
+        ],
+        "title": "LoadpointControl",
+        "type": "object"
+      },
       "ModbusByteOrder": {
         "description": "Word order of 32-bit values (Kostal register 5: ``0x00`` little, ``0x01`` big).",
         "enum": [
@@ -6059,6 +6829,181 @@
         "title": "ModeSelectControl",
         "type": "object"
       },
+      "MqttConfig-Input": {
+        "additionalProperties": false,
+        "description": "The HA entity surface over MQTT discovery (ADR-0016 decisions 2, 5).\n\n``broker``: ``supervisor`` = host, port and credentials from the Supervisor services API\n(the default; nothing to enter), ``manual`` = ``host``/``port``/``tls``/``username``/\n``password``. The password is a secret: masked in the API, the export and the history.\n``allow_mode_raise`` lets HA raise a mode or clear the emergency stop (default off).\nWithout a broker the feature is unavailable with a hint; nothing else depends on it.",
+        "properties": {
+          "allow_mode_raise": {
+            "default": false,
+            "title": "Allow Mode Raise",
+            "type": "boolean"
+          },
+          "broker": {
+            "default": "supervisor",
+            "enum": [
+              "supervisor",
+              "manual"
+            ],
+            "title": "Broker",
+            "type": "string"
+          },
+          "discovery_prefix": {
+            "default": "homeassistant",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Discovery Prefix",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 256,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "port": {
+            "default": 1883,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "type": "integer"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "tls": {
+            "default": false,
+            "title": "Tls",
+            "type": "boolean"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "title": "MqttConfig",
+        "type": "object"
+      },
+      "MqttConfig-Output": {
+        "additionalProperties": false,
+        "description": "The HA entity surface over MQTT discovery (ADR-0016 decisions 2, 5).\n\n``broker``: ``supervisor`` = host, port and credentials from the Supervisor services API\n(the default; nothing to enter), ``manual`` = ``host``/``port``/``tls``/``username``/\n``password``. The password is a secret: masked in the API, the export and the history.\n``allow_mode_raise`` lets HA raise a mode or clear the emergency stop (default off).\nWithout a broker the feature is unavailable with a hint; nothing else depends on it.",
+        "properties": {
+          "allow_mode_raise": {
+            "default": false,
+            "title": "Allow Mode Raise",
+            "type": "boolean"
+          },
+          "broker": {
+            "default": "supervisor",
+            "enum": [
+              "supervisor",
+              "manual"
+            ],
+            "title": "Broker",
+            "type": "string"
+          },
+          "discovery_prefix": {
+            "default": "homeassistant",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Discovery Prefix",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "port": {
+            "default": 1883,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "type": "integer"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "tls": {
+            "default": false,
+            "title": "Tls",
+            "type": "boolean"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "title": "MqttConfig",
+        "type": "object"
+      },
       "NegativePriceRule": {
         "description": "Feed-in remuneration during negative spot prices.",
         "enum": [
@@ -6068,6 +7013,129 @@
         ],
         "title": "NegativePriceRule",
         "type": "string"
+      },
+      "NotificationCategories": {
+        "additionalProperties": false,
+        "description": "Which categories notify (plan WP5 defaults).",
+        "properties": {
+          "cheap_window": {
+            "default": false,
+            "title": "Cheap Window",
+            "type": "boolean"
+          },
+          "daily_summary": {
+            "default": false,
+            "title": "Daily Summary",
+            "type": "boolean"
+          },
+          "error": {
+            "default": true,
+            "title": "Error",
+            "type": "boolean"
+          },
+          "ev_target": {
+            "default": true,
+            "title": "Ev Target",
+            "type": "boolean"
+          },
+          "program": {
+            "default": true,
+            "title": "Program",
+            "type": "boolean"
+          },
+          "proposal": {
+            "default": true,
+            "title": "Proposal",
+            "type": "boolean"
+          },
+          "safety": {
+            "default": true,
+            "title": "Safety",
+            "type": "boolean"
+          }
+        },
+        "title": "NotificationCategories",
+        "type": "object"
+      },
+      "NotificationsConfig": {
+        "additionalProperties": false,
+        "description": "Notification settings (ADR-0016 decision 7, plan WP5).\n\nPersistent notifications are on by default (errors and safety events); push needs a\ntarget the user picks. ``daily_push_cap`` limits push messages per local day.",
+        "properties": {
+          "categories": {
+            "$ref": "#/components/schemas/NotificationCategories",
+            "default": {
+              "cheap_window": false,
+              "daily_summary": false,
+              "error": true,
+              "ev_target": true,
+              "program": true,
+              "proposal": true,
+              "safety": true
+            }
+          },
+          "daily_push_cap": {
+            "default": 20,
+            "maximum": 200.0,
+            "minimum": 0.0,
+            "title": "Daily Push Cap",
+            "type": "integer"
+          },
+          "persistent": {
+            "default": true,
+            "title": "Persistent",
+            "type": "boolean"
+          },
+          "quiet_hours": {
+            "$ref": "#/components/schemas/QuietHours",
+            "default": {
+              "enabled": true,
+              "end": "07:00",
+              "start": "22:00"
+            }
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "targets": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/NotifyTarget"
+            },
+            "maxItems": 8,
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "title": "NotificationsConfig",
+        "type": "object"
+      },
+      "NotifyTarget": {
+        "additionalProperties": false,
+        "description": "A push target: a ``notify`` entity (``notify.send_message``) or a legacy service name\n(``notify.<service>``, e.g. ``mobile_app_pixel``).",
+        "properties": {
+          "id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "entity",
+              "service"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "NotifyTarget",
+        "type": "object"
       },
       "NumberLimitControl": {
         "additionalProperties": false,
@@ -6279,6 +7347,33 @@
           }
         },
         "title": "OverridePolicy",
+        "type": "object"
+      },
+      "PeakShaving": {
+        "additionalProperties": false,
+        "description": "Monthly peak shaving (capacity tariffs). Off by default (plan §0 decision 12).",
+        "properties": {
+          "capacity_price_per_kw_month": {
+            "default": 0.0,
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Capacity Price Per Kw Month",
+            "type": "number"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "peak_floor_w": {
+            "default": 2500.0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Peak Floor W",
+            "type": "number"
+          }
+        },
+        "title": "PeakShaving",
         "type": "object"
       },
       "Plan": {
@@ -7590,6 +8685,56 @@
         "title": "PriceSourceInfo",
         "type": "object"
       },
+      "ProgramSpec": {
+        "additionalProperties": false,
+        "description": "A shiftable program (kind ``program``; ADR-0017 decision 7).\n\n``profile_wh`` is the energy per 15 minutes of a run (``None`` = nominal power x run time);\nits length must cover ``runtime_min``. ``start_method``: ``plug`` (a smart plug switched on;\nneeds ``resume_confirmed``, the user's statement that the appliance resumes after power\nreturns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or\n``notify`` (the user is asked to start it). ``idle_w`` is the \"finished\" threshold.",
+        "properties": {
+          "idle_w": {
+            "default": 5.0,
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Idle W",
+            "type": "number"
+          },
+          "profile_wh": {
+            "default": [],
+            "items": {
+              "maximum": 100000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            "maxItems": 96,
+            "title": "Profile Wh",
+            "type": "array"
+          },
+          "resume_confirmed": {
+            "default": false,
+            "title": "Resume Confirmed",
+            "type": "boolean"
+          },
+          "runtime_min": {
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Runtime Min",
+            "type": "integer"
+          },
+          "start_method": {
+            "enum": [
+              "plug",
+              "remote",
+              "notify"
+            ],
+            "title": "Start Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtime_min",
+          "start_method"
+        ],
+        "title": "ProgramSpec",
+        "type": "object"
+      },
       "PvArray": {
         "additionalProperties": false,
         "description": "One PV array (roof plane / inverter input). Everything but ``name`` is optional.",
@@ -7850,6 +8995,31 @@
         ],
         "title": "Quality",
         "type": "string"
+      },
+      "QuietHours": {
+        "additionalProperties": false,
+        "description": "Local quiet hours for non-critical categories (default 22:00-07:00, may wrap).",
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "end": {
+            "default": "07:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "default": "22:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "title": "QuietHours",
+        "type": "object"
       },
       "Reason": {
         "additionalProperties": false,
@@ -8776,9 +9946,87 @@
         "title": "SetpointControl",
         "type": "object"
       },
+      "SgContacts": {
+        "additionalProperties": false,
+        "description": "The two SG-Ready contacts of one state (``True`` = closed / switch on).",
+        "properties": {
+          "a": {
+            "title": "A",
+            "type": "boolean"
+          },
+          "b": {
+            "title": "B",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "title": "SgContacts",
+        "type": "object"
+      },
+      "SgReadyControl": {
+        "additionalProperties": false,
+        "description": "SG-Ready heat pump interface: two contact switches (ADR-0017 decision 5, PR 6-K).\n\nWritten with ``StepAction``: step 0 = SG state 2 (normal, the baseline and release),\n1 = state 3 (intensified), 2 = state 4 (forced on, only with ``allow_forced``). **State 1\n(utility block) has no step and is never written.** Which contact pair selects which state\nis vendor-specific: the template states it with a ``source`` (``UNVERIFIED`` otherwise).",
+        "properties": {
+          "allow_forced": {
+            "default": false,
+            "title": "Allow Forced",
+            "type": "boolean"
+          },
+          "contact_a": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "title": "Contact A",
+            "type": "string"
+          },
+          "contact_b": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "title": "Contact B",
+            "type": "string"
+          },
+          "forced": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SgContacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "intensified": {
+            "$ref": "#/components/schemas/SgContacts"
+          },
+          "kind": {
+            "const": "sg_ready",
+            "title": "Kind",
+            "type": "string"
+          },
+          "min_dwell_s": {
+            "default": 600,
+            "maximum": 86400.0,
+            "minimum": 600.0,
+            "title": "Min Dwell S",
+            "type": "integer"
+          },
+          "normal": {
+            "$ref": "#/components/schemas/SgContacts"
+          }
+        },
+        "required": [
+          "kind",
+          "contact_a",
+          "contact_b",
+          "normal",
+          "intensified"
+        ],
+        "title": "SgReadyControl",
+        "type": "object"
+      },
       "SiteConfig": {
         "additionalProperties": false,
-        "description": "Site description. Entity ids come from the user; none are hard-coded.",
+        "description": "Site description. Entity ids come from the user; none are hard-coded.\n\nPhase 6 adds only optional grid fields with defaults (see :class:`GridConfig`) without a\nversion bump: every stored v2 document stays valid as it is (plan §8, PR 6-B).",
         "properties": {
           "battery": {
             "anyOf": [
@@ -9841,6 +11089,70 @@
         "title": "TestedWithOut",
         "type": "object"
       },
+      "ThermalModel": {
+        "additionalProperties": false,
+        "description": "First-order RC parameters of a thermal store.",
+        "properties": {
+          "capacity_wh_per_k": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Capacity Wh Per K",
+            "type": "number"
+          },
+          "internal_gain_w": {
+            "default": 0.0,
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "Internal Gain W",
+            "type": "number"
+          },
+          "loss_w_per_k": {
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Loss W Per K",
+            "type": "number"
+          }
+        },
+        "required": [
+          "capacity_wh_per_k",
+          "loss_w_per_k"
+        ],
+        "title": "ThermalModel",
+        "type": "object"
+      },
+      "ThermalSpec": {
+        "additionalProperties": false,
+        "description": "Heat-pump and thermal-store options (ADR-0017 decision 6; kinds with a comfort band).\n\n``cop`` ``None`` = the generic air/water assumption (``core.thermal``); ``learned`` is the\nfitted RC model (written by the learner, PR 6-K). ``grid_preheat`` allows pre-heating\nwith cheap grid energy (default off, plan §0 decision 8); the lift band is the device's\ncomfort band.",
+        "properties": {
+          "cop": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CopCurve"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grid_preheat": {
+            "default": false,
+            "title": "Grid Preheat",
+            "type": "boolean"
+          },
+          "learned": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearnedThermal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ThermalSpec",
+        "type": "object"
+      },
       "TimeWindow": {
         "additionalProperties": false,
         "description": "Local-time window on given weekdays (0 = Monday ... 6 = Sunday).\n\n``start`` > ``end`` wraps over midnight (e.g. 22:00-06:00). ``start == end`` is rejected.",
@@ -10474,6 +11786,222 @@
           }
         },
         "summary": "Import Config"
+      }
+    },
+    "/api/v1/config/inverter": {
+      "get": {
+        "operationId": "get_config_inverter",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InverterConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Inverter"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the inverter section"
+      },
+      "put": {
+        "operationId": "put_config_inverter",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InverterConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InverterConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the inverter section"
+      }
+    },
+    "/api/v1/config/mqtt": {
+      "get": {
+        "operationId": "get_config_mqtt",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MqttConfig-Output"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Mqtt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the mqtt section"
+      },
+      "put": {
+        "operationId": "put_config_mqtt",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MqttConfig-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MqttConfig-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the mqtt section"
+      }
+    },
+    "/api/v1/config/notifications": {
+      "get": {
+        "operationId": "get_config_notifications",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/NotificationsConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Notifications"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the notifications section"
+      },
+      "put": {
+        "operationId": "put_config_notifications",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationsConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the notifications section"
       }
     },
     "/api/v1/config/operation": {

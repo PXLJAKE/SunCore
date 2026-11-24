@@ -29,6 +29,10 @@ from suncore.core.config import (
     ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
+    InverterConfig,
+    MqttConfig,
+    NotificationsConfig,
+    NotifyTarget,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -264,6 +268,29 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
         grid_charge=st.sampled_from(
             [GridChargePolicy(), GridChargePolicy(enabled=True, max_price=0.12)]
         ),
+    ),
+    "mqtt": st.one_of(
+        st.just(MqttConfig()),
+        st.builds(
+            MqttConfig,
+            broker=st.just("manual"),
+            host=st.sampled_from(["core-mosquitto", "192.168.1.5"]),
+            username=st.just("suncore"),
+            password=st.none(),
+            allow_mode_raise=st.booleans(),
+        ),
+    ),
+    "notifications": st.builds(
+        NotificationsConfig,
+        persistent=st.booleans(),
+        targets=st.sampled_from([(), (NotifyTarget(kind="service", id="mobile_app_phone"),)]),
+        daily_push_cap=st.integers(0, 200),
+    ),
+    "inverter": st.sampled_from(
+        [
+            InverterConfig(),
+            InverterConfig(adapter="kostal_modbus", capability="ac_limit", nominal_ac_w=10_000),
+        ]
     ),
     "wizard": st.builds(
         WizardState,

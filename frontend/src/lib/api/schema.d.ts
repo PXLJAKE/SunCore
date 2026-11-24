@@ -110,6 +110,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/inverter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the inverter section */
+        get: operations["get_config_inverter"];
+        /** Replace the inverter section */
+        put: operations["put_config_inverter"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/mqtt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the mqtt section */
+        get: operations["get_config_mqtt"];
+        /** Replace the mqtt section */
+        put: operations["put_config_mqtt"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the notifications section */
+        get: operations["get_config_notifications"];
+        /** Replace the notifications section */
+        put: operations["put_config_notifications"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/operation": {
         parameters: {
             query?: never;
@@ -1158,6 +1212,25 @@ export interface components {
             source: "attribute";
         };
         /**
+         * BackupConfig
+         * @description Backup power: the entity that shows island operation (entity only, no heuristic).
+         *
+         *     ``island_states`` are the state values that mean "island" (case-sensitive, as HA reports
+         *     them; ``UNVERIFIED`` per backup device - the user or the template names them).
+         *     ``keep_devices`` are device ids that are not shed in island operation.
+         */
+        BackupConfig: {
+            /** Entity Id */
+            entity_id: string;
+            /** Island States */
+            island_states: string[];
+            /**
+             * Keep Devices
+             * @default []
+             */
+            keep_devices: string[];
+        };
+        /**
          * BandPreference
          * @description What the plan would like the controller to do inside an allowed band.
          * @enum {string}
@@ -1633,6 +1706,88 @@ export interface components {
          * @enum {string}
          */
         Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback";
+        /**
+         * ChargeAction
+         * @description Desired state of an EV charger (ADR-0017 decision 1; PR 6-I lifts the rejection).
+         *
+         *     **Full desired state.** ``current_a`` 0 = paused (the charger stays enabled, the car is not
+         *     charged), otherwise within the charger's ``[min_current_a, max_current_a]`` - the range
+         *     check needs the device and is invariant E1 of the gate, not of this contract.
+         *     ``phases`` ``None`` = leave the phases as they are. Release = the baseline captured at
+         *     takeover (current, phases, enable).
+         */
+        ChargeAction: {
+            /** Current A */
+            current_a: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "charge";
+            /** Phases */
+            phases?: (1 | 3) | null;
+        };
+        /**
+         * ChargerControl
+         * @description An EV charger driven through Home Assistant entities (ADR-0017 decision 1, PR 6-I).
+         *
+         *     ``role`` is the charging current (number entity, A); ``enable_role`` an optional switch;
+         *     ``phases_role`` an optional select or switch whose option for one and for three phases is
+         *     ``phase_option_1`` / ``phase_option_3``. ``phases`` is the number of phases the charger is
+         *     wired with; ``phase_switching`` needs a ``phases_role`` and a three-phase charger (plan §0
+         *     decision 6). ``phase_switch_pause_s`` is the pause around a switch (vendor-dependent,
+         *     ``UNVERIFIED``), ``max_phase_switches_per_hour`` the wear limit. Written by ``ChargeAction``.
+         */
+        ChargerControl: {
+            /** Enable Role */
+            enable_role?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "charger";
+            /** Max Current A */
+            max_current_a: number;
+            /**
+             * Max Phase Switches Per Hour
+             * @default 4
+             */
+            max_phase_switches_per_hour: number;
+            /**
+             * Min Current A
+             * @default 6
+             */
+            min_current_a: number;
+            /** Phase Option 1 */
+            phase_option_1?: string | null;
+            /** Phase Option 3 */
+            phase_option_3?: string | null;
+            /**
+             * Phase Switch Pause S
+             * @default 120
+             */
+            phase_switch_pause_s: number;
+            /**
+             * Phase Switching
+             * @default false
+             */
+            phase_switching: boolean;
+            /**
+             * Phases
+             * @default 3
+             * @enum {integer}
+             */
+            phases: 1 | 3;
+            /** Phases Role */
+            phases_role?: string | null;
+            /** Role */
+            role: string;
+            /**
+             * Voltage V
+             * @default 230
+             */
+            voltage_v: number;
+        };
         /** CheckItemOut */
         CheckItemOut: {
             reason: components["schemas"]["Reason"];
@@ -1756,6 +1911,32 @@ export interface components {
             ts: string | null;
         };
         /**
+         * CopCurve
+         * @description COP over outdoor temperature: 2-8 points, piecewise linear, clamped at the ends.
+         *
+         *     ``assumed`` marks a curve that is not from a vendor source (the generic default); the UI
+         *     labels it as an assumption.
+         */
+        CopCurve: {
+            /**
+             * Assumed
+             * @default false
+             */
+            assumed: boolean;
+            /** Points */
+            points: components["schemas"]["CopPoint"][];
+        };
+        /**
+         * CopPoint
+         * @description The coefficient of performance at one outdoor temperature.
+         */
+        CopPoint: {
+            /** Cop */
+            cop: number;
+            /** Outdoor C */
+            outdoor_c: number;
+        };
+        /**
          * CostOut
          * @description Grid cost of the days that have stored prices, and the two baselines (ADR-0014).
          *
@@ -1846,7 +2027,7 @@ export interface components {
             kind: components["schemas"]["DecisionKind"];
             mode: components["schemas"]["OperatingMode"];
             /** Observed */
-            observed?: (components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"]) | null;
+            observed?: (components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"] | components["schemas"]["ChargeAction"] | components["schemas"]["LoadpointAction"] | components["schemas"]["InverterLimitAction"]) | null;
             /**
              * Reasons
              * @default []
@@ -1915,10 +2096,17 @@ export interface components {
              * @default true
              */
             allowed: boolean;
+            /** Grid Power Max W */
+            grid_power_max_w?: number | null;
             /** Max Power W */
             max_power_w?: number | null;
             /** @default neutral */
             preference: components["schemas"]["BandPreference"];
+            /**
+             * Start
+             * @default false
+             */
+            start: boolean;
         };
         /**
          * DeviceConfig
@@ -1938,13 +2126,19 @@ export interface components {
              * @default false
              */
             allow_switch_on: boolean;
+            /**
+             * Behaviour Confirmed
+             * @default false
+             */
+            behaviour_confirmed: boolean;
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"];
             /** Entities */
             entities?: {
                 [key: string]: components["schemas"]["EntityRef"];
             };
+            ev?: components["schemas"]["EvSpec"] | null;
             /** Hysteresis Delay S */
             hysteresis_delay_s?: number | null;
             /** Hysteresis W */
@@ -1973,6 +2167,11 @@ export interface components {
              *     }
              */
             override_policy: components["schemas"]["OverridePolicy"];
+            /**
+             * Para14A
+             * @default false
+             */
+            para14a: boolean;
             /** Planner Value Per Kwh */
             planner_value_per_kwh?: number | null;
             power_model: components["schemas"]["PowerModel"];
@@ -1981,12 +2180,16 @@ export interface components {
              * @default 0
              */
             priority: number;
+            program?: components["schemas"]["ProgramSpec"] | null;
             /** Settle S */
             settle_s?: number | null;
+            /** Shed Rank */
+            shed_rank?: number | null;
             /** Switch On Hvac Mode */
             switch_on_hvac_mode?: ("heat" | "cool" | "heat_cool" | "auto") | null;
             /** Template Id */
             template_id: string;
+            thermal?: components["schemas"]["ThermalSpec"] | null;
             /**
              * Windows
              * @default []
@@ -2058,7 +2261,7 @@ export interface components {
         DeviceDefaults: {
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"];
             /** Hysteresis Delay S */
             hysteresis_delay_s?: number | null;
             /** Hysteresis W */
@@ -2376,6 +2579,37 @@ export interface components {
         ErrorOut: {
             /** Detail */
             detail: string;
+        };
+        /**
+         * EvMode
+         * @description User-chosen EV charging mode (BRIEF §4.5).
+         * @enum {string}
+         */
+        EvMode: "off" | "now" | "min_pv" | "pv" | "target";
+        /**
+         * EvSpec
+         * @description The vehicle behind a charger (kind ``wallbox``; one vehicle per charger in v1).
+         *
+         *     Roles (all optional, mapped in ``DeviceConfig.entities``): ``vehicle_soc_role`` (sensor %),
+         *     ``connected_role`` (binary sensor), ``charging_role`` (binary sensor). Without a SoC the
+         *     targets are energy-based. ``efficiency`` is the charging efficiency (losses, default 0.9).
+         */
+        EvSpec: {
+            /** Capacity Wh */
+            capacity_wh?: number | null;
+            /** Charging Role */
+            charging_role?: string | null;
+            /** Connected Role */
+            connected_role?: string | null;
+            /** @default pv */
+            default_mode: components["schemas"]["EvMode"];
+            /**
+             * Efficiency
+             * @default 0.9
+             */
+            efficiency: number;
+            /** Vehicle Soc Role */
+            vehicle_soc_role?: string | null;
         };
         /** ExplainInputOut */
         ExplainInputOut: {
@@ -2711,10 +2945,22 @@ export interface components {
         /**
          * GridConfig
          * @description Grid connection: one signed sensor (+ = import) OR an import/export pair, plus limits.
+         *
+         *     Phase 6 (PR 6-B, all optional with defaults, no version bump; ADR-0018): ``peak_shaving`` (off),
+         *     ``export_dynamic`` (0 W at negative export prices, only with a verified inverter adapter),
+         *     ``zero_export`` (off), ``para14a_limit_w`` (4 200 W) and ``para14a_signal_kind``
+         *     (``binary`` relay/contact or ``power_w`` allowed power), ``backup`` (island entity).
+         *     ``import_limit_w`` is the fuse/connection limit; ``core.grid`` resolves the effective ones.
          */
         GridConfig: {
+            backup?: components["schemas"]["BackupConfig"] | null;
             energy_export?: components["schemas"]["EntityRef"] | null;
             energy_import?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Export Dynamic
+             * @default false
+             */
+            export_dynamic: boolean;
             /** Export Limit Pct Kwp */
             export_limit_pct_kwp?: number | null;
             /** Export Limit W */
@@ -2728,8 +2974,32 @@ export interface components {
              * @default false
              */
             para14a: boolean;
+            /**
+             * Para14A Limit W
+             * @default 4200
+             */
+            para14a_limit_w: number;
             para14a_signal?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Para14A Signal Kind
+             * @default binary
+             * @enum {string}
+             */
+            para14a_signal_kind: "binary" | "power_w";
+            /**
+             * @default {
+             *       "capacity_price_per_kw_month": 0,
+             *       "enabled": false,
+             *       "peak_floor_w": 2500
+             *     }
+             */
+            peak_shaving: components["schemas"]["PeakShaving"];
             power?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Zero Export
+             * @default false
+             */
+            zero_export: boolean;
         };
         /**
          * GridFeeWindow
@@ -2867,7 +3137,7 @@ export interface components {
          */
         Intent: {
             /** Action */
-            action: components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"];
+            action: components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"] | components["schemas"]["ChargeAction"] | components["schemas"]["LoadpointAction"] | components["schemas"]["InverterLimitAction"];
             /** Asset Id */
             asset_id: string;
             /** Id */
@@ -2989,6 +3259,57 @@ export interface components {
             /** Import Price */
             import_price: number;
         };
+        /**
+         * InverterConfig
+         * @description The inverter limit adapter (ADR-0018 decision 3; writes arrive with PR 6-G).
+         *
+         *     ``limit_verified`` is set only after the documented verification test; until then the
+         *     inverter asset runs at most assisted (X6). ``nominal_ac_w`` is needed for ``ac_limit``
+         *     (the percent base, invariant X2). ``limit_entity`` is the number entity of the generic
+         *     adapter (W for ``export_limit``, % for ``ac_limit``).
+         */
+        InverterConfig: {
+            /**
+             * Adapter
+             * @default none
+             * @enum {string}
+             */
+            adapter: "none" | "generic_number" | "kostal_rest" | "kostal_modbus";
+            /** Capability */
+            capability?: ("export_limit" | "ac_limit") | null;
+            limit_entity?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Limit Verified
+             * @default false
+             */
+            limit_verified: boolean;
+            /** Nominal Ac W */
+            nominal_ac_w?: number | null;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+        };
+        /**
+         * InverterLimitAction
+         * @description An export or AC output limit for the inverter (ADR-0018 decision 3; PR 6-G).
+         *
+         *     Exactly one of ``max_export_w`` (capability ``export_limit``) and ``max_ac_pct``
+         *     (capability ``ac_limit``, % of the nominal AC power) is set. The asset id is ``inverter``.
+         *     Release = the baseline captured at takeover (100 % for a volatile register).
+         */
+        InverterLimitAction: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "inverter_limit";
+            /** Max Ac Pct */
+            max_ac_pct?: number | null;
+            /** Max Export W */
+            max_export_w?: number | null;
+        };
         /** KpiOut */
         KpiOut: {
             /** Autarky */
@@ -2997,6 +3318,22 @@ export interface components {
             equivalent_full_cycles: number | null;
             /** Self Consumption */
             self_consumption: number | null;
+        };
+        /**
+         * LearnedThermal
+         * @description A fitted model with its quality (``nrmse`` of a 24 h replay) and history length.
+         */
+        LearnedThermal: {
+            /**
+             * Fitted At
+             * Format: date-time
+             */
+            fitted_at: string;
+            /** History Days */
+            history_days: number;
+            model: components["schemas"]["ThermalModel"];
+            /** Nrmse */
+            nrmse: number;
         };
         /**
          * LearningSettings
@@ -3169,6 +3506,74 @@ export interface components {
             reason: "active" | "not_configured" | "too_few_days" | "no_spread";
         };
         /**
+         * LoadpointAction
+         * @description What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; PR 6-J lifts the rejection).
+         *
+         *     evcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle
+         *     plan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``
+         *     fields are left as evcc has them. SunCore never writes ``evcc/site/*``.
+         */
+        LoadpointAction: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "loadpoint";
+            /** Limit Soc Pct */
+            limit_soc_pct?: number | null;
+            /** Max Current A */
+            max_current_a?: number | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "off" | "smart" | "now";
+            /** Plan Soc Pct */
+            plan_soc_pct?: number | null;
+            /** Plan Time */
+            plan_time?: string | null;
+        };
+        /**
+         * LoadpointControl
+         * @description An evcc loadpoint driven over evcc's MQTT API (ADR-0017 decision 2, PR 6-J).
+         *
+         *     No Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and
+         *     ``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.
+         *     Whether loadpoint ids always start at 1 is ``UNVERIFIED``.
+         */
+        LoadpointControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "loadpoint";
+            /** Loadpoint Id */
+            loadpoint_id: number;
+            /**
+             * Max Current A
+             * @default 16
+             */
+            max_current_a: number;
+            /**
+             * Phases
+             * @default 3
+             * @enum {integer}
+             */
+            phases: 1 | 3;
+            /**
+             * Topic Prefix
+             * @default evcc
+             */
+            topic_prefix: string;
+            /** Vehicle */
+            vehicle?: string | null;
+            /**
+             * Voltage V
+             * @default 230
+             */
+            voltage_v: number;
+        };
+        /**
          * ModbusByteOrder
          * @description Word order of 32-bit values (Kostal register 5: ``0x00`` little, ``0x01`` big).
          * @enum {string}
@@ -3296,11 +3701,223 @@ export interface components {
             options: components["schemas"]["BatteryModeOption"][];
         };
         /**
+         * MqttConfig
+         * @description The HA entity surface over MQTT discovery (ADR-0016 decisions 2, 5).
+         *
+         *     ``broker``: ``supervisor`` = host, port and credentials from the Supervisor services API
+         *     (the default; nothing to enter), ``manual`` = ``host``/``port``/``tls``/``username``/
+         *     ``password``. The password is a secret: masked in the API, the export and the history.
+         *     ``allow_mode_raise`` lets HA raise a mode or clear the emergency stop (default off).
+         *     Without a broker the feature is unavailable with a hint; nothing else depends on it.
+         */
+        "MqttConfig-Input": {
+            /**
+             * Allow Mode Raise
+             * @default false
+             */
+            allow_mode_raise: boolean;
+            /**
+             * Broker
+             * @default supervisor
+             * @enum {string}
+             */
+            broker: "supervisor" | "manual";
+            /**
+             * Discovery Prefix
+             * @default homeassistant
+             */
+            discovery_prefix: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Host */
+            host?: string | null;
+            /** Password */
+            password?: string | null;
+            /**
+             * Port
+             * @default 1883
+             */
+            port: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Tls
+             * @default false
+             */
+            tls: boolean;
+            /** Username */
+            username?: string | null;
+        };
+        /**
+         * MqttConfig
+         * @description The HA entity surface over MQTT discovery (ADR-0016 decisions 2, 5).
+         *
+         *     ``broker``: ``supervisor`` = host, port and credentials from the Supervisor services API
+         *     (the default; nothing to enter), ``manual`` = ``host``/``port``/``tls``/``username``/
+         *     ``password``. The password is a secret: masked in the API, the export and the history.
+         *     ``allow_mode_raise`` lets HA raise a mode or clear the emergency stop (default off).
+         *     Without a broker the feature is unavailable with a hint; nothing else depends on it.
+         */
+        "MqttConfig-Output": {
+            /**
+             * Allow Mode Raise
+             * @default false
+             */
+            allow_mode_raise: boolean;
+            /**
+             * Broker
+             * @default supervisor
+             * @enum {string}
+             */
+            broker: "supervisor" | "manual";
+            /**
+             * Discovery Prefix
+             * @default homeassistant
+             */
+            discovery_prefix: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Host */
+            host?: string | null;
+            /** Password */
+            password?: string | null;
+            /**
+             * Port
+             * @default 1883
+             */
+            port: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Tls
+             * @default false
+             */
+            tls: boolean;
+            /** Username */
+            username?: string | null;
+        };
+        /**
          * NegativePriceRule
          * @description Feed-in remuneration during negative spot prices.
          * @enum {string}
          */
         NegativePriceRule: "none" | "no_remuneration" | "curtailment_required";
+        /**
+         * NotificationCategories
+         * @description Which categories notify (plan WP5 defaults).
+         */
+        NotificationCategories: {
+            /**
+             * Cheap Window
+             * @default false
+             */
+            cheap_window: boolean;
+            /**
+             * Daily Summary
+             * @default false
+             */
+            daily_summary: boolean;
+            /**
+             * Error
+             * @default true
+             */
+            error: boolean;
+            /**
+             * Ev Target
+             * @default true
+             */
+            ev_target: boolean;
+            /**
+             * Program
+             * @default true
+             */
+            program: boolean;
+            /**
+             * Proposal
+             * @default true
+             */
+            proposal: boolean;
+            /**
+             * Safety
+             * @default true
+             */
+            safety: boolean;
+        };
+        /**
+         * NotificationsConfig
+         * @description Notification settings (ADR-0016 decision 7, plan WP5).
+         *
+         *     Persistent notifications are on by default (errors and safety events); push needs a
+         *     target the user picks. ``daily_push_cap`` limits push messages per local day.
+         */
+        NotificationsConfig: {
+            /**
+             * @default {
+             *       "cheap_window": false,
+             *       "daily_summary": false,
+             *       "error": true,
+             *       "ev_target": true,
+             *       "program": true,
+             *       "proposal": true,
+             *       "safety": true
+             *     }
+             */
+            categories: components["schemas"]["NotificationCategories"];
+            /**
+             * Daily Push Cap
+             * @default 20
+             */
+            daily_push_cap: number;
+            /**
+             * Persistent
+             * @default true
+             */
+            persistent: boolean;
+            /**
+             * @default {
+             *       "enabled": true,
+             *       "end": "07:00",
+             *       "start": "22:00"
+             *     }
+             */
+            quiet_hours: components["schemas"]["QuietHours"];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Targets
+             * @default []
+             */
+            targets: components["schemas"]["NotifyTarget"][];
+        };
+        /**
+         * NotifyTarget
+         * @description A push target: a ``notify`` entity (``notify.send_message``) or a legacy service name
+         *     (``notify.<service>``, e.g. ``mobile_app_pixel``).
+         */
+        NotifyTarget: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "entity" | "service";
+        };
         /**
          * NumberLimitControl
          * @description A ``number`` role that sets a battery limit.
@@ -3416,6 +4033,27 @@ export interface components {
              * @default 04:00:00
              */
             resume_time: string;
+        };
+        /**
+         * PeakShaving
+         * @description Monthly peak shaving (capacity tariffs). Off by default (plan §0 decision 12).
+         */
+        PeakShaving: {
+            /**
+             * Capacity Price Per Kw Month
+             * @default 0
+             */
+            capacity_price_per_kw_month: number;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Peak Floor W
+             * @default 2500
+             */
+            peak_floor_w: number;
         };
         /**
          * Plan
@@ -3915,6 +4553,40 @@ export interface components {
             source_price_includes: "spot_only" | "all_in";
         };
         /**
+         * ProgramSpec
+         * @description A shiftable program (kind ``program``; ADR-0017 decision 7).
+         *
+         *     ``profile_wh`` is the energy per 15 minutes of a run (``None`` = nominal power x run time);
+         *     its length must cover ``runtime_min``. ``start_method``: ``plug`` (a smart plug switched on;
+         *     needs ``resume_confirmed``, the user's statement that the appliance resumes after power
+         *     returns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or
+         *     ``notify`` (the user is asked to start it). ``idle_w`` is the "finished" threshold.
+         */
+        ProgramSpec: {
+            /**
+             * Idle W
+             * @default 5
+             */
+            idle_w: number;
+            /**
+             * Profile Wh
+             * @default []
+             */
+            profile_wh: number[];
+            /**
+             * Resume Confirmed
+             * @default false
+             */
+            resume_confirmed: boolean;
+            /** Runtime Min */
+            runtime_min: number;
+            /**
+             * Start Method
+             * @enum {string}
+             */
+            start_method: "plug" | "remote" | "notify";
+        };
+        /**
          * PvArray
          * @description One PV array (roof plane / inverter input). Everything but ``name`` is optional.
          */
@@ -3987,6 +4659,27 @@ export interface components {
          * @enum {string}
          */
         Quality: "ok" | "stale" | "unavailable" | "invalid";
+        /**
+         * QuietHours
+         * @description Local quiet hours for non-critical categories (default 22:00-07:00, may wrap).
+         */
+        QuietHours: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * End
+             * @default 07:00
+             */
+            end: string;
+            /**
+             * Start
+             * @default 22:00
+             */
+            start: string;
+        };
         /**
          * Reason
          * @description A structured, translatable explanation.
@@ -4386,8 +5079,54 @@ export interface components {
             step_c: number;
         };
         /**
+         * SgContacts
+         * @description The two SG-Ready contacts of one state (``True`` = closed / switch on).
+         */
+        SgContacts: {
+            /** A */
+            a: boolean;
+            /** B */
+            b: boolean;
+        };
+        /**
+         * SgReadyControl
+         * @description SG-Ready heat pump interface: two contact switches (ADR-0017 decision 5, PR 6-K).
+         *
+         *     Written with ``StepAction``: step 0 = SG state 2 (normal, the baseline and release),
+         *     1 = state 3 (intensified), 2 = state 4 (forced on, only with ``allow_forced``). **State 1
+         *     (utility block) has no step and is never written.** Which contact pair selects which state
+         *     is vendor-specific: the template states it with a ``source`` (``UNVERIFIED`` otherwise).
+         */
+        SgReadyControl: {
+            /**
+             * Allow Forced
+             * @default false
+             */
+            allow_forced: boolean;
+            /** Contact A */
+            contact_a: string;
+            /** Contact B */
+            contact_b: string;
+            forced?: components["schemas"]["SgContacts"] | null;
+            intensified: components["schemas"]["SgContacts"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sg_ready";
+            /**
+             * Min Dwell S
+             * @default 600
+             */
+            min_dwell_s: number;
+            normal: components["schemas"]["SgContacts"];
+        };
+        /**
          * SiteConfig
          * @description Site description. Entity ids come from the user; none are hard-coded.
+         *
+         *     Phase 6 adds only optional grid fields with defaults (see :class:`GridConfig`) without a
+         *     version bump: every stored v2 document stays valid as it is (plan §8, PR 6-B).
          */
         SiteConfig: {
             battery?: components["schemas"]["BatteryConfig"] | null;
@@ -4768,6 +5507,39 @@ export interface components {
             integration: string;
             /** Version */
             version: string;
+        };
+        /**
+         * ThermalModel
+         * @description First-order RC parameters of a thermal store.
+         */
+        ThermalModel: {
+            /** Capacity Wh Per K */
+            capacity_wh_per_k: number;
+            /**
+             * Internal Gain W
+             * @default 0
+             */
+            internal_gain_w: number;
+            /** Loss W Per K */
+            loss_w_per_k: number;
+        };
+        /**
+         * ThermalSpec
+         * @description Heat-pump and thermal-store options (ADR-0017 decision 6; kinds with a comfort band).
+         *
+         *     ``cop`` ``None`` = the generic air/water assumption (``core.thermal``); ``learned`` is the
+         *     fitted RC model (written by the learner, PR 6-K). ``grid_preheat`` allows pre-heating
+         *     with cheap grid energy (default off, plan §0 decision 8); the lift band is the device's
+         *     comfort band.
+         */
+        ThermalSpec: {
+            cop?: components["schemas"]["CopCurve"] | null;
+            /**
+             * Grid Preheat
+             * @default false
+             */
+            grid_preheat: boolean;
+            learned?: components["schemas"]["LearnedThermal"] | null;
         };
         /**
          * TimeWindow
@@ -5225,6 +5997,192 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_config_inverter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InverterConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_inverter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InverterConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InverterConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    get_config_mqtt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MqttConfig-Output"] | null;
+                };
+            };
+        };
+    };
+    put_config_mqtt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MqttConfig-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MqttConfig-Output"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    get_config_notifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_notifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationsConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };

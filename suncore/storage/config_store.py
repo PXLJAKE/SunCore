@@ -15,9 +15,13 @@ from pydantic import BaseModel, ValidationError
 from suncore import __version__
 from suncore.core.battery import BatterySettings
 from suncore.core.config import (
+    REVEAL_SECRETS,
     DevicesConfig,
     ForecastConfig,
     GoalsConfig,
+    InverterConfig,
+    MqttConfig,
+    NotificationsConfig,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -28,7 +32,12 @@ from suncore.core.config import (
 )
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
-from suncore.core.identity import battery_identity_token, device_identity, new_device_ids
+from suncore.core.identity import (
+    battery_identity_token,
+    device_identity,
+    identity_parts,
+    new_device_ids,
+)
 from suncore.core.site import SiteConfig, migrate_site_v1_to_v2
 from suncore.storage.db import Database, Row, Transaction
 from suncore.storage.errors import (
@@ -126,6 +135,9 @@ DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "operation": SectionSpec(OperationConfig),
     "wizard": SectionSpec(WizardState),
     "battery": SectionSpec(BatterySettings),
+    "mqtt": SectionSpec(MqttConfig),
+    "notifications": SectionSpec(NotificationsConfig),
+    "inverter": SectionSpec(InverterConfig),
 }
 
 
@@ -173,7 +185,19 @@ class ConfigStore:
 
     @staticmethod
     def _dump(model: BaseModel) -> str:
-        return model.model_dump_json(by_alias=True)
+        """The stored body: the only place that writes secrets in clear text (ADR-0016)."""
+        return model.model_dump_json(by_alias=True, context={REVEAL_SECRETS: True})
+
+    def _masked_body(self, section: str, version: object, raw: object) -> Any:
+        """A stored body for the outside (export, history): secrets replaced by the mask."""
+        body = json.loads(str(raw))
+        if section != "mqtt" or not isinstance(body, dict) or body.get("password") is None:
+            return body
+        try:
+            model = self._upgrade(section, int(str(version)), body)
+        except ConfigCorruptError:
+            return {**body, "password": None}
+        return json.loads(model.model_dump_json(by_alias=True))
 
     async def get(self, section: str) -> BaseModel | None:
         """Return the validated (and migrated) section, or ``None`` if never stored."""
@@ -234,6 +258,15 @@ class ConfigStore:
             raise ValueError(msg)
         async with self._db.transaction() as tx:
             now = self._clock().isoformat()
+            if isinstance(model, MqttConfig) and model.password_masked:
+                # The UI or an export sends the mask back: keep the stored secret.
+                row = await tx.fetchone(
+                    "SELECT schema_version, body FROM config_doc WHERE section = 'mqtt'"
+                )
+                stored_mqtt = self._try_parse("mqtt", row)
+                model = model.keep_secret_of(
+                    stored_mqtt if isinstance(stored_mqtt, MqttConfig) else None
+                )
             if isinstance(model, DevicesConfig):
                 previous = await self._stored_devices(tx)
                 await self._write(tx, section, model, now)
@@ -332,8 +365,7 @@ class ConfigStore:
 
     @staticmethod
     def _fingerprint(device: DeviceConfig) -> str:
-        identity = device_identity(device)
-        return json.dumps([identity.template_id, sorted(identity.entities)])
+        return json.dumps(identity_parts(device_identity(device)))
 
     @staticmethod
     async def _load_identities(tx: Transaction) -> dict[str, str]:
@@ -457,7 +489,9 @@ class ConfigStore:
             (section,),
         )
         return [
-            HistoryEntry(int(str(i)), section, int(str(v)), str(t), json.loads(str(b)))
+            HistoryEntry(
+                int(str(i)), section, int(str(v)), str(t), self._masked_body(section, v, b)
+            )
             for i, v, b, t in rows
         ]
 
@@ -538,7 +572,7 @@ class ConfigStore:
         for section, version, raw in rows:
             sections[str(section)] = {
                 "schema_version": int(str(version)),
-                "body": json.loads(str(raw)),
+                "body": self._masked_body(str(section), version, raw),
             }
         return {
             "suncore_export": EXPORT_FORMAT,
@@ -629,6 +663,16 @@ class ConfigStore:
                 else:  # no devices imported: all are new
                     operation = operation.without_modes_of(frozenset(operation.device_modes))
                 validated["operation"] = operation
+            mqtt = validated.get("mqtt")
+            if isinstance(mqtt, MqttConfig) and mqtt.password_masked:
+                prev_mqtt = self._try_parse("mqtt", old.get("mqtt"))
+                validated["mqtt"] = mqtt.keep_secret_of(
+                    prev_mqtt if isinstance(prev_mqtt, MqttConfig) else None
+                )
+            inverter = validated.get("inverter")
+            if isinstance(inverter, InverterConfig) and inverter.limit_verified:
+                # Like the battery (ADR-0013): an import never carries the verification over.
+                validated["inverter"] = inverter.model_copy(update={"limit_verified": False})
             await self._save_identities(tx, record, now)
             await self._save_battery_record(tx, None, now)
             stored = {name: self._dump(model) for name, model in validated.items()}

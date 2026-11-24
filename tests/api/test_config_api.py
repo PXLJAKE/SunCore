@@ -31,6 +31,9 @@ VALID: dict[str, dict[str, Any]] = {
         "model": {"capacity_wh": 10_000, "max_charge_w": 5000, "max_discharge_w": 5000},
         "strategy": "prefer_full",
     },
+    "mqtt": {"broker": "manual", "host": "core-mosquitto", "username": "suncore"},
+    "notifications": {"targets": [{"kind": "entity", "id": "notify.mobile_app_phone"}]},
+    "inverter": {"adapter": "kostal_modbus", "capability": "ac_limit", "nominal_ac_w": 10000},
 }
 
 

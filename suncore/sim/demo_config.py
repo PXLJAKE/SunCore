@@ -21,7 +21,10 @@ from suncore.core.config import (
     ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
+    InverterConfig,
     LoadForecastConfig,
+    MqttConfig,
+    NotificationsConfig,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -238,4 +241,8 @@ async def seed_demo_config(
             }
         )
     await config.put("battery", battery)
+    # Phase 6 sections at their defaults; the demo has no MQTT broker, so the HA entities are off.
+    await config.put("mqtt", MqttConfig(enabled=False))
+    await config.put("notifications", NotificationsConfig())
+    await config.put("inverter", InverterConfig())
     await config.put("wizard", WizardState(completed=True, completed_steps=list(WIZARD_STEPS)))

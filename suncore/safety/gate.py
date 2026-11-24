@@ -69,7 +69,9 @@ from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BATTERY_ASSET_ID, BatteryCapability, resolve_battery_action
 from suncore.core.control import ControlSettings, DeviceState, GateInputs
 from suncore.core.decisions import (
+    NOT_YET_SUPPORTED_KINDS,
     Action,
+    ActionKind,
     BatteryAction,
     Decision,
     DecisionKind,
@@ -80,7 +82,14 @@ from suncore.core.decisions import (
     ReleaseAction,
     SetpointAction,
 )
-from suncore.core.devices import DeviceConfig, OverridePolicy
+from suncore.core.devices import (
+    ChargerControl,
+    DeviceConfig,
+    LoadpointControl,
+    OverridePolicy,
+    SgReadyControl,
+    behaviour_mode_capped,
+)
 from suncore.core.identity import identity_token
 from suncore.core.signals import Sample
 from suncore.core.site import SiteConfig
@@ -183,6 +192,22 @@ REASON_BATTERY_HELD_RESTORED: Final = Reason(key="safety.battery_held_restored")
 """The deferred read-back of a battery release (an adapter without hardware fallback)."""
 REASON_BATTERY_RELEASE_CONFIRMED: Final = Reason(key="safety.battery_release_confirmed")
 """The battery shows its own settings again: control of it has ended."""
+REASON_NOT_SUPPORTED: Final[Mapping[ActionKind, Reason]] = MappingProxyType(
+    {
+        ActionKind.CHARGE: Reason(key="safety.charge_not_supported"),
+        ActionKind.LOADPOINT: Reason(key="safety.loadpoint_not_supported"),
+        ActionKind.INVERTER_LIMIT: Reason(key="safety.inverter_limit_not_supported"),
+    }
+)
+"""ADR-0011 addendum, PR 6-B: the Phase 6 action kinds are in the contract but have no
+invariants yet; the gate rejects each before mode handling (also in shadow and assisted), writes
+nothing and creates no proposal. Lifted per kind with its ``control-safety`` sign-off (6-G
+inverter limit, 6-I charge, 6-J loadpoint)."""
+REASON_SG_READY_NOT_SUPPORTED: Final = Reason(key="safety.sg_ready_not_supported")
+"""Any action but a release for an SG-Ready heat pump (until PR 6-K, ADR-0017 decision 8)."""
+REASON_PROGRAM_NOT_SUPPORTED: Final = Reason(key="safety.program_not_supported")
+"""Any action but a release for a job-driven program device (``DeviceConfig.program``) until
+PR 6-L: its invariants P1-P6 (never interrupt a running program) do not exist yet."""
 BATTERY_RELEASE_BACKOFF_S: Final = 30.0
 BATTERY_RELEASE_BACKOFF_MAX_S: Final = 600.0
 REASON_BATTERY_OVERRIDE: Final = Reason(key="safety.battery_override")
@@ -279,7 +304,16 @@ class SafetyGate:
             if self.battery_mode_capped and mode.rank > OperatingMode.ASSISTED.rank:
                 mode = OperatingMode.ASSISTED
             return ModeView(self._modes.global_mode(), mode)
-        return view(self._modes, device_id)
+        modes = view(self._modes, device_id)
+        device = self._devices(device_id)
+        if (
+            device is not None
+            and behaviour_mode_capped(device)
+            and modes.device_mode.rank > OperatingMode.ASSISTED.rank
+        ):
+            # Plan §0 decision 17: unverified vendor behaviour, not confirmed -> at most assisted.
+            return ModeView(modes.global_mode, OperatingMode.ASSISTED)
+        return modes
 
     @property
     def battery_mode_capped(self) -> bool:
@@ -624,6 +658,9 @@ class SafetyGate:
             return await self._decide(
                 intent, DecisionKind.REJECTED, now, (REASON_EMERGENCY_STOP,), mode
             )
+        not_supported = self._not_supported(intent)
+        if not_supported is not None:
+            return await self._decide(intent, DecisionKind.REJECTED, now, (not_supported,), mode)
         if isinstance(intent.action, BatteryAction) or device_id == BATTERY_ASSET_ID:
             return await self._submit_battery(intent, now, mode)
         current = await self._runtime(device_id)
@@ -672,6 +709,31 @@ class SafetyGate:
             self._proposals[intent.id] = decision
             return decision
         return await self._claimed_write(intent, device, runtime, now, mode, ctx)
+
+    def _not_supported(self, intent: Intent) -> Reason | None:  # noqa: PLR0911
+        """The rejection of an action kind or device family without invariants (6-B), if any.
+
+        Checked before mode handling. A release always passes (it restores a baseline, and a
+        device of these families is never taken over, so there is nothing to restore).
+        """
+        action = intent.action
+        if action.kind in NOT_YET_SUPPORTED_KINDS:
+            return REASON_NOT_SUPPORTED[action.kind]
+        if isinstance(action, ReleaseAction):
+            return None
+        device = self._devices(intent.asset_id)
+        if device is None:
+            return None
+        control = device.control
+        if isinstance(control, SgReadyControl):
+            return REASON_SG_READY_NOT_SUPPORTED
+        if isinstance(control, ChargerControl):
+            return REASON_NOT_SUPPORTED[ActionKind.CHARGE]
+        if isinstance(control, LoadpointControl):
+            return REASON_NOT_SUPPORTED[ActionKind.LOADPOINT]
+        if device.program is not None:
+            return REASON_PROGRAM_NOT_SUPPORTED
+        return None
 
     async def _claimed_write(  # noqa: PLR0917
         self,

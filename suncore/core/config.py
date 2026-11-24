@@ -8,6 +8,7 @@ but never read by the safety gate before Phase 3: the gate stays shadow-only.
 from __future__ import annotations
 
 import itertools
+import re
 from collections.abc import Collection, Mapping
 from typing import Annotated, Any, Final, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -16,7 +17,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SecretStr,
+    SerializationInfo,
     StringConstraints,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -28,7 +32,7 @@ from suncore.core.devices import DeviceConfig, DeviceId, RoleName, TemplateId
 from suncore.core.series import PriceIncludes
 from suncore.core.site import EntityRef, SiteConfig
 from suncore.core.tariff import HHMM_PATTERN, NIGHT_WINDOW, PriceFormula, TouTariff, WeeklySchedule
-from suncore.core.validation import invalid
+from suncore.core.validation import ENTITY_ID_PATTERN, invalid
 
 REGION_ID_PATTERN: Final = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$"
 """Region id: ``de`` or ``<country>.<variant>``; also the region template id pattern."""
@@ -552,6 +556,229 @@ class OperationConfig(_Frozen):
         return self.model_copy(update={"battery_mode": OperatingMode.SHADOW})
 
 
+# --- mqtt (Phase 6, ADR-0016) ---------------------------------------------------
+
+SECRET_MASK: Final = "**********"
+"""What a secret looks like outside the storage (API, export, history). A ``PUT`` or an import
+that sends the mask back keeps the stored secret (``MqttConfig.keep_secret_of``)."""
+REVEAL_SECRETS: Final = "reveal_secrets"
+"""Serialization context flag: only the config storage dumps secrets in clear text."""
+HOST_PATTERN: Final = r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
+TOPIC_PREFIX_PATTERN: Final = r"^[A-Za-z0-9_-]{1,64}$"
+
+
+class MqttConfig(_Frozen):
+    """The HA entity surface over MQTT discovery (ADR-0016 decisions 2, 5).
+
+    ``broker``: ``supervisor`` = host, port and credentials from the Supervisor services API
+    (the default; nothing to enter), ``manual`` = ``host``/``port``/``tls``/``username``/
+    ``password``. The password is a secret: masked in the API, the export and the history.
+    ``allow_mode_raise`` lets HA raise a mode or clear the emergency stop (default off).
+    Without a broker the feature is unavailable with a hint; nothing else depends on it.
+    """
+
+    schema_version: int = 1
+    enabled: bool = True
+    broker: Literal["supervisor", "manual"] = "supervisor"
+    host: Annotated[str, StringConstraints(pattern=HOST_PATTERN)] | None = None
+    port: Annotated[int, Field(ge=1, le=65_535)] = 1883
+    tls: bool = False
+    username: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
+    password: Annotated[SecretStr, Field(max_length=256)] | None = None
+    discovery_prefix: Annotated[str, StringConstraints(pattern=TOPIC_PREFIX_PATTERN)] = (
+        "homeassistant"
+    )
+    allow_mode_raise: bool = False
+
+    @field_serializer("password")
+    def _dump_password(self, value: SecretStr | None, info: SerializationInfo) -> str | None:
+        if value is None:
+            return None
+        context = info.context
+        if isinstance(context, Mapping) and context.get(REVEAL_SECRETS) is True:
+            return value.get_secret_value()
+        return SECRET_MASK
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        if self.broker == "manual" and self.host is None:
+            raise invalid("mqtt_manual_needs_host", "mqtt: a manual broker needs `host`")
+        if self.broker == "supervisor" and (
+            self.host is not None or self.username is not None or self.password is not None
+        ):
+            raise invalid(
+                "mqtt_supervisor_extra",
+                "mqtt: the Supervisor broker takes no host or credentials",
+            )
+        if self.password is not None and self.username is None:
+            raise invalid("mqtt_password_needs_user", "mqtt: a password needs `username`")
+        return self
+
+    @property
+    def password_masked(self) -> bool:
+        """The password is the mask (sent back by the UI or read from an export)."""
+        return self.password is not None and self.password.get_secret_value() == SECRET_MASK
+
+    def keep_secret_of(self, previous: MqttConfig | None) -> Self:
+        """The masked password replaced by ``previous``'s (none when there is none)."""
+        if not self.password_masked:
+            return self
+        password = previous.password if previous is not None else None
+        if password is not None and password.get_secret_value() == SECRET_MASK:
+            password = None
+        return self.model_copy(update={"password": password})
+
+
+# --- notifications (Phase 6, ADR-0016 decision 7) ----------------------------------------
+
+NOTIFY_SERVICE_PATTERN: Final = r"^[a-z0-9]+(?:_[a-z0-9]+)*$"
+_NOTIFY_SERVICE_RE: Final = re.compile(NOTIFY_SERVICE_PATTERN)
+_ENTITY_ID_RE: Final = re.compile(ENTITY_ID_PATTERN)
+RESERVED_NOTIFY_SERVICES: Final = frozenset({"send_message", "persistent_notification"})
+
+
+class NotificationCategories(_Frozen):
+    """Which categories notify (plan WP5 defaults)."""
+
+    error: bool = True
+    safety: bool = True
+    proposal: bool = True
+    program: bool = True
+    ev_target: bool = True
+    cheap_window: bool = False
+    daily_summary: bool = False
+
+
+class NotifyTarget(_Frozen):
+    """A push target: a ``notify`` entity (``notify.send_message``) or a legacy service name
+    (``notify.<service>``, e.g. ``mobile_app_pixel``)."""
+
+    kind: Literal["entity", "service"]
+    id: Annotated[str, StringConstraints(min_length=1, max_length=255)]
+
+    @model_validator(mode="after")
+    def _valid(self) -> Self:
+        if self.kind == "entity":
+            if not _ENTITY_ID_RE.match(self.id) or not self.id.startswith("notify."):
+                raise invalid(
+                    "notify_target_entity",
+                    "notifications: {id} is not a notify entity",
+                    id=self.id,
+                )
+        elif not _NOTIFY_SERVICE_RE.match(self.id) or self.id in RESERVED_NOTIFY_SERVICES:
+            raise invalid(
+                "notify_target_service",
+                "notifications: {id} is not a notify service name",
+                id=self.id,
+            )
+        return self
+
+
+class QuietHours(_Frozen):
+    """Local quiet hours for non-critical categories (default 22:00-07:00, may wrap)."""
+
+    enabled: bool = True
+    start: Annotated[str, StringConstraints(pattern=TIME_PATTERN)] = "22:00"
+    end: Annotated[str, StringConstraints(pattern=TIME_PATTERN)] = "07:00"
+
+    @model_validator(mode="after")
+    def _valid(self) -> Self:
+        if self.start == self.end:
+            raise invalid("quiet_hours_empty", "notifications: quiet hours start equals end")
+        return self
+
+
+class NotificationsConfig(_Frozen):
+    """Notification settings (ADR-0016 decision 7, plan WP5).
+
+    Persistent notifications are on by default (errors and safety events); push needs a
+    target the user picks. ``daily_push_cap`` limits push messages per local day.
+    """
+
+    schema_version: int = 1
+    persistent: bool = True
+    categories: NotificationCategories = NotificationCategories()
+    targets: Annotated[tuple[NotifyTarget, ...], Field(max_length=8)] = ()
+    quiet_hours: QuietHours = QuietHours()
+    daily_push_cap: Annotated[int, Field(ge=0, le=200)] = 20
+
+    @model_validator(mode="after")
+    def _unique(self) -> Self:
+        keys = [(t.kind, t.id) for t in self.targets]
+        if len(set(keys)) != len(keys):
+            raise invalid("notify_targets_unique", "notifications: every target only once")
+        return self
+
+    @property
+    def push_enabled(self) -> bool:
+        return bool(self.targets) and self.daily_push_cap > 0
+
+
+# --- inverter (Phase 6, ADR-0018 decision 3) ----------------------------------------------
+
+InverterAdapter = Literal["none", "generic_number", "kostal_rest", "kostal_modbus"]
+InverterCapability = Literal["export_limit", "ac_limit"]
+
+_ADAPTER_CAPABILITY: Final[dict[str, InverterCapability]] = {
+    "kostal_rest": "export_limit",  # Inverter:ActivePowerLimitation, semantics UNVERIFIED
+    "kostal_modbus": "ac_limit",  # register 533 %, volatile; battery included UNVERIFIED
+}
+
+
+class InverterConfig(_Frozen):
+    """The inverter limit adapter (ADR-0018 decision 3; writes arrive with PR 6-G).
+
+    ``limit_verified`` is set only after the documented verification test; until then the
+    inverter asset runs at most assisted (X6). ``nominal_ac_w`` is needed for ``ac_limit``
+    (the percent base, invariant X2). ``limit_entity`` is the number entity of the generic
+    adapter (W for ``export_limit``, % for ``ac_limit``).
+    """
+
+    schema_version: int = 1
+    adapter: InverterAdapter = "none"
+    capability: InverterCapability | None = None
+    limit_entity: EntityRef | None = None
+    nominal_ac_w: Annotated[float, Field(gt=0, le=1_000_000, allow_inf_nan=False)] | None = None
+    limit_verified: bool = False
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        if self.adapter == "none":
+            if self.capability is not None or self.limit_entity is not None or self.limit_verified:
+                raise invalid(
+                    "inverter_none_extra",
+                    "inverter: without an adapter there is no capability, entity or verification",
+                )
+            return self
+        if self.capability is None:
+            raise invalid("inverter_needs_capability", "inverter: the adapter needs `capability`")
+        fixed = _ADAPTER_CAPABILITY.get(self.adapter)
+        if fixed is not None and self.capability != fixed:
+            raise invalid(
+                "inverter_capability_mismatch",
+                "inverter: adapter {adapter} provides {capability}",
+                adapter=self.adapter,
+                capability=fixed,
+            )
+        if (self.adapter == "generic_number") != (self.limit_entity is not None):
+            raise invalid(
+                "inverter_entity", "inverter: `limit_entity` belongs to the generic adapter only"
+            )
+        if self.limit_entity is not None and self.limit_entity.invert_sign:
+            raise invalid("inverter_entity_invert", "inverter: invert_sign is meaningless here")
+        if self.capability == "ac_limit" and self.nominal_ac_w is None:
+            raise invalid("inverter_ac_needs_nominal", "inverter: `ac_limit` needs `nominal_ac_w`")
+        return self
+
+    @property
+    def mode_capped(self) -> bool:
+        """X6: at most assisted until the limit is verified."""
+        return self.adapter != "none" and not self.limit_verified
+
+    def entity_refs(self) -> list[EntityRef]:
+        return [self.limit_entity] if self.limit_entity is not None else []
+
+
 # --- wizard -------------------------------------------------------------------
 
 
@@ -575,5 +802,8 @@ SECTION_MODELS: Final[Mapping[str, type[BaseModel]]] = {
     "operation": OperationConfig,
     "wizard": WizardState,
     "battery": BatterySettings,
+    "mqtt": MqttConfig,
+    "notifications": NotificationsConfig,
+    "inverter": InverterConfig,
 }
 """All configuration sections by name and their document model (API and storage share it)."""

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from suncore.core.devices import (
+    PHASE6_CONTROLS,
     ContinuousControl,
     DeviceConfig,
     ModeControl,
@@ -18,6 +19,7 @@ from suncore.devices.drivers.mode import ModeDriver
 from suncore.devices.drivers.number import NumberDriver
 from suncore.devices.drivers.onoff import OnOffDriver
 from suncore.devices.drivers.steps import StepsDriver
+from suncore.devices.drivers.unsupported import UnsupportedDriver
 
 
 def create_driver(
@@ -39,6 +41,8 @@ def create_driver(
         return NumberDriver(device, write=write, states=states)
     if isinstance(control, ModeControl):
         return ModeDriver(device, write=write, states=states)
+    if isinstance(control, PHASE6_CONTROLS):
+        return UnsupportedDriver(device, write=write, states=states)  # until 6-I/6-J/6-K
     msg = f"no driver for control kind {control!r}"  # pragma: no cover - exhaustive
     raise TypeError(msg)  # pragma: no cover
 

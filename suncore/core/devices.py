@@ -20,7 +20,9 @@ from typing import Annotated, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from suncore.core.flex import EV_MODE_DEFAULT, EvMode
 from suncore.core.site import EntityRef
+from suncore.core.thermal import CopCurve, LearnedThermal
 from suncore.core.validation import invalid
 
 DEVICE_ID_PATTERN: Final = r"^[a-z][a-z0-9_]{0,47}$"
@@ -77,6 +79,10 @@ class ControlKind(StrEnum):
     SETPOINT = "setpoint"
     MODE = "mode"
     RELAYS = "relays"
+    # Phase 6 (ADR-0017, PR 6-B; every write of these is rejected by the gate until its PR):
+    CHARGER = "charger"
+    SG_READY = "sg_ready"
+    LOADPOINT = "loadpoint"
 
 
 class PowerModel(_Frozen):
@@ -272,17 +278,174 @@ class ModeControl(_Frozen):
         return self
 
 
+class ChargerControl(_Frozen):
+    """An EV charger driven through Home Assistant entities (ADR-0017 decision 1, PR 6-I).
+
+    ``role`` is the charging current (number entity, A); ``enable_role`` an optional switch;
+    ``phases_role`` an optional select or switch whose option for one and for three phases is
+    ``phase_option_1`` / ``phase_option_3``. ``phases`` is the number of phases the charger is
+    wired with; ``phase_switching`` needs a ``phases_role`` and a three-phase charger (plan §0
+    decision 6). ``phase_switch_pause_s`` is the pause around a switch (vendor-dependent,
+    ``UNVERIFIED``), ``max_phase_switches_per_hour`` the wear limit. Written by ``ChargeAction``.
+    """
+
+    kind: Literal["charger"]
+    role: RoleName
+    enable_role: RoleName | None = None
+    phases_role: RoleName | None = None
+    phase_option_1: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
+    phase_option_3: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
+    min_current_a: Annotated[float, Field(ge=1, le=80, allow_inf_nan=False)] = 6.0
+    max_current_a: Annotated[float, Field(gt=1, le=500, allow_inf_nan=False)]
+    phases: Literal[1, 3] = 3
+    phase_switching: bool = False
+    voltage_v: Annotated[float, Field(gt=0, le=1000, allow_inf_nan=False)] = 230.0
+    phase_switch_pause_s: Annotated[int, Field(ge=0, le=900)] = 120
+    max_phase_switches_per_hour: Annotated[int, Field(ge=1, le=12)] = 4
+
+    @model_validator(mode="after")
+    def _valid(self) -> Self:
+        if not self.min_current_a < self.max_current_a:
+            raise invalid(
+                "charger_current_range",
+                "control: min_current_a ({min}) must be below max_current_a ({max})",
+                min=self.min_current_a,
+                max=self.max_current_a,
+            )
+        roles = [r for r in (self.role, self.enable_role, self.phases_role) if r is not None]
+        if len(set(roles)) != len(roles):
+            raise invalid("charger_roles_unique", "control: charger roles must be distinct")
+        options = (self.phase_option_1, self.phase_option_3)
+        if self.phases_role is None and any(o is not None for o in options):
+            raise invalid(
+                "charger_phase_options_no_role",
+                "control: phase options need `phases_role`",
+            )
+        if self.phases_role is not None and (
+            None in options or self.phase_option_1 == self.phase_option_3
+        ):
+            raise invalid(
+                "charger_phase_options",
+                "control: `phases_role` needs two different options for 1 and 3 phases",
+            )
+        if self.phase_switching and (self.phases_role is None or self.phases != 3):
+            raise invalid(
+                "charger_phase_switching",
+                "control: phase switching needs `phases_role` and a three-phase charger",
+            )
+        return self
+
+    def max_power_w(self) -> float:
+        """The most the charger draws (all wired phases, maximum current)."""
+        return self.max_current_a * self.voltage_v * self.phases
+
+    def min_power_w(self, phases: Literal[1, 3]) -> float:
+        """The least it draws while charging on ``phases`` (the 6 A floor)."""
+        return self.min_current_a * self.voltage_v * phases
+
+
+class SgContacts(_Frozen):
+    """The two SG-Ready contacts of one state (``True`` = closed / switch on)."""
+
+    a: bool
+    b: bool
+
+
+class SgReadyControl(_Frozen):
+    """SG-Ready heat pump interface: two contact switches (ADR-0017 decision 5, PR 6-K).
+
+    Written with ``StepAction``: step 0 = SG state 2 (normal, the baseline and release),
+    1 = state 3 (intensified), 2 = state 4 (forced on, only with ``allow_forced``). **State 1
+    (utility block) has no step and is never written.** Which contact pair selects which state
+    is vendor-specific: the template states it with a ``source`` (``UNVERIFIED`` otherwise).
+    """
+
+    kind: Literal["sg_ready"]
+    contact_a: RoleName
+    contact_b: RoleName
+    normal: SgContacts
+    intensified: SgContacts
+    forced: SgContacts | None = None
+    allow_forced: bool = False
+    min_dwell_s: Annotated[int, Field(ge=600, le=86_400)] = 600
+    """Minimum time in one SG state (plan §0 decision 9: at least 10 min)."""
+
+    @property
+    def role(self) -> RoleName:
+        """The first contact: the primary control entity (duplicate-unit check)."""
+        return self.contact_a
+
+    @property
+    def steps(self) -> tuple[SgContacts, ...]:
+        """The writable states in step order (2, 3 and, if allowed, 4)."""
+        states = (self.normal, self.intensified)
+        return (*states, self.forced) if self.allow_forced and self.forced is not None else states
+
+    @model_validator(mode="after")
+    def _valid(self) -> Self:
+        if self.contact_a == self.contact_b:
+            raise invalid("sg_contacts_unique", "control: the two SG-Ready contacts must differ")
+        pairs = [p for p in (self.normal, self.intensified, self.forced) if p is not None]
+        if len(set(pairs)) != len(pairs):
+            raise invalid("sg_states_distinct", "control: two SG-Ready states share contacts")
+        if self.allow_forced and self.forced is None:
+            raise invalid(
+                "sg_forced_missing", "control: `allow_forced` needs the `forced` contacts"
+            )
+        return self
+
+
+EVCC_TOPIC_PATTERN: Final = r"^[A-Za-z0-9_-]{1,32}(/[A-Za-z0-9_-]{1,32}){0,3}$"
+
+
+class LoadpointControl(_Frozen):
+    """An evcc loadpoint driven over evcc's MQTT API (ADR-0017 decision 2, PR 6-J).
+
+    No Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and
+    ``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.
+    Whether loadpoint ids always start at 1 is ``UNVERIFIED``.
+    """
+
+    kind: Literal["loadpoint"]
+    loadpoint_id: Annotated[int, Field(ge=1, le=64)]
+    vehicle: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,64}$")] | None = None
+    topic_prefix: Annotated[str, StringConstraints(pattern=EVCC_TOPIC_PATTERN)] = "evcc"
+    max_current_a: Annotated[float, Field(gt=0, le=500, allow_inf_nan=False)] = 16.0
+    phases: Literal[1, 3] = 3
+    voltage_v: Annotated[float, Field(gt=0, le=1000, allow_inf_nan=False)] = 230.0
+
+
 ControlSpec = Annotated[
-    OnOffControl | StepsControl | ContinuousControl | SetpointControl | ModeControl | RelaysControl,
+    OnOffControl
+    | StepsControl
+    | ContinuousControl
+    | SetpointControl
+    | ModeControl
+    | RelaysControl
+    | ChargerControl
+    | SgReadyControl
+    | LoadpointControl,
     Field(discriminator="kind"),
 ]
 """How a device is driven and which role is written (ADR-0012 item 5)."""
 
 
+PHASE6_CONTROLS: Final = (ChargerControl, SgReadyControl, LoadpointControl)
+"""Control variants of Phase 6 whose writes the gate rejects until their PR (6-I, 6-J, 6-K)."""
+
+
 def control_roles(control: ControlSpec) -> tuple[RoleName, ...]:
-    """All entity roles a control writes (one, except for ``relays``)."""
+    """All entity roles a control writes (one for most; none for an evcc loadpoint)."""
     if isinstance(control, RelaysControl):
         return control.roles
+    if isinstance(control, ChargerControl):
+        return tuple(
+            r for r in (control.role, control.enable_role, control.phases_role) if r is not None
+        )
+    if isinstance(control, SgReadyControl):
+        return (control.contact_a, control.contact_b)
+    if isinstance(control, LoadpointControl):
+        return ()
     return (control.role,)
 
 
@@ -364,6 +527,94 @@ class OverridePolicy(_Frozen):
         return self
 
 
+# --- Phase 6 device options (ADR-0017) ------------------------------------------------------
+
+
+class EvSpec(_Frozen):
+    """The vehicle behind a charger (kind ``wallbox``; one vehicle per charger in v1).
+
+    Roles (all optional, mapped in ``DeviceConfig.entities``): ``vehicle_soc_role`` (sensor %),
+    ``connected_role`` (binary sensor), ``charging_role`` (binary sensor). Without a SoC the
+    targets are energy-based. ``efficiency`` is the charging efficiency (losses, default 0.9).
+    """
+
+    capacity_wh: Annotated[float, Field(gt=0, le=500_000, allow_inf_nan=False)] | None = None
+    efficiency: Annotated[float, Field(gt=0.5, le=1, allow_inf_nan=False)] = 0.9
+    vehicle_soc_role: RoleName | None = None
+    connected_role: RoleName | None = None
+    charging_role: RoleName | None = None
+    default_mode: EvMode = EV_MODE_DEFAULT
+
+    @model_validator(mode="after")
+    def _valid(self) -> Self:
+        if self.vehicle_soc_role is not None and self.capacity_wh is None:
+            raise invalid("ev_soc_needs_capacity", "ev: a vehicle SoC needs `capacity_wh`")
+        if self.default_mode is EvMode.TARGET:
+            raise invalid("ev_default_target", "ev: `target` needs a target, not a default")
+        return self
+
+    def roles(self) -> tuple[RoleName, ...]:
+        return tuple(
+            r
+            for r in (self.vehicle_soc_role, self.connected_role, self.charging_role)
+            if r is not None
+        )
+
+
+PROFILE_SLOT_MIN: Final = 15
+
+
+class ProgramSpec(_Frozen):
+    """A shiftable program (kind ``program``; ADR-0017 decision 7).
+
+    ``profile_wh`` is the energy per 15 minutes of a run (``None`` = nominal power x run time);
+    its length must cover ``runtime_min``. ``start_method``: ``plug`` (a smart plug switched on;
+    needs ``resume_confirmed``, the user's statement that the appliance resumes after power
+    returns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or
+    ``notify`` (the user is asked to start it). ``idle_w`` is the "finished" threshold.
+    """
+
+    runtime_min: Annotated[int, Field(ge=1, le=1440)]
+    profile_wh: Annotated[
+        tuple[Annotated[float, Field(ge=0, le=100_000, allow_inf_nan=False)], ...],
+        Field(max_length=96),
+    ] = ()
+    start_method: Literal["plug", "remote", "notify"]
+    idle_w: Annotated[float, Field(ge=0, le=500, allow_inf_nan=False)] = 5.0
+    resume_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def _valid(self) -> Self:
+        slots = -(-self.runtime_min // PROFILE_SLOT_MIN)
+        if self.profile_wh and len(self.profile_wh) != slots:
+            raise invalid(
+                "program_profile_length",
+                "program: `profile_wh` needs {slots} values for {runtime} min",
+                slots=slots,
+                runtime=self.runtime_min,
+            )
+        if self.start_method == "plug" and not self.resume_confirmed:
+            raise invalid(
+                "program_plug_resume",
+                "program: start by plug needs the confirmation that the appliance resumes",
+            )
+        return self
+
+
+class ThermalSpec(_Frozen):
+    """Heat-pump and thermal-store options (ADR-0017 decision 6; kinds with a comfort band).
+
+    ``cop`` ``None`` = the generic air/water assumption (``core.thermal``); ``learned`` is the
+    fitted RC model (written by the learner, PR 6-K). ``grid_preheat`` allows pre-heating
+    with cheap grid energy (default off, plan §0 decision 8); the lift band is the device's
+    comfort band.
+    """
+
+    cop: CopCurve | None = None
+    learned: LearnedThermal | None = None
+    grid_preheat: bool = False
+
+
 class DeviceConfig(_Frozen):
     """One configured device (instance of a template).
 
@@ -404,6 +655,21 @@ class DeviceConfig(_Frozen):
     just above the export price (self-consumption beats export) and never above the import
     price (SunCore never imports for a device). An explicit value is capped the same way
     by the planner: the import price stays the ceiling."""
+    # Phase 6 (PR 6-B, all optional with defaults; behaviour in later PRs):
+    ev: EvSpec | None = None
+    """Kind ``wallbox`` only."""
+    program: ProgramSpec | None = None
+    """Kind ``program`` only; a program device with this spec is a job-driven program."""
+    thermal: ThermalSpec | None = None
+    """Thermal kinds only (heat pump, water heater, climate)."""
+    shed_rank: Annotated[int, Field(ge=0, le=10_000)] | None = None
+    """Load shedding order (ADR-0018 d. 2): lower is shed first; ``None`` = reverse priority."""
+    para14a: bool = False
+    """A controllable consumer under §14a EnWG (wallbox, heat pump, cooling, > 4.2 kW)."""
+    behaviour_confirmed: bool = False
+    """The user confirmed the vendor behaviour the template lists as unverified (plan §0
+    decision 17). Part of the device identity: changing it puts the device back in shadow.
+    Devices with a Phase 6 control or a program spec run at most assisted until it is true."""
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:  # noqa: PLR0912
@@ -467,8 +733,76 @@ class DeviceConfig(_Frozen):
                 "percent_needs_nominal",
                 "control: unit `%` is relative to `power_model.nominal_w`, which is missing",
             )
+        self._check_phase6()
         return self
+
+    def _check_phase6(self) -> None:
+        """Kind checks of the Phase 6 controls and options (ADR-0017)."""
+        control = self.control
+        kind = self.kind
+        if (
+            isinstance(control, ChargerControl | LoadpointControl)
+            and kind is not DeviceKind.WALLBOX
+        ):
+            raise invalid(
+                "control_kind_mismatch",
+                "control: kind `{control}` needs device kind `{expected}`",
+                control=control.kind,
+                expected=DeviceKind.WALLBOX.value,
+            )
+        if isinstance(control, SgReadyControl) and kind is not DeviceKind.HEAT_PUMP:
+            raise invalid(
+                "control_kind_mismatch",
+                "control: kind `{control}` needs device kind `{expected}`",
+                control=control.kind,
+                expected=DeviceKind.HEAT_PUMP.value,
+            )
+        for field, value, kinds in (
+            ("ev", self.ev, frozenset({DeviceKind.WALLBOX})),
+            ("program", self.program, frozenset({DeviceKind.PROGRAM})),
+            ("thermal", self.thermal, THERMAL_KINDS),
+        ):
+            if value is not None and kind not in kinds:
+                raise invalid(
+                    "option_not_applicable",
+                    "{field}: not applicable to kind `{kind}`",
+                    field=field,
+                    kind=kind.value,
+                )
+        if self.ev is not None:
+            for role in self.ev.roles():
+                if role not in self.entities:
+                    raise invalid(
+                        "ev_role_unmapped",
+                        "ev: role `{role}` is not mapped in `entities`",
+                        role=role,
+                    )
+        if (
+            self.program is not None
+            and self.program.start_method != "notify"
+            and not isinstance(control, OnOffControl)
+        ):
+            raise invalid(
+                "program_needs_on_off",
+                "program: start method `{method}` needs an on_off control",
+                method=self.program.start_method,
+            )
 
     def entity_refs(self) -> list[EntityRef]:
         """All referenced entities, for subscriptions."""
         return list(self.entities.values())
+
+
+def needs_behaviour_confirmation(device: DeviceConfig) -> bool:
+    """A device of the Phase 6 families (charger, evcc loadpoint, SG-Ready, program job).
+
+    Conservative reading of plan §0 decision 17: every such device counts as running on an
+    unverified template until 6-I/6-J/6-K/6-L can tell verified templates apart; Phase 3
+    devices (other controls, no program spec) are never affected.
+    """
+    return isinstance(device.control, PHASE6_CONTROLS) or device.program is not None
+
+
+def behaviour_mode_capped(device: DeviceConfig) -> bool:
+    """The device runs at most assisted (decision 17): unverified and not confirmed."""
+    return needs_behaviour_confirmation(device) and not device.behaviour_confirmed

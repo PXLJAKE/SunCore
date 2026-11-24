@@ -27,6 +27,7 @@ from pydantic import (
 from suncore.core.balance import FlowSnapshot
 from suncore.core.decisions import Reason
 from suncore.core.devices import RESUME_TIME_DEFAULT, DeviceConfig, SetpointControl
+from suncore.core.grid import GridState, Para14aStatus
 from suncore.core.signals import Quality
 from suncore.core.validation import invalid
 
@@ -107,6 +108,17 @@ class GateInputs:
     reserve_soc_pct: float | None = None
     ts: datetime | None = None
     """When the snapshot was computed (injected clock)."""
+    # Phase 6 (PR 6-B, ADR-0018 decision 1; computed by ``core.grid`` and judged from 6-F/6-G):
+    export_limit_w: float | None = None
+    """The effective export limit (``core.grid.effective_export_limit_w``); ``None`` = none."""
+    para14a_budget_w: float | None = None
+    """§14a: the summed power the flagged devices may draw while dimmed; ``None`` = not
+    dimmed (see ``para14a_status``)."""
+    para14a_status: Para14aStatus = Para14aStatus.INACTIVE
+    """``unknown`` = the signal is configured but unavailable: no increase of flagged devices
+    (G5, from 6-F)."""
+    grid_state: GridState = GridState.UNKNOWN
+    """Connected, island or unknown (no backup entity: treated as connected)."""
 
 
 # --- settings -----------------------------------------------------------------
@@ -177,6 +189,30 @@ class DeviceBand(_Frozen):
     preference: BandPreference = BandPreference.NEUTRAL
     max_power_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
     """Upper bound of the device's demand in this interval (``None`` = device limit)."""
+    grid_power_max_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
+    """ADR-0017 decision 4 (plan v2, additive): the most of the device's demand that may come
+    from the grid in this interval (W); ``None`` = none (the Phase 3 rule: surplus only). Set
+    by the planner only for EV ``target`` and heat-pump pre-heating with ``grid_preheat``.
+    Never above ``max_power_w``; the import, peak and §14a limits hold regardless."""
+    start: bool = False
+    """ADR-0017 decision 7: start the armed program job in this interval (one interval per
+    job). Requires ``allowed``."""
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        if self.start and not self.allowed:
+            raise invalid("band_start_not_allowed", "device band: `start` needs `allowed`")
+        if (
+            self.grid_power_max_w is not None
+            and self.max_power_w is not None
+            and self.grid_power_max_w > self.max_power_w
+        ):
+            raise invalid("band_grid_above_max", "device band: grid_power_max_w above max_power_w")
+        if self.grid_power_max_w is not None and self.grid_power_max_w > 0 and not self.allowed:
+            raise invalid(
+                "band_grid_not_allowed", "device band: grid power in a band that is not allowed"
+            )
+        return self
 
 
 class BatteryBand(_Frozen):

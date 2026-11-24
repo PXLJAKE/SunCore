@@ -28,6 +28,131 @@
       "title": "Capability",
       "type": "string"
     },
+    "ChargerControl": {
+      "additionalProperties": false,
+      "description": "An EV charger driven through Home Assistant entities (ADR-0017 decision 1, PR 6-I).\n\n``role`` is the charging current (number entity, A); ``enable_role`` an optional switch;\n``phases_role`` an optional select or switch whose option for one and for three phases is\n``phase_option_1`` / ``phase_option_3``. ``phases`` is the number of phases the charger is\nwired with; ``phase_switching`` needs a ``phases_role`` and a three-phase charger (plan §0\ndecision 6). ``phase_switch_pause_s`` is the pause around a switch (vendor-dependent,\n``UNVERIFIED``), ``max_phase_switches_per_hour`` the wear limit. Written by ``ChargeAction``.",
+      "properties": {
+        "enable_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enable Role"
+        },
+        "kind": {
+          "const": "charger",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_current_a": {
+          "exclusiveMinimum": 1,
+          "maximum": 500,
+          "title": "Max Current A",
+          "type": "number"
+        },
+        "max_phase_switches_per_hour": {
+          "default": 4,
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Max Phase Switches Per Hour",
+          "type": "integer"
+        },
+        "min_current_a": {
+          "default": 6.0,
+          "maximum": 80,
+          "minimum": 1,
+          "title": "Min Current A",
+          "type": "number"
+        },
+        "phase_option_1": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phase Option 1"
+        },
+        "phase_option_3": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phase Option 3"
+        },
+        "phase_switch_pause_s": {
+          "default": 120,
+          "maximum": 900,
+          "minimum": 0,
+          "title": "Phase Switch Pause S",
+          "type": "integer"
+        },
+        "phase_switching": {
+          "default": false,
+          "title": "Phase Switching",
+          "type": "boolean"
+        },
+        "phases": {
+          "default": 3,
+          "enum": [
+            1,
+            3
+          ],
+          "title": "Phases",
+          "type": "integer"
+        },
+        "phases_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phases Role"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "voltage_v": {
+          "default": 230.0,
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "title": "Voltage V",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "max_current_a"
+      ],
+      "title": "ChargerControl",
+      "type": "object"
+    },
     "ComfortBand": {
       "additionalProperties": false,
       "description": "Allowed temperature range in °C.",
@@ -143,11 +268,14 @@
         "control": {
           "discriminator": {
             "mapping": {
+              "charger": "#/$defs/ChargerControl",
               "continuous": "#/$defs/ContinuousControl",
+              "loadpoint": "#/$defs/LoadpointControl",
               "mode": "#/$defs/ModeControl",
               "on_off": "#/$defs/OnOffControl",
               "relays": "#/$defs/RelaysControl",
               "setpoint": "#/$defs/SetpointControl",
+              "sg_ready": "#/$defs/SgReadyControl",
               "steps": "#/$defs/StepsControl"
             },
             "propertyName": "kind"
@@ -170,6 +298,15 @@
             },
             {
               "$ref": "#/$defs/RelaysControl"
+            },
+            {
+              "$ref": "#/$defs/ChargerControl"
+            },
+            {
+              "$ref": "#/$defs/SgReadyControl"
+            },
+            {
+              "$ref": "#/$defs/LoadpointControl"
             }
           ],
           "title": "Control"
@@ -388,6 +525,71 @@
         "domain"
       ],
       "title": "EntityMatcher",
+      "type": "object"
+    },
+    "LoadpointControl": {
+      "additionalProperties": false,
+      "description": "An evcc loadpoint driven over evcc's MQTT API (ADR-0017 decision 2, PR 6-J).\n\nNo Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and\n``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.\nWhether loadpoint ids always start at 1 is ``UNVERIFIED``.",
+      "properties": {
+        "kind": {
+          "const": "loadpoint",
+          "title": "Kind",
+          "type": "string"
+        },
+        "loadpoint_id": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Loadpoint Id",
+          "type": "integer"
+        },
+        "max_current_a": {
+          "default": 16.0,
+          "exclusiveMinimum": 0,
+          "maximum": 500,
+          "title": "Max Current A",
+          "type": "number"
+        },
+        "phases": {
+          "default": 3,
+          "enum": [
+            1,
+            3
+          ],
+          "title": "Phases",
+          "type": "integer"
+        },
+        "topic_prefix": {
+          "default": "evcc",
+          "pattern": "^[A-Za-z0-9_-]{1,32}(/[A-Za-z0-9_-]{1,32}){0,3}$",
+          "title": "Topic Prefix",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vehicle"
+        },
+        "voltage_v": {
+          "default": 230.0,
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "title": "Voltage V",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "loadpoint_id"
+      ],
+      "title": "LoadpointControl",
       "type": "object"
     },
     "Mode": {
@@ -684,6 +886,85 @@
         "shift_max_c"
       ],
       "title": "SetpointControl",
+      "type": "object"
+    },
+    "SgContacts": {
+      "additionalProperties": false,
+      "description": "The two SG-Ready contacts of one state (``True`` = closed / switch on).",
+      "properties": {
+        "a": {
+          "title": "A",
+          "type": "boolean"
+        },
+        "b": {
+          "title": "B",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "title": "SgContacts",
+      "type": "object"
+    },
+    "SgReadyControl": {
+      "additionalProperties": false,
+      "description": "SG-Ready heat pump interface: two contact switches (ADR-0017 decision 5, PR 6-K).\n\nWritten with ``StepAction``: step 0 = SG state 2 (normal, the baseline and release),\n1 = state 3 (intensified), 2 = state 4 (forced on, only with ``allow_forced``). **State 1\n(utility block) has no step and is never written.** Which contact pair selects which state\nis vendor-specific: the template states it with a ``source`` (``UNVERIFIED`` otherwise).",
+      "properties": {
+        "allow_forced": {
+          "default": false,
+          "title": "Allow Forced",
+          "type": "boolean"
+        },
+        "contact_a": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Contact A",
+          "type": "string"
+        },
+        "contact_b": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Contact B",
+          "type": "string"
+        },
+        "forced": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SgContacts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "intensified": {
+          "$ref": "#/$defs/SgContacts"
+        },
+        "kind": {
+          "const": "sg_ready",
+          "title": "Kind",
+          "type": "string"
+        },
+        "min_dwell_s": {
+          "default": 600,
+          "maximum": 86400,
+          "minimum": 600,
+          "title": "Min Dwell S",
+          "type": "integer"
+        },
+        "normal": {
+          "$ref": "#/$defs/SgContacts"
+        }
+      },
+      "required": [
+        "kind",
+        "contact_a",
+        "contact_b",
+        "normal",
+        "intensified"
+      ],
+      "title": "SgReadyControl",
       "type": "object"
     },
     "SourceRef": {
