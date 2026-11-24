@@ -2470,6 +2470,10 @@ export interface components {
         DeviceState: {
             /** Connected */
             connected?: boolean | null;
+            /** Limit Soc Pct */
+            limit_soc_pct?: number | null;
+            /** Max Current A */
+            max_current_a?: number | null;
             /** Mode */
             mode?: string | null;
             /** On */
@@ -3665,7 +3669,7 @@ export interface components {
         };
         /**
          * LoadpointAction
-         * @description What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; PR 6-J lifts the rejection).
+         * @description What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; judged since PR 6-J).
          *
          *     evcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle
          *     plan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``
@@ -3697,7 +3701,7 @@ export interface components {
          *
          *     No Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and
          *     ``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.
-         *     Whether loadpoint ids always start at 1 is ``UNVERIFIED``.
+         *     Loadpoint ids start at 1 in the evcc source read on 2026-11-24 (``server/mqtt.go``).
          */
         LoadpointControl: {
             /**

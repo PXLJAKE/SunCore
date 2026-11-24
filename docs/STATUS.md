@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PR 6-L programs) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-I EV, 6-J evcc, 6-L programs) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
@@ -44,6 +44,35 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     automation "plug off for hours -> on", `start_now`/`missed` pass the daily push cap, the
     "start now" request is persisted (`notified_at`), `idle_w > 0`, an unseen run is reported
     as "status unknown"; e2e wizard search adjusted for the new plug template.
+- **Phase 6 - PR 6-J, WP10 evcc as actor (branch `phase-6/j-evcc`, on 6-I + 6-C;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - `loadpoint` is a judged action kind now (`NOT_YET_SUPPORTED_KINDS` = inverter limit only).
+    `safety/evcc.py`: L1-L5 as pure functions (values in range, no vehicle plan, `now` only with
+    an allowance and the E6 battery lock, no raise on unknown evcc state, potential power
+    `maxCurrent x V x phases` under G1-G6); a loadpoint takes only `loadpoint` actions and a
+    release, only it takes them.
+  - `devices/evcc.py`: dumb driver over evcc's MQTT API (read from the evcc source, 2026-11-24):
+    mode `off`/`smart`/`now`, `maxCurrent`, `limitSoc` through `<prefix>/loadpoints/<id>/<key>/set`
+    (not retained); never `site/*`, `minCurrent`, `phasesConfigured` or a plan; read-back from
+    the retained topics; the release restores the takeover baseline and waits for the echo.
+  - `app/evcc_link.py`: second MQTT connection to the broker of the `mqtt` section, heartbeat
+    `<prefix>/updated` (alive only while younger than 120 s), the one `publish_set` write path.
+  - `controller/evcc.py` `EvccIntents`: runtime EV mode -> `smart`/`now`/`off` with a
+    `maxCurrent` that fits the allowance, import limit and §14a budget; no raise on anything
+    unknown; debounced raises, immediate lowering; asks the battery controller for the E6 lock.
+    `min_pv` maps to `smart` (no floor, evcc has no minimum-power mode).
+  - Template `evcc.loadpoint` (no roles; conformance scenario), simulator `SimLoadpoint` on an
+    in-memory `FakeEvccBus`, scenario `evcc_actor` (+ silent evcc, emergency stop, manual mode
+    change in evcc's app); en/de keys; e2e gallery count 8.
+  - Review conditions of PR #61 done (A1, A2, B1, B2, C1-C3): best-effort release (mode and
+    `maxCurrent` only in the echo), G1/peak check for a raise to `smart` plus an import-cut
+    path in the controller (scenario `evcc_plan`), release retries with back-off, the link
+    starts for a loadpoint added after start-up, liveness and E6 warnings in template and docs.
+  - Re-review: import cut with hysteresis (off after 60 s over, back on after 300 s with 1 A
+    margin; loadpoint off/on counts as a switch, off never blocked; scenario `evcc_flicker`),
+    failed emergency-stop/recovery releases retried by `poll` with back-off. Residual risk:
+    the smart import check is reactive (overshoot up to about 1 min).
+  - Deviations, safety self-review and questions: plan section 8 (6-J).
 
 - **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
@@ -1270,7 +1299,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed; 0 W cannot be a legal dimming value given the 4.2 kW minimum, a positive value is used as min(value, limit)) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018, plan section 8 (6-F) | a grid operator's control box / documentation |
 | Backup-switch island state names (simulator: `island`/`on_grid`; Kostal BackUp Switch G3 entity and states unknown) | `suncore/core/grid.py` `BackupConfig`, `suncore/sim/fake_ha.py` | maintainer maps the entity (question 10) |
 | Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
-| SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
+| SG-Ready contact mapping per vendor; charger phase-switch pause | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-K) |
+| evcc as actor: exercised on the fake evcc only (no running evcc in the session); clearing a vehicle plan over MQTT; how fast evcc applies `maxCurrent` while charging; evcc resetting the mode at vehicle disconnect (read as an override); `smart` with `alwaysCharge` for `min_pv`. Resolved from the evcc source (2026-11-24): loadpoint ids start at 1, `phasesConfigured` 0/1/3, the retained read topics, the heartbeat `<prefix>/updated` | `templates/device/evcc.loadpoint.yaml`, `suncore/devices/evcc.py`, plan section 8 (6-J) | a running evcc with MQTT enabled on the maintainer's broker |
 | Wallbox control: exercised in the simulator only (no wallbox in the session); the phase switch pause (120 s default), whether a charger accepts a phase change while paused, min run/pause defaults (300 s) for cloud-polled chargers; no integration template verified from `home-assistant/core` source (only home-assistant.io `wallbox` page, 2026-11-24) | `templates/device/generic.wallbox.yaml`, `suncore/devices/drivers/charger.py`, plan section 8 (6-I) | a real wallbox; a session with access to the core source |
 | Shiftable programs (6-L): exercised in the simulator only; whether an appliance resumes its programme after the plug's power returns (per appliance, the user confirms `resume_confirmed`); remote-start switches per integration (a `button` role is not supported yet); placeholder run time 120 min, `idle_w` 5 W and peak power in the templates; appliances that draw more than `idle_w` right after start are treated as running (no delay) | `templates/device/generic.program_*.yaml`, `suncore/devices/drivers/program.py`, plan section 8 (6-L) | a real washing machine/dishwasher behind a plug; an integration with a remote start |
 | Notifications (6-E): payload of `mobile_app_notification_action` beyond `data.action`; that the Supervisor token may `subscribe_events` for it (else plain messages); `data.actions` on every legacy `notify.<service>`; `notify.send_message` has no button field | `suncore/ha/connection.py`, `suncore/notify/`, `research/ha-websocket-api.md` | first run on HA OS with the companion app |

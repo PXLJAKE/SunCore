@@ -1245,3 +1245,226 @@ Approved with conditions; all done in the follow-up commit:
 
 - The UI must warn before cancelling a job and before "back to normal" on a program device
   that the plug is switched **on**, so the machine starts immediately.
+### 6-J (evcc as actor)
+
+- **evcc facts read from source (`evcc-io/evcc`, branch `master`, 2026-11-24):** `server/mqtt.go`,
+  `server/mqtt_setter.go`, `core/keys/loadpoint.go`, `core/loadpoint_api.go`,
+  `plugin/mqtt/client.go`. Loadpoint ids start at 1 (index + 1); a value is written by
+  publishing to `<prefix>/loadpoints/<id>/<key>/set` (not retained: evcc ignores empty payloads
+  and resets the topic itself); the read topics are published retained under the same names;
+  modes are `off`, `now`, `smart` (`pv`/`minpv` are deprecated aliases); `maxCurrent` is a
+  float and must be at least `minCurrent`; `limitSoc` is an integer; `<prefix>/updated` is the
+  Unix time of the latest publication (the heartbeat). This resolves three items the plan
+  listed as `UNVERIFIED` (ids from 1, read-back topics, `phasesConfigured` values 0/1/3).
+- **Only mode, `maxCurrent` and `limitSoc` are written.** Never `<prefix>/site/*` (evcc's
+  battery rules stay the user's, question 7), never `minCurrent`, `phasesConfigured` or a plan.
+  `test_only_mode_max_current_and_limit_of_the_loadpoint_are_ever_sent` proves it on the fake
+  evcc; the fake refuses and records anything else.
+- **No vehicle plan (deviation from WP10).** The plan asked for the payload `{"value","time"}`
+  and `nil` to clear. The setter parses JSON only, so clearing a plan over MQTT is
+  `UNVERIFIED`; a plan that cannot be cleared could keep charging after SunCore is gone.
+  `LoadpointAction` keeps the plan fields, but L1 rejects them
+  (`safety.evcc_plan_unverified`) and the driver refuses them. SunCore's own plan (6-H) drives
+  `now` in planned grid intervals instead.
+- **`min_pv` maps to `smart` (no floor).** evcc has no minimum-power mode any more (`minpv` is
+  `smart` plus `alwaysCharge`); SunCore cannot enforce the 6 A floor, so `min_pv` behaves like
+  `pv` for an evcc loadpoint (`controller.evcc.min_pv`). The user-demanded floor of ADR-0017
+  decision 4 exists for `now` only (allowance = the configured maximum current).
+- **`now` only with an allowance and a battery lock.** The controller asks for `now` only in
+  the user's EV mode `now` or in a fresh plan band of `target` with `grid_power_max_w`, with a
+  `maxCurrent` that fits the allowance, the import limit and the §14a budget, and only while
+  there is no home battery or SunCore holds a confirmed discharge lock (E6, the same
+  `LoadpointView.lock_wanted` request as for a charger). Otherwise it waits in `smart`
+  (`controller.ev.battery_wait`).
+- **Controller:** `controller/evcc.py` `EvccIntents` is separate from the level allocator
+  (evcc regulates current and phases itself). Intents on change; a refused or shadowed one
+  is repeated after 60 s; `maxCurrent` is raised only by at least 2 A, lowered at once.
+  **Fail-safe:** unknown or untrusted site inputs, island, a running cool-down, §14a unknown,
+  an unplugged vehicle, a stale or unreadable evcc state -> the wanted state is cut down to
+  what evcc shows now (`controller.evcc.no_raise`); a silent evcc yields no intent.
+- **Link and driver:** `app/evcc_link.py` `EvccLink` is a second MQTT connection (own client
+  id, no last will) to the same broker as the HA entity surface; it needs the `mqtt` section
+  enabled (broker from the Supervisor or manual). evcc counts as alive only while the link is
+  up **and** `<prefix>/updated` is younger than 120 s by evcc's clock and was received within
+  120 s, so a stale retained value after a reconnect never makes a dead evcc look alive. The
+  driver (`devices/evcc.py`) is dumb: it publishes only what differs, `off` first, and a
+  release restores the takeover baseline (mode, `maxCurrent`, `limitSoc`) and waits for evcc's
+  echo; it is refused while evcc is silent.
+- **Core change:** `DeviceState` gained `max_current_a` and `limit_soc_pct`;
+  `LoadpointAction.matches` (the 0.05 A tolerance) lives in `core/decisions.py`
+  (`safety/` must not import `devices/`); `NOT_YET_SUPPORTED_KINDS` is now only
+  `inverter_limit`. `safety.loadpoint_not_loadpoint` / `safety.loadpoint_needs_loadpoint`
+  keep the two control families apart like the charger rules of 6-I.
+- **Template without roles:** `evcc.loadpoint` writes no Home Assistant entity, so the device
+  template validator allows `roles: {}` for a `loadpoint` control (conformance scenario
+  `tests/scenarios/device/evcc.loadpoint.yaml`). The wizard has no field for `loadpoint_id`
+  and `topic_prefix` yet: the defaults are loadpoint 1 and prefix `evcc` (frontend work for
+  6-M, question 1). The e2e gallery count is 8.
+- **Simulator:** `SimLoadpoint` (no HA entities) behind `FakeEvccBus` (`sim/fake_evcc.py`, an
+  in-memory evcc, no broker). Its regulation of `smart` (surplus of the previous step, 6 A
+  minimum, 30 s start and stop delays) is a model, not evcc's code. `ScenarioRunner.evcc` is
+  the bus; `ControlStack(evcc=...)` is the same class as in production. The real link is
+  tested against the in-process stub broker (`tests/app/test_evcc_link.py`).
+- **Release retries (review B1/C1):** a release that fails on a device trip or in `poll`
+  is rescheduled with the battery's back-off (30 s doubling to 10 min, `release_due_ts`,
+  writing blocked meanwhile) instead of one `failed` decision per 5 s tick; the first retry
+  after evcc is back restores the baseline. Since the re-review (R2) the emergency stop,
+  recovery, reconnect and a site trip reschedule a failed first attempt the same way (the
+  first attempt stays immediate); hand-over and shutdown keep the plain behaviour because
+  their successor retries at once.
+- **Behaviour cap:** an unconfirmed loadpoint stays capped at assisted (E8); the scenario sets
+  `behaviour_confirmed: true`, `test_an_unconfirmed_loadpoint_stays_at_assisted` covers the
+  cap.
+- **`UNVERIFIED` (also in the template):** clearing a plan over MQTT; how fast evcc reacts to
+  `maxCurrent` while charging; evcc resetting the mode to its default when a vehicle
+  disconnects (the gate reads it as the user's override until 04:00 next day); the exact
+  behaviour of `smart` with `alwaysCharge`; nothing was run against a real evcc.
+
+#### Safety self-review 6-J (control-safety)
+
+| Invariant | Result | Evidence |
+|---|---|---|
+| L1 values in range: `maxCurrent` in `[max(6 A, evcc minCurrent), configured max]`, `limitSoc` 1-100, no plan | pass | `check_values`; `test_l1_a_value_in_range_passes_and_one_outside_never_does` (hypothesis), `test_l1_max_current_outside_the_range_is_refused`, `test_l1_evccs_own_minimum_raises_the_floor`, `test_l1_a_vehicle_plan_is_refused`; the driver refuses a plan and a value below evcc's minimum (`test_a_plan_is_refused`, `test_max_current_below_evccs_minimum_is_refused`) |
+| L2 `now` only in EV mode `now` or a planned grid interval of `target`; no raise in `off`, unplugged or with unknown evcc state; E6 battery lock | pass | `check_raise`, `loadpoint_allowance_w`, `check_charge_grid`; `test_now_without_an_allowance_is_refused`, `test_now_in_a_planned_grid_interval_of_target_is_accepted_within_the_band`, `test_e6_now_needs_a_battery_lock`, `test_a_mode_off_user_gets_no_raise_but_a_lowering`, `test_an_unplugged_vehicle_gets_no_raise`, `test_an_unknown_evcc_state_blocks_every_raise`, `test_l2_now_never_passes_without_an_allowance`, `test_l2_an_unknown_state_blocks_every_raise` |
+| L3 the potential power (`maxCurrent` x V x phases) keeps G1/G3/G4/G5/G6; a raise to `smart` keeps G1 and the peak limit with the worst case `minCurrent` x phases x V (review A2) | pass | `potential_power_w` in `expected_power_w`, `_check_smart_import`; `test_g1_the_import_limit_holds_for_now`, `test_a2_a_raise_to_smart_is_judged_against_the_import_limit`, `test_a2_the_worst_case_uses_evccs_own_minimum`, `test_a2_lowering_and_off_are_never_blocked_by_the_import_limit`, `test_potential_power_is_zero_for_off_and_never_above_the_wiring` (hypothesis); reducing path `EvccIntents._import_cut` (`test_a2_*` in `test_evcc_intents.py`); scenarios `evcc_actor` (caused import <= 3 %) and `evcc_plan` (evcc imports by its own plan, cut within 20 s) |
+| L4 write on change, rate, read-back, three failures trip | pass | unchanged gate path; the driver writes only what differs (`test_apply_writes_only_what_differs_to_the_set_topics`, `test_nothing_is_written_when_evcc_already_shows_the_values`); `matches` with the 0.05 A tolerance; the controller repeats a wanted state at most every 60 s (`test_intents_are_sent_on_change_only_and_repeated_after_the_retry_time`) |
+| L5 evcc silent, shadow, emergency stop, site trip -> release to the baseline | pass | the release is refused while evcc is silent and retried with back-off until it succeeds, also after evcc is back (`test_a_silent_evcc_is_never_written_and_the_release_is_retried_with_backoff`, `test_release_fails_while_evcc_is_silent`), proven by the echo on mode and `maxCurrent` (`test_release_restores_the_baseline_and_waits_for_the_echo`, `test_release_fails_when_evcc_never_shows_the_baseline`); best effort per field, review A1 (`test_a1_release_works_without_a_limit_soc_topic`, `test_a1_release_clamps_the_current_up_to_evccs_minimum`, `test_a1_the_emergency_stop_restores_the_mode_without_a_limit_soc_topic`); `test_the_emergency_stop_restores_evccs_own_values`, `test_a_release_restores_the_takeover_baseline` |
+| Never touch evcc's battery settings (`site/*`) | pass | the fake evcc refuses and records anything outside mode/`maxCurrent`/`limitSoc`; `test_only_mode_max_current_and_limit_of_the_loadpoint_are_ever_sent`, `test_never_a_site_or_a_foreign_topic`; boundary test `test_evcc_set_publisher_is_called_only_by_the_evcc_driver` |
+| Fail-safe on stale or unknown evcc state | pass | driver `device_state` unavailable -> watchdog; `test_a_silent_or_missing_evcc_is_unavailable`, `test_a_stale_retained_heartbeat_never_makes_a_dead_evcc_look_alive`, `test_evcc_goes_silent_when_the_heartbeat_ages_out`; controller no-raise (`test_no_raise_when_anything_is_unknown_or_protective`, `test_property_a_wanted_state_never_exceeds_the_wiring_and_unsafe_inputs_never_raise`) |
+| §14a, import limit, island | pass | `maxCurrent` capped by the budget, below 6 A `off` (`test_para14a_budget_caps_the_current_and_below_the_floor_it_is_off`); the gate's G1-G6 judge the potential power |
+| Shadow / assisted / automatic | pass | `test_shadow_is_the_default_and_writes_nothing`, `test_shadow_writes_nothing` (scenario), `test_an_unconfirmed_loadpoint_stays_at_assisted`, `test_unconfirmed_phase6_devices_are_capped_at_assisted` |
+| Respect the user (manual change in evcc) | pass | `test_a_mode_change_in_evccs_own_app_is_respected` (override held until 04:00, no fighting) |
+| Emergency "back to normal" from any state | pass | `ReleaseAction` never judged by L1-L3; `test_a_release_of_a_phase6_device_writes_nothing[evcc_lp]` |
+| Loadpoint and charger families kept apart | pass | `test_a_loadpoint_rejects_every_action_but_loadpoint_and_release`, `test_a_loadpoint_action_on_another_device_is_rejected` |
+| Only `safety/` calls `apply()`/`release()`; only the driver calls `publish_set` | pass | boundary tests (`test_drivers_are_imported_only_by_safety_and_app` now covers `suncore.devices.evcc`, `test_evcc_set_publisher_is_called_only_by_the_evcc_driver`) |
+| Reserve never undercut | pass | the car's lock only stops discharging; B1/B6 unchanged |
+
+#### Offene Fragen an den Maintainer (6-J)
+
+1. **Ladepunkt-ID und Topic-Präfix im Assistenten:** Die Vorlage nimmt Ladepunkt 1 und das
+   Präfix `evcc`. Ein Feld dafür fehlt im Frontend (6-M). **Empfehlung:** Felder im
+   Geräte-Editor ergänzen; bis dahin per Konfiguration. Einverstanden? Welche evcc-Version
+   und welchen Broker (Mosquitto-App?) nutzt du, und zeigt evcc auf denselben Broker wie
+   SunCore?
+2. **MQTT-Abschnitt gemeinsam:** Die evcc-Anbindung nutzt den Broker des `mqtt`-Abschnitts
+   (Supervisor oder manuell). Ist der Abschnitt aus, gibt es keine evcc-Anbindung (Gerät
+   „nicht verfügbar“, nichts wird geschrieben). **Empfehlung:** so lassen; alternativ ein
+   eigener `evcc`-Abschnitt. Einverstanden?
+3. **Min+PV ohne Mindestleistung:** evcc kennt kein „Min+PV“ mehr; SunCore setzt `smart`
+   (nur Überschuss) und erzwingt keine 6 A. **Empfehlung:** so lassen und im UI erklären.
+   Alternative: der veraltete Alias `minpv` (evcc normalisiert ihn auf `smart` mit „immer
+   laden“, ungeprüft). Einverstanden?
+4. **Kein Fahrzeug-Plan in evcc:** SunCore schreibt keinen Plan (Löschen über MQTT ist
+   ungeprüft); Ladeziel und Abfahrtszeit bleiben im SunCore-Planer, der `now`-Intervalle
+   freigibt. **Empfehlung:** so lassen; nutzt du evcc-Pläne selbst? Dann kollidiert nichts,
+   SunCore liest sie nicht.
+5. **Moduswechsel beim Abstecken:** evcc setzt den Modus beim Trennen des Fahrzeugs auf seinen
+   Standard zurück; SunCore liest das als deine Übernahme und pausiert bis 04:00 des
+   Folgetags. **Empfehlung:** erst mit einem echten evcc messen, dann ggf. das Abstecken
+   erkennen und ignorieren. Einverstanden?
+6. **evcc-Batterieregeln:** SunCore schreibt nie nach `<prefix>/site/*` (Frage 7 des Plans).
+   Bitte die evcc-Batterieregeln neutral lassen, damit evcc nicht selbst aus der Batterie
+   ins Auto entlädt (E6 gilt nur für das, was SunCore freigibt). Einverstanden?
+7. **Rauschen im Protokoll:** Erledigt (Review B1): Fehlgeschlagene Freigaben werden mit
+   wachsendem Abstand (30 s bis 10 min) wiederholt statt jeden Takt. Keine Frage mehr offen.
+
+#### Review conditions 6-J (control-safety, PR #61)
+
+The independent review rejected the PR until A1 and A2 were fixed; all items are done.
+
+- **A1 (done):** release and emergency stop could write nothing (a missing `limitSoc` topic or a
+  baseline `maxCurrent` below a raised `minCurrent` made the driver refuse; the echo compared
+  `limitSoc`). The release is best effort per field: mode first, `maxCurrent` clamped up to
+  `max(baseline, minCurrent)`, `limitSoc` only while evcc shows it, the echo only on mode and
+  `maxCurrent`. Tests: driver (`test_a1_*`), scenario `evcc_actor` with the topic removed.
+- **A2 (done):** G1 and the peak limit were not checked for `smart`, but evcc can import in
+  `smart` (its own plan, a smart-cost limit, `alwaysCharge`). A raise to `smart` is judged
+  against the effective import limit with the worst case `minCurrent x phases x V`
+  (`safety.grid_import_limit`); lowering and `off` are never blocked. The controller has a
+  reducing path: while the measured import is over the limit and the car draws power,
+  `maxCurrent` is lowered to the headroom (`limit - import + draw`, below 6 A `off`) and held
+  until the headroom allows the maximum again (`controller.evcc.import_cut`,
+  `controller.evcc.import_off`). Scenario `evcc_plan` (the fake evcc models an own plan,
+  `always_charge`): the import is over the limit for 20 s, then stays under it, no rejected
+  re-tries.
+- **B1 (done):** failed releases are retried with back-off (see "Release retries").
+- **B2 (done):** `Runtime._evcc_bus` starts the link (`EvccLink.ensure_started`) when the
+  runtime is already started, so a first loadpoint added later is connected
+  (`tests/app/test_evcc_runtime.py`).
+- **C1 (done):** the retry after evcc's return succeeds (scenario test), so the L5 statement in
+  the table is accurate.
+- **C2 (done):** template `unverified`, the driver docstring and the user guide say that
+  liveness depends on evcc's publication interval (a quiet evcc above 120 s trips falsely) and
+  on evcc's own clock (a clock running ahead makes an old retained timestamp look fresh).
+- **C3 (done):** warning in the template, the user guide (en/de) and as a reason
+  (`controller.evcc.battery_warning`, shown with `smart` next to a home battery without a
+  lock): `smart` has no E6 lock, evcc's `bufferSoc` rules can discharge the battery into the car.
+
+#### Re-review 6-J (control-safety, commit 4b1d51a)
+
+A1, B1, B2 and C1-C3 are confirmed fixed; A2 is partly fixed. Two new items, both fixed.
+
+- **Residual risk (A2):** the G1/peak check for `smart` is reactive. evcc may import by its own
+  plan until the controller has seen the measured import and the cut is written and echoed:
+  an overshoot of up to about one minute (scenario `evcc_plan`: over the limit for 20 s). The
+  gate cannot prevent it, because it only sees what evcc *may* do (the worst case of a raise),
+  not what evcc's plan does afterwards. Accepted; the installed fuse (G2) and the grid
+  operator's limit stay with the user's own protection.
+- **R1 (done, blocking):** the import cut flapped between `off` and `smart` (off and re-enable
+  on the same threshold, the headroom adds the charge power back; the reviewer measured 47
+  mode changes in 120 ticks). Now: off only after 60 s continuously over the limit (until then
+  the minimum of 6 A is held), back on only after 300 s with at least 1 A above evcc's minimum
+  (`OFF_AFTER_S`, `MIN_OFF_S`, `REENABLE_MARGIN_A` in `controller/evcc.py`). In the gate,
+  `action_turns_on` now follows the loadpoint mode (off <-> on/smart/now), so every such
+  change counts toward the switch counter, minimum run/pause and the switch rate apply to
+  switching on; **off is counted but never blocked** (the safe direction). Tests:
+  `test_r1_*` (controller, gate), scenario `evcc_flicker` (clouds and load flicker around the
+  threshold: at most 2 off <-> on changes and 4 switches per hour).
+- **R2 (done):** a failed emergency-stop release (echo timeout with evcc reachable) was never
+  retried. `_release_all(..., reschedule=True)` (emergency stop, recovery, reconnect, site
+  trip): the first attempt is immediate, a failure sets `release_due_ts` with back-off and
+  `release_due_reason`, and `poll` retries. Hand-over and shutdown are unchanged, so
+  `recover(after_handover=True)` and `tests/safety/test_release_paths.py` hold. Test:
+  `test_r2_a_failed_emergency_stop_release_is_retried_by_poll_with_backoff`.
+
+### 6-C (MQTT base and backend ICU)
+
+- **`hassio_api` stays off** (plan WP3 and decision 1 said "re-enable"): the Supervisor lets apps
+  call `/services*` without it (`security.py` `api_bypass`, verified 2026-11-24), the `mqtt:want`
+  services role is what grants the lookup. A boundary test asserts that `GET /services/mqtt` is
+  the only Supervisor REST URL in the code and that no app folder sets `hassio_api`.
+- **Stub broker, not `amqtt`**: `amqtt`'s latest release is a pre-release that does not resolve with
+  the project's dependencies; `tests/ha/mqtt/stub_broker.py` is a ~200-line MQTT 3.1.1 broker
+  (credentials, will, retained, wildcards) and the tests run the real `aiomqtt` against it.
+  6-J can reuse it for the evcc fake.
+- **Read-only subset announced**: only the entities whose values SunCore has today are
+  announced (`app/ha_entities.py` `SUPPORTED`): `status`, `mode`, `available_surplus`, `healthy`,
+  `shadow_mode`, `emergency_stop`, `events`, and per device `<dev>_mode`, `<dev>_power`,
+  `<dev>_last_decision`. Not announced yet (catalogue entries exist, values follow): `next_action`,
+  `plan_cost_today`, `savings_today`, `savings_month`, `autarky_today`, `pv_forecast_error`
+  (need a summary reader, to be added with 6-D or 6-N), `month_peak`, `grid_state`,
+  `para14a_active`, `island` (6-F), `battery_action`, `battery_lease` (battery state mapping),
+  EV, program and comfort entities (6-I, 6-K, 6-L). All command entities (switch, button, select,
+  number, text) are in the catalogue but never announced before 6-D.
+- **Object id** of the emergency stop button is `emergency_stop_button` (the binary sensor keeps
+  `emergency_stop`): object ids are unique per site because they form the topics.
+- **Enum sensors publish the rendered label** (state and `options` in the backend language), as
+  ADR-0016 decision 6 says; a language change republishes configs and states. Automations on
+  these states therefore depend on the language; see question 15.
+- **`available_surplus`** is the controller's smoothed `available_w` (before the reserve).
+  `healthy` = Home Assistant connected and the control loop active.
+- **Events** produced now: `device_switched` (accepted decision), `proposal` (proposed),
+  `error` (failed), derived from each device's newest gate decision; the other types of the
+  `events` entity belong to later PRs. Events are not retained (HA ignores retained replays).
+- **Install record** (`iid`, announced device ids) lives in `learned_param` (namespace
+  `ha_entities`), not in a new table: no schema bump.
+- **Discovery** uses one device payload per HA device with `via_device` pointing at the site
+  device; no `cu` (configuration_url) and no `child_devices`.
+- **Backend catalogue prefixes** as planned (`mqtt.`, `notify.`, `safety.`, `controller.`,
+  `planner.`, `device.`, `grid.`); the golden file covers up to 8 sample argument sets per key.
+  Languages other than `en` and `de` have plural rule `other` only.
+- Image smoke test not run locally (no Docker daemon in the session); the new dependencies
+  `aiomqtt` 2.5.1 and `paho-mqtt` 2.2.0 are pure-Python wheels with hashes in `uv.lock`, so the
+  image's `--only-binary --require-hashes` install is unaffected. CI's smoke job covers it.
+- `UNVERIFIED`: `get_config` language key, custom HA birth topic, monetary unit rule, TLS to the
+  Mosquitto app with verification (see `docs/research/mqtt-discovery.md`).

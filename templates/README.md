@@ -27,6 +27,7 @@ drift).
 | device | `generic.program_plug` | shiftable program behind a smart plug: switch and its power sensor; switched off at arming while idle, on at the planned start (needs `program.resume_confirmed`) | generic, simulator only (`UNVERIFIED`: resume after power loss per appliance) |
 | device | `generic.program_notify` | shiftable program SunCore never switches: power sensor only, a "start now" notification | generic, simulator only (`UNVERIFIED`: no hardware) |
 | device | `generic.program_remote` | shiftable program with a remote-start switch and a power sensor; only switched on | generic, simulator only (`UNVERIFIED` per integration; a `button` role is not supported yet) |
+| device | `evcc.loadpoint` | one evcc loadpoint driven over evcc's MQTT API (mode, max current, limit; evcc regulates current and phases), no entities to map | from the evcc source; fake evcc only (`UNVERIFIED`: no running evcc) |
 | device | `generic.water_heater_steps` | water heater with power levels through one select entity, optional tank probe | generic, simulator only (`UNVERIFIED`: no hardware) |
 | device | `generic.water_heater_relays` | water heater with 1-3 heating elements switched by relays | generic, simulator only (`UNVERIFIED`: no hardware) |
 | tariff | `tibber.price` | Tibber dynamic price, curve from `tibber.get_prices` | from integration source |

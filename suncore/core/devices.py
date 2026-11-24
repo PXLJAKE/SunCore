@@ -416,7 +416,7 @@ class LoadpointControl(_Frozen):
 
     No Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and
     ``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.
-    Whether loadpoint ids always start at 1 is ``UNVERIFIED``.
+    Loadpoint ids start at 1 in the evcc source read on 2026-11-24 (``server/mqtt.go``).
     """
 
     kind: Literal["loadpoint"]

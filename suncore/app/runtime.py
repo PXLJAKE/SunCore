@@ -36,6 +36,7 @@ from suncore.app.adapters import (
 )
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import BatteryWiring, ControlStack
+from suncore.app.evcc_link import EvccLink
 from suncore.app.grid import GridMonitor
 from suncore.app.ha_entities import build_ha_entities
 from suncore.app.history import backfill_history, rebuild_history
@@ -66,6 +67,7 @@ from suncore.core.config import (
     DevicesConfig,
     ForecastConfig,
     GoalsConfig,
+    MqttConfig,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -85,7 +87,7 @@ from suncore.core.controlstate import (
 )
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
-from suncore.core.devices import ChargerControl, DeviceConfig
+from suncore.core.devices import ChargerControl, DeviceConfig, LoadpointControl
 from suncore.core.flex import EvState
 from suncore.core.grid import month_key
 from suncore.core.haentities import BrokerState, HaEntitiesStatus
@@ -131,7 +133,7 @@ from suncore.ha import (
     legacy_entities,
     suggest_from_prefs,
 )
-from suncore.ha.mqtt import HaEntityService
+from suncore.ha.mqtt import HaEntityService, supervisor_services_from_env
 from suncore.ha.mqtt.check import check_ha_entities
 from suncore.notify import (
     ActionsState,
@@ -292,6 +294,8 @@ class Runtime:
     ha_entities: HaEntityService | None = None
     notifications: NotificationService | None = None
     """The MQTT entity surface (``None`` in demo mode); never needed by anything else."""
+    evcc_link: EvccLink | None = None
+    """The MQTT link to evcc (PR 6-J); built with the first stack when a loadpoint exists."""
 
     @property
     def gate(self) -> SafetyGate:
@@ -345,6 +349,8 @@ class Runtime:
         self._start_planning()
         await self._start_ha_entities()
         await self._start_notifications()
+        if self.evcc_link is not None:
+            await self.evcc_link.start()
         if self.timeseries is not None:
             self._flush_task = asyncio.create_task(self._flush_loop(), name="suncore-ts-flush")
             self._maintenance_task = asyncio.create_task(
@@ -653,6 +659,7 @@ class Runtime:
             ev_states=self._ev_states.get,
             programs=self.program_jobs,
             on_program_event=self._program_event,
+            evcc=self._evcc_bus(devices),
         )
         stack.add_listener(self._notify_control)
         return stack
@@ -681,6 +688,33 @@ class Runtime:
                     return device.name
         return device_id
 
+    def _evcc_bus(self, devices: list[DeviceConfig]) -> EvccLink | None:
+        """The MQTT link to evcc for the loadpoints of ``devices`` (PR 6-J), built on first need.
+
+        The link outlives a rebuilt stack; its subscriptions follow the configured loadpoints.
+        No loadpoint, demo mode or no learned store: no link (a loadpoint driver then reports
+        its state unavailable and is never written).
+        """
+        if self.demo:
+            return None
+        if self.evcc_link is None:
+            if not any(isinstance(d.control, LoadpointControl) for d in devices):
+                return None
+
+            async def load_config() -> MqttConfig | None:
+                stored = await self.config.get("mqtt")
+                return stored if isinstance(stored, MqttConfig) else None
+
+            self.evcc_link = EvccLink(
+                load_config=load_config,
+                services=supervisor_services_from_env(),
+                clock=self.clock,
+            )
+        self.evcc_link.configure(devices)
+        if self._started:
+            self.evcc_link.ensure_started()  # first loadpoint added after start-up (B2)
+        return self.evcc_link
+
     async def reload_ev_states(self) -> None:
         """Re-read ``flex_state`` (at start and every planning round, PR 6-I).
 
@@ -702,7 +736,7 @@ class Runtime:
             return {}
         out: dict[str, EvLive] = {}
         for device in self.devices.devices:
-            if not isinstance(device.control, ChargerControl):
+            if not isinstance(device.control, ChargerControl | LoadpointControl):
                 continue
             state = self.stack.device_state(device.id)
             if state is None:
@@ -1328,6 +1362,8 @@ class Runtime:
         if self.ha_entities is not None:
             await self.ha_entities.stop()
             self.ha_entities = None
+        if self.evcc_link is not None:
+            await self.evcc_link.stop()
 
     async def stop(self) -> None:
         """Close in reverse order: release hardware control, connection, then database.
@@ -1538,6 +1574,8 @@ class Runtime:
             self.ha_entities.reconfigure()
         if name == "notifications" and self.notifications is not None:
             self.notifications.reconfigure()
+        if name == "mqtt" and self.evcc_link is not None:
+            self.evcc_link.reconfigure()
         self._notify()
         return stored
 

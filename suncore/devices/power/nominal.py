@@ -3,6 +3,7 @@
 
 * on/off: ``on`` -> ``nominal_w``, ``off`` -> 0;
 * steps / relays: the step's ``power_w``; modes: the mode's ``power_w``;
+* evcc loadpoint: the charge power evcc reports (``UNVERIFIED`` accuracy, 10 % uncertainty);
 * continuous: the written value converted from W, A (``voltage_v`` x ``phases``) or %
   (of ``nominal_w``);
 * set-point (climate): ``on`` -> ``nominal_w`` with a wide band (the compressor load
@@ -22,6 +23,7 @@ from suncore.core.control import DeviceState, PowerEstimate
 from suncore.core.devices import (
     ContinuousControl,
     ControlSpec,
+    LoadpointControl,
     ModeControl,
     PowerModelKind,
     SetpointControl,
@@ -39,6 +41,7 @@ from suncore.devices.power.common import (
 
 FIXED_LOAD_REL: Final = 0.2
 CLIMATE_REL: Final = 0.5
+LOADPOINT_REL: Final = 0.1
 OFF_MODES: Final = frozenset({"off"})
 
 
@@ -96,6 +99,11 @@ class NominalPowerModel:
                     if mode.value == state.mode:
                         return mode.power_w, FIXED_LOAD_REL
             return self._on_off_power(state, nominal), CLIMATE_REL
+        if isinstance(control, LoadpointControl):
+            # evcc reports the charge power it measures (state.value, W); 0 W while it is idle
+            if state.value is not None:
+                return state.value, LOADPOINT_REL
+            return self._on_off_power(state, nominal), FIXED_LOAD_REL
         if isinstance(control, ContinuousControl):
             if state.value is not None:
                 return value_to_power_w(state.value, control, nominal), FIXED_LOAD_REL

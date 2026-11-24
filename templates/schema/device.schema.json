@@ -740,7 +740,7 @@
     },
     "LoadpointControl": {
       "additionalProperties": false,
-      "description": "An evcc loadpoint driven over evcc's MQTT API (ADR-0017 decision 2, PR 6-J).\n\nNo Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and\n``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.\nWhether loadpoint ids always start at 1 is ``UNVERIFIED``.",
+      "description": "An evcc loadpoint driven over evcc's MQTT API (ADR-0017 decision 2, PR 6-J).\n\nNo Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and\n``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.\nLoadpoint ids start at 1 in the evcc source read on 2026-11-24 (``server/mqtt.go``).",
       "properties": {
         "kind": {
           "const": "loadpoint",

@@ -28,6 +28,7 @@ Devices:
   ``relays`` 1-3 switches, a dedicated ``water_heater`` entity), maximum-temperature cut-off.
 * :class:`SimSwitchLoad` (pool pump on ``switch`` / ``input_boolean``) and
   :class:`SimNumberLoad` (a W number such as a heating rod limit).
+* :class:`SimLoadpoint` (PR 6-J) - an evcc loadpoint behind the fake evcc (MQTT, no HA entities).
 * :class:`SimWallbox` (PR 6-I) - a wallbox (current number in A, pause switch, optional phase
   select) with a vehicle (SoC, arrival/departure, minimum charging current).
 * :class:`SimProgram` (PR 6-L) - a shiftable programme (profile, start lag, resumes after power
@@ -44,6 +45,8 @@ from functools import partial
 from typing import Annotated, Any, ClassVar, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from suncore.sim.fake_evcc import FakeEvccBus
 
 HVAC_MODES: Final = ("off", "heat", "cool", "heat_cool", "auto", "dry", "fan_only")
 """``HVACMode`` values (research/ha-websocket-api.md)."""
@@ -1785,18 +1788,265 @@ class SimProgram(SimDevice):
         return super().manual(action, value)
 
 
+class LoadpointParams(_Frozen):
+    """An evcc loadpoint with a vehicle (PR 6-J): no Home Assistant entities, evcc's MQTT API.
+
+    The fake evcc (:class:`suncore.sim.fake_evcc.FakeEvccBus`) publishes the retained values and
+    takes the ``/set`` messages; its regulation is a model, not evcc's code: ``smart`` charges
+    with the PV surplus (own draw minus the grid import of the previous step), at least
+    ``min_current_a``, at most ``maxCurrent``, with ``start_delay_s`` / ``stop_delay_s`` of
+    hysteresis; ``now`` draws ``maxCurrent``; ``off`` nothing. The car stops at ``limitSoc`` and at
+    ``car_max_soc_pct``. ``reset_mode_on_disconnect`` models evcc resetting the mode to its
+    default when the car leaves (``UNVERIFIED`` behaviour, see ``templates/device/evcc.loadpoint``).
+    """
+
+    kind: Literal["loadpoint"] = "loadpoint"
+    topic_prefix: str = "evcc"
+    loadpoint_id: int = Field(default=1, ge=1, le=64)
+    initial_mode: Literal["off", "smart", "now"] = "off"
+    initial_max_current_a: float = Field(default=16.0, gt=0)
+    initial_limit_soc_pct: int = Field(default=100, ge=0, le=100)
+    min_current_a: float = Field(default=6.0, gt=0)
+    max_current_a: float = Field(default=16.0, gt=0)
+    phases: Literal[1, 3] = 3
+    voltage_v: float = Field(default=230.0, gt=0)
+    capacity_wh: float = Field(default=60_000.0, gt=0)
+    efficiency: float = Field(default=0.9, gt=0, le=1)
+    initial_soc_pct: float = Field(default=40.0, ge=0, le=100)
+    car_max_soc_pct: float = Field(default=100.0, ge=0, le=100)
+    arrive_s: float | None = Field(default=None, ge=0)
+    depart_s: float | None = Field(default=None, gt=0)
+    start_delay_s: float = Field(default=30.0, ge=0)
+    stop_delay_s: float = Field(default=30.0, ge=0)
+    reset_mode_on_disconnect: bool = False
+    always_charge: bool = False
+    """evcc imports from the grid in ``smart`` by its own rules (a vehicle plan, a smart-cost
+    limit, ``alwaysCharge``): it draws ``maxCurrent`` regardless of the surplus."""
+
+
+def _number(value: float, decimals: int = 3) -> str:
+    """evcc's float payloads: up to three decimals, no trailing zeros."""
+    return f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+
+
+class SimLoadpoint(SimDevice):
+    """See :class:`LoadpointParams`."""
+
+    kind: ClassVar[str] = "loadpoint"
+
+    def __init__(self, device_id: str, params: LoadpointParams) -> None:
+        super().__init__(device_id)
+        self.p = params
+        self.mode: str = params.initial_mode
+        self.max_current_a = params.initial_max_current_a
+        self.limit_soc_pct = params.initial_limit_soc_pct
+        self.soc_pct = params.initial_soc_pct
+        self.current_a = 0.0
+        self.charged_wh = 0.0
+        self.bus: FakeEvccBus | None = None
+        self.grid_w: Callable[[], float] = lambda: 0.0
+        """The site's grid power (+ = import) of the previous step; set by the runner."""
+        self._start: datetime | None = None
+        self._want_since: datetime | None = None
+        self._stop_since: datetime | None = None
+        self._was_connected = False
+        self.hide_limit_soc = False
+        """evcc publishes no ``limitSoc`` (a vehicle without one); a test sets it."""
+
+    # --- identity ---------------------------------------------------------------------------
+
+    def entity_ids(self) -> tuple[str, ...]:
+        return ()  # evcc is reached over MQTT, not through Home Assistant
+
+    def roles(self) -> dict[str, str]:
+        return {}
+
+    def attach(self, bus: FakeEvccBus, grid_w: Callable[[], float]) -> None:
+        """Connect the loadpoint to the fake evcc: register the setter, publish the start state."""
+        self.bus = bus
+        self.grid_w = grid_w
+        bus.register(self.p.topic_prefix, self.p.loadpoint_id, self._set)
+        self.publish_all()
+
+    # --- physics ----------------------------------------------------------------------------
+
+    def connected_at(self, now: datetime | None) -> bool:
+        if now is None or self._start is None:
+            return self.p.arrive_s is None or self.p.arrive_s == 0
+        offset = (now - self._start).total_seconds()
+        if self.p.arrive_s is not None and offset < self.p.arrive_s:
+            return False
+        return self.p.depart_s is None or offset < self.p.depart_s
+
+    def _can_charge(self, at: datetime | None) -> bool:
+        return (
+            self.connected_at(at)
+            and self.soc_pct < min(self.p.car_max_soc_pct, float(self.limit_soc_pct))
+            and self.mode != "off"
+        )
+
+    def power_w(self) -> float:
+        return self.current_a * self.p.voltage_v * self.p.phases
+
+    def is_on(self) -> bool:
+        return self.power_w() > 0
+
+    def _breakpoints(self, after: datetime) -> Iterable[datetime]:
+        out: list[datetime] = []
+        if self._start is not None:
+            for offset in (self.p.arrive_s, self.p.depart_s):
+                if offset is not None:
+                    at = self._start + timedelta(seconds=offset)
+                    if at > after:
+                        out.append(at)
+        return out
+
+    def advance(self, now: datetime, outdoor_c: float) -> None:
+        if self._start is None:
+            self._start = now
+        super().advance(now, outdoor_c)
+        self.publish_all()
+
+    def _regulate(self, t: datetime) -> None:
+        """evcc's control law for the sub-step starting at ``t`` (a model, see the params)."""
+        p = self.p
+        if not self._can_charge(t):
+            self.current_a = 0.0
+            self._want_since = self._stop_since = None
+            return
+        if self.mode == "now" or (self.mode == "smart" and p.always_charge):
+            self.current_a = self.max_current_a
+            return
+        per_a = p.voltage_v * p.phases
+        want_a = min(self.max_current_a, (self.power_w() - self.grid_w()) / per_a)
+        if want_a >= p.min_current_a:
+            self._stop_since = None
+            if self.current_a > 0:
+                self.current_a = max(p.min_current_a, math.floor(want_a * 10) / 10)
+            else:
+                self._want_since = self._want_since or t
+                if (t - self._want_since).total_seconds() >= p.start_delay_s:
+                    self.current_a = max(p.min_current_a, math.floor(want_a * 10) / 10)
+        else:
+            self._want_since = None
+            if self.current_a > 0:
+                self._stop_since = self._stop_since or t
+                if (t - self._stop_since).total_seconds() >= p.stop_delay_s:
+                    self.current_a = 0.0
+                    self._stop_since = None
+
+    def _integrate(self, t0: datetime, t1: datetime, outdoor_c: float) -> None:
+        del outdoor_c
+        connected = self.connected_at(t0)
+        if self._was_connected and not connected and self.p.reset_mode_on_disconnect:
+            self.mode = self.p.initial_mode
+        self._was_connected = connected
+        self._regulate(t0)
+        if self.current_a <= 0:
+            return
+        drawn_wh = self.power_w() * (t1 - t0).total_seconds() / 3600.0
+        self.charged_wh += drawn_wh
+        stored_pct = drawn_wh * self.p.efficiency / self.p.capacity_wh * 100.0
+        self.soc_pct = min(self.p.car_max_soc_pct, self.soc_pct + stored_pct)
+
+    # --- the MQTT side ------------------------------------------------------------------------
+
+    def _topics(self) -> dict[str, str]:
+        connected = self.connected_at(self._t)
+        topics = {
+            "mode": self.mode,
+            "maxCurrent": _number(self.max_current_a),
+            "minCurrent": _number(self.p.min_current_a),
+            "limitSoc": str(self.limit_soc_pct),
+            "connected": "true" if connected else "false",
+            "charging": "true" if self.current_a > 0 else "false",
+            "chargePower": _number(self.power_w(), 1),
+            "vehicleSoc": _number(self.soc_pct, 1) if connected else "0",
+            "phasesActive": str(self.p.phases if self.current_a > 0 else 0),
+        }
+        if self.hide_limit_soc:
+            del topics["limitSoc"]
+        return topics
+
+    def publish_all(self) -> None:
+        """Publish every value that changed (evcc publishes on change, retained) and beat."""
+        bus = self.bus
+        if bus is None:
+            return
+        for key, payload in self._topics().items():
+            bus.publish(self.p.topic_prefix, self.p.loadpoint_id, key, payload)
+        bus.beat(self.p.topic_prefix)
+
+    def _set(self, key: str, payload: str) -> bool:
+        """evcc's setter: a bad value is logged and ignored (``core/loadpoint_api.go``)."""
+        try:
+            if key == "mode":
+                if payload not in ("off", "smart", "now"):
+                    return False
+                self.mode = payload
+            elif key == "maxCurrent":
+                value = float(payload)
+                if not self.p.min_current_a <= value <= self.p.max_current_a:
+                    return False
+                self.max_current_a = value
+            elif key == "limitSoc":
+                limit = int(payload)
+                if not 0 <= limit <= 100:
+                    return False
+                self.limit_soc_pct = limit
+            else:
+                return False
+        except ValueError:
+            return False
+        self.publish_all()
+        return True
+
+    # --- HA side (none) -----------------------------------------------------------------------
+
+    def states(self, now: datetime) -> list[StateOut]:
+        del now
+        return []
+
+    def report(self) -> None:
+        self.publish_all()
+
+    def call(
+        self, now: datetime, domain: str, service: str, entity_id: str, data: dict[str, Any]
+    ) -> Effect:
+        del now, data
+        raise validation_error(f"{entity_id} does not support {domain}.{service}")
+
+    def manual(self, action: str, value: float | str | None) -> Effect:
+        """The user changes evcc's mode in evcc's own app (``select_option`` with the mode)."""
+        if action == "select_option" and value in ("off", "smart", "now"):
+            return Effect(0.0, (Step(0.0, partial(self._set_mode, str(value))),), 0.0)
+        return super().manual(action, value)
+
+    def _set_mode(self, mode: str) -> None:
+        self.mode = mode
+        self.publish_all()
+
+
 AnyDeviceParams = (
-    ClimateParams | SwitchParams | NumberParams | WaterHeaterParams | WallboxParams | ProgramParams
+    ClimateParams
+    | SwitchParams
+    | NumberParams
+    | WaterHeaterParams
+    | WallboxParams
+    | LoadpointParams
+    | ProgramParams
 )
 DeviceParams = Annotated[AnyDeviceParams, Field(discriminator="kind")]
 
 
-def build_device(device_id: str, params: AnyDeviceParams) -> SimDevice:
+def build_device(device_id: str, params: AnyDeviceParams) -> SimDevice:  # noqa: PLR0911
     """The simulated device for ``params``."""
     if isinstance(params, WallboxParams):
         return SimWallbox(device_id, params)
     if isinstance(params, ProgramParams):
         return SimProgram(device_id, params)
+    if isinstance(params, LoadpointParams):
+        return SimLoadpoint(device_id, params)
     if isinstance(params, ClimateParams):
         return SimClimate(device_id, params)
     if isinstance(params, SwitchParams):
@@ -1872,6 +2122,7 @@ __all__ = [
     "DeviceParams",
     "Effect",
     "HourlyCounter",
+    "LoadpointParams",
     "NumberParams",
     "PolledSensor",
     "ProgramParams",
@@ -1879,6 +2130,7 @@ __all__ = [
     "SimClimate",
     "SimDevice",
     "SimDeviceSet",
+    "SimLoadpoint",
     "SimNumberLoad",
     "SimProgram",
     "SimSwitchLoad",

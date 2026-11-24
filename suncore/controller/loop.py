@@ -70,6 +70,8 @@ from suncore.controller.battery import (
     BatteryView,
 )
 from suncore.controller.ev import battery_holds_lock
+from suncore.controller.evcc import INTENT_PREFIX as EVCC_INTENT_PREFIX
+from suncore.controller.evcc import EvccIntents, LoadpointTick, LoadpointView
 from suncore.controller.grid import GridHolds, GridInputs, situation_reasons
 from suncore.controller.levels import ConfigQuantiser, Quantiser
 from suncore.controller.programs import (
@@ -83,10 +85,17 @@ from suncore.controller.programs import (
 from suncore.controller.surplus import SiteSurplus, SurplusTracker
 from suncore.core.balance import FlowSnapshot
 from suncore.core.config import GoalsConfig
-from suncore.core.control import ControlSettings, DeviceState, GateInputs, Plan, PowerEstimate
+from suncore.core.control import (
+    ControlSettings,
+    DeviceState,
+    GateInputs,
+    Plan,
+    PowerEstimate,
+    device_band_now,
+)
 from suncore.core.decisions import Decision, Intent, Reason
-from suncore.core.devices import DeviceConfig
-from suncore.core.flex import EvMode, ProgramJob
+from suncore.core.devices import DeviceConfig, LoadpointControl
+from suncore.core.flex import EV_MODE_DEFAULT, EvMode, EvTarget, ProgramJob
 from suncore.core.grid import (
     GridMemory,
     GridState,
@@ -129,6 +138,8 @@ class ControllerInputs:
     (``controller.grid.resolve_grid_inputs``); ``None`` = only ``import_limit_w`` (Phase 3)."""
     ev_modes: Mapping[str, EvMode] = field(default_factory=dict)
     """PR 6-I: the runtime EV mode per charger (``flex_state``; missing = the default mode)."""
+    ev_targets: Mapping[str, EvTarget] = field(default_factory=dict)
+    """PR 6-J: the runtime EV target per charger or loadpoint (``flex_state``; mode ``target``)."""
     battery_present: bool = True
     """PR 6-I (E6): the site has a home battery (the conservative default assumes one)."""
     jobs: Mapping[str, Sequence[ProgramJob]] = field(default_factory=dict)
@@ -169,6 +180,8 @@ class TickResult:
     """PR 6-L: program jobs that changed this tick (the composition root persists them)."""
     program_events: tuple[ProgramEvent, ...] = ()
     """PR 6-L: program starts, ends and "start now" requests (notifications)."""
+    loadpoints: Mapping[str, LoadpointView] = field(default_factory=dict)
+    """PR 6-J: what the controller wants of each evcc loadpoint this tick."""
 
 
 class Controller:
@@ -201,6 +214,8 @@ class Controller:
         self._programs = ProgramController(devices, tz=tz)
         self._para14a_ids = frozenset(d.id for d in devices if d.para14a)
         self._grid_memory = GridMemory()
+        self._evcc = EvccIntents()
+        self._loadpoints = tuple(d for d in devices if isinstance(d.control, LoadpointControl))
 
     @property
     def settings(self) -> ControlSettings:
@@ -218,6 +233,7 @@ class Controller:
         self._allocator.set_devices(devices)
         self._programs.set_devices(devices)
         self._para14a_ids = frozenset(d.id for d in devices if d.para14a)
+        self._loadpoints = tuple(d for d in devices if isinstance(d.control, LoadpointControl))
 
     @property
     def programs(self) -> ProgramController:
@@ -284,6 +300,18 @@ class Controller:
         # (each intent's own added demand is the gate's ``delta``).
         surplus = site.gate_estimate(self._settings.reserve_w, outcome.committed_w)
         outcome = self._allocator.run(now, site, allocation, outcome)
+        battery_locked = allocation.battery_locked
+        loadpoint_intents = self._evcc.step(
+            now,
+            self._loadpoint_ticks(
+                now,
+                inputs,
+                grid,
+                holds,
+                site_trusted=site.trusted,
+                battery_locked=battery_locked,
+            ),
+        )
         battery_intent = self._battery.step(
             now,
             inputs.plan,
@@ -293,7 +321,7 @@ class Controller:
             holds=holds,
             deficit_w=_house_deficit_w(inputs.flows),
             reserve_w=self._settings.reserve_w,
-            ev_lock=outcome.ev_lock and inputs.battery_present,
+            ev_lock=(outcome.ev_lock or self._evcc.lock_wanted) and inputs.battery_present,
         )
         grid_flow = None if inputs.flows is None else inputs.flows.grid_w
         programs = self._programs.step(
@@ -312,7 +340,7 @@ class Controller:
                 island=grid.grid_state is GridState.ISLAND,
             ),
         )
-        intents = (*outcome.intents, *programs.intents)
+        intents = (*outcome.intents, *programs.intents, *loadpoint_intents)
         if battery_intent:
             intents = (*intents, battery_intent)
         views = dict(outcome.views)
@@ -350,7 +378,41 @@ class Controller:
             grid=GridView(grid, situation_reasons(grid), holds),
             program_jobs=programs.jobs,
             program_events=programs.events,
+            loadpoints=MappingProxyType(dict(self._evcc.views)),
         )
+
+    def _loadpoint_ticks(
+        self,
+        now: datetime,
+        inputs: ControllerInputs,
+        grid: GridInputs,
+        holds: GridHolds,
+        *,
+        site_trusted: bool,
+        battery_locked: bool,
+    ) -> list[LoadpointTick]:
+        flow = None if inputs.flows is None else inputs.flows.grid_w
+        import_w = flow.value if flow is not None and flow.quality is Quality.OK else None
+        ticks: list[LoadpointTick] = []
+        for device in self._loadpoints:
+            spec = device.ev
+            default = spec.default_mode if spec is not None else EV_MODE_DEFAULT
+            ticks.append(
+                LoadpointTick(
+                    device=device,
+                    state=inputs.states.get(device.id),
+                    mode=inputs.ev_modes.get(device.id, default),
+                    target=inputs.ev_targets.get(device.id),
+                    band=device_band_now(inputs.plan, device.id, now),
+                    battery_locked=battery_locked,
+                    site_trusted=site_trusted,
+                    grid=grid,
+                    holds=holds,
+                    import_w=import_w,
+                    blocked=inputs.blocked.get(device.id),
+                )
+            )
+        return ticks
 
     def report(self, decision: Decision) -> bool:
         """Feed the gate's decision on an intent back; ``True`` if it was ours and pending."""
@@ -358,11 +420,17 @@ class Controller:
             return True
         if self._programs.report(decision):
             return True
+        if self._evcc.report(decision):
+            return True
         return self._allocator.report(decision)
 
     @property
     def battery(self) -> BatteryIntents:
         return self._battery
+
+    @property
+    def evcc(self) -> EvccIntents:
+        return self._evcc
 
 
 def _house_deficit_w(flows: FlowSnapshot | None) -> float | None:
@@ -438,6 +506,8 @@ class ControllerLoop:
                 self._controller.battery.reset_pending()
             elif intent.id.startswith(PROGRAM_INTENT_PREFIX):
                 self._controller.programs.reset_pending(intent)
+            elif intent.id.startswith(EVCC_INTENT_PREFIX):
+                self._controller.evcc.reset_pending()
             return
         self._controller.report(decision)
 

@@ -67,9 +67,12 @@ CHARGE_ACTIONS: tuple[Action, ...] = (
     ChargeAction(current_a=0),
     ChargeAction(current_a=10, enabled=False),
 )
-NEW_ACTIONS: tuple[Action, ...] = (
+LOADPOINT_ACTIONS: tuple[Action, ...] = (
     LoadpointAction(mode="now"),
     LoadpointAction(mode="smart", plan_soc_pct=80, plan_time=T0 + timedelta(hours=8)),
+    LoadpointAction(mode="off"),
+)
+NEW_ACTIONS: tuple[Action, ...] = (
     InverterLimitAction(max_export_w=0),
     InverterLimitAction(max_ac_pct=60),
 )
@@ -135,11 +138,10 @@ def program_device() -> DeviceConfig:
     )
 
 
-PHASE6_DEVICES = (loadpoint_device(), sg_device())
-"""The Phase 6 device families still without a write path (the charger has one since 6-I,
-programs since 6-L: ``tests/safety/test_program_gate.py``)."""
+PHASE6_DEVICES = (sg_device(),)
+"""The Phase 6 device families still without a write path (the charger has one since 6-I, the
+evcc loadpoint since 6-J, programs since 6-L: ``tests/safety/test_program_gate.py``)."""
 EXPECTED_DEVICE_REASON = {
-    "evcc_lp": "safety.loadpoint_not_supported",
     "hp": "safety.sg_ready_not_supported",
 }
 
@@ -152,6 +154,7 @@ DEVICE_ACTIONS: tuple[Action, ...] = (
     PowerSetpointAction(power_w=2000),
     SetpointAction(setpoint_c=55, base_c=50),
     *CHARGE_ACTIONS,
+    *LOADPOINT_ACTIONS,
     *NEW_ACTIONS,
 )
 
@@ -171,6 +174,7 @@ def test_every_action_kind_is_handled_or_rejected() -> None:
         ActionKind.RELEASE,
         ActionKind.BATTERY,  # safety.battery (B1-B9), not_supported without an adapter
         ActionKind.CHARGE,  # safety.flex (E1-E9), PR 6-I
+        ActionKind.LOADPOINT,  # safety.evcc (L1-L5), PR 6-J
     }
     assert judged | NOT_YET_SUPPORTED_KINDS == set(ActionKind)
     assert judged.isdisjoint(NOT_YET_SUPPORTED_KINDS)
@@ -179,6 +183,7 @@ def test_every_action_kind_is_handled_or_rejected() -> None:
         assert reason.key == f"safety.{kind.value}_not_supported"
     assert {a.kind for a in NEW_ACTIONS} == NOT_YET_SUPPORTED_KINDS
     assert ActionKind.CHARGE not in REASON_NOT_SUPPORTED
+    assert ActionKind.LOADPOINT not in REASON_NOT_SUPPORTED
 
 
 @pytest.mark.parametrize("action", CHARGE_ACTIONS)
@@ -228,10 +233,12 @@ def test_a_charger_rejects_every_action_but_charge_and_release(
     assert h.apply_calls == 0
 
 
-@pytest.mark.parametrize("action", NEW_ACTIONS, ids=lambda a: a.kind.value)
+@pytest.mark.parametrize("action", [*NEW_ACTIONS, *LOADPOINT_ACTIONS], ids=repr)
 def test_invariant_helpers_treat_new_kinds_explicitly(action: Action) -> None:
     device = switch_device()
-    assert action_turns_on(action, device) is None
+    # a loadpoint's mode is a switch (off <-> on) since the 6-J re-review (R1)
+    expected = action.mode != "off" if isinstance(action, LoadpointAction) else None
+    assert action_turns_on(action, device) is expected
     assert expected_power_w(action, device, None) is None
     assert action_matches_state(action, DeviceState(on=True), device) is False
 
@@ -295,18 +302,73 @@ def test_phase6_devices_reject_every_action_but_a_release(
         assert keys(decision) == [REASON_NOT_SUPPORTED[action.kind].key]
     elif isinstance(action, ChargeAction):
         assert keys(decision) == ["safety.charge_not_charger"]
+    elif isinstance(action, LoadpointAction) and device.id != "hp":
+        assert keys(decision) == ["safety.loadpoint_not_loadpoint"]
     else:
         assert keys(decision) == [EXPECTED_DEVICE_REASON[device.id]]
     assert h.apply_calls == 0
     assert h.gate.proposals() == ()
 
 
-@pytest.mark.parametrize("device", [charger_device(), *PHASE6_DEVICES], ids=lambda d: d.id)
+@pytest.mark.parametrize(
+    "device", [charger_device(), loadpoint_device(), *PHASE6_DEVICES], ids=lambda d: d.id
+)
 def test_a_release_of_a_phase6_device_writes_nothing(device: DeviceConfig) -> None:
     h = make_harness(devices=(device,))
     decision = asyncio.run(h.gate.submit(make_intent(ReleaseAction(), asset_id=device.id)))
     assert not any(r.key.endswith("_not_supported") for r in decision.reasons)
     assert h.apply_calls == 0
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    action=st.sampled_from(DEVICE_ACTIONS),
+    origin=st.sampled_from(Origin),
+    mode=st.sampled_from(OperatingMode),
+)
+def test_a_loadpoint_rejects_every_action_but_loadpoint_and_release(
+    action: Action, origin: Origin, mode: OperatingMode
+) -> None:
+    """6-J: an evcc loadpoint takes only ``loadpoint`` actions; the rest never reaches a driver."""
+    if isinstance(action, LoadpointAction):
+        return
+    h = make_harness(devices=(loadpoint_device(),), global_mode=mode, device_mode=mode)
+    decision = asyncio.run(h.gate.submit(make_intent(action, asset_id="evcc_lp", origin=origin)))
+    assert decision.kind is DecisionKind.REJECTED
+    expected = (
+        REASON_NOT_SUPPORTED[action.kind].key
+        if action.kind in NOT_YET_SUPPORTED_KINDS
+        else "safety.charge_not_charger"
+        if isinstance(action, ChargeAction)
+        else "safety.loadpoint_needs_loadpoint"
+    )
+    assert keys(decision) == [expected]
+    assert h.apply_calls == 0
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    action=st.sampled_from(LOADPOINT_ACTIONS),
+    origin=st.sampled_from(Origin),
+    mode=st.sampled_from(OperatingMode),
+)
+def test_a_loadpoint_action_on_another_device_is_rejected(
+    action: Action, origin: Origin, mode: OperatingMode
+) -> None:
+    h = make_harness(
+        devices=(switch_device(), charger_device(), loadpoint_device()),
+        global_mode=mode,
+        device_mode=mode,
+    )
+    for asset_id, expected in (
+        ("pool", "safety.loadpoint_not_loadpoint"),
+        ("wallbox", "safety.charger_needs_charge"),
+    ):
+        decision = asyncio.run(h.gate.submit(make_intent(action, asset_id=asset_id, origin=origin)))
+        assert decision.kind is DecisionKind.REJECTED
+        assert keys(decision) == [expected]
+    assert h.apply_calls == 0
+    assert h.gate.proposals() == ()
 
 
 def test_sg_ready_step_is_rejected_even_in_shadow() -> None:

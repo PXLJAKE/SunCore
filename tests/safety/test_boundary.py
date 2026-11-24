@@ -75,6 +75,7 @@ ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
 BATTERY_DRIVERS = "suncore.devices.battery"
+EVCC_DRIVER = "suncore.devices.evcc"
 SIM = "suncore.sim"
 DRIVER_IMPORTERS = (SAFETY, "suncore.app", SIM)
 WRITE_CALLS = ("apply", "release", "arm_fallback", "keep_alive")
@@ -237,6 +238,7 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
     if (
         in_package(module, DRIVERS)
         or in_package(module, BATTERY_DRIVERS)
+        or in_package(module, EVCC_DRIVER)
         or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS)
     ):
         return
@@ -245,10 +247,23 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
         (
             line
             for line, imported in imported_modules(path, parse(path))
-            if in_package(imported, DRIVERS) or in_package(imported, BATTERY_DRIVERS)
+            if in_package(imported, DRIVERS)
+            or in_package(imported, BATTERY_DRIVERS)
+            or in_package(imported, EVCC_DRIVER)
         ),
     )
     assert not offenders, f"driver module imported outside safety/app: {offenders}"
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_evcc_set_publisher_is_called_only_by_the_evcc_driver(path: Path) -> None:
+    """PR 6-J: ``publish_set`` (the one write path to evcc) is called by the evcc driver only,
+    which only ``safety.gate`` reaches; nothing else in the package publishes to evcc."""
+    module = module_name(path)
+    if module in (EVCC_DRIVER, "suncore.app.evcc_link") or in_package(module, SIM):
+        return  # the driver, the bus implementation (defines it), the simulator's fake bus
+    offenders = fmt(path, attribute_calls(parse(path), "publish_set"))
+    assert not offenders, f"publish_set called outside the evcc driver: {offenders}"
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))

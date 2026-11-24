@@ -128,14 +128,12 @@ class ActionKind(StrEnum):
     INVERTER_LIMIT = "inverter_limit"
 
 
-NOT_YET_SUPPORTED_KINDS: Final[frozenset[ActionKind]] = frozenset(
-    {ActionKind.LOADPOINT, ActionKind.INVERTER_LIMIT}
-)
+NOT_YET_SUPPORTED_KINDS: Final[frozenset[ActionKind]] = frozenset({ActionKind.INVERTER_LIMIT})
 """Action kinds that are in the contract but not judged by any invariant yet (ADR-0011
 addendum): the safety gate rejects each with ``safety.<kind>_not_supported`` before mode
 handling. A kind leaves this set only in the PR that adds its invariants, scenarios and the
-``control-safety`` sign-off (6-G inverter limit, 6-J loadpoint). ``charge`` left it in 6-I
-(invariants E1-E9, ``safety.flex``)."""
+``control-safety`` sign-off (6-G inverter limit). ``charge`` left it in 6-I (invariants E1-E9,
+``safety.flex``), ``loadpoint`` in 6-J (invariants L1-L5, ``safety.evcc``)."""
 
 
 class SwitchAction(_FrozenModel):
@@ -272,12 +270,15 @@ class ChargeAction(_FrozenModel):
         return 0.0 if self.enabled is False else self.current_a
 
 
+LOADPOINT_CURRENT_TOLERANCE_A: Final = 0.05
+"""Two ``maxCurrent`` values closer than this are the same (evcc rounds to three decimals)."""
+
 EVCC_MODES: Final = ("off", "smart", "now")
 """evcc loadpoint ``mode`` values (evcc MQTT API, read 2026-11-24; ``pv``/``minpv`` are gone)."""
 
 
 class LoadpointAction(_FrozenModel):
-    """What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; PR 6-J lifts the rejection).
+    """What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; judged since PR 6-J).
 
     evcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle
     plan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``
@@ -299,6 +300,20 @@ class LoadpointAction(_FrozenModel):
                 "loadpoint action: `plan_soc_pct` and `plan_time` are set together",
             )
         return self
+
+    def matches(self, observed: LoadpointAction) -> bool:
+        """Read-back: ``observed`` shows the mode and every value this action sets."""
+        if self.mode != observed.mode:
+            return False
+        if self.max_current_a is not None and (
+            observed.max_current_a is None
+            or abs(self.max_current_a - observed.max_current_a) > LOADPOINT_CURRENT_TOLERANCE_A
+        ):
+            return False
+        return self.limit_soc_pct is None or (
+            observed.limit_soc_pct is not None
+            and round(self.limit_soc_pct) == round(observed.limit_soc_pct)
+        )
 
 
 class InverterLimitAction(_FrozenModel):

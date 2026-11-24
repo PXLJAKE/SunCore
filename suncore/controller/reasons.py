@@ -92,6 +92,15 @@ PROGRAM_INPUTS_UNKNOWN: Final = "controller.program.inputs_unknown"
 PROGRAM_ISLAND: Final = "controller.program.island"
 PROGRAM_BLOCKED: Final = "controller.program.blocked"
 PROGRAM_NO_POWER_SENSOR: Final = "controller.program.no_power_sensor"
+# Phase 6 PR 6-J: evcc as actor (``controller.evcc``).
+EVCC_SMART: Final = "controller.evcc.smart"
+EVCC_MIN_PV: Final = "controller.evcc.min_pv"
+EVCC_CAP: Final = "controller.evcc.cap"
+EVCC_NO_RAISE: Final = "controller.evcc.no_raise"
+EVCC_PARA14A_OFF: Final = "controller.evcc.para14a_off"
+EVCC_BATTERY_WARNING: Final = "controller.evcc.battery_warning"
+EVCC_IMPORT_CUT: Final = "controller.evcc.import_cut"
+EVCC_IMPORT_OFF: Final = "controller.evcc.import_off"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
     PROGRAM_START,
@@ -117,6 +126,14 @@ ALL_KEYS: Final[tuple[str, ...]] = (
     EV_INPUTS_UNKNOWN,
     EV_PHASE_SWITCH,
     EV_PHASE_PAUSE,
+    EVCC_SMART,
+    EVCC_MIN_PV,
+    EVCC_CAP,
+    EVCC_NO_RAISE,
+    EVCC_PARA14A_OFF,
+    EVCC_BATTERY_WARNING,
+    EVCC_IMPORT_CUT,
+    EVCC_IMPORT_OFF,
     GRID_ISLAND_SHED,
     GRID_ISLAND_KEEP,
     GRID_COOLDOWN,
@@ -283,6 +300,16 @@ def ev_phase_switch(phases: int) -> Reason:
 
 def ev_phase_pause(remaining_s: float) -> Reason:
     return Reason(key=EV_PHASE_PAUSE, args={"remaining_s": _ceil(remaining_s)})
+
+
+def evcc_cap(current_a: float) -> Reason:
+    """evcc's maximum current is held below the wiring limit by a grid limit."""
+    return Reason(key=EVCC_CAP, args={"current_a": round(current_a)})
+
+
+def evcc_import_cut(current_a: float) -> Reason:
+    """The grid import is over the limit while evcc charges: ``maxCurrent`` is lowered."""
+    return Reason(key=EVCC_IMPORT_CUT, args={"current_a": round(current_a)})
 
 
 def plain(key: str) -> Reason:

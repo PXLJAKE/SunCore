@@ -85,6 +85,7 @@ from suncore.core.decisions import (
     Decision,
     DecisionKind,
     Intent,
+    LoadpointAction,
     OperatingMode,
     Origin,
     Reason,
@@ -137,6 +138,7 @@ from suncore.safety.battery import (
     same_state,
     user_changed_fields,
 )
+from suncore.safety.evcc import LoadpointSafety, loadpoint_allowance_w
 from suncore.safety.flex import (
     CURRENT_TOLERANCE_A,
     EvSafety,
@@ -235,14 +237,13 @@ REASON_BATTERY_RELEASE_CONFIRMED: Final = Reason(key="safety.battery_release_con
 """The battery shows its own settings again: control of it has ended."""
 REASON_NOT_SUPPORTED: Final[Mapping[ActionKind, Reason]] = MappingProxyType(
     {
-        ActionKind.LOADPOINT: Reason(key="safety.loadpoint_not_supported"),
         ActionKind.INVERTER_LIMIT: Reason(key="safety.inverter_limit_not_supported"),
     }
 )
 """ADR-0011 addendum, PR 6-B: the Phase 6 action kinds are in the contract but have no
 invariants yet; the gate rejects each before mode handling (also in shadow and assisted), writes
 nothing and creates no proposal. Lifted per kind with its ``control-safety`` sign-off (6-G
-inverter limit, 6-I charge, 6-J loadpoint)."""
+inverter limit, 6-I charge, 6-J loadpoint - both lifted)."""
 REASON_CHARGE_NOT_CHARGER: Final = Reason(key="safety.charge_not_charger")
 """A ``charge`` action for a device that is not an EV charger (PR 6-I)."""
 REASON_CHARGER_NEEDS_CHARGE: Final = Reason(key="safety.charger_needs_charge")
@@ -252,6 +253,10 @@ REASON_EV_RELEASE_STAGED: Final = Reason(key="safety.ev_release_staged")
 higher current) restored once the phase pause has passed and §14a allows it."""
 EV_RELEASE_RECHECK_S: Final = 60.0
 """A release staged for §14a is re-checked this often."""
+REASON_LOADPOINT_NOT_LOADPOINT: Final = Reason(key="safety.loadpoint_not_loadpoint")
+"""A ``loadpoint`` action for a device that is not an evcc loadpoint (PR 6-J)."""
+REASON_LOADPOINT_NEEDS_LOADPOINT: Final = Reason(key="safety.loadpoint_needs_loadpoint")
+"""Any action but ``loadpoint`` and a release for an evcc loadpoint (PR 6-J)."""
 REASON_SG_READY_NOT_SUPPORTED: Final = Reason(key="safety.sg_ready_not_supported")
 """Any action but a release for an SG-Ready heat pump (until PR 6-K, ADR-0017 decision 8)."""
 PROGRAM_BASELINE_ON: Final = SwitchAction(on=True)
@@ -282,6 +287,13 @@ PlanLookup = Callable[[datetime], Plan]
 
 JobLookup = Callable[[str], Sequence[ProgramJob]]
 """The open program jobs of a device (runtime ``flex_state``, PR 6-L)."""
+
+
+@runtime_checkable
+class LoadpointLimits(Protocol):
+    """An evcc driver that reports evcc's own ``minCurrent`` (L1)."""
+
+    def min_current_a(self) -> float | None: ...
 
 
 @runtime_checkable
@@ -477,7 +489,7 @@ class SafetyGate:
                 for d, rt in self._runtimes.items()
                 if rt.release_due_ts is None or rt.release_due_ts <= now
             ]
-        await self._release_all(REASON_RECOVERY, origin=Origin.SAFETY, only=only)
+        await self._release_all(REASON_RECOVERY, origin=Origin.SAFETY, only=only, reschedule=True)
 
     async def shutdown(self) -> None:
         """Release every device under control within ``release_deadline_s``."""
@@ -526,6 +538,7 @@ class SafetyGate:
             REASON_EMERGENCY_STOP,
             origin=Origin.USER,
             deadline_s=self._settings.release_deadline_s,
+            reschedule=True,
         )
 
     async def clear_emergency_stop(self) -> None:
@@ -559,7 +572,9 @@ class SafetyGate:
                 if runtime.release_due_reason is not None
                 else REASON_RELEASED
             )
-            decisions.append(await self.release_device(device_id, reason, origin=Origin.SAFETY))
+            decisions.append(
+                await self.release_device(device_id, reason, origin=Origin.SAFETY, backoff=True)
+            )
         if not self._emergency_stop:
             lease = await self._battery_lease(now)
             if lease is not None:
@@ -589,7 +604,7 @@ class SafetyGate:
             # every tick would only flood the decision log.
             if runtime is not None and runtime.under_control and not runtime.release_pending:
                 await self.release_device(
-                    device_id, faults[0].reason, origin=Origin.SAFETY, urgent=False
+                    device_id, faults[0].reason, origin=Origin.SAFETY, urgent=False, backoff=True
                 )
         return faults
 
@@ -601,13 +616,15 @@ class SafetyGate:
     async def connection_restored(self) -> None:
         """Back online: release what was under control (the user may have changed things)."""
         self._watchdog.connection_restored(self._now())
-        await self._release_all(REASON_CONNECTION_LOST, origin=Origin.SAFETY, urgent=False)
+        await self._release_all(
+            REASON_CONNECTION_LOST, origin=Origin.SAFETY, urgent=False, reschedule=True
+        )
         self._site_tripped = self._watchdog.state(SITE_SCOPE, self._now()) is ScopeState.SAFE
 
     async def _after_site_check(self, now: datetime, faults: tuple[Fault, ...]) -> None:
         tripped = self._watchdog.state(SITE_SCOPE, now) is ScopeState.SAFE
         if tripped and not self._site_tripped and faults:
-            await self._release_all(faults[0].reason, origin=Origin.SAFETY)
+            await self._release_all(faults[0].reason, origin=Origin.SAFETY, reschedule=True)
         self._site_tripped = tripped
 
     # --- overrides -----------------------------------------------------------------
@@ -829,8 +846,13 @@ class SafetyGate:
             )
         if isinstance(control, SgReadyControl):
             return REASON_SG_READY_NOT_SUPPORTED
-        if isinstance(control, LoadpointControl):
-            return REASON_NOT_SUPPORTED[ActionKind.LOADPOINT]
+        if isinstance(action, LoadpointAction) != isinstance(control, LoadpointControl):
+            # 6-J: an evcc loadpoint takes only ``loadpoint`` actions, and only it takes them.
+            return (
+                REASON_LOADPOINT_NOT_LOADPOINT
+                if isinstance(action, LoadpointAction)
+                else REASON_LOADPOINT_NEEDS_LOADPOINT
+            )
         if device.program is not None and device.program.start_method == "notify":
             # PR 6-L: a notify-only program has nothing SunCore may write.
             return REASON_PROGRAM_NOTIFY_ONLY
@@ -1542,6 +1564,7 @@ class SafetyGate:
         origin: Origin = Origin.SAFETY,
         intent: Intent | None = None,
         urgent: bool = True,
+        backoff: bool = False,
     ) -> Decision:
         """Restore the device's takeover baseline and stop controlling it.
 
@@ -1550,7 +1573,9 @@ class SafetyGate:
         the release write until the minimum run/pause time has elapsed and answers
         ``held`` with ``held_until``; writing stops at once and :meth:`poll` executes
         the release later. The decision is otherwise ``accepted`` (released),
-        ``rejected`` (not under control / no actuator) or ``failed``.
+        ``rejected`` (not under control / no actuator) or ``failed``. ``backoff=True`` (device
+        trip, :meth:`poll`): a failed release is rescheduled with back-off instead of being
+        repeated every tick.
         """
         async with self._lock(device_id):
             now = self._now()
@@ -1609,7 +1634,20 @@ class SafetyGate:
                 reasons = (REASON_RELEASE_FAILED, reason)
                 if orphan:
                     reasons = (REASON_RELEASE_FAILED, REASON_ORPHANED)
+                elif backoff:
+                    # Retry with back-off (B1/C1): the device stays under control, writing is
+                    # blocked (release pending) and `poll` tries again when due - instead of one
+                    # failed release per tick while the device is unreachable.
+                    attempt = self._release_attempts.get(device_id, 0) + 1
+                    self._release_attempts[device_id] = attempt
+                    due = now + timedelta(seconds=self._release_backoff_s(attempt))
+                    await self._save(
+                        runtime.model_copy(
+                            update={"release_due_ts": due, "release_due_reason": reason.key}
+                        )
+                    )
                 return await self._decide(intent, DecisionKind.FAILED, now, reasons, mode)
+            self._release_attempts.pop(device_id, None)
             if orphan:
                 # The old device is back at its baseline; a device now using the id starts clean.
                 self._release_only.pop(device_id, None)
@@ -1950,7 +1988,11 @@ class SafetyGate:
         deadline_s: float | None = None,
         urgent: bool = True,
         only: Collection[str] | None = None,
+        reschedule: bool = False,
     ) -> None:
+        """Release every device under control. The first attempt is immediate; with
+        ``reschedule`` a failure is retried by :meth:`poll` with back-off (R2). Hand-over and
+        shutdown keep the plain behaviour: their successor retries at once."""
         ids = [
             d
             for d, rt in self._runtimes.items()
@@ -1959,7 +2001,9 @@ class SafetyGate:
         if not ids:
             return
         tasks = {
-            asyncio.ensure_future(self.release_device(d, reason, origin=origin, urgent=urgent)): d
+            asyncio.ensure_future(
+                self.release_device(d, reason, origin=origin, urgent=urgent, backoff=reschedule)
+            ): d
             for d in ids
         }
         done, pending = await asyncio.wait(tasks, timeout=deadline_s)
@@ -2012,6 +2056,7 @@ class SafetyGate:
             grid=self._grid_safety(inputs, now, device),
             ev=self._ev_safety(device, now, inputs),
             program=self._program_safety(device, runtime, now, inputs, fresh=fresh),
+            lp=self._lp_safety(device),
         )
 
     # --- programs (PR 6-L, ``safety.programs``) ----------------------------------------------
@@ -2106,6 +2151,8 @@ class SafetyGate:
     ) -> EvSafety:
         """E1-E6 inputs of a charger: mode, allowance, connection, battery lock, read-back."""
         control = device.control
+        if isinstance(control, LoadpointControl):
+            return self._loadpoint_ev_safety(device, control, now, inputs)
         if not isinstance(control, ChargerControl):
             return EvSafety()
         inputs = inputs if inputs is not None else (self._inputs() or GateInputs())
@@ -2136,6 +2183,49 @@ class SafetyGate:
             idle_since=self._ev_idle_since.get(device.id),
         )
 
+    def _loadpoint_ev_safety(
+        self,
+        device: DeviceConfig,
+        control: LoadpointControl,
+        now: datetime,
+        inputs: GateInputs | None,
+    ) -> EvSafety:
+        """L2/E3/E6 inputs of an evcc loadpoint: the EV mode's allowance (the user's ``now`` or a
+        planned grid interval of ``target``), the connection, the battery lock."""
+        inputs = inputs if inputs is not None else (self._inputs() or GateInputs())
+        state = self._states(device.id)
+        connected = None if state is None else state.connected
+        mode = self.ev_mode(device)
+        return EvSafety(
+            mode=mode,
+            allowance_w=loadpoint_allowance_w(
+                mode, control, connected=connected, band=self._ev_band(device.id, now)
+            ),
+            connected=connected,
+            battery_locked=self._battery_locked(inputs),
+        )
+
+    def _lp_safety(self, device: DeviceConfig) -> LoadpointSafety:
+        """evcc's observed state and its own ``minCurrent`` (L1, L2)."""
+        if not isinstance(device.control, LoadpointControl):
+            return LoadpointSafety()
+        state = self._states(device.id)
+        observed: LoadpointAction | None = None
+        if (
+            state is not None
+            and state.known
+            and state.mode in ("off", "smart", "now")
+            and state.max_current_a is not None
+        ):
+            observed = LoadpointAction(
+                mode=state.mode,
+                max_current_a=state.max_current_a,
+                limit_soc_pct=state.limit_soc_pct,
+            )
+        actuator = self._actuators.get(device.id)
+        minimum = actuator.min_current_a() if isinstance(actuator, LoadpointLimits) else None
+        return LoadpointSafety(observed=observed, min_current_a=minimum)
+
     def _battery_locked(self, inputs: GateInputs) -> bool:
         """E6: no home battery, or SunCore holds (and has confirmed) a discharge lock."""
         if not inputs.battery_present:
@@ -2152,14 +2242,18 @@ class SafetyGate:
         inputs = self._inputs() or GateInputs()
         for device_id in self._actuators:
             device = self._devices(device_id)
-            if device is None or not isinstance(device.control, ChargerControl):
+            if device is None or not isinstance(device.control, ChargerControl | LoadpointControl):
                 continue
             if self.modes_of(device_id).effective is OperatingMode.SHADOW:
                 continue
             if self._watchdog.pause_reason(device_id, now) is not None:
                 continue
             ev = self._ev_safety(device, now, inputs)
-            charging = ev.observed is not None and ev.observed.effective_current_a > 0
+            if isinstance(device.control, LoadpointControl):
+                state = self._states(device_id)
+                charging = state is not None and state.on is True
+            else:
+                charging = ev.observed is not None and ev.observed.effective_current_a > 0
             if ev.allowance_w > 0 and (ev.connected is True or charging):
                 return True
         return False

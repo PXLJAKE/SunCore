@@ -79,8 +79,8 @@ from suncore.core.controlstate import (
     SiteControlState,
 )
 from suncore.core.decisions import Action, Decision, Reason
-from suncore.core.devices import ChargerControl, DeviceConfig, control_roles
-from suncore.core.flex import EV_MODE_DEFAULT, EvMode, EvState
+from suncore.core.devices import ChargerControl, DeviceConfig, LoadpointControl, control_roles
+from suncore.core.flex import EV_MODE_DEFAULT, EvMode, EvState, EvTarget
 from suncore.core.grid import GridState
 from suncore.core.identity import identity_token
 from suncore.core.measurements import (
@@ -97,6 +97,7 @@ from suncore.core.site import SiteConfig
 from suncore.devices.battery import BatteryDriver, create_battery_driver
 from suncore.devices.drivers import ClimateDriver, NumberDriver, create_driver
 from suncore.devices.drivers.charger import ChargerDriver
+from suncore.devices.evcc import EvccBus, EvccEvents
 from suncore.devices.power import create_power_model, restore_power_model
 from suncore.devices.power.common import PowerEstimator
 from suncore.ha.cache import EntityCache
@@ -239,6 +240,8 @@ class ControlStack:
             recording can never disturb the control loop.
         plan_provider: ``now -> Plan`` read once per tick (``PlanningService.active_plan``); without
             it the plan given to :meth:`set_plan` (default ``Plan.default()``) is used.
+        evcc: the MQTT side of the evcc loadpoints (PR 6-J, ``suncore.app.evcc_link``); ``None`` =
+            no broker link (a loadpoint then reports its state unavailable and is never written).
         ev_states: ``device id -> EvState | None`` - the runtime EV mode and target of a charger
             (``flex_state``, PR 6-I); ``None`` or a missing state = the device's default mode.
         programs: the open program jobs (PR 6-L; the runtime's book persists to
@@ -282,12 +285,14 @@ class ControlStack:
         ev_states: Callable[[str], EvState | None] | None = None,
         programs: ProgramJobBook | None = None,
         on_program_event: Callable[[ProgramEvent], None] | None = None,
+        evcc: EvccBus | None = None,
     ) -> None:
         self._connection = connection
         self.programs = programs if programs is not None else ProgramJobBook()
         """The open program jobs (PR 6-L) the controller and the gate read."""
         self._on_program_event = on_program_event
         self._ev_states = ev_states
+        self._evcc = evcc
         self.grid_monitor = grid_monitor if grid_monitor is not None else GridMonitor(tz)
         """Monthly peak and grid events (PR 6-F); in memory unless the runtime gives a store."""
         self.grid: GridInputs | None = None
@@ -398,6 +403,12 @@ class ControlStack:
             poll=self.gate.poll,
             on_deviation=self.deviations.append,
         )
+        self._loadpoint_roots: dict[str, str] = {
+            device.id: f"{device.control.topic_prefix}/loadpoints/{device.control.loadpoint_id}/"
+            for device in devices
+            if isinstance(device.control, LoadpointControl)
+        }
+        """Loadpoint device id -> the topic root its messages arrive under (override feed)."""
         self._owner: dict[str, str] = {
             device.entities[role].entity_id: device.id
             for device in devices
@@ -424,7 +435,10 @@ class ControlStack:
     # --- wiring helpers ----------------------------------------------------------------------
 
     def _make_driver(self, device: DeviceConfig, write: WriterFn) -> DeviceActuator:
-        return cast("DeviceActuator", create_driver(device, write=write, states=self._lookup))
+        return cast(
+            "DeviceActuator",
+            create_driver(device, write=write, states=self._lookup, evcc=self._evcc),
+        )
 
     def _make_battery(
         self, connection: HAConnection, battery: BatteryWiring | None
@@ -465,6 +479,17 @@ class ControlStack:
             log.exception("control.ev_state_failed", device_id=device_id)
             return EvMode.OFF
         return default if state is None else state.mode
+
+    def ev_target(self, device_id: str) -> EvTarget | None:
+        """The runtime EV target of a charger or loadpoint (``None`` = none or unreadable)."""
+        if self._ev_states is None:
+            return None
+        try:
+            state = self._ev_states(device_id)
+        except Exception:
+            log.exception("control.ev_state_failed", device_id=device_id)
+            return None
+        return None if state is None else state.target
 
     def _lookup(self, entity_id: str) -> EntityState | None:
         entry = self.cache.get(entity_id)
@@ -595,6 +620,8 @@ class ControlStack:
             self._unsubscribe.append(self._connection.add_entity_listener(self.on_update))
             self._unsubscribe.append(self._connection.add_state_listener(self.on_state))
             await self._connection.subscribe_entities(self.entity_ids)
+        if self._loadpoint_roots and isinstance(self._evcc, EvccEvents):
+            self._unsubscribe.append(self._evcc.add_listener(self._on_evcc_topic))
         now = self._clock()
         await self.grid_monitor.load(now)
         memory = await self.grid_monitor.load_memory(now)
@@ -800,6 +827,15 @@ class ControlStack:
                 context = state.context.id if state.context is not None else None
                 self._spawn(self._observe(device_id, context))
 
+    def _on_evcc_topic(self, topic: str) -> None:
+        """evcc published a value: feed the loadpoint's observed state to the override
+        detection (an evcc mode changed in evcc's own app shows up here; PR 6-J)."""
+        if not self.recovered:
+            return
+        for device_id, root in self._loadpoint_roots.items():
+            if topic.startswith(root):
+                self._spawn(self._observe(device_id, None))
+
     async def _observe(self, device_id: str, context_id: str | None) -> None:
         """Feed the device's observed state to the gate's override detection."""
         observed = await self.drivers[device_id].read_back()
@@ -896,7 +932,13 @@ class ControlStack:
             ev_modes={
                 d.id: self.ev_mode(d.id)
                 for d in self._devices.values()
-                if isinstance(d.control, ChargerControl)
+                if isinstance(d.control, ChargerControl | LoadpointControl)
+            },
+            ev_targets={
+                d.id: target
+                for d in self._devices.values()
+                if isinstance(d.control, LoadpointControl)
+                and (target := self.ev_target(d.id)) is not None
             },
             # review 6-I H3: a measured battery flow is a battery, configured or not
             battery_present=self._battery_present(flows),
