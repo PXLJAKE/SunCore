@@ -1,0 +1,7 @@
+template: evcc.loadpoint
+sim_scenario: evcc_actor
+user_input:
+  nominal_w: 11000
+# An evcc loadpoint writes no Home Assistant entity (MQTT only): there are no roles to resolve.
+# The conformance run still instantiates a DeviceConfig from the template defaults.
+roles: {}

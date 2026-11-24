@@ -65,7 +65,8 @@ from suncore.ha.connection import RateLimiter
 from suncore.safety.modes import StaticModes
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
 from suncore.sim.demo_devices import sim_price
-from suncore.sim.devices import SimClimate, SimDevice, SimWaterHeater
+from suncore.sim.devices import SimClimate, SimDevice, SimLoadpoint, SimWaterHeater
+from suncore.sim.fake_evcc import FakeEvccBus
 from suncore.sim.fake_ha import (
     BACKUP_ID,
     PARA14A_BINARY_ID,
@@ -404,6 +405,8 @@ class ScenarioRunner:
             lambda now: sim_price(now, profile)
         )
         self.vt = VirtualTime(scenario.start)
+        self.evcc = FakeEvccBus(self.vt.clock)
+        """PR 6-J: the fake evcc the simulated loadpoints publish to (no broker)."""
         self.limiter = RateLimiter(clock=self.vt.monotonic, sleep=self.vt.sleep)
         self.conn = FakeHAConnection(
             scenario,
@@ -461,6 +464,10 @@ class ScenarioRunner:
     def sim_devices(self) -> Mapping[str, SimDevice]:
         return self.conn.demo.devices.devices
 
+    def loadpoints(self) -> dict[str, SimLoadpoint]:
+        """The simulated evcc loadpoints of the scenario."""
+        return {k: d for k, d in self.sim_devices.items() if isinstance(d, SimLoadpoint)}
+
     def new_stack(self) -> ControlStack:
         """A control stack on the running connection (also used for a simulated restart)."""
         sc = self.scenario
@@ -485,6 +492,7 @@ class ScenarioRunner:
             plan_provider=self.plan_provider,
             battery=self.battery_wiring(),
             ev_states=self.ev_states.get,
+            evcc=self.evcc if self.loadpoints() else None,
         )
 
     def site_config(self) -> SiteConfig:
@@ -585,6 +593,8 @@ class ScenarioRunner:
             return
         await self.conn.connect()
         self._connected = True
+        for loadpoint in self.loadpoints().values():
+            loadpoint.attach(self.evcc, self._grid_w)
         configs = (
             self._explicit_configs
             if self._explicit_configs is not None
@@ -595,6 +605,11 @@ class ScenarioRunner:
         self.stack = self.new_stack()
         await self.stack.start()
         await self.vt.settle()
+
+    def _grid_w(self) -> float:
+        """The site's grid power of the previous step (what evcc's meter shows), + = import."""
+        house = self.conn._house_state
+        return 0.0 if house is None else house.grid_w
 
     # --- scheduling --------------------------------------------------------------------------
 

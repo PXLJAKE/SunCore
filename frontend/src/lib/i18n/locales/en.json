@@ -910,6 +910,7 @@
   "template.generic.number_load.name": "Load with a number entity",
   "template.generic.number_load.role.number": "The number entity that sets power, current or percentage",
   "template.generic.number_load.role.power": "Power sensor of the same device (optional, W or kW)",
+  "template.evcc.loadpoint.name": "evcc loadpoint (MQTT)",
   "template.generic.wallbox.name": "Wallbox (generic entities)",
   "template.generic.wallbox.role.current": "The number entity that sets the charging current (A)",
   "template.generic.wallbox.role.enable": "Switch that pauses and resumes charging",

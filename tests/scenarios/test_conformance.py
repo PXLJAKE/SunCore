@@ -341,7 +341,8 @@ def _check_device(
             "ev": defaults.ev.model_dump(exclude_none=True) if defaults.ev is not None else None,
         }
     )
-    assert config.control.role in config.entities
+    role = getattr(config.control, "role", None)  # an evcc loadpoint writes no entity
+    assert role is None or role in config.entities
     assert config.max_switches_per_hour is None  # None = safety default, not unlimited
 
 

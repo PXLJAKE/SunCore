@@ -477,7 +477,8 @@ class DeviceTemplate(TemplateHeader):
 
     @model_validator(mode="after")
     def _device(self) -> Self:
-        _check_roles(self.roles)
+        # An evcc loadpoint writes no Home Assistant entity (MQTT only): no roles to map.
+        _check_roles(self.roles, required=not isinstance(self.defaults.control, LoadpointControl))
         if "." not in self.id:
             msg = "id: must be `<vendor>.<model>`"
             raise ValueError(msg)

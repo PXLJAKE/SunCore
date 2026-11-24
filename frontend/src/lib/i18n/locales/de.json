@@ -910,6 +910,7 @@
   "template.generic.number_load.name": "Verbraucher mit Number-Entität",
   "template.generic.number_load.role.number": "Die Number-Entität, die Leistung, Strom oder Prozent einstellt",
   "template.generic.number_load.role.power": "Leistungssensor desselben Geräts (optional, W oder kW)",
+  "template.evcc.loadpoint.name": "evcc-Ladepunkt (MQTT)",
   "template.generic.wallbox.name": "Wallbox (allgemeine Entitäten)",
   "template.generic.wallbox.role.current": "Die Number-Entität, die den Ladestrom setzt (A)",
   "template.generic.wallbox.role.enable": "Schalter, der das Laden pausiert und fortsetzt",

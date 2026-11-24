@@ -19,6 +19,7 @@ BUNDLED = [
     "ev_para14a",
     "ev_phase_switching",
     "ev_pv_only_flicker",
+    "evcc_actor",
     "grid_charge_price_level",
     "grid_limit",
     "grid_outage_island",

@@ -3,13 +3,35 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT base, 6-I wallbox/EV) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-I EV, 6-J evcc) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
 **Branch:** `claude/project-thread-7gkqcr`
 
 ## Done
+
+- **Phase 6 - PR 6-J, WP10 evcc as actor (branch `phase-6/j-evcc`, on 6-I + 6-C;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - `loadpoint` is a judged action kind now (`NOT_YET_SUPPORTED_KINDS` = inverter limit only).
+    `safety/evcc.py`: L1-L5 as pure functions (values in range, no vehicle plan, `now` only with
+    an allowance and the E6 battery lock, no raise on unknown evcc state, potential power
+    `maxCurrent x V x phases` under G1-G6); a loadpoint takes only `loadpoint` actions and a
+    release, only it takes them.
+  - `devices/evcc.py`: dumb driver over evcc's MQTT API (read from the evcc source, 2026-11-24):
+    mode `off`/`smart`/`now`, `maxCurrent`, `limitSoc` through `<prefix>/loadpoints/<id>/<key>/set`
+    (not retained); never `site/*`, `minCurrent`, `phasesConfigured` or a plan; read-back from
+    the retained topics; the release restores the takeover baseline and waits for the echo.
+  - `app/evcc_link.py`: second MQTT connection to the broker of the `mqtt` section, heartbeat
+    `<prefix>/updated` (alive only while younger than 120 s), the one `publish_set` write path.
+  - `controller/evcc.py` `EvccIntents`: runtime EV mode -> `smart`/`now`/`off` with a
+    `maxCurrent` that fits the allowance, import limit and §14a budget; no raise on anything
+    unknown; debounced raises, immediate lowering; asks the battery controller for the E6 lock.
+    `min_pv` maps to `smart` (no floor, evcc has no minimum-power mode).
+  - Template `evcc.loadpoint` (no roles; conformance scenario), simulator `SimLoadpoint` on an
+    in-memory `FakeEvccBus`, scenario `evcc_actor` (+ silent evcc, emergency stop, manual mode
+    change in evcc's app); en/de keys; e2e gallery count 8.
+  - Deviations, safety self-review and questions: plan section 8 (6-J).
 
 - **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
@@ -1189,7 +1211,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed; 0 W cannot be a legal dimming value given the 4.2 kW minimum, a positive value is used as min(value, limit)) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018, plan section 8 (6-F) | a grid operator's control box / documentation |
 | Backup-switch island state names (simulator: `island`/`on_grid`; Kostal BackUp Switch G3 entity and states unknown) | `suncore/core/grid.py` `BackupConfig`, `suncore/sim/fake_ha.py` | maintainer maps the entity (question 10) |
 | Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
-| SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
+| SG-Ready contact mapping per vendor; charger phase-switch pause | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-K) |
+| evcc as actor: exercised on the fake evcc only (no running evcc in the session); clearing a vehicle plan over MQTT; how fast evcc applies `maxCurrent` while charging; evcc resetting the mode at vehicle disconnect (read as an override); `smart` with `alwaysCharge` for `min_pv`. Resolved from the evcc source (2026-11-24): loadpoint ids start at 1, `phasesConfigured` 0/1/3, the retained read topics, the heartbeat `<prefix>/updated` | `templates/device/evcc.loadpoint.yaml`, `suncore/devices/evcc.py`, plan section 8 (6-J) | a running evcc with MQTT enabled on the maintainer's broker |
 | Wallbox control: exercised in the simulator only (no wallbox in the session); the phase switch pause (120 s default), whether a charger accepts a phase change while paused, min run/pause defaults (300 s) for cloud-polled chargers; no integration template verified from `home-assistant/core` source (only home-assistant.io `wallbox` page, 2026-11-24) | `templates/device/generic.wallbox.yaml`, `suncore/devices/drivers/charger.py`, plan section 8 (6-I) | a real wallbox; a session with access to the core source |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
