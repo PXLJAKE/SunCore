@@ -137,7 +137,7 @@ test.describe('finishing, leaving and running the setup again', () => {
   test('"Run setup again" restarts the wizard at the first step', async ({ page, request }) => {
     await resetDemo(request); // finished
     await page.goto('/#/settings');
-    await expect(page.getByTestId('wizard-status')).toContainText('finished');
+    await expect(page.getByTestId('wizard-status')).toContainText('The setup is finished');
     await page.getByTestId('open-wizard').click();
     await expect(page).toHaveURL(/#\/setup\/region$/);
     const wizard = await (await request.get('/api/v1/config/wizard')).json();
