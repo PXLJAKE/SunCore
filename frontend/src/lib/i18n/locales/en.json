@@ -1804,5 +1804,6 @@
   "notify.reason.actions_refused": "Home Assistant does not let SunCore receive notification button taps. Messages are sent without buttons and point to the SunCore panel.",
   "notify.reason.no_targets": "No push target is chosen yet. Only persistent notifications in Home Assistant are used.",
   "notify.reason.actions_entity_only": "Buttons need a companion app service such as mobile_app_PHONE. Notify entities get plain messages with a pointer to the SunCore panel.",
-  "notify.reason.test_rate_limited": "A test message was sent a moment ago. Wait a few seconds."
+  "notify.reason.test_rate_limited": "A test message was sent a moment ago. Wait a few seconds.",
+  "safety.proposal_mode_changed": "The mode changed after the proposal was made; confirm it again only in assisted mode. Nothing was written."
 }

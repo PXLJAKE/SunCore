@@ -1804,5 +1804,6 @@
   "notify.reason.actions_refused": "Home Assistant lässt SunCore keine Tipps auf Benachrichtigungs-Schaltflächen empfangen. Meldungen kommen ohne Schaltflächen und verweisen auf das SunCore-Panel.",
   "notify.reason.no_targets": "Es ist noch kein Push-Ziel gewählt. Es werden nur dauerhafte Benachrichtigungen in Home Assistant verwendet.",
   "notify.reason.actions_entity_only": "Schaltflächen brauchen einen Companion-App-Dienst wie mobile_app_HANDY. Notify-Entities bekommen einfache Meldungen mit Hinweis auf das SunCore-Panel.",
-  "notify.reason.test_rate_limited": "Vor einem Moment wurde schon eine Testnachricht gesendet. Warte ein paar Sekunden."
+  "notify.reason.test_rate_limited": "Vor einem Moment wurde schon eine Testnachricht gesendet. Warte ein paar Sekunden.",
+  "safety.proposal_mode_changed": "Der Modus hat sich seit dem Vorschlag geändert; bestätigen geht nur im assistierten Modus. Es wurde nichts geschrieben."
 }

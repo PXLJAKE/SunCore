@@ -358,6 +358,7 @@ class WebSocketConnection:
         self._notify_services: frozenset[str] = frozenset()
         self._action_listeners: list[NotificationActionListener] = []
         self._action_sub: int | None = None
+        self._action_lost: list[Callable[[], None]] = []
         self._action_wanted = False
         self._wanted: tuple[str, ...] = ()
         self._sub_id: int | None = None
@@ -527,16 +528,24 @@ class WebSocketConnection:
         self._notify_services = frozenset(services)
 
     async def subscribe_notification_actions(
-        self, listener: NotificationActionListener
+        self,
+        listener: NotificationActionListener,
+        on_lost: Callable[[], None] | None = None,
     ) -> Unsubscribe:
         if self._state is ConnectionState.CONNECTED:
             await self._subscribe_actions_on_wire()  # raises when Home Assistant refuses
         self._action_wanted = True
         self._action_listeners.append(listener)
+        if on_lost is not None:
+            self._action_lost.append(on_lost)
 
         def remove() -> None:
             with contextlib.suppress(ValueError):
                 self._action_listeners.remove(listener)
+            if on_lost is not None:
+                with contextlib.suppress(ValueError):
+                    self._action_lost.remove(on_lost)
+            self._action_wanted = bool(self._action_listeners)
 
         return remove
 
@@ -764,6 +773,11 @@ class WebSocketConnection:
                 await self._subscribe_actions_on_wire()
             except (CommandError, CommandTimeoutError) as err:
                 log.warning("ha.action_subscribe_failed", reason=str(err))
+                for lost in list(self._action_lost):
+                    try:
+                        lost()
+                    except Exception:
+                        log.exception("ha.listener_failed")
 
     # --- reading -----------------------------------------------------------
 

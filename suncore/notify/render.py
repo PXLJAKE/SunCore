@@ -25,10 +25,16 @@ class Rendered:
     message: str
 
 
+def _plain(value: str | int | float | bool | None) -> str | int | float | bool | None:
+    """Device names are user text: no braces, so a legacy ``notify.<name>`` service that renders
+    templates (``UNVERIFIED``) cannot be handed one."""
+    return value.replace("{", "(").replace("}", ")") if isinstance(value, str) else value
+
+
 def render_reason(reason: Reason, language: str, *, panel_hint: bool = False) -> Rendered:
     """Title and message of ``reason``; ``panel_hint`` appends the pointer to the panel."""
     catalogue = load_catalogue(language)
-    args = dict(reason.args)
+    args = {k: _plain(v) for k, v in reason.args.items()}
     message = catalogue.render(reason.key, args)
     if panel_hint:
         message = f"{message}\n{catalogue.render(PANEL_HINT_KEY)}"

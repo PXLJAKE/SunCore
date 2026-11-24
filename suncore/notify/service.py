@@ -106,7 +106,9 @@ class NotifyConnection(NotifyPort, Protocol):
     def add_state_listener(self, listener: StateListener) -> Unsubscribe: ...
 
     async def subscribe_notification_actions(
-        self, listener: Callable[[NotificationAction], None]
+        self,
+        listener: Callable[[NotificationAction], None],
+        on_lost: Callable[[], None] | None = None,
     ) -> Unsubscribe: ...
 
 
@@ -261,7 +263,8 @@ class NotificationService:
 
     async def _deliver(self, event: NotifyEvent) -> None:
         config = self._config
-        if not getattr(config.categories, event.category.value, False):
+        always = event.category is Category.SAFETY
+        if not always and not getattr(config.categories, event.category.value, False):
             return
         now = self._clock()
         tz = self._source.timezone()
@@ -276,6 +279,11 @@ class NotificationService:
             if await self._sink.persistent_create(event.key, text.title, text.message):
                 self._persistent.add(event.key)
                 delivered = True
+        if always and not getattr(config.categories, event.category.value, False):
+            # The category switch only silences push; the persistent notice stays (safety).
+            if delivered:
+                self._limiter.commit(event, now, tz, pushed=False)
+            return
         verdict = self._limiter.judge_push(event, config, now, tz)
         pushed = False
         if verdict is Verdict.SEND:
@@ -337,7 +345,9 @@ class NotificationService:
         if self._actions is not ActionsState.PENDING or self._unsub_actions is not None:
             return
         try:
-            self._unsub_actions = await self._conn.subscribe_notification_actions(self._on_action)
+            self._unsub_actions = await self._conn.subscribe_notification_actions(
+                self._on_action, self._on_lost
+            )
         except CommandError as exc:
             self._actions = ActionsState.REFUSED
             log.warning("notify.actions_refused", code=exc.code)
@@ -347,17 +357,26 @@ class NotificationService:
             self._actions = ActionsState.ACTIVE
             log.info("notify.actions_active")
 
+    def _on_lost(self) -> None:
+        """The renewal of the subscription after a reconnect failed: stop offering buttons."""
+        if self._unsub_actions is not None:
+            self._unsub_actions()
+            self._unsub_actions = None
+        self._actions = ActionsState.PENDING
+        self._tokens.clear()  # open buttons can no longer be answered
+        log.warning("notify.actions_lost")
+
     def _on_action(self, action: NotificationAction) -> None:
         """A tap (called from the connection's reader; never blocks, never raises)."""
         if self._actions is not ActionsState.ACTIVE:
             return  # cannot be authenticated: nothing is honoured
+        if len(self._tasks) >= MAX_IN_FLIGHT:  # before the token is spent
+            log.warning("notify.action_dropped", reason="busy")
+            return
         outcome = self._tokens.consume(action.action, self._clock())
         if isinstance(outcome, Refusal):
             if outcome is not Refusal.NOT_OURS:
                 log.warning("notify.action_refused", reason=outcome.value)
-            return
-        if len(self._tasks) >= MAX_IN_FLIGHT:
-            log.warning("notify.action_dropped", reason="busy")
             return
         self._spawn(self._handle(outcome))
 

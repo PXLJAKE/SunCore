@@ -465,7 +465,9 @@ class FakeHAConnection:
         self._notify_services = frozenset(services)
 
     async def subscribe_notification_actions(
-        self, listener: NotificationActionListener
+        self,
+        listener: NotificationActionListener,
+        on_lost: Callable[[], None] | None = None,  # noqa: ARG002 - the fake never loses it
     ) -> Unsubscribe:
         """Register for action taps; :meth:`fire_notification_action` delivers them."""
         self._require_connected()

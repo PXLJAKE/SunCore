@@ -54,6 +54,7 @@ class StubConnection:
     subscribe_error: Exception | None = None
     notify_error: Exception | None = None
     listener: Callable[[NotificationAction], None] | None = None
+    on_lost: Callable[[], None] | None = None
     state_listeners: list[StateListener] = field(default_factory=list)
 
     async def notify(
@@ -75,11 +76,14 @@ class StubConnection:
         return lambda: self.state_listeners.remove(listener)
 
     async def subscribe_notification_actions(
-        self, listener: Callable[[NotificationAction], None]
+        self,
+        listener: Callable[[NotificationAction], None],
+        on_lost: Callable[[], None] | None = None,
     ) -> Unsubscribe:
         if self.subscribe_error is not None:
             raise self.subscribe_error
         self.listener = listener
+        self.on_lost = on_lost
         return lambda: None
 
     def tap(self, action: str) -> None:
@@ -455,19 +459,68 @@ async def test_quiet_hours_drop_a_proposal_but_not_an_error(rig: Rig) -> None:
     assert [p for p in rig.conn.pushes("mobile_app_phone") if "no plan" in p["title"]]
 
 
-async def test_the_daily_cap_limits_push_but_not_persistent() -> None:
+async def test_the_daily_cap_limits_push_but_never_starves_a_safety_event() -> None:
     config = NotificationsConfig(targets=(SERVICE,), daily_push_cap=1)
     r = await started(config)
-    r.source.planner_failing_s = 7200.0
+    r.propose("i1")
+    await r.tick()  # the proposal uses up the cap
+    assert len(r.conn.pushes()) == 1
+    r.propose("i2")
     await r.tick()
-    r.source.emergency = False
-    await r.tick()
-    await r.service.submit(  # a second, different safety event
-        _event("emergency_stop:9", r.clock.now)
-    )
-    assert len(r.conn.pushes()) == 1  # the second push is over the cap
-    assert len(r.conn.persistents("create")) == 2  # persistent notifications are not capped
+    assert len(r.conn.pushes()) == 1  # a second proposal is over the cap
+    await r.service.submit(_event("emergency_stop:9", r.clock.now))
+    assert len(r.conn.pushes()) == 2  # safety still gets through
+    assert len(r.conn.persistents("create")) == 1  # persistent notices are never capped
     await r.service.stop()
+
+
+async def test_a_switched_off_safety_category_still_creates_the_persistent_notice() -> None:
+    config = NotificationsConfig(
+        targets=(SERVICE,), categories=NotificationCategories(safety=False)
+    )
+    r = await started(config)
+    await r.service.submit(_event("emergency_stop:1", r.clock.now))
+    assert len(r.conn.persistents("create")) == 1
+    assert r.conn.pushes() == []  # the switch silences push only
+    await r.service.stop()
+
+
+async def test_a_busy_service_does_not_spend_the_token(rig: Rig) -> None:
+    rig.propose()
+    await rig.tick()
+    action = confirm_id(rig)
+    blockers = [asyncio.ensure_future(asyncio.sleep(10)) for _ in range(8)]
+    rig.service._tasks.update(blockers)
+    rig.conn.tap(action)  # dropped: capacity first
+    for b in blockers:
+        b.cancel()
+        rig.service._tasks.discard(b)
+    rig.conn.tap(action)  # the same token still works
+    await rig.drain()
+    assert rig.port.confirmed == ["i1"]
+
+
+async def test_a_lost_resubscription_stops_buttons_and_is_retried(rig: Rig) -> None:
+    assert rig.conn.on_lost is not None
+    rig.conn.on_lost()
+    assert rig.service.status.actions is ActionsState.PENDING
+    rig.propose()
+    await rig.tick()
+    assert "data" not in rig.conn.pushes("mobile_app_phone")[0]  # no buttons while lost
+    for listener in rig.conn.state_listeners:
+        listener(ConnectionState.CONNECTED)
+    await rig.drain()
+    assert rig.service.status.actions is ActionsState.ACTIVE
+
+
+async def test_braces_in_device_names_are_neutralised(rig: Rig) -> None:
+    expires = rig.clock.now + timedelta(minutes=10)
+    rig.source.proposals = [ProposalObs("i1", "Pump {{ states('x') }}", expires)]
+    rig.port.views = [ProposalView("i1", "Pump", expires, True)]
+    await rig.tick()
+    [push] = rig.conn.pushes("mobile_app_phone")
+    assert "{" not in push["title"] + push["message"]
+    assert "}" not in push["title"] + push["message"]
 
 
 def _event(key: str, now: datetime):  # type: ignore[no-untyped-def]

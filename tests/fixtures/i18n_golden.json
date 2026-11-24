@@ -5089,6 +5089,12 @@
  },
  {
   "lang": "en",
+  "key": "safety.proposal_mode_changed",
+  "args": {},
+  "expected": "The mode changed after the proposal was made; confirm it again only in assisted mode. Nothing was written."
+ },
+ {
+  "lang": "en",
   "key": "safety.proposed",
   "args": {},
   "expected": "Assisted mode: proposed, waiting for your confirmation."
@@ -10400,6 +10406,12 @@
   "key": "safety.proposal_expired",
   "args": {},
   "expected": "Der Vorschlag ist abgelaufen, bevor er bestätigt wurde."
+ },
+ {
+  "lang": "de",
+  "key": "safety.proposal_mode_changed",
+  "args": {},
+  "expected": "Der Modus hat sich seit dem Vorschlag geändert; bestätigen geht nur im assistierten Modus. Es wurde nichts geschrieben."
  },
  {
   "lang": "de",

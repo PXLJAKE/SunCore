@@ -156,6 +156,7 @@ REASON_STATE_UNKNOWN: Final = Reason(key="safety.state_unknown")
 REASON_PROPOSED: Final = Reason(key="safety.proposed")
 REASON_PROPOSAL_EXPIRED: Final = Reason(key="safety.proposal_expired")
 REASON_CONFIRMED: Final = Reason(key="safety.confirmed")
+REASON_PROPOSAL_MODE_CHANGED: Final = Reason(key="safety.proposal_mode_changed")
 REASON_OVERRIDE_HELD: Final = Reason(key="safety.override_held")
 REASON_WRITE_FAILED: Final = Reason(key="safety.write_failed")
 REASON_READBACK_MISMATCH: Final = Reason(key="safety.readback_mismatch")
@@ -629,6 +630,16 @@ class SafetyGate:
                 now,
                 (REASON_PROPOSAL_EXPIRED,),
                 proposal.mode,
+            )
+        current = self.modes_of(proposal.intent.asset_id).effective
+        if current is not OperatingMode.ASSISTED:
+            # The proposal was made in assisted mode; a confirmation never acts under another one.
+            return await self._decide(
+                proposal.intent,
+                DecisionKind.REJECTED,
+                now,
+                (REASON_PROPOSAL_MODE_CHANGED,),
+                current,
             )
         intent = proposal.intent.model_copy(
             update={

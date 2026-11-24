@@ -411,6 +411,18 @@ def test_assisted_proposes_then_confirm_writes_as_the_user() -> None:
     assert asyncio.run(h.gate.confirm("i-1")) is None
 
 
+def test_confirm_is_rejected_when_the_mode_is_no_longer_assisted() -> None:
+    h = make_harness(global_mode=ASSISTED)
+    asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True))))
+    h.modes._global = AUTO  # type: ignore[attr-defined]  # assisted -> automatic meanwhile
+    d = asyncio.run(h.gate.confirm("i-1"))
+    assert d is not None
+    assert d.kind is DecisionKind.REJECTED
+    assert d.reasons[0].key == "safety.proposal_mode_changed"
+    assert h.apply_calls == 0
+    assert asyncio.run(h.gate.confirm("i-1")) is None  # spent
+
+
 def test_expired_proposal_is_rejected_on_confirm_and_hidden_from_the_list() -> None:
     h = make_harness(global_mode=ASSISTED)
     asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True))))

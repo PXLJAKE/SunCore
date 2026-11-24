@@ -860,6 +860,19 @@ invariants apply). The token travels in the notification payload through the HA 
 the push provider (as every actionable notification does). A refusal of the subscription after a
 reconnect is not detected (the service stays `active`, taps just never arrive).
 
+**Review conditions (control-safety, PR #57):**
+
+- 1 (required): `SAFETY` events bypass the daily push cap (a proposal flood cannot starve an
+  emergency-stop push; quiet hours never applied to safety).
+- 2: `gate.confirm` rejects when the device's *current* effective mode is not `assisted`
+  (`safety.proposal_mode_changed`, panel and tap alike); test assisted to automatic to confirm.
+- 3: persistent `SAFETY` notices are created even when the safety category (push) is off.
+- 4: the in-flight limit is checked before a token is spent.
+- 5: a failed renewal of the event subscription after a reconnect calls `on_lost`; the service
+  drops its buttons (`pending`) and subscribes again at the next connect.
+- 6: braces in device names are replaced before rendering (templates in legacy services,
+  `UNVERIFIED`).
+
 **New questions for the maintainer (19-21):**
 
 - **Frage 19: Push-Ziele (6-E):** Der Name des Ziels (z. B. `mobile_app_<handy>`) wird in den

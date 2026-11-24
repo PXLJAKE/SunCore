@@ -342,7 +342,9 @@ class HAConnection(Protocol):
         ...
 
     async def subscribe_notification_actions(
-        self, listener: NotificationActionListener
+        self,
+        listener: NotificationActionListener,
+        on_lost: Callable[[], None] | None = None,
     ) -> Unsubscribe:
         """Subscribe to :data:`NOTIFY_ACTION_EVENT`; renewed after a reconnect.
 
@@ -350,6 +352,8 @@ class HAConnection(Protocol):
         subscribe to a short allowlist, ``UNVERIFIED`` for the Supervisor's token) and
         :class:`NotConnectedError` while offline; the caller then degrades to plain
         notifications. The listener gets nothing but the ``action`` string.
+        ``on_lost`` is called when the renewal after a reconnect fails (taps no longer
+        arrive); the caller then subscribes again.
         """
         ...
 

@@ -402,6 +402,7 @@
   "safety.override_setpoint": "Set-point changed manually to {setpoint_c} °C: it is the new base value.",
   "safety.program_not_supported": "Starting shiftable programs is not available yet in this version; nothing was written.",
   "safety.proposal_expired": "The proposal expired before it was confirmed.",
+  "safety.proposal_mode_changed": "The mode changed after the proposal was made; confirm it again only in assisted mode. Nothing was written.",
   "safety.proposed": "Assisted mode: proposed, waiting for your confirmation.",
   "safety.rate_limited": "Not written: the device's write rate limit, {remaining_s} s left.",
   "safety.readback_mismatch": "Write not confirmed: the device did not report the new state.",

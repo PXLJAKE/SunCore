@@ -402,6 +402,7 @@
   "safety.override_setpoint": "Sollwert manuell auf {setpoint_c} °C geändert: Das ist der neue Basiswert.",
   "safety.program_not_supported": "Das Starten verschiebbarer Programme ist in dieser Version noch nicht verfügbar; nichts geschrieben.",
   "safety.proposal_expired": "Der Vorschlag ist abgelaufen, bevor er bestätigt wurde.",
+  "safety.proposal_mode_changed": "Der Modus hat sich seit dem Vorschlag geändert; bestätigen geht nur im assistierten Modus. Es wurde nichts geschrieben.",
   "safety.proposed": "Assistierter Modus: vorgeschlagen, wartet auf deine Bestätigung.",
   "safety.rate_limited": "Nicht geschrieben: Schreibraten-Limit des Geräts, noch {remaining_s} s.",
   "safety.readback_mismatch": "Schreiben nicht bestätigt: Das Gerät hat den neuen Zustand nicht gemeldet.",

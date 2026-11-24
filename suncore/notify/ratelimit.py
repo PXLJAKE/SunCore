@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime, time, tzinfo
 from typing import Final
 
 from suncore.core.config import NotificationsConfig, QuietHours
-from suncore.notify.model import POLICIES, NotifyEvent, Verdict
+from suncore.notify.model import POLICIES, Category, NotifyEvent, Verdict
 
 MAX_KEYS: Final = 512
 """Bound of the remembered dedupe keys (oldest dropped first)."""
@@ -72,7 +72,8 @@ class NotifyLimiter:
         )
         if quiet and in_quiet_hours(config.quiet_hours, now, tz):
             return Verdict.QUIET_HOURS
-        if self._pushed >= config.daily_push_cap:
+        if event.category is not Category.SAFETY and self._pushed >= config.daily_push_cap:
+            # Safety events are never starved by the cap (proposals and errors can use it up).
             return Verdict.DAILY_CAP
         return Verdict.SEND
 
