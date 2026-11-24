@@ -288,7 +288,7 @@
   {/if}
 </details>
 
-<div class="card chart-card">
+<div class="card chart-card" data-testid="plan-chart-card">
   <h3 id="{uid}-chart">
     {#if target.kind === 'at'}{t('plan.at.title', { time: tDateTime(new Date(target.atMs)) })}
     {:else if target.kind === 'day'}{t('plan.day.title', { day: dayText(target.day) })}

@@ -15,10 +15,10 @@ const shots = [
   { view: 'now', path: '/', scheme: 'dark', locale: 'de-DE' },
   { view: 'settings', path: '/#/settings', scheme: 'light', locale: 'en-US' },
   { view: 'settings', path: '/#/settings', scheme: 'light', locale: 'de-DE' },
-  { view: 'plan', path: '/#/plan', scheme: 'light', locale: 'en-US' },
-  { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'en-US' },
-  { view: 'plan', path: '/#/plan', scheme: 'light', locale: 'de-DE' },
-  { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'de-DE' },
+  { view: 'plan', path: '/#/plan?day=2026-06-20', scheme: 'light', locale: 'en-US' },
+  { view: 'plan', path: '/#/plan?day=2026-06-20', scheme: 'dark', locale: 'en-US' },
+  { view: 'plan', path: '/#/plan?day=2026-06-20', scheme: 'light', locale: 'de-DE' },
+  { view: 'plan', path: '/#/plan?day=2026-06-20', scheme: 'dark', locale: 'de-DE' },
   { view: 'history', path: '/#/history?period=month', scheme: 'light', locale: 'en-US' },
   { view: 'history', path: '/#/history?period=month', scheme: 'dark', locale: 'en-US' },
   { view: 'history', path: '/#/history?period=month', scheme: 'light', locale: 'de-DE' },
@@ -54,7 +54,10 @@ for (const shot of shots) {
     // Let the live feed deliver a few updates before the capture.
     await page.waitForTimeout(1500);
     const name = `${shot.view}-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
-    await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
+    // The plan view is shown as its chart card (the page also holds long lists).
+    await (shot.view === 'plan'
+      ? page.getByTestId('plan-chart-card').screenshot({ path: `${dir}/${name}.png` })
+      : page.screenshot({ path: `${dir}/${name}.png`, fullPage: true }));
     await ctx.close();
   });
 }
@@ -186,7 +189,10 @@ for (const { step, scheme, locale } of wizardShots) {
     await page.addStyleTag({ content: '.actions { position: static !important; }' });
     await page.waitForTimeout(1500);
     const name = `wizard-${step}-${info.project.name}-${scheme}-${locale.slice(0, 2)}`;
-    await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
+    // The plan view is shown as its chart card (the page also holds long lists).
+    await (shot.view === 'plan'
+      ? page.getByTestId('plan-chart-card').screenshot({ path: `${dir}/${name}.png` })
+      : page.screenshot({ path: `${dir}/${name}.png`, fullPage: true }));
     await ctx.close();
   });
 }
