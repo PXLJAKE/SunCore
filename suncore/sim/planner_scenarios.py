@@ -54,6 +54,7 @@ from suncore.forecast.risk import (
     evening_target_pct,
     morning_buffer_pct,
 )
+from suncore.planner.flex import FlexRequest, GridRequest
 from suncore.planner.inputs import PLANNER_HORIZON, PlannerInputs, build_inputs
 
 TZ: Final = ZoneInfo("Europe/Berlin")
@@ -191,6 +192,9 @@ class Situation:
     import_limit_w: float | None = None
     price_includes: str = "all_in"
     with_prices: bool = True
+    flex: FlexRequest | None = None
+    """Phase 6: runtime state of the flexible loads (``suncore.sim.planner_flex``)."""
+    grid_limits: GridRequest | None = None
 
 
 def battery_settings(s: Situation) -> BatterySettings:
@@ -263,6 +267,8 @@ def situation_inputs(s: Situation) -> PlannerInputs:
         devices=s.devices,
         import_limit_w=s.import_limit_w,
         export_limit_w=s.export_limit_w,
+        flex=s.flex,
+        grid_limits=s.grid_limits,
     )
 
 

@@ -29,6 +29,7 @@ from datetime import datetime, tzinfo
 from typing import Final
 
 from suncore.core.decisions import Reason
+from suncore.planner import flexmodel as fx
 from suncore.planner import reasons as rk
 from suncore.planner.inputs import PlannerInputs, SocGoal
 from suncore.planner.model import BUFFER_KINDS, Economics, Schedule, goal_shortfall_wh
@@ -137,7 +138,7 @@ def slot_facts(inputs: PlannerInputs, econ: Economics, schedule: Schedule) -> li
             floor = min(battery.reserve_wh, battery.soc_wh)
             room_w = (prev - floor) * battery.model.discharge_efficiency / inputs.dt_h
             possible = min(deficit, battery.max_discharge_w, room_w)
-            lock = schedule.battery_load_w[t] < possible - EPS_W
+            lock = schedule.discharge_w(t) < possible - EPS_W
             if lock:
                 hold = next((g for g, b in pending if b and g.kind in HOLD_KINDS), None)
         priority: float | None = None
@@ -324,6 +325,28 @@ def interval_reasons(  # noqa: PLR0912, PLR0915 - one branch per rule of the mod
                     args={"power_w": round(schedule.export_w[t]), "price": round(export_price, 4)},
                 )
             )
+    if econ.flex is not None and schedule.flex:
+        out.extend(
+            fx.flex_reasons(
+                inputs,
+                econ.flex,
+                schedule.flex,
+                t,
+                lambda k: _hhmm(inputs.starts[k] + inputs.step, tz),
+            )
+        )
+    limit = inputs.import_limit_at(t)
+    if (
+        limit is not None
+        and schedule.flex
+        and schedule.import_w(t) > max(limit, econ.deficit_w[t]) + EPS_W
+    ):
+        out.append(
+            Reason(
+                key=rk.GRID_IMPORT_LIMIT_EXCEEDED,
+                args={"limit_w": round(limit), "import_w": round(schedule.import_w(t))},
+            )
+        )
     if not out and schedule.grid_load_w[t] > EPS_W:
         out.append(
             Reason(

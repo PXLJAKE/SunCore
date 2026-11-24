@@ -47,8 +47,10 @@ from suncore.core.control import (
     SolverStats,
 )
 from suncore.core.decisions import Reason
+from suncore.planner import flexmodel as fx
 from suncore.planner import reasons as rk
 from suncore.planner.explain import EPS_W, SlotFacts, interval_reasons, slot_facts
+from suncore.planner.flex import FlexFlows
 from suncore.planner.heuristic import heuristic_schedule
 from suncore.planner.inputs import DEFAULT_BUDGET_S, DEFAULT_MIP_GAP, PlannerInputs
 from suncore.planner.model import (
@@ -155,6 +157,9 @@ def run(  # noqa: PLR0912, PLR0915 - the fallback chain, one branch per outcome
             fallback = Reason(key=rk.FALLBACK_ERROR, args={"error": result.detail or "solver"})
     elapsed = time.perf_counter() - started
     plan_reasons = list(inputs.reasons)
+    peak = _peak_reason(inputs, chosen if chosen is not None else heuristic)
+    if peak is not None:
+        plan_reasons.append(peak)
     source: PlanSource
     if chosen is not None and result is not None:
         source = "solver"
@@ -196,6 +201,22 @@ def run(  # noqa: PLR0912, PLR0915 - the fallback chain, one branch per outcome
     )
 
 
+def _peak_reason(inputs: PlannerInputs, schedule: Schedule) -> Reason | None:
+    """``planner.grid.peak``: the peak the plan expects this month and its price."""
+    price = inputs.peak_price()
+    if price <= 0:
+        return None
+    floors = inputs.month_floors_w()
+    planned = max(
+        [floors[0] if floors else 0.0]
+        + [schedule.import_w(t) for t in range(inputs.n) if inputs.month_of(t) == 0]
+    )
+    return Reason(
+        key=rk.GRID_PEAK,
+        args={"peak_w": round(planned), "price": round(price, 4)},
+    )
+
+
 # --- warm start -------------------------------------------------------------------------------
 
 
@@ -215,10 +236,24 @@ def follow(
     econ: Economics,
     battery_w: list[float],
     devices_w: list[list[float]],
+    flex: tuple[FlexFlows, ...] = (),
 ) -> Schedule:
     """A feasible schedule that follows the wanted battery and device powers as far as the
-    bounds allow (the warm start's repair: SoC re-simulated from the live SoC)."""
+    bounds allow (the warm start's repair: SoC re-simulated from the live SoC).
+
+    ``flex`` (Phase 6): the flexible loads' flows are kept, except that what they drew from
+    the battery comes from the grid (the battery is re-simulated without them)."""
     n, dt = inputs.n, inputs.dt_h
+    kept = tuple(
+        FlexFlows(
+            f.surplus_w,
+            tuple(g + b for g, b in zip(f.grid_w, f.battery_w, strict=True)),
+            (0.0,) * n,
+            f.temp_c,
+            f.start,
+        )
+        for f in flex
+    )
     battery = inputs.battery
     gl, bl, pc, gc, ex, cu, soc = ([0.0] * n for _ in range(7))
     dev = [[0.0] * n for _ in inputs.devices]
@@ -227,7 +262,7 @@ def follow(
     ceiling = max(battery.max_wh, e) if battery else 0.0
     for t in range(n):
         s, d = econ.surplus_w[t], econ.deficit_w[t]
-        rest = s
+        rest = s - sum(f.surplus_w[t] for f in kept)
         for j, device in enumerate(inputs.devices):
             cap = device.max_w if device.allowed[t] else 0.0
             take = max(0.0, min(devices_w[j][t], cap, rest))
@@ -240,6 +275,12 @@ def follow(
             if want > 0:
                 pc[t] = max(0.0, min(want, rest, battery.max_charge_w, room))
                 rest -= pc[t]
+                limit = inputs.import_limit_at(t)
+                headroom = (
+                    float("inf")
+                    if limit is None
+                    else max(0.0, max(limit, d) - d - sum(f.grid_w[t] for f in kept))
+                )
                 gc[t] = max(
                     0.0,
                     min(
@@ -247,6 +288,7 @@ def follow(
                         inputs.grid_charge_at(t),
                         battery.max_charge_w - pc[t],
                         room - pc[t],
+                        headroom,
                     ),
                 )
             elif want < 0:
@@ -255,7 +297,8 @@ def follow(
             e = e + dt * (eta_c * (pc[t] + gc[t]) - bl[t] / eta_d)
             soc[t] = e
         if rest > 0:
-            cap_e = rest if inputs.export_limit_w is None else min(rest, inputs.export_limit_w)
+            limit_e = inputs.export_limit_at(t)
+            cap_e = rest if limit_e is None else min(rest, limit_e)
             if inputs.export_price[t] < 0 or inputs.discouraged(t):
                 cap_e = 0.0
             ex[t] = cap_e
@@ -270,6 +313,7 @@ def follow(
         curtail_w=tuple(cu),
         soc_wh=tuple(soc),
         devices_w=tuple(tuple(x) for x in dev),
+        flex=kept,
     )
 
 
@@ -286,7 +330,7 @@ def warm_vector(
         shifted.get(start, heuristic.battery_w(t)) for t, start in enumerate(inputs.starts)
     ]
     devices = [list(d) for d in heuristic.devices_w]
-    start = follow(inputs, econ, battery_w, devices)
+    start = follow(inputs, econ, battery_w, devices, heuristic.flex)
     x = vector_from_schedule(inputs, layout, econ, start)
     return np.asarray(x, dtype=np.float64)
 
@@ -361,20 +405,22 @@ def to_plan(
             soc_pct=None
             if battery is None
             else round(min(100.0, max(0.0, battery.model.wh_to_soc(schedule.soc_wh[t]))), 2),
-            devices_w=_w(schedule.device_total_w(t)),
+            devices_w=_w(schedule.device_total_w(t) + schedule.flex_total_w(t)),
             curtail_w=_w(schedule.curtail_w[t]),
         )
         devices = {
             device.device_id: _device_band(schedule.devices_w[j][t], device.max_w, fact)
             for j, device in enumerate(inputs.devices)
         }
+        for load, flows in zip(inputs.flex_loads, schedule.flex, strict=True):
+            devices[load.device_id] = fx.flex_band(load, flows, t)
         intervals.append(
             PlanInterval(
                 start=start,
                 end=start + inputs.step,
                 devices=devices,
                 battery=_battery_band(inputs, schedule, fact, t),
-                grid_import_limit_w=inputs.import_limit_w,
+                grid_import_limit_w=inputs.import_limit_at(t),
                 expected=expected,
                 prices=IntervalPrices(
                     import_price=round(inputs.import_price[t], 6),
