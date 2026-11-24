@@ -1733,5 +1733,20 @@
   "mqtt.entities": "{count, plural, =0 {Keine Entities} one {# Entity} other {# Entities}}",
   "wizard.check.mqtt_ok": "Die Home-Assistant-Entities sind veröffentlicht ({count, plural, one {# Entity} other {# Entities}}).",
   "wizard.check.mqtt_no_broker": "Kein MQTT-Broker gefunden, daher hat SunCore keine Entities in Home Assistant. Installiere die App Mosquitto broker, um sie zu bekommen.",
-  "wizard.check.mqtt_error": "Die Verbindung zum MQTT-Broker ist fehlgeschlagen. Den Grund zeigt die Seite der Home-Assistant-Entities."
+  "wizard.check.mqtt_error": "Die Verbindung zum MQTT-Broker ist fehlgeschlagen. Den Grund zeigt die Seite der Home-Assistant-Entities.",
+  "mqtt.state.grid_state.normal": "Normal",
+  "mqtt.state.grid_state.limited": "Vom Netzbetreiber begrenzt",
+  "mqtt.state.grid_state.island": "Inselbetrieb",
+  "mqtt.state.job_state.idle": "Bereit",
+  "mqtt.state.job_state.armed": "Scharf",
+  "mqtt.state.job_state.running": "Läuft",
+  "mqtt.state.job_state.done": "Fertig",
+  "mqtt.state.job_state.cancelled": "Abgebrochen",
+  "mqtt.state.battery_action.idle": "Ruhe",
+  "mqtt.state.battery_action.charge": "Laden",
+  "mqtt.state.battery_action.discharge": "Entladen",
+  "mqtt.state.battery_action.hold": "Halten",
+  "mqtt.state.battery_lease.none": "Eigene Einstellungen",
+  "mqtt.state.battery_lease.held": "Von SunCore gehalten",
+  "mqtt.state.battery_lease.released": "Zurückgegeben"
 }

@@ -573,7 +573,8 @@ Der Maintainer ist abwesend; **bis zur Antwort gilt jeweils der empfohlene Stand
 1. **MQTT-Broker:** SunCore-Entities in HA brauchen den Mosquitto-Broker. **Empfehlung:** Broker
    automatisch über den Supervisor finden (dafür wird `hassio_api` wieder aktiviert, nur für
    diesen einen Aufruf); ohne Broker läuft alles weiter, die Oberfläche zeigt einen Hinweis.
-   Ist Mosquitto bei dir installiert?
+   Ist Mosquitto bei dir installiert? *(Stand 6-C: `hassio_api` ist dafür gar nicht nötig und
+   bleibt aus, siehe Abschnitt 8.)*
 2. **Modus aus HA anheben:** Soll ein Schalter in HA ein Gerät auf „Automatisch“ stellen dürfen?
    **Empfehlung:** nein (Standard aus, in den Einstellungen einschaltbar); Absenken, Not-Aus und
    Pause gehen immer.
@@ -616,6 +617,14 @@ Der Maintainer ist abwesend; **bis zur Antwort gilt jeweils der empfohlene Stand
 14. **Modellwahl:** **Empfehlung:** Sonnet für Routine, Haiku für Übersetzungen, das stärkere
     Modell für Verträge/Invarianten (6-B, 6-F, 6-G, 6-I, 6-L), Planer (6-H, 6-K) und die
     Abschlussprüfung.
+15. **Anzeigetexte der HA-Entities (neu, 6-C):** Aufzählungs-Sensoren (Modus, Status, letzte
+    Entscheidung) zeigen den *übersetzten* Text („Automatisch“) als Zustand, so steht es in
+    ADR-0016. Das heißt: Automationen, die auf den Zustand prüfen, hängen an der Sprache.
+    **Empfehlung:** so lassen; alternativ feste englische Zustände plus übersetzte Namen. Welche
+    Variante willst du?
+16. **Sprache der Entity-Namen (neu, 6-C):** Bei „Sprache: automatisch“ nimmt SunCore die
+    Sprache von Home Assistant (Schlüssel `language` aus `get_config`, ungeprüft), sonst
+    Englisch. **Empfehlung:** so lassen; die Region-Einstellung hat Vorrang.
 
 ## 7. Out of scope for Phase 6
 
@@ -652,3 +661,45 @@ detection; CO₂ weighting.
   enabled, so stored sites stay valid.
 - **Frontend:** the site form keeps the grid fields it does not edit; the device form keeps
   `behaviour_confirmed`/`para14a`.
+
+### 6-C (MQTT base and backend ICU)
+
+- **`hassio_api` stays off** (plan WP3 and decision 1 said "re-enable"): the Supervisor lets apps
+  call `/services*` without it (`security.py` `api_bypass`, verified 2026-11-24), the `mqtt:want`
+  services role is what grants the lookup. A boundary test asserts that `GET /services/mqtt` is
+  the only Supervisor REST URL in the code and that no app folder sets `hassio_api`.
+- **Stub broker, not `amqtt`**: `amqtt`'s latest release is a pre-release that does not resolve with
+  the project's dependencies; `tests/ha/mqtt/stub_broker.py` is a ~200-line MQTT 3.1.1 broker
+  (credentials, will, retained, wildcards) and the tests run the real `aiomqtt` against it.
+  6-J can reuse it for the evcc fake.
+- **Read-only subset announced**: only the entities whose values SunCore has today are
+  announced (`app/ha_entities.py` `SUPPORTED`): `status`, `mode`, `available_surplus`, `healthy`,
+  `shadow_mode`, `emergency_stop`, `events`, and per device `<dev>_mode`, `<dev>_power`,
+  `<dev>_last_decision`. Not announced yet (catalogue entries exist, values follow): `next_action`,
+  `plan_cost_today`, `savings_today`, `savings_month`, `autarky_today`, `pv_forecast_error`
+  (need a summary reader, to be added with 6-D or 6-N), `month_peak`, `grid_state`,
+  `para14a_active`, `island` (6-F), `battery_action`, `battery_lease` (battery state mapping),
+  EV, program and comfort entities (6-I, 6-K, 6-L). All command entities (switch, button, select,
+  number, text) are in the catalogue but never announced before 6-D.
+- **Object id** of the emergency stop button is `emergency_stop_button` (the binary sensor keeps
+  `emergency_stop`): object ids are unique per site because they form the topics.
+- **Enum sensors publish the rendered label** (state and `options` in the backend language), as
+  ADR-0016 decision 6 says; a language change republishes configs and states. Automations on
+  these states therefore depend on the language; see question 15.
+- **`available_surplus`** is the controller's smoothed `available_w` (before the reserve).
+  `healthy` = Home Assistant connected and the control loop active.
+- **Events** produced now: `device_switched` (accepted decision), `proposal` (proposed),
+  `error` (failed), derived from each device's newest gate decision; the other types of the
+  `events` entity belong to later PRs. Events are not retained (HA ignores retained replays).
+- **Install record** (`iid`, announced device ids) lives in `learned_param` (namespace
+  `ha_entities`), not in a new table: no schema bump.
+- **Discovery** uses one device payload per HA device with `via_device` pointing at the site
+  device; no `cu` (configuration_url) and no `child_devices`.
+- **Backend catalogue prefixes** as planned (`mqtt.`, `notify.`, `safety.`, `controller.`,
+  `planner.`, `device.`, `grid.`); the golden file covers up to 8 sample argument sets per key.
+  Languages other than `en` and `de` have plural rule `other` only.
+- Image smoke test not run locally (no Docker daemon in the session); the new dependencies
+  `aiomqtt` 2.5.1 and `paho-mqtt` 2.2.0 are pure-Python wheels with hashes in `uv.lock`, so the
+  image's `--only-binary --require-hashes` install is unaffected. CI's smoke job covers it.
+- `UNVERIFIED`: `get_config` language key, custom HA birth topic, monetary unit rule, TLS to the
+  Mosquitto app with verification (see `docs/research/mqtt-discovery.md`).

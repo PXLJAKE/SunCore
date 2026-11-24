@@ -1553,6 +1553,48 @@
  },
  {
   "lang": "en",
+  "key": "mqtt.state.battery_action.charge",
+  "args": {},
+  "expected": "Charging"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.battery_action.discharge",
+  "args": {},
+  "expected": "Discharging"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.battery_action.hold",
+  "args": {},
+  "expected": "Holding"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.battery_action.idle",
+  "args": {},
+  "expected": "Idle"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.battery_lease.held",
+  "args": {},
+  "expected": "Held by SunCore"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.battery_lease.none",
+  "args": {},
+  "expected": "Own settings"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.battery_lease.released",
+  "args": {},
+  "expected": "Released"
+ },
+ {
+  "lang": "en",
   "key": "mqtt.state.decision.accepted",
   "args": {},
   "expected": "Switched"
@@ -1592,6 +1634,54 @@
   "key": "mqtt.state.decision.shadow",
   "args": {},
   "expected": "Would have switched"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.grid_state.island",
+  "args": {},
+  "expected": "Island operation"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.grid_state.limited",
+  "args": {},
+  "expected": "Limited by the grid operator"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.grid_state.normal",
+  "args": {},
+  "expected": "Normal"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.job_state.armed",
+  "args": {},
+  "expected": "Armed"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.job_state.cancelled",
+  "args": {},
+  "expected": "Cancelled"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.job_state.done",
+  "args": {},
+  "expected": "Done"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.job_state.idle",
+  "args": {},
+  "expected": "Idle"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.job_state.running",
+  "args": {},
+  "expected": "Running"
  },
  {
   "lang": "en",
@@ -6119,6 +6209,48 @@
  },
  {
   "lang": "de",
+  "key": "mqtt.state.battery_action.charge",
+  "args": {},
+  "expected": "Laden"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.battery_action.discharge",
+  "args": {},
+  "expected": "Entladen"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.battery_action.hold",
+  "args": {},
+  "expected": "Halten"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.battery_action.idle",
+  "args": {},
+  "expected": "Ruhe"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.battery_lease.held",
+  "args": {},
+  "expected": "Von SunCore gehalten"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.battery_lease.none",
+  "args": {},
+  "expected": "Eigene Einstellungen"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.battery_lease.released",
+  "args": {},
+  "expected": "Zurückgegeben"
+ },
+ {
+  "lang": "de",
   "key": "mqtt.state.decision.accepted",
   "args": {},
   "expected": "Geschaltet"
@@ -6158,6 +6290,54 @@
   "key": "mqtt.state.decision.shadow",
   "args": {},
   "expected": "Hätte geschaltet"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.grid_state.island",
+  "args": {},
+  "expected": "Inselbetrieb"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.grid_state.limited",
+  "args": {},
+  "expected": "Vom Netzbetreiber begrenzt"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.grid_state.normal",
+  "args": {},
+  "expected": "Normal"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.job_state.armed",
+  "args": {},
+  "expected": "Scharf"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.job_state.cancelled",
+  "args": {},
+  "expected": "Abgebrochen"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.job_state.done",
+  "args": {},
+  "expected": "Fertig"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.job_state.idle",
+  "args": {},
+  "expected": "Bereit"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.job_state.running",
+  "args": {},
+  "expected": "Läuft"
  },
  {
   "lang": "de",

@@ -53,6 +53,7 @@ from suncore.core.decisions import (
 )
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import DeviceKind
+from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.signals import Quality
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, PreviewTooLargeError
@@ -192,6 +193,7 @@ class FakeServices:
         self.peer_policy = PeerPolicy(enforce=False)
         self.static_dir: Path | None = None
         self.ha_state = "connected"
+        self.ha_entities = HaEntitiesStatus(BrokerState.CONNECTED, "supervisor", 12, None)
         self.db_ok = True
         self.site: SiteConfig | None = None
         self.sections: dict[str, BaseModel] = {}
@@ -258,6 +260,13 @@ class FakeServices:
 
     def plan_summary(self) -> PlanSummary:
         return self.planning.summary()
+
+    def ha_entities_status(self) -> HaEntitiesStatus:
+        return self.ha_entities
+
+    async def ha_entities_republish(self) -> bool:
+        self.calls.append(("ha_entities_republish", None))
+        return self.ha_entities.state is BrokerState.CONNECTED
 
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         return self.planning.add_listener(listener)

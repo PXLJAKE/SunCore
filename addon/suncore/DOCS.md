@@ -140,6 +140,21 @@ Short version: leave everything in shadow mode first, read the **Decision log**
 for a day, then switch **one** device to automatic. Surplus control has never
 run against real hardware yet; the guide lists what is unverified.
 
+## Home Assistant entities
+
+SunCore shows its status in Home Assistant as devices and entities (the site, one
+device per configured device): status, operating mode, emergency stop, available
+surplus, and per device mode, power and last decision, plus an event entity for
+switching and proposals. They are published through MQTT discovery, so they need
+the **Mosquitto broker** app (Settings → Apps → App store). SunCore finds the
+broker through the Supervisor by itself (the app needs no extra permission for
+that) and looks again every minute until one is installed. Without a broker
+everything else in SunCore works; the **Home Assistant entities** line of the
+system check says so. These entities do not replace the Energy dashboard: there
+are no energy counters among them. Names and states follow the language of your
+region setting (or of Home Assistant). This version only reads; commands from
+Home Assistant follow later.
+
 ## Options
 
 | Option | Default | Description |
@@ -213,8 +228,8 @@ analysis or backtesting (the plan view is minimal), no machine-learning load
 model, no built-in internet fallbacks for solar forecasts and prices, no thermal
 models for air conditioners and water heaters in the plan, no export limiting
 through the inverter, no charge point (wallbox), heat pump or shiftable program
-control, and no Home Assistant entities (MQTT discovery follows in a later
-phase; the Mosquitto app is not needed yet). See the
+control, and the Home Assistant entities are read-only so far (no buttons or
+switches yet). See the
 [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 ## Privacy

@@ -43,6 +43,8 @@ from suncore.api.models import (
     ErrorOut,
     FlowsMessage,
     FlowsOut,
+    HaEntitiesRepublishOut,
+    HaEntitiesStatusOut,
     HealthMessage,
     HealthOut,
     HistoryRestoreOut,
@@ -171,6 +173,7 @@ def create_app(
     _register_http(app, services)
     _register_prices(app, services)
     _register_plan(app, services)
+    _register_ha_entities(app, services)
     register_history(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
@@ -399,6 +402,33 @@ def _register_plan(app: FastAPI, services: Services) -> None:
             return await services.replan()
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=ERR_PLANNING_UNAVAILABLE) from exc
+
+
+def _register_ha_entities(app: FastAPI, services: Services) -> None:
+    """Status of the MQTT entity surface and a manual republish (Phase 6 WP3)."""
+
+    @app.get(
+        f"{API_PREFIX}/ha-entities/status",
+        response_model=HaEntitiesStatusOut,
+        operation_id="ha_entities_status",
+    )
+    async def ha_entities_status() -> HaEntitiesStatusOut:
+        """Whether SunCore's entities are published in Home Assistant: the state (``disabled``,
+        ``no_broker``, ``connecting``, ``connected``, ``error``), where the broker comes from,
+        the number of entities and, when something is wrong, a reason key and (without a
+        broker) the hint key for installing the Mosquitto broker app. Everything else in
+        SunCore works without it."""
+        return HaEntitiesStatusOut.from_core(services.ha_entities_status())
+
+    @app.post(
+        f"{API_PREFIX}/ha-entities/republish",
+        response_model=HaEntitiesRepublishOut,
+        operation_id="ha_entities_republish",
+    )
+    async def ha_entities_republish() -> HaEntitiesRepublishOut:
+        """Publish the discovery configs and all states again (for a broker without the Home
+        Assistant birth message). ``republished`` is ``false`` when there is no broker session."""
+        return HaEntitiesRepublishOut(republished=await services.ha_entities_republish())
 
 
 def _register_control(app: FastAPI, services: Services) -> None:

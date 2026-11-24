@@ -73,7 +73,12 @@ function build(): Case[] {
       for (let i = 0; i < rounds; i += 1) {
         const args: Args = {};
         for (const [name, list] of values) args[name] = list[i % list.length] as string | number;
-        cases.push({ lang, key, args, expected: String(fmt.format(args as Record<string, never>)) });
+        cases.push({
+          lang,
+          key,
+          args,
+          expected: String(fmt.format(args as Record<string, never>)),
+        });
       }
     }
   }

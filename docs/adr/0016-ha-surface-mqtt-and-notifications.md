@@ -172,7 +172,17 @@ channels outside HA (e-mail, Telegram).
   actionable confirm path); `ha-integration` verifies the `UNVERIFIED` keys from
   `home-assistant/core` before using them; Phase 7 companion integration migration.
 
+## Update 2026-11-24 (PR 6-C)
+
+Reading `supervisor/api/middleware/security.py` showed that apps reach `/services*` without
+`hassio_api` (the `api_bypass` pattern), so decision 2's "`hassio_api: true` is re-enabled for
+this one call" is **not needed and not done**: both app folders keep `hassio_api` off and rely on
+`services: [mqtt:want]`. A boundary test asserts that `GET /services/mqtt` is the only Supervisor
+REST URL in the code. Details in [`mqtt-discovery.md`](../research/mqtt-discovery.md). The
+catalogue's emergency stop button has the object id `emergency_stop_button` (the binary sensor
+keeps `emergency_stop`; object ids are unique per site because they form topics).
+
 ## Recommendation to the maintainer
 
-Accept; please confirm that raising modes from Home Assistant stays off by default and that the
-app may re-enable `hassio_api` for the broker lookup.
+Accept; please confirm that raising modes from Home Assistant stays off by default (the
+`hassio_api` question of the first draft is moot, see the update above).

@@ -67,3 +67,48 @@ Verified on 2026-10-12 against `home-assistant/home-assistant.io`
 `source/_integrations/mqtt.markdown` (branch `current`) and
 `home-assistant/supervisor` `supervisor/services/modules/mqtt.py`,
 `home-assistant/developers.home-assistant` `docs/api/supervisor/endpoints.md`.
+
+### Phase 6 (PR 6-C), verified 2026-11-24
+
+Read from `home-assistant/core` `dev` (`components/mqtt/{const,schemas,entity,discovery,
+abbreviations,sensor,event,text}.py`, `components/sensor/const.py`) and `home-assistant/supervisor`
+`main` (`supervisor/api/{services,__init__}.py`, `supervisor/api/middleware/security.py`,
+`supervisor/services/modules/mqtt.py`):
+
+- **`hassio_api` is not needed for the broker lookup.** The security middleware's
+  `api_bypass` pattern lists `/services.*` (also `/discovery.*`, `/info`, `/addons/self/...`), so an
+  app with the `mqtt:want` services role reaches `GET /services/mqtt` without `hassio_api`;
+  `_check_access` then requires the `services_role`. SunCore keeps `hassio_api` off
+  (ADR-0016 decision 2 assumed it had to be re-enabled; superseded, see the ADR note).
+- Response of `GET /services/mqtt` (`api/services.py`, `SCHEMA_SERVICE_MQTT`): envelope
+  `{"result": "ok", "data": {host, port (int), ssl (bool, default false), username?, password?,
+  protocol ("3.1" | "3.1.1", default "3.1.1"), app}}`; the v1 route renames `app` to `addon`. A
+  missing provider raises `APIError("Service not enabled")` (`{"result": "error", "message":
+  ...}`). SunCore reads `host`, `port`, `ssl`, `username`, `password`, `protocol` only.
+- `via_device` exists in the device schema (`schemas.py`, `CONF_VIA_DEVICE`, a string that
+  is the parent's identifier; a parent that is not announced yet is stub-created in the registry,
+  `entity.py` `ensure_via_device_exists`). Newer `dev` also has `child_devices` (`cdevs`) and a
+  `child_device` key per entity; SunCore does not use them (one discovery message per HA device).
+- `text` platform: `min`, `max`, `mode`, `pattern` (`ptrn`) and `value_template` exist
+  (`text.py`); announced from PR 6-D on.
+- No `translation_key` in any MQTT entity schema: names are rendered in the backend.
+- `sensor`: `options` needs `device_class: enum` and forbids `state_class` and
+  `unit_of_measurement` (`validate_sensor_state_and_device_class_config`); the enum state must be
+  one of the options, so SunCore publishes the rendered label and lists the rendered labels.
+  `monetary` allows only `state_class: total` (`DEVICE_CLASS_STATE_CLASSES`); SunCore sets none
+  (the values reset daily). Whether the unit of a monetary sensor must be an ISO 4217 code is
+  `UNVERIFIED` (no check in the MQTT schema); SunCore announces a monetary sensor only when the
+  region's currency is known and uses it as the unit.
+- `event`: `event_types` required; the state payload is JSON with `event_type` (members other than
+  `event_type` become attributes); a payload received with the retain flag is ignored as a
+  replay (`event.py`), so SunCore publishes events **not retained**.
+- Discovery: an empty payload on the config topic removes the device's components whether or
+  not it was retained (`discovery.py`, cleanup); configs are published non-retained. Abbreviations
+  used: `p`, `uniq_id`, `def_ent_id`, `stat_t`, `dev_cla`, `stat_cla`, `unit_of_meas`, `sug_dsp_prc`,
+  `ops`, `evt_typ`, `avty_t`, `pl_avail`, `pl_not_avail`, `cmps`, `dev`, `o`; device keys `ids`, `name`,
+  `mf`, `mdl`, `sw`, `via_device`; origin keys `name`, `sw`, `url`.
+- Still `UNVERIFIED`: that HA's `get_config` carries the UI language under `language` (used for
+  the entity names while `region.language` is `auto`; falls back to English), that a custom birth
+  topic is never configured (SunCore listens on the default `homeassistant/status`), the ingress
+  URL for the device's `configuration_url` (`cu`, left out), and TLS to the Mosquitto app with
+  certificate verification on (default context; a failure shows `mqtt.reason.tls_failed`).

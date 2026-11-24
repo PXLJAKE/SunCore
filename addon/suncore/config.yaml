@@ -20,8 +20,10 @@ ingress: true
 panel_icon: mdi:solar-power-variant
 panel_title: SunCore
 homeassistant_api: true
-# hassio_api (Supervisor REST) is not used yet; MQTT credentials via the
-# services API will need it again (Phase 6). Least privilege until then.
+# hassio_api (Supervisor REST) stays off: the MQTT broker lookup
+# (GET /services/mqtt) is reachable without it, because the Supervisor lets apps call
+# /services* regardless (supervisor/api/middleware/security.py, verified 2026-11-24;
+# docs/research/ha-apps.md). The `services` role below is what grants the lookup.
 services:
   - mqtt:want
 backup_exclude:
