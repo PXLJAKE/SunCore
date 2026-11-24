@@ -963,11 +963,11 @@ detection; CO₂ weighting.
   minimum, 30 s start and stop delays) is a model, not evcc's code. `ScenarioRunner.evcc` is
   the bus; `ControlStack(evcc=...)` is the same class as in production. The real link is
   tested against the in-process stub broker (`tests/app/test_evcc_link.py`).
-- **Retry noise:** while evcc is silent the gate tries the release every tick (5 s) and each
-  attempt is a `failed` decision (`safety.watchdog_unavailable`). That is the existing gate
-  behaviour for a paused device; when evcc is back before a release succeeded, SunCore resumes
-  control without a release. Both are acceptable (nothing is written while silent), but the
-  decision log is noisy (finding for 6-D/6-M: collapse repeated failures).
+- **Release retries (review B1/C1):** a release that fails on a device trip or in `poll`
+  is rescheduled with the battery's back-off (30 s doubling to 10 min, `release_due_ts`,
+  writing blocked meanwhile) instead of one `failed` decision per 5 s tick; the first retry
+  after evcc is back restores the baseline. Other release callers (recovery, hand-over,
+  reconnect, emergency stop) are unchanged.
 - **Behaviour cap:** an unconfirmed loadpoint stays capped at assisted (E8); the scenario sets
   `behaviour_confirmed: true`, `test_an_unconfirmed_loadpoint_stays_at_assisted` covers the
   cap.
@@ -982,9 +982,9 @@ detection; CO₂ weighting.
 |---|---|---|
 | L1 values in range: `maxCurrent` in `[max(6 A, evcc minCurrent), configured max]`, `limitSoc` 1-100, no plan | pass | `check_values`; `test_l1_a_value_in_range_passes_and_one_outside_never_does` (hypothesis), `test_l1_max_current_outside_the_range_is_refused`, `test_l1_evccs_own_minimum_raises_the_floor`, `test_l1_a_vehicle_plan_is_refused`; the driver refuses a plan and a value below evcc's minimum (`test_a_plan_is_refused`, `test_max_current_below_evccs_minimum_is_refused`) |
 | L2 `now` only in EV mode `now` or a planned grid interval of `target`; no raise in `off`, unplugged or with unknown evcc state; E6 battery lock | pass | `check_raise`, `loadpoint_allowance_w`, `check_charge_grid`; `test_now_without_an_allowance_is_refused`, `test_now_in_a_planned_grid_interval_of_target_is_accepted_within_the_band`, `test_e6_now_needs_a_battery_lock`, `test_a_mode_off_user_gets_no_raise_but_a_lowering`, `test_an_unplugged_vehicle_gets_no_raise`, `test_an_unknown_evcc_state_blocks_every_raise`, `test_l2_now_never_passes_without_an_allowance`, `test_l2_an_unknown_state_blocks_every_raise` |
-| L3 the potential power (`maxCurrent` x V x phases) keeps G1/G3/G4/G5/G6 | pass | `potential_power_w` in `expected_power_w`; `test_g1_the_import_limit_holds_for_now`, `test_potential_power_is_zero_for_off_and_never_above_the_wiring` (hypothesis); `smart` needs no import room because evcc follows the surplus (scenario `evcc_actor`: caused import <= 3 % of moved energy) |
+| L3 the potential power (`maxCurrent` x V x phases) keeps G1/G3/G4/G5/G6; a raise to `smart` keeps G1 and the peak limit with the worst case `minCurrent` x phases x V (review A2) | pass | `potential_power_w` in `expected_power_w`, `_check_smart_import`; `test_g1_the_import_limit_holds_for_now`, `test_a2_a_raise_to_smart_is_judged_against_the_import_limit`, `test_a2_the_worst_case_uses_evccs_own_minimum`, `test_a2_lowering_and_off_are_never_blocked_by_the_import_limit`, `test_potential_power_is_zero_for_off_and_never_above_the_wiring` (hypothesis); reducing path `EvccIntents._import_cut` (`test_a2_*` in `test_evcc_intents.py`); scenarios `evcc_actor` (caused import <= 3 %) and `evcc_plan` (evcc imports by its own plan, cut within 20 s) |
 | L4 write on change, rate, read-back, three failures trip | pass | unchanged gate path; the driver writes only what differs (`test_apply_writes_only_what_differs_to_the_set_topics`, `test_nothing_is_written_when_evcc_already_shows_the_values`); `matches` with the 0.05 A tolerance; the controller repeats a wanted state at most every 60 s (`test_intents_are_sent_on_change_only_and_repeated_after_the_retry_time`) |
-| L5 evcc silent, shadow, emergency stop, site trip -> release to the baseline | pass | the release is refused while evcc is silent and retried (`test_a_silent_evcc_is_never_written_and_the_release_is_retried`, `test_release_fails_while_evcc_is_silent`), proven by the echo (`test_release_restores_the_baseline_and_waits_for_the_echo`, `test_release_fails_when_evcc_never_shows_the_baseline`); `test_the_emergency_stop_restores_evccs_own_values` (mode, `maxCurrent`; `limitSoc` stays as read), `test_a_release_restores_the_takeover_baseline` |
+| L5 evcc silent, shadow, emergency stop, site trip -> release to the baseline | pass | the release is refused while evcc is silent and retried with back-off until it succeeds, also after evcc is back (`test_a_silent_evcc_is_never_written_and_the_release_is_retried_with_backoff`, `test_release_fails_while_evcc_is_silent`), proven by the echo on mode and `maxCurrent` (`test_release_restores_the_baseline_and_waits_for_the_echo`, `test_release_fails_when_evcc_never_shows_the_baseline`); best effort per field, review A1 (`test_a1_release_works_without_a_limit_soc_topic`, `test_a1_release_clamps_the_current_up_to_evccs_minimum`, `test_a1_the_emergency_stop_restores_the_mode_without_a_limit_soc_topic`); `test_the_emergency_stop_restores_evccs_own_values`, `test_a_release_restores_the_takeover_baseline` |
 | Never touch evcc's battery settings (`site/*`) | pass | the fake evcc refuses and records anything outside mode/`maxCurrent`/`limitSoc`; `test_only_mode_max_current_and_limit_of_the_loadpoint_are_ever_sent`, `test_never_a_site_or_a_foreign_topic`; boundary test `test_evcc_set_publisher_is_called_only_by_the_evcc_driver` |
 | Fail-safe on stale or unknown evcc state | pass | driver `device_state` unavailable -> watchdog; `test_a_silent_or_missing_evcc_is_unavailable`, `test_a_stale_retained_heartbeat_never_makes_a_dead_evcc_look_alive`, `test_evcc_goes_silent_when_the_heartbeat_ages_out`; controller no-raise (`test_no_raise_when_anything_is_unknown_or_protective`, `test_property_a_wanted_state_never_exceeds_the_wiring_and_unsafe_inputs_never_raise`) |
 | §14a, import limit, island | pass | `maxCurrent` capped by the budget, below 6 A `off` (`test_para14a_budget_caps_the_current_and_below_the_floor_it_is_off`); the gate's G1-G6 judge the potential power |
@@ -1021,9 +1021,40 @@ detection; CO₂ weighting.
 6. **evcc-Batterieregeln:** SunCore schreibt nie nach `<prefix>/site/*` (Frage 7 des Plans).
    Bitte die evcc-Batterieregeln neutral lassen, damit evcc nicht selbst aus der Batterie
    ins Auto entlädt (E6 gilt nur für das, was SunCore freigibt). Einverstanden?
-7. **Rauschen im Protokoll:** Solange evcc schweigt, versucht das Gate die Freigabe jeden
-   Takt und protokolliert jedes Mal einen Fehlschlag. **Empfehlung:** wiederholte
-   Fehlschläge in 6-D/6-M zusammenfassen. Einverstanden?
+7. **Rauschen im Protokoll:** Erledigt (Review B1): Fehlgeschlagene Freigaben werden mit
+   wachsendem Abstand (30 s bis 10 min) wiederholt statt jeden Takt. Keine Frage mehr offen.
+
+#### Review conditions 6-J (control-safety, PR #61)
+
+The independent review rejected the PR until A1 and A2 were fixed; all items are done.
+
+- **A1 (done):** release and emergency stop could write nothing (a missing `limitSoc` topic or a
+  baseline `maxCurrent` below a raised `minCurrent` made the driver refuse; the echo compared
+  `limitSoc`). The release is best effort per field: mode first, `maxCurrent` clamped up to
+  `max(baseline, minCurrent)`, `limitSoc` only while evcc shows it, the echo only on mode and
+  `maxCurrent`. Tests: driver (`test_a1_*`), scenario `evcc_actor` with the topic removed.
+- **A2 (done):** G1 and the peak limit were not checked for `smart`, but evcc can import in
+  `smart` (its own plan, a smart-cost limit, `alwaysCharge`). A raise to `smart` is judged
+  against the effective import limit with the worst case `minCurrent x phases x V`
+  (`safety.grid_import_limit`); lowering and `off` are never blocked. The controller has a
+  reducing path: while the measured import is over the limit and the car draws power,
+  `maxCurrent` is lowered to the headroom (`limit - import + draw`, below 6 A `off`) and held
+  until the headroom allows the maximum again (`controller.evcc.import_cut`,
+  `controller.evcc.import_off`). Scenario `evcc_plan` (the fake evcc models an own plan,
+  `always_charge`): the import is over the limit for 20 s, then stays under it, no rejected
+  re-tries.
+- **B1 (done):** failed releases are retried with back-off (see "Release retries").
+- **B2 (done):** `Runtime._evcc_bus` starts the link (`EvccLink.ensure_started`) when the
+  runtime is already started, so a first loadpoint added later is connected
+  (`tests/app/test_evcc_runtime.py`).
+- **C1 (done):** the retry after evcc's return succeeds (scenario test), so the L5 statement in
+  the table is accurate.
+- **C2 (done):** template `unverified`, the driver docstring and the user guide say that
+  liveness depends on evcc's publication interval (a quiet evcc above 120 s trips falsely) and
+  on evcc's own clock (a clock running ahead makes an old retained timestamp look fresh).
+- **C3 (done):** warning in the template, the user guide (en/de) and as a reason
+  (`controller.evcc.battery_warning`, shown with `smart` next to a home battery without a
+  lock): `smart` has no E6 lock, evcc's `bufferSoc` rules can discharge the battery into the car.
 
 ### 6-C (MQTT base and backend ICU)
 

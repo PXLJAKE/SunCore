@@ -553,7 +553,9 @@ class SafetyGate:
                 if runtime.release_due_reason is not None
                 else REASON_RELEASED
             )
-            decisions.append(await self.release_device(device_id, reason, origin=Origin.SAFETY))
+            decisions.append(
+                await self.release_device(device_id, reason, origin=Origin.SAFETY, backoff=True)
+            )
         if not self._emergency_stop:
             lease = await self._battery_lease(now)
             if lease is not None:
@@ -583,7 +585,7 @@ class SafetyGate:
             # every tick would only flood the decision log.
             if runtime is not None and runtime.under_control and not runtime.release_pending:
                 await self.release_device(
-                    device_id, faults[0].reason, origin=Origin.SAFETY, urgent=False
+                    device_id, faults[0].reason, origin=Origin.SAFETY, urgent=False, backoff=True
                 )
         return faults
 
@@ -1528,6 +1530,7 @@ class SafetyGate:
         origin: Origin = Origin.SAFETY,
         intent: Intent | None = None,
         urgent: bool = True,
+        backoff: bool = False,
     ) -> Decision:
         """Restore the device's takeover baseline and stop controlling it.
 
@@ -1536,7 +1539,9 @@ class SafetyGate:
         the release write until the minimum run/pause time has elapsed and answers
         ``held`` with ``held_until``; writing stops at once and :meth:`poll` executes
         the release later. The decision is otherwise ``accepted`` (released),
-        ``rejected`` (not under control / no actuator) or ``failed``.
+        ``rejected`` (not under control / no actuator) or ``failed``. ``backoff=True`` (device
+        trip, :meth:`poll`): a failed release is rescheduled with back-off instead of being
+        repeated every tick.
         """
         async with self._lock(device_id):
             now = self._now()
@@ -1595,7 +1600,20 @@ class SafetyGate:
                 reasons = (REASON_RELEASE_FAILED, reason)
                 if orphan:
                     reasons = (REASON_RELEASE_FAILED, REASON_ORPHANED)
+                elif backoff:
+                    # Retry with back-off (B1/C1): the device stays under control, writing is
+                    # blocked (release pending) and `poll` tries again when due - instead of one
+                    # failed release per tick while the device is unreachable.
+                    attempt = self._release_attempts.get(device_id, 0) + 1
+                    self._release_attempts[device_id] = attempt
+                    due = now + timedelta(seconds=self._release_backoff_s(attempt))
+                    await self._save(
+                        runtime.model_copy(
+                            update={"release_due_ts": due, "release_due_reason": reason.key}
+                        )
+                    )
                 return await self._decide(intent, DecisionKind.FAILED, now, reasons, mode)
+            self._release_attempts.pop(device_id, None)
             if orphan:
                 # The old device is back at its baseline; a device now using the id starts clean.
                 self._release_only.pop(device_id, None)

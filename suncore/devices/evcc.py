@@ -29,6 +29,9 @@ but evcc's setter accepts nothing to *clear* it (the plan page says ``nil``; the
 JSON only), so this driver **refuses** plan writes and SunCore never writes one; evcc's
 behaviour at vehicle disconnect (it resets ``mode`` to its configured default) looks like an
 override to the gate; how fast evcc reacts to ``maxCurrent`` while charging.
+Liveness rests on ``<prefix>/updated``: evcc publishes it on change only (a quiet evcc may
+exceed 120 s) and its timestamp is evcc's own clock (a clock running ahead makes an old
+retained value look fresh).
 
 The driver is dumb (ADR-0011): ``apply`` publishes only what differs, ``read_back`` reports the
 topics, ``release`` restores the takeover baseline and proves it by the echo. It never decides;
@@ -274,23 +277,51 @@ class EvccDriver:
             raise DriverError(f"publish to {topic} failed")
 
     async def release(self, baseline: Action | None) -> None:
-        """Restore the takeover baseline (mode, ``maxCurrent``, ``limitSoc``) and prove it.
+        """Restore the takeover baseline and prove it by evcc's echo (best effort per field).
 
-        evcc keeps what SunCore wrote (it persists it), so the release refuses while evcc is
-        silent - the gate retries until evcc is back and shows the baseline.
+        Mode first, then ``maxCurrent`` clamped up to evcc's own ``minCurrent`` (the baseline may
+        lie below a minimum evcc has raised since), ``limitSoc`` only while evcc shows one. The
+        echo is checked on the mode and ``maxCurrent`` only: a missing ``limitSoc`` or a changed
+        minimum must never make "back to normal" impossible. evcc keeps what SunCore wrote (it
+        persists it), so the release refuses while evcc is silent - the gate retries.
         """
         if not isinstance(baseline, LoadpointAction):
             return
-        await self._write(baseline)
+        if not self._alive():
+            raise WriteRefusedError(f"evcc at {self._control.topic_prefix!r} is not reachable")
+        target = baseline.max_current_a
+        minimum = parse_float(self._read("minCurrent"))
+        if target is not None and minimum is not None:
+            target = max(target, minimum)
+        writes: list[tuple[str, str]] = []
+        if mode_of(self._read("mode")) != baseline.mode:
+            writes.append(("mode", baseline.mode))
+        if target is not None:
+            seen = parse_float(self._read("maxCurrent"))
+            if seen is None or abs(seen - target) > CURRENT_TOLERANCE_A:
+                writes.append(("maxCurrent", f"{round(target, 3):g}"))
+        if baseline.limit_soc_pct is not None:
+            shown = parse_float(self._read("limitSoc"))
+            if shown is not None and shown != round(baseline.limit_soc_pct):
+                writes.append(("limitSoc", str(round(baseline.limit_soc_pct))))
+        for key, payload in writes:
+            await self._send(key, payload)
         waited = 0.0
         while True:
-            observed = await self.read_back()
-            if isinstance(observed, LoadpointAction) and baseline.matches(observed):
+            if self._alive() and self._restored(baseline.mode, target):
                 return
             if waited >= self._echo_timeout_s:
                 raise DriverError("evcc did not show the restored values")
             await self._sleep(ECHO_POLL_S)
             waited += ECHO_POLL_S
+
+    def _restored(self, mode: str, current: float | None) -> bool:
+        if mode_of(self._read("mode")) != mode:
+            return False
+        if current is None:
+            return True
+        seen = parse_float(self._read("maxCurrent"))
+        return seen is not None and abs(seen - current) <= CURRENT_TOLERANCE_A
 
 
 __all__ = [

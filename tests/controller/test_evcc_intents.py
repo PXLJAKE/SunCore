@@ -293,3 +293,55 @@ def test_property_a_wanted_state_never_exceeds_the_wiring_and_unsafe_inputs_neve
             assert action.max_current_a <= observed_current + 1e-6
     if mode is EvMode.OFF:
         assert action.mode == "off"
+
+
+def over_limit(**kw: Any) -> LoadpointTick:
+    """evcc charges at 11 kW (its own plan) and the house imports 5.5 kW over a 9 kW limit."""
+    base: dict[str, Any] = {
+        "state": state("smart", 16.0, value=11_040.0),
+        "grid": GridInputs(import_limit_w=9_000.0),
+        "import_w": 14_500.0,
+    }
+    base.update(kw)
+    return tick(**base)
+
+
+def test_a2_import_over_the_limit_lowers_max_current_by_the_excess() -> None:
+    view = EvccIntents().wanted(over_limit())
+    # headroom: 9000 - 14500 + 11040 = 5540 W -> 8 A
+    assert view.wanted == LoadpointAction(mode="smart", max_current_a=8.0)
+    assert "controller.evcc.import_cut" in [r.key for r in view.reasons]
+
+
+def test_a2_below_the_minimum_the_loadpoint_is_switched_off() -> None:
+    view = EvccIntents().wanted(over_limit(import_w=19_000.0))  # headroom 1040 W < 6 A
+    assert view.wanted == LoadpointAction(mode="off")
+    assert [r.key for r in view.reasons] == ["controller.evcc.import_off"]
+
+
+def test_a2_the_cut_is_held_until_the_headroom_allows_the_maximum_again() -> None:
+    controller = EvccIntents()
+    assert controller.wanted(over_limit()).wanted == LoadpointAction(
+        mode="smart", max_current_a=8.0
+    )
+    # evcc complied: 8 A draw (5520 W), import right at the limit, not over
+    at_limit = over_limit(state=state("smart", 8.0, value=5_520.0), import_w=9_000.0)
+    assert controller.wanted(at_limit).wanted == LoadpointAction(mode="smart", max_current_a=8.0)
+    # evcc stopped importing: headroom = 9000 - 3000 + 5520 = 11520 W >= 16 A -> released
+    free = over_limit(state=state("smart", 8.0, value=5_520.0), import_w=3_000.0)
+    assert controller.wanted(free).wanted == LoadpointAction(mode="smart", max_current_a=16.0)
+    assert controller.cuts == set()
+
+
+def test_a2_without_a_charging_car_or_a_known_import_nothing_is_cut() -> None:
+    idle = over_limit(state=state("smart", 16.0, value=0.0))
+    assert EvccIntents().wanted(idle).wanted == LoadpointAction(mode="smart", max_current_a=16.0)
+    unknown = over_limit(import_w=None)
+    assert EvccIntents().wanted(unknown).wanted == LoadpointAction(mode="smart", max_current_a=16.0)
+
+
+def test_c3_smart_next_to_an_unlocked_battery_carries_the_warning() -> None:
+    view = EvccIntents().wanted(tick(battery_locked=False))
+    assert "controller.evcc.battery_warning" in [r.key for r in view.reasons]
+    view = EvccIntents().wanted(tick(battery_locked=True))
+    assert "controller.evcc.battery_warning" not in [r.key for r in view.reasons]

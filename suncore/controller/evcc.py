@@ -105,6 +105,8 @@ class EvccIntents:
     sent: dict[str, _Sent] = field(default_factory=dict)
     views: dict[str, LoadpointView] = field(default_factory=dict)
     seq: int = 0
+    cuts: set[str] = field(default_factory=set)
+    """Loadpoints whose current the import limit holds down (see ``_import_cut``)."""
 
     # --- the tick -----------------------------------------------------------------------
 
@@ -113,6 +115,8 @@ class EvccIntents:
         live = {t.device.id for t in ticks}
         for gone in [d for d in self.sent if d not in live]:
             del self.sent[gone]
+        for gone in [d for d in self.cuts if d not in live]:
+            self.cuts.discard(gone)
         self.views = {}
         for tick in ticks:
             view = self.wanted(tick)
@@ -128,7 +132,7 @@ class EvccIntents:
 
     # --- what is wanted -----------------------------------------------------------------
 
-    def wanted(self, tick: LoadpointTick) -> LoadpointView:
+    def wanted(self, tick: LoadpointTick) -> LoadpointView:  # noqa: PLR0912 - one branch per rule
         """The mode and ``maxCurrent`` evcc may have now (module doc)."""
         control = tick.device.control
         assert isinstance(control, LoadpointControl)
@@ -166,16 +170,54 @@ class EvccIntents:
                     reasons.append(rs.ev_floor(key, now_a * per_amp))
                 else:
                     reasons.append(rs.plain(rs.EV_BATTERY_WAIT))
+        cut = self._import_cut(tick, state, per_amp, control.max_current_a)
+        if cut is not None:
+            if cut < IEC_MIN_CURRENT_A:
+                return LoadpointView(
+                    LoadpointAction(mode="off"), (rs.plain(rs.EVCC_IMPORT_OFF),), lock_wanted
+                )
+            if cut < cap_a:
+                cap_a = cut
+                reasons.append(rs.evcc_import_cut(cut))
         if mode == "smart":
             reasons.append(
                 rs.plain(rs.EVCC_MIN_PV if tick.mode is EvMode.MIN_PV else rs.EVCC_SMART)
             )
         if cap_a < control.max_current_a:
             reasons.append(rs.evcc_cap(cap_a))
+        if mode == "smart" and not tick.battery_locked:
+            # no E6 lock in smart: evcc's own battery rules may discharge into the car
+            reasons.append(rs.plain(rs.EVCC_BATTERY_WARNING))
         wanted = LoadpointAction(mode=mode, max_current_a=cap_a)
         return LoadpointView(
             self._no_raise_cut(tick, state, wanted, reasons), tuple(reasons), lock_wanted
         )
+
+    def _import_cut(
+        self, tick: LoadpointTick, state: DeviceState, per_amp: float, max_a: float
+    ) -> float | None:
+        """The ``maxCurrent`` the import limit allows while evcc charges (L3 reducing path).
+
+        ``smart`` follows the surplus, but evcc can import by its own rules (a vehicle plan, a
+        smart-cost limit, ``alwaysCharge``). Once the measured import is over the effective limit
+        while the car draws power, the current is held at the headroom (``limit - import +
+        draw``; below 6 A: ``off``) until the headroom allows the full maximum again - so the
+        cap is neither raised straight back nor lifted while evcc still imports.
+        """
+        device_id = tick.device.id
+        limit, imported = tick.grid.import_limit_w, tick.import_w
+        if limit is None or imported is None:
+            return None
+        draw = state.value or 0.0
+        over = imported > limit and draw > 0
+        if not over and device_id not in self.cuts:
+            return None
+        headroom = math.floor(max(0.0, limit - imported + draw) / per_amp + EPS)
+        if not over and headroom >= max_a:
+            self.cuts.discard(device_id)
+            return None
+        self.cuts.add(device_id)
+        return float(headroom) if headroom >= IEC_MIN_CURRENT_A else 0.0
 
     def _allowance(self, tick: LoadpointTick, control: LoadpointControl) -> tuple[float, str]:
         """The grid power the mode permits (mirrors ``safety.evcc.loadpoint_allowance_w``)."""

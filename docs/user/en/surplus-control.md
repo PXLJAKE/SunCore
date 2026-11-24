@@ -176,6 +176,24 @@ A switch (a pool pump, a smart plug) goes on and off with the hysteresis and pro
 above. An adjustable load (a heating rod through a number entity) follows the surplus in its
 configured range with a dead band.
 
+### evcc loadpoint (MQTT)
+
+With the template `evcc.loadpoint` SunCore does not drive the wallbox itself: it tells evcc what
+it may do (mode `off`, `smart` or `now`, the maximum current, the charge limit) over evcc's MQTT
+interface, and evcc regulates the current and the phases. SunCore never touches evcc's battery
+settings and never writes a vehicle plan. Things to know:
+
+- **Stale or silent evcc:** SunCore treats evcc as gone when its heartbeat (`<prefix>/updated`)
+  is older than 120 seconds. Nothing is written then and SunCore retries handing evcc back with a
+  growing delay. evcc publishes only when something changes, so a very quiet evcc can trip this
+  falsely; and a clock in evcc that runs ahead makes an old stored timestamp look fresh.
+- **Import limit:** `smart` follows the PV surplus, but evcc can import by its own rules (its
+  vehicle plan, a smart-cost limit, "always charge"). SunCore lowers evcc's maximum current (or
+  switches it off) when the measured grid import is over your limit while the car charges.
+- **Home battery:** in `smart` SunCore has **no discharge lock** for the home battery: evcc's own
+  battery rules (for example the buffer SoC) can discharge it into the car. Keep them neutral
+  in evcc. Only `now` and planned grid charging wait for SunCore's lock.
+
 ## 4. If you change something yourself
 
 SunCore respects manual changes. It recognises them by the **value**: after the settle time, a

@@ -47,6 +47,7 @@ from suncore.core.devices import (
 )
 from suncore.core.signals import Quality
 from suncore.safety.evcc import (
+    IEC_MIN_CURRENT_A,
     NO_LOADPOINT_SAFETY,
     LoadpointSafety,
     check_raise,
@@ -284,7 +285,7 @@ def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one p
     exceed any of these bounds (G1, the conservative direction).
     """
     if isinstance(ctx.action, LoadpointAction) and ctx.action.mode != "now":
-        return None  # ``smart`` follows the surplus by evcc's design, ``off`` draws nothing (L3)
+        return _check_smart_import(ctx, ctx.action)
     delta = power_delta_w(ctx)
     if delta is None:
         return REASON_POWER_UNKNOWN if is_load_increase(ctx) else None
@@ -312,6 +313,32 @@ def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one p
                 key="safety.grid_import_limit",
                 args={"limit_w": round(ctx.import_limit_w), "grid_w": round(grid.value)},
             )
+    return None
+
+
+def _check_smart_import(ctx: InvariantContext, action: LoadpointAction) -> Reason | None:
+    """L3 for a raise to ``smart``: evcc follows the surplus by design but may import by its own
+    rules (vehicle plan, smart-cost limit, ``alwaysCharge``), so a raise is judged against the
+    import limit (fuse or peak, whichever is lower) with the worst case ``minCurrent x phases x
+    V`` on top of the current import. ``off`` and a lowering draw nothing more."""
+    control = ctx.device.control
+    if (
+        action.mode == "off"
+        or not isinstance(control, LoadpointControl)
+        or ctx.import_limit_w is None
+        or not loadpoint_raises(action, ctx.lp.observed)
+    ):
+        return None
+    grid = None if ctx.flows is None else ctx.flows.grid_w.value
+    if grid is None:
+        return Reason(key="safety.grid_unknown")
+    floor_a = min(max(IEC_MIN_CURRENT_A, ctx.lp.min_current_a or 0.0), control.max_current_a)
+    worst = charge_power_w(floor_a, control.phases, control.voltage_v)
+    if grid + max(0.0, ctx.claimed_w) + worst > ctx.import_limit_w:
+        return Reason(
+            key="safety.grid_import_limit",
+            args={"limit_w": round(ctx.import_limit_w), "grid_w": round(grid)},
+        )
     return None
 
 

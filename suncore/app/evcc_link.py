@@ -107,9 +107,13 @@ class EvccLink:
         """The ``mqtt`` section changed: look the broker up again."""
         self._changed.set()
 
-    async def start(self) -> None:
+    def ensure_started(self) -> None:
+        """Start the session task if it is not running (needs a running event loop)."""
         if self._task is None:
             self._task = asyncio.create_task(self._supervise(), name="suncore-evcc-link")
+
+    async def start(self) -> None:
+        self.ensure_started()
 
     async def stop(self) -> None:
         task, self._task = self._task, None

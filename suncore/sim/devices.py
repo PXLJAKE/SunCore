@@ -1606,6 +1606,9 @@ class LoadpointParams(_Frozen):
     start_delay_s: float = Field(default=30.0, ge=0)
     stop_delay_s: float = Field(default=30.0, ge=0)
     reset_mode_on_disconnect: bool = False
+    always_charge: bool = False
+    """evcc imports from the grid in ``smart`` by its own rules (a vehicle plan, a smart-cost
+    limit, ``alwaysCharge``): it draws ``maxCurrent`` regardless of the surplus."""
 
 
 def _number(value: float, decimals: int = 3) -> str:
@@ -1634,6 +1637,8 @@ class SimLoadpoint(SimDevice):
         self._want_since: datetime | None = None
         self._stop_since: datetime | None = None
         self._was_connected = False
+        self.hide_limit_soc = False
+        """evcc publishes no ``limitSoc`` (a vehicle without one); a test sets it."""
 
     # --- identity ---------------------------------------------------------------------------
 
@@ -1696,7 +1701,7 @@ class SimLoadpoint(SimDevice):
             self.current_a = 0.0
             self._want_since = self._stop_since = None
             return
-        if self.mode == "now":
+        if self.mode == "now" or (self.mode == "smart" and p.always_charge):
             self.current_a = self.max_current_a
             return
         per_a = p.voltage_v * p.phases
@@ -1735,7 +1740,7 @@ class SimLoadpoint(SimDevice):
 
     def _topics(self) -> dict[str, str]:
         connected = self.connected_at(self._t)
-        return {
+        topics = {
             "mode": self.mode,
             "maxCurrent": _number(self.max_current_a),
             "minCurrent": _number(self.p.min_current_a),
@@ -1746,6 +1751,9 @@ class SimLoadpoint(SimDevice):
             "vehicleSoc": _number(self.soc_pct, 1) if connected else "0",
             "phasesActive": str(self.p.phases if self.current_a > 0 else 0),
         }
+        if self.hide_limit_soc:
+            del topics["limitSoc"]
+        return topics
 
     def publish_all(self) -> None:
         """Publish every value that changed (evcc publishes on change, retained) and beat."""

@@ -285,6 +285,12 @@
  },
  {
   "lang": "en",
+  "key": "controller.evcc.battery_warning",
+  "args": {},
+  "expected": "evcc's smart mode has no discharge lock for the home battery: evcc's own battery rules (buffer SoC) may discharge it into the car."
+ },
+ {
+  "lang": "en",
   "key": "controller.evcc.cap",
   "args": {
    "current_a": "abc"
@@ -298,6 +304,28 @@
    "current_a": 42
   },
   "expected": "evcc's maximum current is held at 42 A by a grid limit."
+ },
+ {
+  "lang": "en",
+  "key": "controller.evcc.import_cut",
+  "args": {
+   "current_a": "abc"
+  },
+  "expected": "The grid import is above the limit while evcc charges: evcc's maximum current is lowered to abc A."
+ },
+ {
+  "lang": "en",
+  "key": "controller.evcc.import_cut",
+  "args": {
+   "current_a": 42
+  },
+  "expected": "The grid import is above the limit while evcc charges: evcc's maximum current is lowered to 42 A."
+ },
+ {
+  "lang": "en",
+  "key": "controller.evcc.import_off",
+  "args": {},
+  "expected": "The grid import is above the limit and evcc cannot charge at the minimum: evcc is switched off."
  },
  {
   "lang": "en",
@@ -6528,6 +6556,12 @@
  },
  {
   "lang": "de",
+  "key": "controller.evcc.battery_warning",
+  "args": {},
+  "expected": "Der evcc-Modus smart hat keine Entladesperre für die Hausbatterie: Die eigenen Batterieregeln von evcc (Puffer-SoC) können sie ins Auto entladen."
+ },
+ {
+  "lang": "de",
   "key": "controller.evcc.cap",
   "args": {
    "current_a": "abc"
@@ -6541,6 +6575,28 @@
    "current_a": 42
   },
   "expected": "Der maximale Strom von evcc wird durch eine Netzgrenze auf 42 A gehalten."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.import_cut",
+  "args": {
+   "current_a": "abc"
+  },
+  "expected": "Der Netzbezug liegt über der Grenze, während evcc lädt: Der maximale Strom von evcc wird auf abc A gesenkt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.import_cut",
+  "args": {
+   "current_a": 42
+  },
+  "expected": "Der Netzbezug liegt über der Grenze, während evcc lädt: Der maximale Strom von evcc wird auf 42 A gesenkt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.evcc.import_off",
+  "args": {},
+  "expected": "Der Netzbezug liegt über der Grenze und evcc kann nicht mit dem Minimum laden: evcc wird ausgeschaltet."
  },
  {
   "lang": "de",

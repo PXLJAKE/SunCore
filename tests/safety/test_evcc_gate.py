@@ -255,3 +255,35 @@ def test_a_release_restores_the_takeover_baseline() -> None:
     decision = asyncio.run(h.gate.release_device("lp", REASON_EMERGENCY_STOP))
     assert decision.kind is DecisionKind.ACCEPTED, keys(decision)
     assert h.spy.released == [BASELINE]
+
+
+def test_a2_a_raise_to_smart_is_judged_against_the_import_limit() -> None:
+    """evcc may import in smart (plan, smart-cost limit, alwaysCharge): worst case minCurrent."""
+    h = make(mode=EvMode.PV, grid_w=14_000.0, import_limit_w=17_000.0)
+    decision = submit(h, LoadpointAction(mode="smart", max_current_a=16.0))
+    assert decision.kind is DecisionKind.REJECTED
+    assert keys(decision) == ["safety.grid_import_limit"]  # 14000 + 6 A x 690 W > 17000
+    assert h.spy.applied == []
+    h = make(mode=EvMode.PV, grid_w=12_000.0, import_limit_w=17_000.0)
+    assert submit(h, LoadpointAction(mode="smart", max_current_a=16.0)).kind is (
+        DecisionKind.ACCEPTED
+    )
+
+
+def test_a2_the_worst_case_uses_evccs_own_minimum() -> None:
+    h = make(mode=EvMode.PV, grid_w=12_000.0, import_limit_w=17_000.0)
+    h.spy.minimum = 16.0  # evcc's own minCurrent: 11040 W worst case
+    assert keys(submit(h, LoadpointAction(mode="smart", max_current_a=16.0))) == [
+        "safety.grid_import_limit"
+    ]
+
+
+def test_a2_lowering_and_off_are_never_blocked_by_the_import_limit() -> None:
+    state = DeviceState(mode="smart", max_current_a=16.0, connected=True, on=True, value=11_040.0)
+    h = make(mode=EvMode.PV, state=state, grid_w=18_000.0, import_limit_w=17_000.0)
+    h.spy.observed = LoadpointAction(mode="smart", max_current_a=16.0)
+    assert submit(h, LoadpointAction(mode="smart", max_current_a=8.0)).kind is (
+        DecisionKind.ACCEPTED
+    )
+    h.clock.advance(10)  # the write rate
+    assert submit(h, LoadpointAction(mode="off", max_current_a=8.0)).kind is DecisionKind.ACCEPTED

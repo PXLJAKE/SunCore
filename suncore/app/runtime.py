@@ -625,6 +625,8 @@ class Runtime:
                 clock=self.clock,
             )
         self.evcc_link.configure(devices)
+        if self._started:
+            self.evcc_link.ensure_started()  # first loadpoint added after start-up (B2)
         return self.evcc_link
 
     async def reload_ev_states(self) -> None:

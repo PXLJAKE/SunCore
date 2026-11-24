@@ -10,6 +10,7 @@ emergency stop restores evcc's own values, and a mode change in evcc's own app i
 from __future__ import annotations
 
 import asyncio
+import itertools
 
 import pytest
 
@@ -83,8 +84,8 @@ def test_shadow_writes_nothing() -> None:
     assert loadpoint(runner).charged_wh == 0
 
 
-def test_a_silent_evcc_is_never_written_and_the_release_is_retried() -> None:
-    async def go() -> tuple[ScenarioRunner, list[tuple[str, str]]]:
+def test_a_silent_evcc_is_never_written_and_the_release_is_retried_with_backoff() -> None:
+    async def go() -> ScenarioRunner:
         runner = ScenarioRunner(load_scenario(NAME), catalog())
 
         async def silent(r: ScenarioRunner) -> None:
@@ -99,23 +100,63 @@ def test_a_silent_evcc_is_never_written_and_the_release_is_retried() -> None:
             await runner.run()
         finally:
             await runner.close()
-        return runner, list(runner.evcc.sent)
+        return runner
 
-    runner, sent = asyncio.run(go())
-    assert [t for t, _ in sent] == [
-        "evcc/loadpoints/1/maxCurrent/set",
-        "evcc/loadpoints/1/mode/set",
-    ]  # nothing was written while evcc was silent
+    runner = asyncio.run(go())
+    start = runner.scenario.start
     failed = [d for d in runner.decisions if d.kind is DecisionKind.FAILED]
     assert failed, "the release must be tried (and refused) while evcc is silent"
     assert {d.intent.action.kind for d in failed} == {ActionKind.RELEASE}
     assert all("safety.watchdog_unavailable" in [r.key for r in d.reasons] for d in failed)
-    start = runner.scenario.start
-    first = min((d.ts - start).total_seconds() for d in failed)
-    last = max((d.ts - start).total_seconds() for d in failed)
-    assert 3600 <= first <= 3600 + 300  # the heartbeat ages out after 120 s
-    assert last <= 5400 + 30  # retried until evcc is back, then control resumes
+    times = sorted((d.ts - start).total_seconds() for d in failed)
+    assert 3600 <= times[0] <= 3600 + 300  # the heartbeat ages out after 120 s
+    assert times[-1] <= 5400  # nothing is tried after evcc is back but the successful retry
+    assert len(failed) <= 10  # B1: back-off, not one failure per 5 s tick (about 360)
+    gaps = [b - a for a, b in itertools.pairwise(times)]
+    assert gaps == sorted(gaps)  # the back-off only grows
+    # C1: the retry that follows evcc's return succeeds and restores evcc's own values
+    released = [
+        d
+        for d in runner.decisions
+        if d.kind is DecisionKind.ACCEPTED and isinstance(d.intent.action, ReleaseAction)
+    ]
+    assert len(released) == 1
+    assert (released[0].ts - start).total_seconds() >= 5400
+    sent = runner.evcc.sent
+    assert [t for t, _ in sent[:2]] == [
+        "evcc/loadpoints/1/maxCurrent/set",
+        "evcc/loadpoints/1/mode/set",
+    ]
+    # nothing was written while silent: the next write is the release that restores the mode
+    assert sent[2] == ("evcc/loadpoints/1/mode/set", "off")
     assert not runner.evcc.refused or all(t in ALLOWED_TOPICS for t, _ in runner.evcc.refused)
+
+
+def test_a1_the_emergency_stop_restores_the_mode_without_a_limit_soc_topic() -> None:
+    """Release review A1: evcc shows no limitSoc; the stop must still restore mode and current."""
+
+    async def go() -> ScenarioRunner:
+        runner = ScenarioRunner(load_scenario(NAME), catalog())
+
+        async def drift(r: ScenarioRunner) -> None:
+            loadpoint(r).hide_limit_soc = True
+            r.evcc._values.pop("evcc/loadpoints/1/limitSoc", None)
+
+        async def stop(r: ScenarioRunner) -> None:
+            assert r.stack is not None
+            await r.stack.gate.emergency_stop()
+
+        runner.at(7200, drift)
+        runner.at(7300, stop)
+        try:
+            await runner.run()
+        finally:
+            await runner.close()
+        return runner
+
+    runner = asyncio.run(go())
+    sim = loadpoint(runner)
+    assert (sim.mode, sim.max_current_a) == ("off", 10.0)
 
 
 def test_the_emergency_stop_restores_evccs_own_values() -> None:
@@ -185,3 +226,27 @@ def test_an_unconfirmed_loadpoint_stays_at_assisted() -> None:
     assert runner.evcc.sent == []  # assisted: proposals only, nothing written
     assert loadpoint(runner).mode == "off"
     assert runner.modes.device_mode("evcc_lp") is OperatingMode.AUTOMATIC  # the configured mode
+
+
+def test_a2_an_evcc_plan_that_imports_is_cut_to_the_import_limit() -> None:
+    """Review A2: evcc imports in `smart` by its own plan; SunCore lowers `maxCurrent` by the
+    excess, keeps it (no raise straight back, no rejected re-tries) and the import stays under
+    the limit."""
+    result, runner = run_named("evcc_plan")
+    limit = result.scenario.control.import_limit_w
+    assert limit is not None
+    over = [i * result.step_s for i, s in enumerate(result.steps) if s.grid_w > limit]
+    assert over
+    assert max(over) <= 60  # at most the first ticks until the cut is written
+    cuts = [
+        d
+        for d in result.accepted("evcc_lp")
+        if any(r.key == "controller.evcc.import_cut" for r in d.intent.reasons)
+    ]
+    assert len(cuts) == 1
+    assert loadpoint(runner).max_current_a == 8.0
+    assert len(result.of_kind(DecisionKind.REJECTED)) <= 2  # held, not re-tried every minute
+    assert result.of_kind(DecisionKind.FAILED) == []
+    tail = result.steps[len(result.steps) // 2 :]
+    assert all(s.grid_w <= limit for s in tail)
+    assert all(t in ALLOWED_TOPICS for t, _ in runner.evcc.sent)

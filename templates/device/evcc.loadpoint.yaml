@@ -36,6 +36,9 @@ unverified:
   - "A vehicle plan cannot be cleared over MQTT (the setter parses JSON only; `nil` is unverified), so SunCore never writes one."
   - "evcc normalises the deprecated modes `pv`/`minpv` to `smart`; SunCore sends `smart` only and cannot enforce a minimum power, so `min_pv` behaves like `pv`."
   - "How fast evcc reacts to `maxCurrent` while charging is unverified; evcc resets its mode to its default at disconnect, which the gate reads as an override."
+  - "Liveness: evcc publishes `updated` only on change, so a quiet evcc may exceed 120 s (false trip); an evcc clock running ahead makes an old retained timestamp look fresh."
+  - "Warning: `smart` has no E6 battery lock; evcc's own battery rules (bufferSoc) can discharge the home battery into the car. Keep them neutral in evcc."
+  - "evcc may import in `smart` (vehicle plan, smart-cost limit, alwaysCharge); SunCore only reacts by lowering maxCurrent once the measured import is over the limit."
   - "max_current_a 16 A is a placeholder: the wizard must take the circuit's real maximum."
 device_kind: wallbox
 roles: {}

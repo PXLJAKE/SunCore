@@ -31,6 +31,10 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
   - Template `evcc.loadpoint` (no roles; conformance scenario), simulator `SimLoadpoint` on an
     in-memory `FakeEvccBus`, scenario `evcc_actor` (+ silent evcc, emergency stop, manual mode
     change in evcc's app); en/de keys; e2e gallery count 8.
+  - Review conditions of PR #61 done (A1, A2, B1, B2, C1-C3): best-effort release (mode and
+    `maxCurrent` only in the echo), G1/peak check for a raise to `smart` plus an import-cut
+    path in the controller (scenario `evcc_plan`), release retries with back-off, the link
+    starts for a loadpoint added after start-up, liveness and E6 warnings in template and docs.
   - Deviations, safety self-review and questions: plan section 8 (6-J).
 
 - **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;

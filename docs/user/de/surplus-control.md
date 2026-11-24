@@ -187,6 +187,26 @@ Ein Schalter (Poolpumpe, Steckdose) geht mit der Hysterese und den oben genannte
 an und aus. Eine regelbare Last (ein Heizstab über eine Number-Entität) folgt dem Überschuss in
 ihrem eingestellten Bereich mit einer Totzone.
 
+### evcc-Ladepunkt (MQTT)
+
+Mit der Vorlage `evcc.loadpoint` steuert SunCore die Wallbox nicht selbst: Es sagt evcc über die
+MQTT-Schnittstelle, was es darf (Modus `off`, `smart` oder `now`, maximaler Strom, Ladelimit),
+und evcc regelt Strom und Phasen. SunCore ändert nie die Batterieeinstellungen von evcc und
+schreibt nie einen Fahrzeugplan. Gut zu wissen:
+
+- **Veraltetes oder schweigendes evcc:** SunCore hält evcc für ausgefallen, wenn sein Herzschlag
+  (`<prefix>/updated`) älter als 120 Sekunden ist. Dann wird nichts geschrieben und SunCore
+  versucht die Rückgabe an evcc mit wachsendem Abstand. evcc meldet nur bei Änderungen; ein sehr
+  ruhiges evcc kann das fälschlich auslösen, und eine vorgehende Uhr in evcc lässt einen alten
+  gespeicherten Zeitstempel frisch aussehen.
+- **Bezugsgrenze:** `smart` folgt dem PV-Überschuss, aber evcc kann nach eigenen Regeln aus dem
+  Netz laden (Fahrzeugplan, Smart-Cost-Limit, „immer laden“). SunCore senkt den maximalen Strom
+  von evcc (oder schaltet ihn aus), wenn der gemessene Netzbezug über deiner Grenze liegt,
+  während das Auto lädt.
+- **Hausbatterie:** In `smart` hat SunCore **keine Entladesperre** für die Hausbatterie: Die
+  eigenen Batterieregeln von evcc (z. B. der Puffer-SoC) können sie ins Auto entladen. Halte sie
+  in evcc neutral. Nur `now` und geplantes Laden aus dem Netz warten auf die Sperre von SunCore.
+
 ## 4. Wenn du selbst etwas änderst
 
 SunCore respektiert manuelle Änderungen. Es erkennt sie am **Wert**: Befindet sich ein Gerät

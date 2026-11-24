@@ -248,3 +248,33 @@ def test_the_factory_builds_the_evcc_driver_with_the_bus() -> None:
     d = create_driver(device(), write=ha.write, states=ha.lookup, evcc=bus)
     assert isinstance(d, EvccDriver)
     assert ha.calls == []
+
+
+async def test_a1_release_works_without_a_limit_soc_topic() -> None:
+    """Emergency stop: evcc shows no limitSoc and is on now/16 A; the mode must be restored."""
+    bus = idle_bus()
+    del bus.values[loadpoint_topic(CONTROL, "limitSoc")]
+    bus.set("mode", "now")
+    bus.set("maxCurrent", "16")
+    baseline = LoadpointAction(mode="off", max_current_a=10.0, limit_soc_pct=90)
+    await driver(bus).release(baseline)
+    assert bus.values[loadpoint_topic(CONTROL, "mode")] == "off"
+    assert bus.values[loadpoint_topic(CONTROL, "maxCurrent")] == "10"
+    assert all("limitSoc" not in t for t, _ in bus.sent)
+
+
+async def test_a1_release_clamps_the_current_up_to_evccs_minimum() -> None:
+    bus = idle_bus()
+    bus.set("minCurrent", "8")
+    bus.set("mode", "now")
+    bus.set("maxCurrent", "16")
+    await driver(bus).release(LoadpointAction(mode="off", max_current_a=6.0))
+    assert bus.values[loadpoint_topic(CONTROL, "maxCurrent")] == "8"
+    assert bus.values[loadpoint_topic(CONTROL, "mode")] == "off"
+
+
+async def test_a1_release_writes_limit_soc_only_when_evcc_shows_it() -> None:
+    bus = idle_bus()
+    bus.set("limitSoc", "100")
+    await driver(bus).release(LoadpointAction(mode="off", max_current_a=10.0, limit_soc_pct=90))
+    assert bus.values[loadpoint_topic(CONTROL, "limitSoc")] == "90"

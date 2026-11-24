@@ -19,7 +19,7 @@ a template only tested in the simulator has never run against real hardware.
 
 | Id | Kind | Name | Integration / platforms | Capabilities | Tested with | Unverified |
 |---|---|---|---|---|---|---|
-| `evcc.loadpoint` | device | evcc loadpoint (MQTT) | any | `ev_charging` | not tested on hardware | 6 |
+| `evcc.loadpoint` | device | evcc loadpoint (MQTT) | any | `ev_charging` | not tested on hardware | 9 |
 | `generic.climate` | device | Generic climate device | any | `energy_counter`, `hvac_modes`, `power_measured`, `temperature_setpoint` | not tested on hardware | 3 |
 | `generic.number_load` | device | Load with a number entity | any | `power_measured`, `power_setpoint` | not tested on hardware | 3 |
 | `generic.switch` | device | Switch or smart plug | any | `on_off`, `power_measured` | not tested on hardware | 2 |
