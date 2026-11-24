@@ -9,8 +9,9 @@ cancelled, when it runs longer than ``max_runtime_s`` or when the process uses m
 ``running`` by an earlier process is marked ``failed`` at start-up.
 
 **No device writes, by construction.** The jobs get history through :class:`ReadOnlyHistory`
-(four bound read methods, no reference to the store or its database) and the configuration as
-a :class:`~suncore.sim.backtest.BacktestSite` value. This module imports nothing from ``safety``,
+(it exposes four read methods and nothing else) and the configuration as a
+:class:`~suncore.sim.backtest.BacktestSite` value; no connection, gate or config store is
+ever handed to them. This module imports nothing from ``safety``,
 ``ha``, ``devices``, ``controller`` or ``app.control`` (``tests/sim/test_backtest_boundary.py``).
 """
 
@@ -82,8 +83,8 @@ def current_rss_mb() -> float | None:
 class ReadOnlyHistory:
     """The four reads a backtest needs, bound at construction; no other attribute exists.
 
-    It keeps no reference to the store, its database or any write method, so code holding it
-    cannot write (``tests/sim/test_backtest_boundary.py`` checks the attributes).
+    The engine and the job only ever see this view (slots, no ``__dict__``), never the store,
+    its database or a write method (``tests/sim/test_backtest_boundary.py`` checks it).
     """
 
     __slots__ = ("_forecast", "_prices", "_series", "_sources")
