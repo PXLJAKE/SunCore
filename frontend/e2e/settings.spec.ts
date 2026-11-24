@@ -19,7 +19,7 @@ test.describe('Settings overview', () => {
     await expect(page.getByTestId('overview')).toContainText('One signed sensor');
     await expect(page.getByTestId('overview')).toContainText('1 solar array');
     await expect(page.getByTestId('overview')).toContainText('Battery: sensor.sim_battery_power');
-    await expect(page.getByTestId('wizard-status')).toContainText('finished');
+    await expect(page.getByTestId('wizard-status')).toContainText('The setup is finished');
   });
 
   test('re-entry: edit one step, change a value, come back to the overview', async ({
