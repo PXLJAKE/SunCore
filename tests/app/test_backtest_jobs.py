@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
+import threading
 import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -19,8 +22,11 @@ from suncore.app.backtests import (
     STOP_MEMORY,
     STOP_RESTART,
     STOP_RUNTIME,
+    STOP_WAIT_S,
+    THREAD_NICENESS,
     BacktestJobs,
     JobLimits,
+    lower_thread_priority,
 )
 from suncore.core.battery import BatteryModel, BatterySettings
 from suncore.planner.inputs import PlannerInputs
@@ -29,9 +35,11 @@ from suncore.sim.backtest import BacktestSite, default_solve
 from suncore.sim.backtest_models import (
     BacktestBusyError,
     BacktestJobView,
+    BacktestOverlayError,
     BacktestRequest,
     BacktestUnavailableError,
     BacktestWindowError,
+    BatteryOverlay,
 )
 from suncore.sim.demo_history import EXPORT_PRICE, PRICE_SOURCE, PV_SOURCES, seed_demo_history
 from suncore.storage import Database, open_timeseries
@@ -239,3 +247,82 @@ async def test_the_demo_runtime_replays_without_touching_home_assistant(tmp_path
         assert await runtime.config.get("expert") == runtime.expert  # nothing written back
     finally:
         await runtime.stop()
+
+
+# --- review 5-J ---------------------------------------------------------------------------
+
+
+async def test_an_unusable_overlay_is_refused_before_anything_is_stored(env: Env) -> None:
+    async def no_model() -> BacktestSite:
+        return replace(SITE, battery=BatterySettings())
+
+    jobs = jobs_for(env, site=no_model)
+    request = REQUEST.model_copy(update={"battery": BatteryOverlay(capacity_wh=5000)})
+    with pytest.raises(BacktestOverlayError):
+        await jobs.start(request)
+    assert await env.store.headers() == []
+
+
+async def test_no_start_while_shutting_down(env: Env) -> None:
+    jobs = jobs_for(env)
+    await jobs.shutdown()
+    with pytest.raises(BacktestUnavailableError):
+        await jobs.start(REQUEST)
+
+
+@pytest.mark.parametrize("how", ["cancel", "shutdown"])
+async def test_stop_never_waits_for_a_hanging_solve(env: Env, how: str) -> None:
+    release = threading.Event()
+
+    def hanging(inputs: PlannerInputs, budget: float, gap: float, prev: Any) -> PlannerRun:
+        release.wait(30)
+        return default_solve(inputs, budget, gap, prev)
+
+    jobs = jobs_for(env, solve=hanging)
+    run = await jobs.start(REQUEST)
+    await asyncio.sleep(0.2)
+    started = time.monotonic()
+    try:
+        if how == "cancel":
+            assert await jobs.cancel(run.id) == "cancelled"
+        else:
+            await jobs.shutdown()
+        assert time.monotonic() - started < STOP_WAIT_S + 1.0
+    finally:
+        release.set()  # let the abandoned daemon thread end
+    view = await jobs.get(run.id)
+    assert view is not None
+    assert view.status == "cancelled"
+    assert view.error is not None
+    assert view.error.key == (STOP_CANCELLED if how == "cancel" else STOP_RESTART)
+
+
+def test_the_worker_thread_runs_with_a_lower_priority() -> None:
+    seen: list[tuple[bool, int | None]] = []
+
+    def work() -> None:
+        lowered = lower_thread_priority()
+        nice = os.getpriority(os.PRIO_PROCESS, threading.get_native_id()) if lowered else None
+        seen.append((lowered, nice))
+
+    thread = threading.Thread(target=work)
+    thread.start()
+    thread.join()
+    lowered, nice = seen[0]
+    if sys.platform.startswith("linux") and lowered:
+        assert nice == THREAD_NICENESS
+
+
+async def test_the_event_loop_stays_responsive_during_a_run(env: Env) -> None:
+    """A real replay (HiGHS in the worker thread) must not stall the loop: the controller
+    tick and the API share it. Bound: no tick of a 20 ms timer is late by more than 250 ms."""
+    jobs = jobs_for(env)
+    run = await jobs.start(REQUEST)
+    worst = 0.0
+    while jobs.running:
+        before = time.monotonic()
+        await asyncio.sleep(0.02)
+        worst = max(worst, time.monotonic() - before - 0.02)
+    view = await finished(jobs, run.id)
+    assert view.status == "done"
+    assert worst < 0.25, f"loop lag {worst:.3f} s"

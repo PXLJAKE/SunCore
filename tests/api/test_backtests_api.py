@@ -11,8 +11,11 @@ import pytest
 from suncore.api import create_app
 from suncore.core.decisions import Reason
 from suncore.sim.backtest_models import (
+    OVERLAY_INVALID,
+    OVERLAY_NO_BATTERY,
     BacktestBusyError,
     BacktestJobView,
+    BacktestOverlayError,
     BacktestRequest,
     BacktestUnavailableError,
     BacktestWindowError,
@@ -103,6 +106,8 @@ async def test_start_list_get_cancel(services: FakeServices, jobs: FakeJobs) -> 
         (BacktestBusyError(), 409, "api.error.backtest_busy"),
         (BacktestWindowError("x"), 422, "api.error.backtest_window_not_past"),
         (BacktestUnavailableError(), 503, "api.error.backtest_unavailable"),
+        (BacktestOverlayError(OVERLAY_NO_BATTERY), 422, "api.error.backtest_overlay_no_battery"),
+        (BacktestOverlayError(OVERLAY_INVALID), 422, "api.error.backtest_overlay_invalid"),
     ],
 )
 async def test_start_errors(

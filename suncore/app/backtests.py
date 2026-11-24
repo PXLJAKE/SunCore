@@ -391,6 +391,7 @@ __all__ = [
     "STOP_RESTART",
     "STOP_RUNTIME",
     "STOP_WAIT_S",
+    "THREAD_NICENESS",
     "BacktestJobs",
     "JobLimits",
     "ReadOnlyHistory",

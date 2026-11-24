@@ -7,8 +7,9 @@
    configuration.
 2. They never name a write call (``call_service``, ``apply``, ``release``, ``arm_fallback``,
    ``keep_alive``, ``put_section``, ``put_site``) or the gate.
-3. The job runner hands the engine a :class:`ReadOnlyHistory`, which keeps only four bound read
-   methods - no reference to the store, its database or a write method.
+3. The job runner hands the engine a :class:`ReadOnlyHistory`, which exposes only four read
+   methods (slots, no ``__dict__``). The bound methods still belong to the store, so this is an
+   interface restriction, not a capability boundary; rules 1 and 2 are the structural guard.
 """
 
 from __future__ import annotations

@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from suncore.core.battery import BatteryModel, BatterySettings, BatteryStrategy
 from suncore.core.control import BatteryBand
 from suncore.core.params import REGISTRY, ParamError, check_whatif_overrides
+from suncore.core.site import BatteryConfig, EntityRef
 from suncore.planner.inputs import PlannerInputs
 from suncore.planner.run import PlannerRun
 from suncore.sim.backtest import (
@@ -29,10 +30,14 @@ from suncore.sim.backtest import (
     apply_overlay,
     default_solve,
     execute_slot,
+    overlay_limitations,
     price_known_until,
     run_backtest,
 )
 from suncore.sim.backtest_models import (
+    OVERLAY_INVALID,
+    OVERLAY_NO_BATTERY,
+    BacktestOverlayError,
     BacktestRequest,
     BacktestResult,
     BacktestWindowError,
@@ -437,3 +442,61 @@ async def test_override_free_replay_reproduces_the_recorded_cost(store: Timeseri
     assert result.totals.actual.cost_net == pytest.approx(recorded, abs=1e-4)
     gap = abs(result.totals.whatif.cost_net - recorded) / recorded
     assert gap <= REPRODUCTION_TOLERANCE
+
+
+# --- review 5-J: overlay against the site -------------------------------------------------
+
+
+def test_model_overlay_without_a_battery_model_is_refused() -> None:
+    site = demo_site(battery=BatterySettings())
+    request = BacktestRequest(
+        start=date(2026, 11, 1), end=date(2026, 11, 1), battery=BatteryOverlay(capacity_wh=5000)
+    )
+    with pytest.raises(BacktestOverlayError) as caught:
+        apply_overlay(site, request)
+    assert caught.value.key == OVERLAY_NO_BATTERY
+    # A strategy change alone is fine without a model.
+    fine = BacktestRequest(
+        start=date(2026, 11, 1),
+        end=date(2026, 11, 1),
+        battery=BatteryOverlay(strategy=BatteryStrategy.PREFER_FULL),
+    )
+    assert apply_overlay(site, fine).battery.strategy is BatteryStrategy.PREFER_FULL
+
+
+def test_overlay_values_that_do_not_fit_together_are_refused() -> None:
+    request = BacktestRequest(
+        start=date(2026, 11, 1), end=date(2026, 11, 1), battery=BatteryOverlay(reserve_pct=100)
+    )
+    with pytest.raises(BacktestOverlayError) as caught:
+        apply_overlay(demo_site(), request)
+    assert caught.value.key == OVERLAY_INVALID
+
+
+def test_overlay_above_the_hardware_is_listed_as_capped() -> None:
+    hardware = BatteryConfig(
+        power=EntityRef(entity_id="sensor.bat_w"),
+        soc=EntityRef(entity_id="sensor.bat_soc"),
+        max_charge_w=3000,
+        min_soc_pct=15,
+        max_soc_pct=100,
+    )
+    request = BacktestRequest(
+        start=date(2026, 11, 1),
+        end=date(2026, 11, 1),
+        battery=BatteryOverlay(max_charge_w=6000, max_discharge_w=6000, reserve_pct=5),
+    )
+    found = overlay_limitations(demo_site(site_battery=hardware), request)
+    assert [(r.key, r.args["field"], r.args["limit"]) for r in found] == [
+        ("backtest.limit.overlay_capped", "max_charge_w", 3000.0),
+        ("backtest.limit.overlay_capped", "reserve_pct", 15.0),
+    ]
+
+
+async def test_result_echoes_the_effective_params(store: TimeseriesStore) -> None:
+    request = BacktestRequest(
+        start=date(2026, 11, 22), end=date(2026, 11, 22), params={"planner.budget_s": 120.0}
+    )
+    result = await run_backtest(store, demo_site(), request, today=TODAY)
+    assert result.params == {"planner.budget_s": MAX_REPLAN_BUDGET_S}
+    assert result.params_requested == {"planner.budget_s": 120.0}
