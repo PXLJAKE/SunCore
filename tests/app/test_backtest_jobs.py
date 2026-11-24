@@ -7,7 +7,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -215,3 +215,27 @@ async def test_shutdown_stops_a_running_run(env: Env) -> None:
     assert view.status == "cancelled"
     assert view.error is not None
     assert view.error.key == STOP_RESTART
+
+
+async def test_the_demo_runtime_replays_without_touching_home_assistant(tmp_path: Path) -> None:
+    from suncore.app.main import build_runtime  # noqa: PLC0415
+    from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
+    from tests.app.conftest import demo_settings  # noqa: PLC0415
+
+    runtime = await build_runtime(demo_settings(tmp_path, demo_history_days=3), env={})
+    try:
+        jobs = runtime.backtests()
+        assert jobs is not None
+        connection = runtime.connection
+        assert isinstance(connection, FakeHAConnection)
+        today = runtime.clock().astimezone(BERLIN).date()
+        day = today - timedelta(days=1)
+        run = await jobs.start(BacktestRequest(start=day, end=day))
+        view = await finished(jobs, run.id)
+        assert view.status == "done", view.error
+        assert view.result is not None
+        assert view.result.totals is not None
+        assert connection.call_log == []  # not one service call during the replay
+        assert await runtime.config.get("expert") == runtime.expert  # nothing written back
+    finally:
+        await runtime.stop()
