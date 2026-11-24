@@ -72,6 +72,9 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     margin; loadpoint off/on counts as a switch, off never blocked; scenario `evcc_flicker`),
     failed emergency-stop/recovery releases retried by `poll` with back-off. Residual risk:
     the smart import check is reactive (overshoot up to about 1 min).
+  - C4: the over-limit clock restarts only after 30 s under the limit (noise around a mean
+    above the limit is cut within about 60-90 s); above the fuse limit `off` at once.
+    Residual risk: G1 for `smart` is reactive, about 1 min.
   - Deviations, safety self-review and questions: plan section 8 (6-J).
 
 - **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;

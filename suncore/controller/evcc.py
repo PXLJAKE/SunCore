@@ -58,6 +58,8 @@ RAISE_STEP_A: Final = 2.0
 OFF_AFTER_S: Final = 60.0
 MIN_OFF_S: Final = 300.0
 REENABLE_MARGIN_A: Final = 1.0
+#: The over-limit clock restarts only after the import stayed under the limit this long (C4).
+UNDER_RESET_S: Final = 30.0
 """``maxCurrent`` is raised only when the wanted value is at least this much higher."""
 IEC_MIN_CURRENT_A: Final = 6.0
 CURRENT_TOLERANCE_A: Final = 0.05
@@ -114,6 +116,8 @@ class EvccIntents:
     """Loadpoints whose current the import limit holds down (see ``_import_cut``)."""
     over_since: dict[str, datetime] = field(default_factory=dict)
     """Since when the import is continuously over the limit while the car draws (R1)."""
+    under_since: dict[str, datetime] = field(default_factory=dict)
+    """Since when the import is continuously under the limit again (``UNDER_RESET_S``)."""
     off_since: dict[str, datetime] = field(default_factory=dict)
     """When the import cut switched the loadpoint off (re-enable only after ``MIN_OFF_S``)."""
     clock: datetime | None = None
@@ -130,6 +134,7 @@ class EvccIntents:
         for gone in [d for d in self.cuts if d not in live]:
             self.cuts.discard(gone)
             self.over_since.pop(gone, None)
+            self.under_since.pop(gone, None)
             self.off_since.pop(gone, None)
         self.views = {}
         for tick in ticks:
@@ -207,7 +212,7 @@ class EvccIntents:
             self._no_raise_cut(tick, state, wanted, reasons), tuple(reasons), lock_wanted
         )
 
-    def _import_cut(  # noqa: PLR0911 - one return per verdict
+    def _import_cut(  # noqa: PLR0911, PLR0912 - one branch per rule
         self, tick: LoadpointTick, state: DeviceState, per_amp: float, max_a: float
     ) -> float | None:
         """The ``maxCurrent`` the import limit allows while evcc charges (L3 reducing path).
@@ -226,18 +231,32 @@ class EvccIntents:
         draw = state.value or 0.0
         over = imported > limit and draw > 0
         if over:
+            self.under_since.pop(device_id, None)
             if now is not None:
                 self.over_since.setdefault(device_id, now)
-        else:
-            self.over_since.pop(device_id, None)
+        elif device_id in self.over_since and now is not None:
+            # C4: noise around a mean above the limit must not restart the clock on every
+            # tick below it; only a continuous stretch under the limit does.
+            under = self.under_since.setdefault(device_id, now)
+            if (now - under).total_seconds() >= UNDER_RESET_S:
+                self.over_since.pop(device_id, None)
+                self.under_since.pop(device_id, None)
         if not over and device_id not in self.cuts:
             return None
         headroom = math.floor(max(0.0, limit - imported + draw) / per_amp + EPS)
         if not over and headroom >= max_a:
             self.cuts.discard(device_id)
             self.off_since.pop(device_id, None)
+            self.over_since.pop(device_id, None)
+            self.under_since.pop(device_id, None)
             return None
         self.cuts.add(device_id)
+        fuse = tick.grid.fuse_limit_w
+        if over and fuse is not None and imported > fuse:
+            # G2: above the connection limit there is no hold, the car goes off at once
+            if now is not None:
+                self.off_since[device_id] = now
+            return 0.0
         off_at = self.off_since.get(device_id)
         if off_at is not None:
             # off by the cut: back on only after MIN_OFF_S and with a margin above evcc's minimum

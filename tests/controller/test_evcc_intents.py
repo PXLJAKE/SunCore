@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import itertools
+import random
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -401,3 +402,35 @@ def test_r1_off_after_a_long_overload_and_back_on_only_after_the_minimum_off_tim
     back = controller.wanted(over_limit(**idle))
     assert back.wanted is not None
     assert back.wanted.mode == "smart"
+
+
+def test_c4_noise_around_a_mean_above_the_limit_ends_in_a_cut() -> None:
+    rng = random.Random(7)
+    # limit 6000 W, the car holds 6 A (4140 W): room 4000 +- 500 W, more than half the ticks over
+    series = [2000.0 + rng.uniform(-500.0, 500.0) for _ in range(240)]
+    modes = run_flicker(series)
+    assert "off" in modes
+    assert modes.index("off") * 5 <= 90  # cut within about 60-90 s
+
+
+def test_c4_the_clock_survives_single_ticks_under_the_limit() -> None:
+    controller = EvccIntents()
+    grid = GridInputs(import_limit_w=6_000.0)
+    charging = {"state": state("smart", 6.0, value=4_140.0), "grid": grid}
+    seen = []
+    for i in range(20):  # every third tick under the limit, otherwise over
+        controller.clock = T0 + timedelta(seconds=i * 5)
+        imported = 5_900.0 if i % 3 == 0 else 6_300.0
+        view = controller.wanted(over_limit(import_w=imported, **charging))
+        assert view.wanted is not None
+        seen.append(view.wanted.mode)
+    assert seen[-1] == "off"
+
+
+def test_c4_above_the_fuse_limit_the_car_goes_off_at_once() -> None:
+    controller = EvccIntents()
+    controller.clock = T0
+    grid = GridInputs(fuse_limit_w=9_000.0, import_limit_w=9_000.0)
+    view = controller.wanted(over_limit(grid=grid))  # 14500 W import, car draws 11 kW
+    assert view.wanted == LoadpointAction(mode="off")
+    assert [r.key for r in view.reasons] == ["controller.evcc.import_off"]
