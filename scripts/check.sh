@@ -10,6 +10,7 @@ uv run python scripts/export_openapi.py --check
 uv run python scripts/check_reasons.py
 uv run python scripts/gen_schemas.py --check
 uv run python scripts/gen_compat.py --check
+uv run python scripts/gen_backend_catalogue.py --check
 uv run python scripts/validate_templates.py --check
 if [ "${FAST:-0}" = "1" ]; then
   uv run pytest -q -x -m "not slow"
