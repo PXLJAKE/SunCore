@@ -8,7 +8,7 @@ import contextlib
 import tempfile
 from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, time, timedelta, tzinfo
+from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -22,6 +22,8 @@ from suncore.api.services import (
     EntityQuery,
     HAUnavailableError,
     HealthReport,
+    HistoryContext,
+    HistorySources,
     PeerPolicy,
     TariffNotConfiguredError,
     UnknownRoleError,
@@ -136,6 +138,7 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
+from suncore.storage.summaries import DaySummaryRow
 from suncore.storage.timeseries import META_HISTORY_BACKFILLED, META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
@@ -1682,6 +1685,30 @@ class Runtime:
             return None
         ids = [r.entity_id for r in self.site.entity_refs()]
         return compute_flows(self.site, self.cache.samples(ids))
+
+    def history_sources(self) -> HistorySources | None:
+        context = self._summary_context()
+        devices = {} if self.devices is None else {d.id: d.name for d in self.devices.devices}
+        timeseries = self.timeseries
+
+        async def live_day(day: date) -> DaySummaryRow | None:
+            assert timeseries is not None
+            return await DaySummaryJob(timeseries, self.clock).preview(day, self._summary_context())
+
+        return HistorySources(
+            decision_log=self.decision_log,
+            timeseries=timeseries,
+            plans=self.plans,
+            context=HistoryContext(
+                tz=context.tz,
+                tz_name=context.tz_name,
+                battery=context.battery,
+                currency=context.currency,
+                devices=devices,
+            ),
+            clock=self.clock,
+            live_day=None if timeseries is None or not self._time_zone_settled() else live_day,
+        )
 
     async def decisions(
         self,

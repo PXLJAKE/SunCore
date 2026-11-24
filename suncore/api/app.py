@@ -12,7 +12,7 @@ import contextlib
 import json
 import logging
 import re
-from typing import Annotated, Any, Final
+from typing import Any, Final
 
 from fastapi import (
     FastAPI,
@@ -28,6 +28,7 @@ from pydantic import BaseModel, TypeAdapter
 from pydantic_core import PydanticCustomError
 from starlette.websockets import WebSocketState
 
+from suncore.api.history import register_decisions, register_history
 from suncore.api.limits import BodyLimitMiddleware
 from suncore.api.models import (
     CheckOut,
@@ -89,7 +90,7 @@ from suncore.core.controlstate import (
     UnknownProposalError,
     override_until_past,
 )
-from suncore.core.decisions import Decision, DecisionKind
+from suncore.core.decisions import Decision
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import PreviewTooLargeError
 from suncore.forecast.views import (
@@ -170,6 +171,7 @@ def create_app(
     _register_http(app, services)
     _register_prices(app, services)
     _register_plan(app, services)
+    register_history(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
     app.openapi = lambda: _openapi(app)  # type: ignore[method-assign]
@@ -193,6 +195,7 @@ def _register_http(app: FastAPI, services: Services) -> None:
     _register_history(app, services)
     _register_control(app, services)
     _register_forecast(app, services)
+    register_decisions(app, services)
 
     @app.get(
         f"{API_PREFIX}/entities",
@@ -277,18 +280,6 @@ def _register_http(app: FastAPI, services: Services) -> None:
             log.info("config import rejected: %s", exc)  # reason stays in the log
             raise HTTPException(status_code=422, detail=ERR_IMPORT_REJECTED) from exc
         return ImportResultOut(imported_sections=sections)
-
-    @app.get(f"{API_PREFIX}/decisions", response_model=list[Decision])
-    async def decisions(
-        limit: int = Query(default=100, ge=1, le=DECISIONS_MAX),
-        device_id: str | None = Query(default=None, max_length=128),
-        kind: Annotated[list[DecisionKind] | None, Query()] = None,
-    ) -> list[Decision]:
-        """The decision log, newest first. ``device_id`` keeps one device's decisions, ``kind``
-        (repeatable) the given kinds (``shadow``, ``accepted``, ``proposed``, ...)."""
-        if device_id is None and not kind:
-            return await services.decisions(limit)
-        return await services.decisions(limit, device_id=device_id, kinds=kind)
 
 
 def _register_forecast(app: FastAPI, services: Services) -> None:

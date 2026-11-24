@@ -11,7 +11,13 @@ from typing import Any
 from pydantic import BaseModel
 
 from suncore import __version__
-from suncore.api.services import EntityQuery, HealthReport, PeerPolicy, TariffNotConfiguredError
+from suncore.api.services import (
+    EntityQuery,
+    HealthReport,
+    HistorySources,
+    PeerPolicy,
+    TariffNotConfiguredError,
+)
 from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BatterySettings
@@ -86,6 +92,9 @@ class StubServices:
         kinds: Collection[DecisionKind] | None = None,  # noqa: ARG002
     ) -> list[Decision]:
         return []
+
+    def history_sources(self) -> HistorySources | None:
+        return None
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
         return PvForecastView(generated_at=datetime.now(UTC), hours=hours, sources=[], blended=None)

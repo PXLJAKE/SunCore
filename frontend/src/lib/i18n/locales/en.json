@@ -1335,5 +1335,10 @@
   "plan.table.devices": "Devices",
   "pvf.entry_saved": "(saved) {id}",
   "bat.fallback_reset": "The adapter, the modbus link or the fallback timer changed: the earlier fallback measurement no longer counts and is reset when you save.",
-  "plan.tt.devices": "Devices (planned): {power}"
+  "plan.tt.devices": "Devices (planned): {power}",
+  "api.error.history_unavailable": "The history is not available right now (the time-series database could not be opened).",
+  "api.error.history_range_invalid": "This time range or period is not valid or too long.",
+  "api.error.history_key_invalid": "One of the requested data series does not exist.",
+  "api.error.snapshot_not_found": "No plan from that time is stored any more.",
+  "api.error.decision_not_found": "This decision no longer exists. Older entries are deleted automatically."
 }

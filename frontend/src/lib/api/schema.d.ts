@@ -311,10 +311,36 @@ export interface paths {
         };
         /**
          * Decisions
-         * @description The decision log, newest first. ``device_id`` keeps one device's decisions, ``kind``
-         *     (repeatable) the given kinds (``shadow``, ``accepted``, ``proposed``, ...).
+         * @description The decision log, newest first. Filters: ``device_id``, ``kind`` (repeatable;
+         *     ``shadow``, ``accepted``, ``proposed`` ...), ``from`` (inclusive) and ``to`` (exclusive),
+         *     ``layer`` (the layer that produced the intent), ``reason`` (a reason key, or a dotted
+         *     prefix of it) and ``q`` (case-insensitive text in the device id, reason keys and
+         *     arguments). ``offset`` pages; the headers ``X-Total-Count`` and ``X-Decision-Ids``
+         *     accompany the list. CSV: one row per decision.
          */
         get: operations["decisions_api_v1_decisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/decisions/{decision_id}/explain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Decision Explain
+         * @description The "Why?" of one decision: the decision with its reasons, the same device's
+         *     decisions before and after, the plan snapshot valid then (with the interval) and the
+         *     site readings of that moment.
+         */
+        get: operations["decision_explain"];
         put?: never;
         post?: never;
         delete?: never;
@@ -471,6 +497,155 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/history/cycles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Cycles
+         * @description Equivalent full cycles, charged and discharged energy and the state-of-charge range
+         *     per local day (default: the last 30 days, at most 400).
+         */
+        get: operations["history_cycles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Devices
+         * @description Run time, estimated energy and starts of every controlled device in a period.
+         */
+        get: operations["history_devices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/forecast-skill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Forecast Skill
+         * @description Daily forecast error (MAE, bias = actual - forecast) per source, kind and horizon
+         *     bucket, with the n-weighted mean over the range (default: the last 30 days).
+         */
+        get: operations["history_forecast_skill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/heatmap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Heatmap
+         * @description Mean of a key (default the house consumption) by local weekday x hour of day over
+         *     the range (default: the last 28 days, at most 400).
+         */
+        get: operations["history_heatmap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/sankey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Sankey
+         * @description The attributed energy flows of a period as Sankey nodes and links (Wh).
+         */
+        get: operations["history_sankey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Series
+         * @description Measured means of up to 8 keys (``site.pv_w``, ``site.grid_w``, ``site.battery_w``,
+         *     ``site.house_w``, ``site.soc_pct``, ``weather.temperature_c``,
+         *     ``device.<id>.power_w``, ``device.<id>.on``). The resolution follows the span (1 min up
+         *     to 2 days, 15 min up to 31 days, daily above) and is coarsened to at most 2000 points per
+         *     series. Times without offset are site time; default range: the last 24 hours.
+         */
+        get: operations["history_series"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Summary
+         * @description Energy, flows, autarky, self-consumption, cost and savings against both baselines of
+         *     a period, summed from the frozen days (the current day is computed live), with one bar
+         *     per day (week, month) or month (year). CSV: the bars.
+         */
+        get: operations["history_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/info": {
         parameters: {
             query?: never;
@@ -567,6 +742,49 @@ export interface paths {
          *     the controller follows it (``in_use``; else ``fallback`` says why).
          */
         get: operations["get_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/at": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plan At
+         * @description The plan snapshot that was valid at ``ts`` (the newest one created at or before it)
+         *     and the index of the interval covering ``ts``. 404 when none is stored (snapshots are
+         *     kept 14 days / 200). CSV: the intervals.
+         */
+        get: operations["plan_at"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plan Compare
+         * @description Interval differences of two snapshots; ``a`` and ``b`` are a snapshot id or a time
+         *     (the snapshot valid then). Only intervals that differ or exist on one side.
+         */
+        get: operations["plan_compare"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1330,6 +1548,33 @@ export interface components {
             weights: components["schemas"]["BlendWeightsView"][];
         };
         /**
+         * BucketOut
+         * @description One bar of the period chart: a day (week, month) or a month (year).
+         */
+        BucketOut: {
+            /** Complete */
+            complete: boolean;
+            cost: components["schemas"]["CostOut"];
+            /** Days With Data */
+            days_with_data: number;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            energy: components["schemas"]["EnergyOut"];
+            /** Key */
+            key: string;
+            kpis: components["schemas"]["KpiOut"];
+            /** Live */
+            live: boolean;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /**
          * CalibrationCharge
          * @description Periodic full charge for the BMS's SoC calibration (off by default, question 11).
          *
@@ -1511,6 +1756,73 @@ export interface components {
             ts: string | null;
         };
         /**
+         * CostOut
+         * @description Grid cost of the days that have stored prices, and the two baselines (ADR-0014).
+         *
+         *     ``savings_vs_no_pv`` is what the plant adds (house load entirely from the grid minus actual
+         *     cost), ``savings_vs_pv_only`` what SunCore adds on top of the plant (PV without battery and
+         *     control minus actual cost), ``pv_contribution`` the difference. Device shifting is not undone.
+         */
+        CostOut: {
+            /** Baseline No Pv Cost */
+            baseline_no_pv_cost: number | null;
+            /** Baseline Pv Only Cost */
+            baseline_pv_only_cost: number | null;
+            /** Cost Net */
+            cost_net: number | null;
+            /** Currency */
+            currency: string | null;
+            /** Export Revenue */
+            export_revenue: number | null;
+            /** Import Cost */
+            import_cost: number | null;
+            /** Priced Days */
+            priced_days: number;
+            /** Pv Contribution */
+            pv_contribution: number | null;
+            /** Savings Vs No Pv */
+            savings_vs_no_pv: number | null;
+            /** Savings Vs Pv Only */
+            savings_vs_pv_only: number | null;
+        };
+        /** CycleDayOut */
+        CycleDayOut: {
+            /** Charge Wh */
+            charge_wh: number;
+            /** Complete */
+            complete: boolean;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Discharge Wh */
+            discharge_wh: number;
+            /** Equivalent Full Cycles */
+            equivalent_full_cycles: number | null;
+            /** Soc Max Pct */
+            soc_max_pct: number | null;
+            /** Soc Min Pct */
+            soc_min_pct: number | null;
+        };
+        /** CyclesOut */
+        CyclesOut: {
+            /** Days */
+            days: components["schemas"]["CycleDayOut"][];
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Total Equivalent Full Cycles */
+            total_equivalent_full_cycles: number | null;
+        };
+        /**
          * DayType
          * @enum {string}
          */
@@ -1550,6 +1862,32 @@ export interface components {
              * Format: date-time
              */
             ts: string;
+        };
+        /** DecisionEntryOut */
+        DecisionEntryOut: {
+            decision: components["schemas"]["Decision"];
+            /** Id */
+            id: number;
+        };
+        /**
+         * DecisionExplainOut
+         * @description Everything the "Why?" panel shows about one decision.
+         */
+        DecisionExplainOut: {
+            /** After */
+            after: components["schemas"]["DecisionEntryOut"][];
+            /** Before */
+            before: components["schemas"]["DecisionEntryOut"][];
+            decision: components["schemas"]["Decision"];
+            /** Id */
+            id: number;
+            /** Inputs */
+            inputs: components["schemas"]["ExplainInputOut"][];
+            /** Inputs At */
+            inputs_at: string | null;
+            /** Inputs Resolution */
+            inputs_resolution: ("1m" | "15m") | null;
+            plan: components["schemas"]["ExplainPlanOut"] | null;
         };
         /**
          * DecisionKind
@@ -1701,6 +2039,18 @@ export interface components {
             /** Under Control */
             under_control: boolean;
         };
+        /** DeviceDayOut */
+        DeviceDayOut: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Energy Wh */
+            energy_wh: number | null;
+            /** Run Hours */
+            run_hours: number | null;
+        };
         /**
          * DeviceDefaults
          * @description Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.
@@ -1728,6 +2078,39 @@ export interface components {
             power_model: components["schemas"]["PowerModelDefault"];
             /** Settle S */
             settle_s?: number | null;
+        };
+        /** DeviceHistoryItemOut */
+        DeviceHistoryItemOut: {
+            /** Days */
+            days: components["schemas"]["DeviceDayOut"][];
+            /** Device Id */
+            device_id: string;
+            /** Energy Wh */
+            energy_wh: number | null;
+            /** Name */
+            name: string;
+            /** Run Hours */
+            run_hours: number | null;
+            /** Starts */
+            starts: number | null;
+        };
+        /** DeviceHistoryOut */
+        DeviceHistoryOut: {
+            /** Devices */
+            devices: components["schemas"]["DeviceHistoryItemOut"][];
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Key */
+            key: string;
+            period: components["schemas"]["Granularity"];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
         };
         /**
          * DeviceKind
@@ -1852,6 +2235,21 @@ export interface components {
              * @enum {string}
              */
             source: "energy_solar_forecast";
+        };
+        /** EnergyOut */
+        EnergyOut: {
+            /** Charge Wh */
+            charge_wh: number;
+            /** Discharge Wh */
+            discharge_wh: number;
+            /** Export Wh */
+            export_wh: number;
+            /** House Wh */
+            house_wh: number;
+            /** Import Wh */
+            import_wh: number;
+            /** Pv Wh */
+            pv_wh: number;
         };
         /**
          * EnergyPrefsOut
@@ -1979,6 +2377,30 @@ export interface components {
             /** Detail */
             detail: string;
         };
+        /** ExplainInputOut */
+        ExplainInputOut: {
+            /** Key */
+            key: string;
+            /** Unit */
+            unit: string;
+            /** Value */
+            value: number | null;
+        };
+        /** ExplainPlanOut */
+        ExplainPlanOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            interval: components["schemas"]["PlanInterval"] | null;
+            /** Interval Index */
+            interval_index: number | null;
+            /** Snapshot Id */
+            snapshot_id: number;
+            /** Source */
+            source: string;
+        };
         /**
          * ExportTariff
          * @description Feed-in remuneration.
@@ -2036,6 +2458,29 @@ export interface components {
          * @enum {string}
          */
         FetchStatus: "ok" | "partial" | "no_data" | "not_configured" | "not_linked" | "ambiguous_entry" | "entry_not_found" | "error";
+        /**
+         * FlowBreakdownOut
+         * @description Attributed flows (ADR-0014 decision 2): PV serves the house, then the battery, then the
+         *     grid; the grid charges the battery only for what PV cannot.
+         */
+        FlowBreakdownOut: {
+            /** Battery To Grid Wh */
+            battery_to_grid_wh: number;
+            /** Battery To House Wh */
+            battery_to_house_wh: number;
+            /** Grid To Battery Wh */
+            grid_to_battery_wh: number;
+            /** Grid To House Wh */
+            grid_to_house_wh: number;
+            /** Pv To Battery Wh */
+            pv_to_battery_wh: number;
+            /** Pv To Grid Wh */
+            pv_to_grid_wh: number;
+            /** Pv To House Wh */
+            pv_to_house_wh: number;
+            /** Residual Wh */
+            residual_wh: number;
+        };
         /**
          * FlowOut
          * @description A value in W (or % for the state of charge) with its data quality.
@@ -2125,6 +2570,21 @@ export interface components {
             schema_version: number;
             /** Sources */
             sources?: components["schemas"]["ForecastSourceConfig"][];
+        };
+        /** ForecastSkillOut */
+        ForecastSkillOut: {
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Series */
+            series: components["schemas"]["SkillSeriesOut"][];
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
         };
         /**
          * ForecastSourceConfig
@@ -2220,6 +2680,11 @@ export interface components {
             schema_version: number;
         };
         /**
+         * Granularity
+         * @enum {string}
+         */
+        Granularity: "day" | "week" | "month" | "year";
+        /**
          * GridChargePolicy
          * @description When the battery may be charged from the grid (answers 2026-10-16, question 7).
          *
@@ -2302,6 +2767,31 @@ export interface components {
             ok: boolean;
             /** Version */
             version: string;
+        };
+        /** HeatmapOut */
+        HeatmapOut: {
+            /** Counts */
+            counts: number[][];
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Key */
+            key: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Tz */
+            tz: string;
+            /** Unit */
+            unit: string;
+            /** Values */
+            values: (number | null)[][];
+            /** Weekdays */
+            weekdays?: string[];
         };
         /** HistoryRestoreOut */
         HistoryRestoreOut: {
@@ -2395,6 +2885,42 @@ export interface components {
             ts: string;
         };
         /**
+         * IntervalDiffOut
+         * @description Differences of one interval start; a side without the interval is ``None``.
+         *
+         *     Deltas are ``b - a`` and only present where both sides have the value.
+         */
+        IntervalDiffOut: {
+            a: components["schemas"]["PlanInterval"] | null;
+            b: components["schemas"]["PlanInterval"] | null;
+            /** Battery W Delta */
+            battery_w_delta: number | null;
+            /** Devices Changed */
+            devices_changed: string[];
+            /** Devices W Delta */
+            devices_w_delta: number | null;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Export W Delta */
+            export_w_delta: number | null;
+            /** Import Price Delta */
+            import_price_delta: number | null;
+            /** Import W Delta */
+            import_w_delta: number | null;
+            /** Only In */
+            only_in: ("a" | "b") | null;
+            /** Soc Pct Delta */
+            soc_pct_delta: number | null;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /**
          * IntervalFlows
          * @description Plan v2: the flows the planner expects in an interval (mean power, W).
          *
@@ -2462,6 +2988,15 @@ export interface components {
             export_price: number;
             /** Import Price */
             import_price: number;
+        };
+        /** KpiOut */
+        KpiOut: {
+            /** Autarky */
+            autarky: number | null;
+            /** Equivalent Full Cycles */
+            equivalent_full_cycles: number | null;
+            /** Self Consumption */
+            self_consumption: number | null;
         };
         /**
          * LearningSettings
@@ -2923,6 +3458,40 @@ export interface components {
              */
             source: "solver" | "heuristic" | "default";
             stats?: components["schemas"]["SolverStats"] | null;
+        };
+        /**
+         * PlanAtOut
+         * @description The plan snapshot that was valid at a time.
+         */
+        PlanAtOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Interval Index */
+            interval_index: number | null;
+            plan: components["schemas"]["Plan"];
+            /** Schema Version */
+            schema_version: number;
+            /** Snapshot Id */
+            snapshot_id: number;
+            /** Source */
+            source: string;
+        };
+        /** PlanCompareOut */
+        PlanCompareOut: {
+            a: components["schemas"]["SnapshotRefOut"];
+            b: components["schemas"]["SnapshotRefOut"];
+            /** Changed */
+            changed: number;
+            /** Intervals */
+            intervals: components["schemas"]["IntervalDiffOut"][];
         };
         /**
          * PlanInterval
@@ -3682,6 +4251,45 @@ export interface components {
             /** Same Device As */
             same_device_as?: string | null;
         };
+        /** SankeyLinkOut */
+        SankeyLinkOut: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "pv" | "grid_import" | "battery_discharge" | "house" | "battery_charge" | "grid_export";
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "pv" | "grid_import" | "battery_discharge" | "house" | "battery_charge" | "grid_export";
+            /** Wh */
+            wh: number;
+        };
+        /** SankeyOut */
+        SankeyOut: {
+            /** Complete */
+            complete: boolean;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Key */
+            key: string;
+            /** Links */
+            links: components["schemas"]["SankeyLinkOut"][];
+            /** Nodes */
+            nodes: ("pv" | "grid_import" | "battery_discharge" | "house" | "battery_charge" | "grid_export")[];
+            period: components["schemas"]["Granularity"];
+            /** Residual Wh */
+            residual_wh: number;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
         /**
          * SeriesFields
          * @description Names of the fields of one series point and the unit of its values.
@@ -3704,6 +4312,39 @@ export interface components {
             value_field?: string | null;
             /** Value Unit */
             value_unit: string;
+        };
+        /** SeriesOut */
+        SeriesOut: {
+            /** Key */
+            key: string;
+            /** Unit */
+            unit: string;
+            /** Values */
+            values: (number | null)[];
+        };
+        /** SeriesResponse */
+        SeriesResponse: {
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /**
+             * Resolution
+             * @enum {string}
+             */
+            resolution: "1m" | "15m" | "1h" | "1d";
+            /** Resolution Reason */
+            resolution_reason: string;
+            /** Series */
+            series: components["schemas"]["SeriesOut"][];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Times */
+            times: string[];
         };
         /**
          * SetpointAction
@@ -3785,6 +4426,40 @@ export interface components {
             /** Uncertainty W */
             uncertainty_w: number;
         };
+        /** SkillPointOut */
+        SkillPointOut: {
+            /** Bias W */
+            bias_w: number;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Mae W */
+            mae_w: number;
+            /** N */
+            n: number;
+        };
+        /** SkillSeriesOut */
+        SkillSeriesOut: {
+            /** Bias W */
+            bias_w: number | null;
+            /** Horizon */
+            horizon: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "pv" | "load";
+            /** Mae W */
+            mae_w: number | null;
+            /** N */
+            n: number;
+            /** Points */
+            points: components["schemas"]["SkillPointOut"][];
+            /** Source Id */
+            source_id: string;
+        };
         /** SnapshotMessage */
         SnapshotMessage: {
             control: components["schemas"]["ControlState"];
@@ -3797,6 +4472,20 @@ export interface components {
              * @enum {string}
              */
             type: "snapshot";
+        };
+        /** SnapshotRefOut */
+        SnapshotRefOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Intervals */
+            intervals: number;
+            /** Snapshot Id */
+            snapshot_id: number;
+            /** Source */
+            source: string;
         };
         /**
          * SolverStats
@@ -3882,6 +4571,46 @@ export interface components {
             reason: components["schemas"]["Reason"];
             /** Value */
             value: unknown;
+        };
+        /** SummaryOut */
+        SummaryOut: {
+            /** Buckets */
+            buckets: components["schemas"]["BucketOut"][];
+            /** Complete */
+            complete: boolean;
+            cost: components["schemas"]["CostOut"];
+            /** Coverage */
+            coverage: number | null;
+            /** Days */
+            days: number;
+            /** Days Complete */
+            days_complete: number;
+            /** Days With Data */
+            days_with_data: number;
+            /** Derived Share */
+            derived_share: number | null;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            energy: components["schemas"]["EnergyOut"];
+            flows: components["schemas"]["FlowBreakdownOut"];
+            /** In Progress */
+            in_progress: boolean;
+            /** Includes Live */
+            includes_live: boolean;
+            /** Key */
+            key: string;
+            kpis: components["schemas"]["KpiOut"];
+            period: components["schemas"]["Granularity"];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Tz */
+            tz: string;
         };
         /**
          * SwitchAction
@@ -4973,8 +5702,15 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                offset?: number;
                 device_id?: string | null;
                 kind?: components["schemas"]["DecisionKind"][] | null;
+                from?: string | null;
+                to?: string | null;
+                layer?: components["schemas"]["Origin"] | null;
+                reason?: string | null;
+                q?: string | null;
+                format?: "json" | "csv";
             };
             header?: never;
             path?: never;
@@ -4985,10 +5721,15 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    /** @description Row ids of the returned decisions, comma separated, in the order of the body (the key of /decisions/{id}/explain) */
+                    "X-Decision-Ids"?: string;
+                    /** @description Matching decisions before limit and offset */
+                    "X-Total-Count"?: number;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Decision"][];
+                    "text/csv": string;
                 };
             };
             /** @description Validation error */
@@ -4998,6 +5739,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description Filters need the decision database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    decision_explain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionExplainOut"];
+                };
+            };
+            /** @description The decision was pruned or does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
         };
@@ -5210,6 +6009,321 @@ export interface operations {
             };
         };
     };
+    history_cycles: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CyclesOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_devices: {
+        parameters: {
+            query?: {
+                /** @description day, week, month or year containing ``date`` */
+                period?: components["schemas"]["Granularity"];
+                date?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceHistoryOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_forecast_skill: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                source?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastSkillOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_heatmap: {
+        parameters: {
+            query?: {
+                key?: string;
+                from?: string | null;
+                to?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeatmapOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_sankey: {
+        parameters: {
+            query?: {
+                /** @description day, week, month or year containing ``date`` */
+                period?: components["schemas"]["Granularity"];
+                date?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SankeyOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_series: {
+        parameters: {
+            query: {
+                key: string[];
+                from?: string | null;
+                to?: string | null;
+                resolution?: ("1m" | "15m" | "1h" | "1d") | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesResponse"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_summary: {
+        parameters: {
+            query?: {
+                /** @description day, week, month or year containing ``date`` */
+                period?: components["schemas"]["Granularity"];
+                date?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummaryOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     info_api_v1_info_get: {
         parameters: {
             query?: never;
@@ -5403,6 +6517,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    plan_at: {
+        parameters: {
+            query: {
+                ts: string;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanAtOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description No snapshot stored for that time (pruned) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    plan_compare: {
+        parameters: {
+            query: {
+                a: string;
+                b: string;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanCompareOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description No snapshot stored for that time (pruned) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
         };

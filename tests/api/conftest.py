@@ -21,6 +21,7 @@ from suncore.api import (
     EntityQuery,
     HAUnavailableError,
     HealthReport,
+    HistorySources,
     PeerPolicy,
     TariffNotConfiguredError,
     UnknownRoleError,
@@ -237,6 +238,7 @@ class FakeServices:
         )
         self.price_report: PriceReport | None = None
         self.price_hours: list[int] = []
+        self.history: HistorySources | None = None
 
         async def nothing(now: datetime, previous: object) -> PlanningSnapshot:
             return PlanningSnapshot(None)
@@ -259,6 +261,9 @@ class FakeServices:
 
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         return self.planning.add_listener(listener)
+
+    def history_sources(self) -> HistorySources | None:
+        return self.history
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
         self.pv_hours.append(hours)

@@ -8,14 +8,16 @@ talks to this protocol. ``suncore.app.runtime`` implements it for the real proce
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import date, datetime, tzinfo
 from pathlib import Path
 from typing import Any, Final, Protocol
 
 from pydantic import BaseModel
 
 from suncore.core.balance import FlowSnapshot
+from suncore.core.battery import BatteryModel
 from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
@@ -29,7 +31,8 @@ from suncore.forecast.views import (
     RiskView,
 )
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
-from suncore.storage import HistoryEntry
+from suncore.storage import DecisionLog, HistoryEntry, PlanSnapshotStore, TimeseriesStore
+from suncore.storage.summaries import DaySummaryRow
 from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
 
@@ -76,6 +79,36 @@ class EntityQuery:
     """Name of the device of an entity already chosen; ranks same-named candidates first."""
     include_hidden: bool = False
     """Also hidden, diagnostic and config entities (ranked lower); disabled stay excluded."""
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryContext:
+    """The configuration of the moment the history endpoints present figures in."""
+
+    tz: tzinfo
+    tz_name: str
+    battery: BatteryModel | None = None
+    """For the equivalent full cycles of a live day; ``None`` leaves them out."""
+    currency: str | None = None
+    devices: Mapping[str, str] = field(default_factory=dict)
+    """Controlled devices: id -> display name (the device history lists exactly these)."""
+
+
+@dataclass(frozen=True, slots=True)
+class HistorySources:
+    """Everything the history, plan-at and decision-explain endpoints read (Phase 5 WP4).
+
+    ``timeseries`` and ``plans`` are ``None`` when their database is unavailable (``timeseries.db``
+    too new or unopenable); the endpoints then answer ``api.error.history_unavailable``.
+    """
+
+    decision_log: DecisionLog
+    timeseries: TimeseriesStore | None
+    plans: PlanSnapshotStore | None
+    context: HistoryContext
+    clock: Callable[[], datetime]
+    live_day: Callable[[date], Awaitable[DaySummaryRow | None]] | None = None
+    """The row a not yet frozen day would get now (``None``: no live day)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +203,10 @@ class Services(Protocol):
         kinds: Collection[DecisionKind] | None = None,
     ) -> list[Decision]:
         """Newest first; ``device_id`` filters by the decision's device, ``kinds`` by kind."""
+        ...
+
+    def history_sources(self) -> HistorySources | None:
+        """What the history endpoints read; ``None`` while nothing can be read (tests, stub)."""
         ...
 
     # --- forecasts (Phase 4 WP5) ---------------------------------------------------------

@@ -1299,6 +1299,60 @@
         "title": "BlendedView",
         "type": "object"
       },
+      "BucketOut": {
+        "additionalProperties": false,
+        "description": "One bar of the period chart: a day (week, month) or a month (year).",
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/CostOut"
+          },
+          "days_with_data": {
+            "title": "Days With Data",
+            "type": "integer"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "energy": {
+            "$ref": "#/components/schemas/EnergyOut"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kpis": {
+            "$ref": "#/components/schemas/KpiOut"
+          },
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "start",
+          "end",
+          "days_with_data",
+          "complete",
+          "live",
+          "energy",
+          "kpis",
+          "cost"
+        ],
+        "title": "BucketOut",
+        "type": "object"
+      },
       "CalibrationCharge": {
         "additionalProperties": false,
         "description": "Periodic full charge for the BMS's SoC calibration (off by default, question 11).\n\nWhen enabled the planner schedules a charge to ``target_soc_pct`` once every\n``interval_days`` into a sunny day (from PV; grid only if the policy allows it).",
@@ -1730,6 +1784,236 @@
         "title": "ControlState",
         "type": "object"
       },
+      "CostOut": {
+        "additionalProperties": false,
+        "description": "Grid cost of the days that have stored prices, and the two baselines (ADR-0014).\n\n``savings_vs_no_pv`` is what the plant adds (house load entirely from the grid minus actual\ncost), ``savings_vs_pv_only`` what SunCore adds on top of the plant (PV without battery and\ncontrol minus actual cost), ``pv_contribution`` the difference. Device shifting is not undone.",
+        "properties": {
+          "baseline_no_pv_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline No Pv Cost"
+          },
+          "baseline_pv_only_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Pv Only Cost"
+          },
+          "cost_net": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Net"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "export_revenue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Revenue"
+          },
+          "import_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Cost"
+          },
+          "priced_days": {
+            "title": "Priced Days",
+            "type": "integer"
+          },
+          "pv_contribution": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pv Contribution"
+          },
+          "savings_vs_no_pv": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Savings Vs No Pv"
+          },
+          "savings_vs_pv_only": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Savings Vs Pv Only"
+          }
+        },
+        "required": [
+          "currency",
+          "priced_days",
+          "import_cost",
+          "export_revenue",
+          "cost_net",
+          "baseline_no_pv_cost",
+          "baseline_pv_only_cost",
+          "savings_vs_no_pv",
+          "savings_vs_pv_only",
+          "pv_contribution"
+        ],
+        "title": "CostOut",
+        "type": "object"
+      },
+      "CycleDayOut": {
+        "additionalProperties": false,
+        "properties": {
+          "charge_wh": {
+            "title": "Charge Wh",
+            "type": "number"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "discharge_wh": {
+            "title": "Discharge Wh",
+            "type": "number"
+          },
+          "equivalent_full_cycles": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equivalent Full Cycles"
+          },
+          "soc_max_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soc Max Pct"
+          },
+          "soc_min_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soc Min Pct"
+          }
+        },
+        "required": [
+          "day",
+          "equivalent_full_cycles",
+          "charge_wh",
+          "discharge_wh",
+          "soc_min_pct",
+          "soc_max_pct",
+          "complete"
+        ],
+        "title": "CycleDayOut",
+        "type": "object"
+      },
+      "CyclesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/CycleDayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "total_equivalent_full_cycles": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Equivalent Full Cycles"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "total_equivalent_full_cycles",
+          "days"
+        ],
+        "title": "CyclesOut",
+        "type": "object"
+      },
       "DayType": {
         "enum": [
           "workday",
@@ -1858,6 +2142,107 @@
           "mode"
         ],
         "title": "Decision",
+        "type": "object"
+      },
+      "DecisionEntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "decision"
+        ],
+        "title": "DecisionEntryOut",
+        "type": "object"
+      },
+      "DecisionExplainOut": {
+        "additionalProperties": false,
+        "description": "Everything the \"Why?\" panel shows about one decision.",
+        "properties": {
+          "after": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionEntryOut"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "before": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionEntryOut"
+            },
+            "title": "Before",
+            "type": "array"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/ExplainInputOut"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "inputs_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inputs At"
+          },
+          "inputs_resolution": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1m",
+                  "15m"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inputs Resolution"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplainPlanOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "decision",
+          "before",
+          "after",
+          "plan",
+          "inputs",
+          "inputs_at",
+          "inputs_resolution"
+        ],
+        "title": "DecisionExplainOut",
         "type": "object"
       },
       "DecisionKind": {
@@ -2360,6 +2745,45 @@
         "title": "DeviceControlState",
         "type": "object"
       },
+      "DeviceDayOut": {
+        "additionalProperties": false,
+        "properties": {
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "energy_wh": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Wh"
+          },
+          "run_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Hours"
+          }
+        },
+        "required": [
+          "day",
+          "run_hours",
+          "energy_wh"
+        ],
+        "title": "DeviceDayOut",
+        "type": "object"
+      },
       "DeviceDefaults": {
         "additionalProperties": false,
         "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.",
@@ -2483,6 +2907,107 @@
           "control"
         ],
         "title": "DeviceDefaults",
+        "type": "object"
+      },
+      "DeviceHistoryItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceDayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "energy_wh": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Wh"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Hours"
+          },
+          "starts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts"
+          }
+        },
+        "required": [
+          "device_id",
+          "name",
+          "run_hours",
+          "energy_wh",
+          "starts",
+          "days"
+        ],
+        "title": "DeviceHistoryItemOut",
+        "type": "object"
+      },
+      "DeviceHistoryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceHistoryItemOut"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "period": {
+            "$ref": "#/components/schemas/Granularity"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "key",
+          "start",
+          "end",
+          "devices"
+        ],
+        "title": "DeviceHistoryOut",
         "type": "object"
       },
       "DeviceKind": {
@@ -2779,6 +3304,45 @@
           "fields"
         ],
         "title": "EnergyDashboardSeries",
+        "type": "object"
+      },
+      "EnergyOut": {
+        "additionalProperties": false,
+        "properties": {
+          "charge_wh": {
+            "title": "Charge Wh",
+            "type": "number"
+          },
+          "discharge_wh": {
+            "title": "Discharge Wh",
+            "type": "number"
+          },
+          "export_wh": {
+            "title": "Export Wh",
+            "type": "number"
+          },
+          "house_wh": {
+            "title": "House Wh",
+            "type": "number"
+          },
+          "import_wh": {
+            "title": "Import Wh",
+            "type": "number"
+          },
+          "pv_wh": {
+            "title": "Pv Wh",
+            "type": "number"
+          }
+        },
+        "required": [
+          "pv_wh",
+          "house_wh",
+          "import_wh",
+          "export_wh",
+          "charge_wh",
+          "discharge_wh"
+        ],
+        "title": "EnergyOut",
         "type": "object"
       },
       "EnergyPrefsOut": {
@@ -3158,6 +3722,85 @@
         "title": "ErrorOut",
         "type": "object"
       },
+      "ExplainInputOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "unit"
+        ],
+        "title": "ExplainInputOut",
+        "type": "object"
+      },
+      "ExplainPlanOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanInterval"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "interval_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Index"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "created_at",
+          "source",
+          "interval_index",
+          "interval"
+        ],
+        "title": "ExplainPlanOut",
+        "type": "object"
+      },
       "ExportTariff": {
         "additionalProperties": false,
         "description": "Feed-in remuneration.",
@@ -3304,6 +3947,56 @@
         ],
         "title": "FetchStatus",
         "type": "string"
+      },
+      "FlowBreakdownOut": {
+        "additionalProperties": false,
+        "description": "Attributed flows (ADR-0014 decision 2): PV serves the house, then the battery, then the\ngrid; the grid charges the battery only for what PV cannot.",
+        "properties": {
+          "battery_to_grid_wh": {
+            "title": "Battery To Grid Wh",
+            "type": "number"
+          },
+          "battery_to_house_wh": {
+            "title": "Battery To House Wh",
+            "type": "number"
+          },
+          "grid_to_battery_wh": {
+            "title": "Grid To Battery Wh",
+            "type": "number"
+          },
+          "grid_to_house_wh": {
+            "title": "Grid To House Wh",
+            "type": "number"
+          },
+          "pv_to_battery_wh": {
+            "title": "Pv To Battery Wh",
+            "type": "number"
+          },
+          "pv_to_grid_wh": {
+            "title": "Pv To Grid Wh",
+            "type": "number"
+          },
+          "pv_to_house_wh": {
+            "title": "Pv To House Wh",
+            "type": "number"
+          },
+          "residual_wh": {
+            "title": "Residual Wh",
+            "type": "number"
+          }
+        },
+        "required": [
+          "pv_to_house_wh",
+          "pv_to_battery_wh",
+          "pv_to_grid_wh",
+          "battery_to_house_wh",
+          "battery_to_grid_wh",
+          "grid_to_house_wh",
+          "grid_to_battery_wh",
+          "residual_wh"
+        ],
+        "title": "FlowBreakdownOut",
+        "type": "object"
       },
       "FlowOut": {
         "additionalProperties": false,
@@ -3486,6 +4179,35 @@
           }
         },
         "title": "ForecastConfig",
+        "type": "object"
+      },
+      "ForecastSkillOut": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SkillSeriesOut"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "series"
+        ],
+        "title": "ForecastSkillOut",
         "type": "object"
       },
       "ForecastSourceConfig": {
@@ -3725,6 +4447,16 @@
         },
         "title": "GoalsConfig",
         "type": "object"
+      },
+      "Granularity": {
+        "enum": [
+          "day",
+          "week",
+          "month",
+          "year"
+        ],
+        "title": "Granularity",
+        "type": "string"
       },
       "GridChargePolicy": {
         "additionalProperties": false,
@@ -3970,6 +4702,78 @@
           "version"
         ],
         "title": "HealthOut",
+        "type": "object"
+      },
+      "HeatmapOut": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Counts",
+            "type": "array"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "tz": {
+            "title": "Tz",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Values",
+            "type": "array"
+          },
+          "weekdays": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Weekdays",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "unit",
+          "start",
+          "end",
+          "tz",
+          "values",
+          "counts"
+        ],
+        "title": "HeatmapOut",
         "type": "object"
       },
       "HistoryRestoreOut": {
@@ -4268,6 +5072,146 @@
         "title": "Intent",
         "type": "object"
       },
+      "IntervalDiffOut": {
+        "additionalProperties": false,
+        "description": "Differences of one interval start; a side without the interval is ``None``.\n\nDeltas are ``b - a`` and only present where both sides have the value.",
+        "properties": {
+          "a": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanInterval"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanInterval"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "battery_w_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery W Delta"
+          },
+          "devices_changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices Changed",
+            "type": "array"
+          },
+          "devices_w_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Devices W Delta"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "export_w_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export W Delta"
+          },
+          "import_price_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Price Delta"
+          },
+          "import_w_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import W Delta"
+          },
+          "only_in": {
+            "anyOf": [
+              {
+                "enum": [
+                  "a",
+                  "b"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Only In"
+          },
+          "soc_pct_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soc Pct Delta"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "only_in",
+          "a",
+          "b",
+          "battery_w_delta",
+          "soc_pct_delta",
+          "import_w_delta",
+          "export_w_delta",
+          "devices_w_delta",
+          "import_price_delta",
+          "devices_changed"
+        ],
+        "title": "IntervalDiffOut",
+        "type": "object"
+      },
       "IntervalFlows": {
         "additionalProperties": false,
         "description": "Plan v2: the flows the planner expects in an interval (mean power, W).\n\nSigns per ``core/units.py``: import/export are magnitudes, battery + = charging.\n``pv_p10_w``/``pv_p50_w``/``pv_p90_w`` are the PV forecast's quantiles as forecast data\n(shown in the UI; ``None`` = the source has no quantiles); the objective uses P50.\nBattery targets are *not* planned on P10 PV (plan §0): they use the risk quantile of\nthe learnt **net** energy error distribution (PV minus load) per weather class.\n``net_risk_quantile`` is that quantile (``RiskLevel.quantile``, e.g. 0.1 = cautious)\nand ``net_risk_w`` the net power PV - load at that quantile the target constraints\nused (may be negative; ``None`` = no target constraint in this interval).\n``soc_pct`` is the planned state of charge at the *end* of the interval (``None`` = no\nbattery). ``devices_w`` is the planned draw of the controllable devices (not part of\n``load_w``, the base load) and ``curtail_w`` the PV the plan does not use (export limit\nor negative export price; informational until the export-limit chain, Phase 6), so\n``pv_p50_w + import_w + max(-battery_w, 0) = load_w + devices_w + max(battery_w, 0) +\nexport_w + curtail_w`` (both additive in plan v2, default 0).",
@@ -4403,6 +5347,51 @@
           "export_price"
         ],
         "title": "IntervalPrices",
+        "type": "object"
+      },
+      "KpiOut": {
+        "additionalProperties": false,
+        "properties": {
+          "autarky": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autarky"
+          },
+          "equivalent_full_cycles": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equivalent Full Cycles"
+          },
+          "self_consumption": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Self Consumption"
+          }
+        },
+        "required": [
+          "autarky",
+          "self_consumption",
+          "equivalent_full_cycles"
+        ],
+        "title": "KpiOut",
         "type": "object"
       },
       "LearningSettings": {
@@ -5373,6 +6362,89 @@
           }
         },
         "title": "Plan",
+        "type": "object"
+      },
+      "PlanAtOut": {
+        "additionalProperties": false,
+        "description": "The plan snapshot that was valid at a time.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "interval_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Index"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/Plan"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "created_at",
+          "source",
+          "schema_version",
+          "at",
+          "interval_index",
+          "plan"
+        ],
+        "title": "PlanAtOut",
+        "type": "object"
+      },
+      "PlanCompareOut": {
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/SnapshotRefOut"
+          },
+          "b": {
+            "$ref": "#/components/schemas/SnapshotRefOut"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "integer"
+          },
+          "intervals": {
+            "items": {
+              "$ref": "#/components/schemas/IntervalDiffOut"
+            },
+            "title": "Intervals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "a",
+          "b",
+          "changed",
+          "intervals"
+        ],
+        "title": "PlanCompareOut",
         "type": "object"
       },
       "PlanInterval": {
@@ -7364,6 +8436,110 @@
         "title": "RoleSpec",
         "type": "object"
       },
+      "SankeyLinkOut": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "enum": [
+              "pv",
+              "grid_import",
+              "battery_discharge",
+              "house",
+              "battery_charge",
+              "grid_export"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "pv",
+              "grid_import",
+              "battery_discharge",
+              "house",
+              "battery_charge",
+              "grid_export"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "wh": {
+            "title": "Wh",
+            "type": "number"
+          }
+        },
+        "required": [
+          "source",
+          "target",
+          "wh"
+        ],
+        "title": "SankeyLinkOut",
+        "type": "object"
+      },
+      "SankeyOut": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/SankeyLinkOut"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "enum": [
+                "pv",
+                "grid_import",
+                "battery_discharge",
+                "house",
+                "battery_charge",
+                "grid_export"
+              ],
+              "type": "string"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/Granularity"
+          },
+          "residual_wh": {
+            "title": "Residual Wh",
+            "type": "number"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "key",
+          "start",
+          "end",
+          "complete",
+          "nodes",
+          "links",
+          "residual_wh"
+        ],
+        "title": "SankeyOut",
+        "type": "object"
+      },
       "SeriesFields": {
         "additionalProperties": false,
         "description": "Names of the fields of one series point and the unit of its values.\n\n``timestamp_field`` and ``value_field`` are required for a list of point objects\n(``action`` series, ``attribute`` series of shape ``list``) and absent for an\n``attribute`` series of shape ``mapping``, whose keys are the timestamps and whose\nvalues are the values.",
@@ -7444,6 +8620,94 @@
           "value_unit"
         ],
         "title": "SeriesFields",
+        "type": "object"
+      },
+      "SeriesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "unit",
+          "values"
+        ],
+        "title": "SeriesOut",
+        "type": "object"
+      },
+      "SeriesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "resolution": {
+            "enum": [
+              "1m",
+              "15m",
+              "1h",
+              "1d"
+            ],
+            "title": "Resolution",
+            "type": "string"
+          },
+          "resolution_reason": {
+            "title": "Resolution Reason",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesOut"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "times": {
+            "items": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "title": "Times",
+            "type": "array"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "resolution",
+          "resolution_reason",
+          "times",
+          "series"
+        ],
+        "title": "SeriesResponse",
         "type": "object"
       },
       "SetpointAction": {
@@ -7659,6 +8923,101 @@
         "title": "SiteControlState",
         "type": "object"
       },
+      "SkillPointOut": {
+        "additionalProperties": false,
+        "properties": {
+          "bias_w": {
+            "title": "Bias W",
+            "type": "number"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "mae_w": {
+            "title": "Mae W",
+            "type": "number"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "mae_w",
+          "bias_w",
+          "n"
+        ],
+        "title": "SkillPointOut",
+        "type": "object"
+      },
+      "SkillSeriesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "bias_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias W"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "pv",
+              "load"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mae_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mae W"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/SkillPointOut"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "kind",
+          "horizon",
+          "mae_w",
+          "bias_w",
+          "n",
+          "points"
+        ],
+        "title": "SkillSeriesOut",
+        "type": "object"
+      },
       "SnapshotMessage": {
         "additionalProperties": false,
         "properties": {
@@ -7699,6 +9058,36 @@
           "control"
         ],
         "title": "SnapshotMessage",
+        "type": "object"
+      },
+      "SnapshotRefOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "intervals": {
+            "title": "Intervals",
+            "type": "integer"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "created_at",
+          "source",
+          "intervals"
+        ],
+        "title": "SnapshotRefOut",
         "type": "object"
       },
       "SolverStats": {
@@ -7896,6 +9285,119 @@
           "reason"
         ],
         "title": "SuggestionOut",
+        "type": "object"
+      },
+      "SummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/BucketOut"
+            },
+            "title": "Buckets",
+            "type": "array"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/CostOut"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "days_complete": {
+            "title": "Days Complete",
+            "type": "integer"
+          },
+          "days_with_data": {
+            "title": "Days With Data",
+            "type": "integer"
+          },
+          "derived_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived Share"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "energy": {
+            "$ref": "#/components/schemas/EnergyOut"
+          },
+          "flows": {
+            "$ref": "#/components/schemas/FlowBreakdownOut"
+          },
+          "in_progress": {
+            "title": "In Progress",
+            "type": "boolean"
+          },
+          "includes_live": {
+            "title": "Includes Live",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kpis": {
+            "$ref": "#/components/schemas/KpiOut"
+          },
+          "period": {
+            "$ref": "#/components/schemas/Granularity"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "tz": {
+            "title": "Tz",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "key",
+          "start",
+          "end",
+          "tz",
+          "days",
+          "days_with_data",
+          "days_complete",
+          "complete",
+          "in_progress",
+          "includes_live",
+          "coverage",
+          "derived_share",
+          "energy",
+          "flows",
+          "kpis",
+          "cost",
+          "buckets"
+        ],
+        "title": "SummaryOut",
         "type": "object"
       },
       "SwitchAction": {
@@ -9526,7 +11028,7 @@
     },
     "/api/v1/decisions": {
       "get": {
-        "description": "The decision log, newest first. ``device_id`` keeps one device's decisions, ``kind``\n(repeatable) the given kinds (``shadow``, ``accepted``, ``proposed``, ...).",
+        "description": "The decision log, newest first. Filters: ``device_id``, ``kind`` (repeatable;\n``shadow``, ``accepted``, ``proposed`` ...), ``from`` (inclusive) and ``to`` (exclusive),\n``layer`` (the layer that produced the intent), ``reason`` (a reason key, or a dotted\nprefix of it) and ``q`` (case-insensitive text in the device id, reason keys and\narguments). ``offset`` pages; the headers ``X-Total-Count`` and ``X-Decision-Ids``\naccompany the list. CSV: one row per decision.",
         "operationId": "decisions_api_v1_decisions_get",
         "parameters": [
           {
@@ -9538,6 +11040,18 @@
               "maximum": 1000,
               "minimum": 1,
               "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
               "type": "integer"
             }
           },
@@ -9576,6 +11090,107 @@
               ],
               "title": "Kind"
             }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "layer",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Origin"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Layer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "reason",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[a-z][a-z0-9_.]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -9589,9 +11204,28 @@
                   "title": "Response Decisions Api V1 Decisions Get",
                   "type": "array"
                 }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "X-Decision-Ids": {
+                "description": "Row ids of the returned decisions, comma separated, in the order of the body (the key of /decisions/{id}/explain)",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Total-Count": {
+                "description": "Matching decisions before limit and offset",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -9602,9 +11236,81 @@
               }
             },
             "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Filters need the decision database"
           }
         },
         "summary": "Decisions"
+      }
+    },
+    "/api/v1/decisions/{decision_id}/explain": {
+      "get": {
+        "description": "The \"Why?\" of one decision: the decision with its reasons, the same device's\ndecisions before and after, the plan snapshot valid then (with the interval) and the\nsite readings of that moment.",
+        "operationId": "decision_explain",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "maximum": 4611686018427387904,
+              "minimum": 1,
+              "title": "Decision Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionExplainOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The decision was pruned or does not exist"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "Decision Explain"
       }
     },
     "/api/v1/devices/{device_id}/override": {
@@ -9934,6 +11640,722 @@
         "summary": "Forecast Risk"
       }
     },
+    "/api/v1/history/cycles": {
+      "get": {
+        "description": "Equivalent full cycles, charged and discharged energy and the state-of-charge range\nper local day (default: the last 30 days, at most 400).",
+        "operationId": "history_cycles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CyclesOut"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "History Cycles"
+      }
+    },
+    "/api/v1/history/devices": {
+      "get": {
+        "description": "Run time, estimated energy and starts of every controlled device in a period.",
+        "operationId": "history_devices",
+        "parameters": [
+          {
+            "description": "day, week, month or year containing ``date``",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Granularity",
+              "default": "day",
+              "description": "day, week, month or year containing ``date``"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceHistoryOut"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "History Devices"
+      }
+    },
+    "/api/v1/history/forecast-skill": {
+      "get": {
+        "description": "Daily forecast error (MAE, bias = actual - forecast) per source, kind and horizon\nbucket, with the n-weighted mean over the range (default: the last 30 days).",
+        "operationId": "history_forecast_skill",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForecastSkillOut"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "History Forecast Skill"
+      }
+    },
+    "/api/v1/history/heatmap": {
+      "get": {
+        "description": "Mean of a key (default the house consumption) by local weekday x hour of day over\nthe range (default: the last 28 days, at most 400).",
+        "operationId": "history_heatmap",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "key",
+            "required": false,
+            "schema": {
+              "default": "site.house_w",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeatmapOut"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "History Heatmap"
+      }
+    },
+    "/api/v1/history/sankey": {
+      "get": {
+        "description": "The attributed energy flows of a period as Sankey nodes and links (Wh).",
+        "operationId": "history_sankey",
+        "parameters": [
+          {
+            "description": "day, week, month or year containing ``date``",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Granularity",
+              "default": "day",
+              "description": "day, week, month or year containing ``date``"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SankeyOut"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "History Sankey"
+      }
+    },
+    "/api/v1/history/series": {
+      "get": {
+        "description": "Measured means of up to 8 keys (``site.pv_w``, ``site.grid_w``, ``site.battery_w``,\n``site.house_w``, ``site.soc_pct``, ``weather.temperature_c``,\n``device.<id>.power_w``, ``device.<id>.on``). The resolution follows the span (1 min up\nto 2 days, 15 min up to 31 days, daily above) and is coarsened to at most 2000 points per\nseries. Times without offset are site time; default range: the last 24 hours.",
+        "operationId": "history_series",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8,
+              "title": "Key",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resolution",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "1m",
+                    "15m",
+                    "1h",
+                    "1d"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resolution"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeriesResponse"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "History Series"
+      }
+    },
+    "/api/v1/history/summary": {
+      "get": {
+        "description": "Energy, flows, autarky, self-consumption, cost and savings against both baselines of\na period, summed from the frozen days (the current day is computed live), with one bar\nper day (week, month) or month (year). CSV: the bars.",
+        "operationId": "history_summary",
+        "parameters": [
+          {
+            "description": "day, week, month or year containing ``date``",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Granularity",
+              "default": "day",
+              "description": "day, week, month or year containing ``date``"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryOut"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "History Summary"
+      }
+    },
     "/api/v1/info": {
       "get": {
         "operationId": "info_api_v1_info_get",
@@ -10171,6 +12593,182 @@
           }
         },
         "summary": "Plan"
+      }
+    },
+    "/api/v1/plan/at": {
+      "get": {
+        "description": "The plan snapshot that was valid at ``ts`` (the newest one created at or before it)\nand the index of the interval covering ``ts``. 404 when none is stored (snapshots are\nkept 14 days / 200). CSV: the intervals.",
+        "operationId": "plan_at",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ts",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "Ts",
+              "type": "string"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanAtOut"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No snapshot stored for that time (pruned)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "Plan At"
+      }
+    },
+    "/api/v1/plan/compare": {
+      "get": {
+        "description": "Interval differences of two snapshots; ``a`` and ``b`` are a snapshot id or a time\n(the snapshot valid then). Only intervals that differ or exist on one side.",
+        "operationId": "plan_compare",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "a",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "A",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "b",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "B",
+              "type": "string"
+            }
+          },
+          {
+            "description": "``csv``: UTF-8, comma, dot",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "``csv``: UTF-8, comma, dot",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanCompareOut"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON or CSV"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No snapshot stored for that time (pruned)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Invalid range, key or period"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No time-series database"
+          }
+        },
+        "summary": "Plan Compare"
       }
     },
     "/api/v1/plan/replan": {

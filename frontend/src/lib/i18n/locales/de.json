@@ -1335,5 +1335,10 @@
   "plan.table.devices": "Geräte",
   "pvf.entry_saved": "(gespeichert) {id}",
   "bat.fallback_reset": "Adapter, Modbus-Verbindung oder Rückfall-Timer wurden geändert: Die frühere Rückfall-Messung zählt nicht mehr und wird beim Speichern zurückgesetzt.",
-  "plan.tt.devices": "Geräte (geplant): {power}"
+  "plan.tt.devices": "Geräte (geplant): {power}",
+  "api.error.history_unavailable": "Die Historie ist gerade nicht verfügbar (die Zeitreihen-Datenbank konnte nicht geöffnet werden).",
+  "api.error.history_range_invalid": "Dieser Zeitraum ist ungültig oder zu lang.",
+  "api.error.history_key_invalid": "Eine der angeforderten Datenreihen existiert nicht.",
+  "api.error.snapshot_not_found": "Zu diesem Zeitpunkt ist kein Plan mehr gespeichert.",
+  "api.error.decision_not_found": "Diese Entscheidung gibt es nicht mehr. Ältere Einträge werden automatisch gelöscht."
 }
