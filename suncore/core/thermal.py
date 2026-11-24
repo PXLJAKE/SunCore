@@ -99,11 +99,12 @@ class ThermalModel(_Frozen):
             raise ValueError(msg)
         power = heat_w + self.internal_gain_w
         hours = dt_s / 3600.0
-        if self.loss_w_per_k == 0:
-            return t_c + power * hours / self.capacity_wh_per_k
-        t_eq = outdoor_c + power / self.loss_w_per_k
-        decay = math.exp(-self.loss_w_per_k * hours / self.capacity_wh_per_k)
-        return t_eq + (t_c - t_eq) * decay
+        ua, cap = self.loss_w_per_k, self.capacity_wh_per_k
+        x = ua * hours / cap
+        # T1 = T0 + (P - UA (T0 - Tout)) * (1 - e^-x) / UA, written so that UA -> 0 stays exact
+        # (the limit is hours / C) and no huge equilibrium temperature is formed.
+        gain = hours / cap if x < 1e-12 else -math.expm1(-x) / ua
+        return t_c + (power - ua * (t_c - outdoor_c)) * gain
 
 
 class LearnedThermal(_Frozen):
