@@ -11,6 +11,32 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - `charge` is a judged action kind now (`NOT_YET_SUPPORTED_KINDS` = loadpoint, inverter
+    limit). `safety/flex.py`: E1-E6 as pure functions (current range incl. the live entity
+    range, phase change only paused/rarely/never in `now`, the bounded import exception of
+    ADR-0017 decision 4, the battery lock, no increase unplugged or in `off`); a charger takes
+    only `charge` and a release, only a charger takes `charge`. The gate reads the EV mode
+    (runtime `flex_state`, unreadable = `off`) and the fresh plan band (`target`).
+  - E6: grid power for the car only without a home battery or while SunCore holds a confirmed
+    discharge lock; the battery controller asks for that lock (`controller.battery.ev_lock`,
+    B4 extended) while a charger has an allowance, also without a fresh plan.
+  - `devices/drivers/charger.py`: current number (snapped to the entity step), pause switch,
+    optional phase select/switch, vehicle SoC and plug sensor; write on change; read-back and
+    baseline are the full state (current, phases, switch), so a release restores all three.
+  - `controller/ev.py`: levels 0 (pause) and min..max A in 1 A steps; floors for `now`,
+    `min_pv` and the plan's `grid_power_max_w` (`target`); cap 0 for `off`/unplugged/phase
+    switch; fail-safe cap at the minimum while the site inputs are not trusted; deficit
+    back-off down to the floor only; 1/3-phase switching (5 min dwell, +500 W to go up, pause
+    around the switch, max switches per hour, never in `now`).
+  - Runtime: `ControlStack(ev_states=...)` from `flex_state`, `FlexRequest` (EV states, SoC,
+    plug) for the planner; `GridRequest` still not wired.
+  - Template `generic.wallbox` (+ conformance scenario), en/de keys; simulator `SimWallbox`
+    and scenarios `ev_pv_only_flicker`, `ev_min_pv`, `ev_phase_switching`, `ev_arrives_late`
+    (real planner, battery lock), `ev_para14a`.
+  - Deviations, safety self-review and questions: plan section 8 (6-I).
+
 - **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
   - `safety/grid.py`: invariants G1-G6 as pure functions, wired into the device invariants
@@ -1133,6 +1159,7 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Backup-switch island state names (simulator: `island`/`on_grid`; Kostal BackUp Switch G3 entity and states unknown) | `suncore/core/grid.py` `BackupConfig`, `suncore/sim/fake_ha.py` | maintainer maps the entity (question 10) |
 | Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
 | SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
+| Wallbox control: exercised in the simulator only (no wallbox in the session); the phase switch pause (120 s default), whether a charger accepts a phase change while paused, min run/pause defaults (300 s) for cloud-polled chargers; no integration template verified from `home-assistant/core` source (only home-assistant.io `wallbox` page, 2026-11-24) | `templates/device/generic.wallbox.yaml`, `suncore/devices/drivers/charger.py`, plan section 8 (6-I) | a real wallbox; a session with access to the core source |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
 | Open-Meteo Solar Forecast: translation key assumed equal to the description key (the CC BY 4.0 attribution is shown in the plan view since 4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration |

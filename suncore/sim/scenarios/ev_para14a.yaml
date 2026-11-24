@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+name: ev_para14a
+description: >-
+  PR 6-I. The car charges in mode now (full power, from the grid if needed) and the wallbox is
+  a §14a device. From 18:30 to 19:30 the grid operator's binary signal dims the wallbox to
+  4200 W: SunCore lowers the current to 6 A three-phase (4140 W) - the user-demanded floor
+  yields to §14a - and raises it again only after the cool-down. From 20:00 to 20:10 the signal
+  is unavailable: no increase.
+start: "2026-03-10T18:00:00+01:00"
+duration_s: 10800
+step_s: 5
+house:
+  seed: 41
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.03}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 6.0, amplitude_c: 3.0}
+control:
+  import_limit_w: 16000
+  site_battery: false
+grid:
+  para14a: true
+  para14a_signal_kind: binary
+  para14a_limit_w: 4200
+  para14a_windows:
+    - {from_s: 1800, to_s: 5400}
+faults:
+  - {kind: unavailable, target: binary_sensor.sim_para14a, from_s: 7200, to_s: 7800}
+devices:
+  - id: wallbox
+    template: generic.wallbox
+    physics:
+      kind: wallbox
+      current_max: 16
+      initial_current_a: 16
+      initial_enabled: false
+      initial_soc_pct: 10
+      capacity_wh: 80000
+    control:
+      para14a: true
+      power_model: {kind: measured, power_role: charger_power, nominal_w: 11040}
+      ev: {capacity_wh: 80000, vehicle_soc_role: vehicle_soc, connected_role: connected}
+      behaviour_confirmed: true
+    ev_mode: now

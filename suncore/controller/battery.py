@@ -38,6 +38,7 @@ from suncore.controller.reasons import (
     BATTERY_BLOCKED,
     BATTERY_DISCHARGE_LOCK,
     BATTERY_DISCHARGE_LOCK_UNSUPPORTED,
+    BATTERY_EV_LOCK,
     BATTERY_GRID_CHARGE,
     BATTERY_GRID_CHARGE_UNSUPPORTED,
     BATTERY_NO_PLAN,
@@ -124,14 +125,25 @@ class BatteryIntents:
 
     # --- the wanted state --------------------------------------------------------------------
 
-    def wanted(  # noqa: PLR0911 - one return per rule
-        self, now: datetime, plan: Plan, inputs: BatteryControlInputs, soc_pct: float | None
+    def wanted(
+        self,
+        now: datetime,
+        plan: Plan,
+        inputs: BatteryControlInputs,
+        soc_pct: float | None,
+        *,
+        ev_lock: bool = False,
     ) -> tuple[BatteryAction | None, tuple[Reason, ...]]:
-        """The state the plan asks for now and why (pure apart from the held state)."""
+        """The state the plan asks for now and why (pure apart from the held state).
+
+        ``ev_lock`` (PR 6-I, E6): an EV may draw grid power now; the house battery must not
+        discharge into it, so a discharge lock is wanted (unless the plan charges from the
+        grid), also without a fresh plan."""
         band, fresh = battery_band_now(plan, now)
         if band is None or not fresh:
+            if ev_lock:
+                return self._lock(inputs, soc_pct, ev=True)
             return None, (Reason(key=BATTERY_NO_PLAN),)
-        caps = inputs.capabilities
         grid_max = band.grid_charge_max_w or 0.0
         if grid_max > 0:
             grid = self._grid_power(grid_max, inputs)
@@ -142,23 +154,28 @@ class BatteryIntents:
             return BatteryAction(grid_charge_w=grid), (
                 Reason(key=BATTERY_GRID_CHARGE, args={"power_w": round(grid)}),
             )
-        if band.discharge_lock:
-            if (
-                BatteryCapability.DISCHARGE_LIMIT in caps
-                and inputs.ranges.max_discharge_w is not None
-            ):
-                return BatteryAction(max_discharge_w=0.0), (Reason(key=BATTERY_DISCHARGE_LOCK),)
-            if (
-                BatteryCapability.MIN_SOC in caps
-                and inputs.ranges.min_soc_pct is not None
-                and soc_pct is not None
-            ):
-                floor = self._lock_floor(soc_pct, inputs)
-                return BatteryAction(min_soc_pct=floor), (
-                    Reason(key=BATTERY_DISCHARGE_LOCK, args={"min_soc_pct": round(floor)}),
-                )
-            return None, (Reason(key=BATTERY_DISCHARGE_LOCK_UNSUPPORTED),)
+        if band.discharge_lock or ev_lock:
+            return self._lock(inputs, soc_pct, ev=not band.discharge_lock)
         return None, ()
+
+    def _lock(
+        self, inputs: BatteryControlInputs, soc_pct: float | None, *, ev: bool
+    ) -> tuple[BatteryAction | None, tuple[Reason, ...]]:
+        """A discharge lock in the adapter's terms (``max_discharge_w`` 0, else ``min_soc``)."""
+        caps = inputs.capabilities
+        key = BATTERY_EV_LOCK if ev else BATTERY_DISCHARGE_LOCK
+        if BatteryCapability.DISCHARGE_LIMIT in caps and inputs.ranges.max_discharge_w is not None:
+            return BatteryAction(max_discharge_w=0.0), (Reason(key=key),)
+        if (
+            BatteryCapability.MIN_SOC in caps
+            and inputs.ranges.min_soc_pct is not None
+            and soc_pct is not None
+        ):
+            floor = self._lock_floor(soc_pct, inputs)
+            return BatteryAction(min_soc_pct=floor), (
+                Reason(key=key, args={"min_soc_pct": round(floor)}),
+            )
+        return None, (Reason(key=BATTERY_DISCHARGE_LOCK_UNSUPPORTED),)
 
     @staticmethod
     def grid_override(  # noqa: PLR0917
@@ -238,6 +255,7 @@ class BatteryIntents:
         holds: GridHolds | None = None,
         deficit_w: float | None = None,
         reserve_w: float = 0.0,
+        ev_lock: bool = False,
     ) -> Intent | None:
         """The battery intent of this tick (``None`` = nothing to submit)."""
         if inputs is None:
@@ -252,7 +270,7 @@ class BatteryIntents:
             and now - self._last_submit > timedelta(seconds=self._settings.pending_timeout_s)
         ):
             self._pending = None
-        wanted, reasons = self.wanted(now, plan, inputs, soc_pct)
+        wanted, reasons = self.wanted(now, plan, inputs, soc_pct, ev_lock=ev_lock)
         wanted, reasons, urgent = self.grid_override(
             wanted, reasons, grid, holds or GridHolds(), deficit_w, reserve_w
         )

@@ -70,6 +70,8 @@ class Transition:
     fuse_shed: bool = False
     """A switch-off above the fuse limit of a non-thermal kind: min run and the switch limit
     are waived (invariant G2, PR 6-F)."""
+    floor: bool = False
+    """A rise to a user-demanded or plan-permitted floor (EV, PR 6-I): no surplus guard."""
 
 
 @dataclass

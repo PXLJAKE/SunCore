@@ -67,8 +67,29 @@ GRID_PEAK_LIMIT: Final = "controller.grid.peak_limit"
 GRID_BATTERY_SUPPORT: Final = "controller.grid.battery_support"
 GRID_BATTERY_ISLAND: Final = "controller.grid.battery_island"
 GRID_BATTERY_NO_GRID_CHARGE: Final = "controller.grid.battery_no_grid_charge"
+# Phase 6 PR 6-I: EV charging (``controller.ev``) and the battery lock for it (E6).
+BATTERY_EV_LOCK: Final = "controller.battery.ev_lock"
+EV_MODE_OFF: Final = "controller.ev.mode_off"
+EV_NOT_CONNECTED: Final = "controller.ev.not_connected"
+EV_NOW: Final = "controller.ev.now"
+EV_MIN_PV: Final = "controller.ev.min_pv"
+EV_TARGET_GRID: Final = "controller.ev.target_grid"
+EV_BATTERY_WAIT: Final = "controller.ev.battery_wait"
+EV_INPUTS_UNKNOWN: Final = "controller.ev.inputs_unknown"
+EV_PHASE_SWITCH: Final = "controller.ev.phase_switch"
+EV_PHASE_PAUSE: Final = "controller.ev.phase_pause"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
+    BATTERY_EV_LOCK,
+    EV_MODE_OFF,
+    EV_NOT_CONNECTED,
+    EV_NOW,
+    EV_MIN_PV,
+    EV_TARGET_GRID,
+    EV_BATTERY_WAIT,
+    EV_INPUTS_UNKNOWN,
+    EV_PHASE_SWITCH,
+    EV_PHASE_PAUSE,
     GRID_ISLAND_SHED,
     GRID_ISLAND_KEEP,
     GRID_COOLDOWN,
@@ -222,6 +243,19 @@ def grid_cooldown(remaining_s: float) -> Reason:
 
 def para14a_cooldown(remaining_s: float) -> Reason:
     return Reason(key=GRID_PARA14A_COOLDOWN, args={"remaining_s": _ceil(remaining_s)})
+
+
+def ev_floor(key: str, power_w: float) -> Reason:
+    """A user-demanded or plan-permitted EV floor (``now``, ``min_pv``, ``target`` grid)."""
+    return Reason(key=key, args={"power_w": round(power_w)})
+
+
+def ev_phase_switch(phases: int) -> Reason:
+    return Reason(key=EV_PHASE_SWITCH, args={"phases": phases})
+
+
+def ev_phase_pause(remaining_s: float) -> Reason:
+    return Reason(key=EV_PHASE_PAUSE, args={"remaining_s": _ceil(remaining_s)})
 
 
 def plain(key: str) -> Reason:

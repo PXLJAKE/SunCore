@@ -91,6 +91,8 @@ class ExtraEntity(BaseModel):
     unit: str | None = None
     translation_key: str | None = None
     device_class: str | None = None
+    device_id: str | None = None
+    """Registry device (``same_device_as`` roles of a fixture device, e.g. a wallbox)."""
     state: str = "0"
     """State when the fixture has no entity of this id (action fixtures carry none)."""
 
@@ -336,6 +338,7 @@ def _check_device(
             "min_pause_s": defaults.min_pause_s,
             "settle_s": defaults.settle_s,
             "comfort": scenario.user_input.get("comfort"),
+            "ev": defaults.ev.model_dump(exclude_none=True) if defaults.ev is not None else None,
         }
     )
     assert config.control.role in config.entities
@@ -361,6 +364,7 @@ def _extra_metas(scenario: ScenarioFile) -> list[EntityMeta]:
             unit=e.unit,
             translation_key=e.translation_key,
             device_class=e.device_class,
+            device_id=e.device_id,
         )
         for e in scenario.extra_entities
     ]

@@ -28,6 +28,8 @@ Devices:
   ``relays`` 1-3 switches, a dedicated ``water_heater`` entity), maximum-temperature cut-off.
 * :class:`SimSwitchLoad` (pool pump on ``switch`` / ``input_boolean``) and
   :class:`SimNumberLoad` (a W number such as a heating rod limit).
+* :class:`SimWallbox` (PR 6-I) - a wallbox (current number in A, pause switch, optional phase
+  select) with a vehicle (SoC, arrival/departure, minimum charging current).
 """
 
 from __future__ import annotations
@@ -1288,15 +1290,296 @@ class SimWaterHeater(SimDevice):
 
 # --- the set ----------------------------------------------------------------------------------
 
-DeviceParams = Annotated[
-    ClimateParams | SwitchParams | NumberParams | WaterHeaterParams, Field(discriminator="kind")
-]
+# --- EV wallbox (PR 6-I) ----------------------------------------------------------------------
 
 
-def build_device(
-    device_id: str, params: ClimateParams | SwitchParams | NumberParams | WaterHeaterParams
-) -> SimDevice:
+class WallboxParams(_Frozen):
+    """A wallbox with a vehicle (PR 6-I): the generic HA wallbox entities.
+
+    Entities: the charging current ``number.sim_<id>_current`` (A, ``min``/``max``/``step``
+    attributes), the pause/resume ``switch.sim_<id>_charging``, optionally the phases
+    ``select.sim_<id>_phases`` (options ``"1"``/``"3"``), the charging power
+    ``sensor.sim_<id>_power`` (W), the vehicle SoC ``sensor.sim_<id>_soc`` (%) and
+    ``binary_sensor.sim_<id>_connected``.
+
+    Physics: the car draws ``current x voltage x phases`` while it is connected, the switch is
+    on and the current is at least ``car_min_a`` (below that the car does not charge, like a
+    real EV under the IEC 61851 minimum); it stops at ``car_max_soc_pct``. ``arrive_s`` /
+    ``depart_s`` are seconds after the scenario start (``None`` = connected from the start /
+    never leaves). A phase change takes ``phase_switch_s`` during which the car draws nothing.
+    """
+
+    kind: Literal["wallbox"] = "wallbox"
+    current_min: float = Field(default=0.0, ge=0)
+    """The ``number`` entity's ``min`` (0 = the current can pause the car on its own)."""
+    current_max: float = Field(default=16.0, gt=0, le=80)
+    current_step: float = Field(default=1.0, gt=0)
+    initial_current_a: float = Field(default=16.0, ge=0)
+    initial_enabled: bool = False
+    phases: Literal[1, 3] = 3
+    phase_select: bool = False
+    initial_phases: Literal[1, 3] = 3
+    phase_switch_s: float = Field(default=0.0, ge=0)
+    voltage_v: float = Field(default=230.0, gt=0)
+    car_min_a: float = Field(default=6.0, ge=0)
+    capacity_wh: float = Field(default=60_000.0, gt=0)
+    efficiency: float = Field(default=0.9, gt=0, le=1)
+    initial_soc_pct: float = Field(default=40.0, ge=0, le=100)
+    car_max_soc_pct: float = Field(default=100.0, ge=0, le=100)
+    arrive_s: float | None = Field(default=None, ge=0)
+    depart_s: float | None = Field(default=None, gt=0)
+    connected_sensor: bool = True
+    soc_sensor: bool = True
+    push_delay_s: float = Field(default=0.0, ge=0)
+    call_s: float = Field(default=0.1, ge=0)
+
+
+class SimWallbox(SimDevice):
+    """See :class:`WallboxParams`."""
+
+    kind: ClassVar[str] = "wallbox"
+
+    def __init__(self, device_id: str, params: WallboxParams) -> None:
+        super().__init__(device_id)
+        self.p = params
+        base = f"sim_{device_id}"
+        self.current_id = f"number.{base}_current"
+        self.enable_id = f"switch.{base}_charging"
+        self.phases_id = f"select.{base}_phases" if params.phase_select else None
+        self.power_id = f"sensor.{base}_power"
+        self.soc_id = f"sensor.{base}_soc" if params.soc_sensor else None
+        self.connected_id = f"binary_sensor.{base}_connected" if params.connected_sensor else None
+        self.current_a = _clamp(params.initial_current_a, params.current_min, params.current_max)
+        self.enabled = params.initial_enabled
+        self.active_phases: int = params.initial_phases if params.phase_select else params.phases
+        self.soc_pct = params.initial_soc_pct
+        self.charged_wh = 0.0
+        self._start: datetime | None = None
+        self._switching_until: datetime | None = None
+        self._rep: tuple[float, bool, int] = (self.current_a, self.enabled, self.active_phases)
+        self.phase_changes = 0
+
+    # --- identity ---------------------------------------------------------------------------
+
+    def entity_ids(self) -> tuple[str, ...]:
+        ids = (
+            self.current_id,
+            self.enable_id,
+            self.phases_id,
+            self.power_id,
+            self.soc_id,
+            self.connected_id,
+        )
+        return tuple(e for e in ids if e is not None)
+
+    def roles(self) -> dict[str, str]:
+        out = {
+            "current": self.current_id,
+            "enable": self.enable_id,
+            "charger_power": self.power_id,
+        }
+        if self.phases_id is not None:
+            out["phases"] = self.phases_id
+        if self.soc_id is not None:
+            out["vehicle_soc"] = self.soc_id
+        if self.connected_id is not None:
+            out["connected"] = self.connected_id
+        return out
+
+    def heartbeats(self) -> dict[str, float]:
+        out = {self.power_id: REPORT_PERIOD_S}
+        if self.soc_id is not None:
+            out[self.soc_id] = REPORT_PERIOD_S
+        return out
+
+    # --- physics ----------------------------------------------------------------------------
+
+    def connected_at(self, now: datetime | None) -> bool:
+        if now is None or self._start is None:
+            return self.p.arrive_s is None or self.p.arrive_s == 0
+        offset = (now - self._start).total_seconds()
+        if self.p.arrive_s is not None and offset < self.p.arrive_s:
+            return False
+        return self.p.depart_s is None or offset < self.p.depart_s
+
+    def _drawing(self, at: datetime | None) -> bool:
+        p = self.p
+        return (
+            self.connected_at(at)
+            and self.enabled
+            and self.current_a >= p.car_min_a
+            and self.current_a > 0
+            and self.soc_pct < p.car_max_soc_pct
+            and (self._switching_until is None or (at is not None and at >= self._switching_until))
+        )
+
+    def power_w(self) -> float:
+        if not self._drawing(self._t):
+            return 0.0
+        return self.current_a * self.p.voltage_v * self.active_phases
+
+    def is_on(self) -> bool:
+        return self.power_w() > 0
+
+    def _breakpoints(self, after: datetime) -> Iterable[datetime]:
+        out: list[datetime] = []
+        if self._switching_until is not None and self._switching_until > after:
+            out.append(self._switching_until)
+        if self._start is not None:
+            for offset in (self.p.arrive_s, self.p.depart_s):
+                if offset is not None:
+                    at = self._start + timedelta(seconds=offset)
+                    if at > after:
+                        out.append(at)
+        return out
+
+    def advance(self, now: datetime, outdoor_c: float) -> None:
+        if self._start is None:
+            self._start = now
+        super().advance(now, outdoor_c)
+
+    def _integrate(self, t0: datetime, t1: datetime, outdoor_c: float) -> None:
+        del outdoor_c
+        if not self._drawing(t0):
+            return
+        dt_h = (t1 - t0).total_seconds() / 3600.0
+        drawn_wh = self.current_a * self.p.voltage_v * self.active_phases * dt_h
+        self.charged_wh += drawn_wh
+        stored = drawn_wh * self.p.efficiency
+        self.soc_pct = min(
+            self.p.car_max_soc_pct, self.soc_pct + stored / self.p.capacity_wh * 100.0
+        )
+
+    # --- HA side ----------------------------------------------------------------------------
+
+    def report(self) -> None:
+        self._rep = (self.current_a, self.enabled, self.active_phases)
+
+    def states(self, now: datetime) -> list[StateOut]:
+        current, enabled, phases = self._rep
+        p = self.p
+        out = [
+            StateOut(
+                self.current_id,
+                _text(current),
+                {
+                    "friendly_name": f"Sim {self.id} charging current",
+                    "unit_of_measurement": "A",
+                    "device_class": "current",
+                    "min": p.current_min,
+                    "max": p.current_max,
+                    "step": p.current_step,
+                    "mode": "slider",
+                },
+            ),
+            StateOut(
+                self.enable_id,
+                "on" if enabled else "off",
+                {"friendly_name": f"Sim {self.id} charging"},
+            ),
+            StateOut(
+                self.power_id,
+                _text(self.power_w() if self._t is not None else 0.0),
+                {
+                    "friendly_name": f"Sim {self.id} charging power",
+                    "unit_of_measurement": "W",
+                    "device_class": "power",
+                    "state_class": "measurement",
+                },
+            ),
+        ]
+        if self.phases_id is not None:
+            out.append(
+                StateOut(
+                    self.phases_id,
+                    str(phases),
+                    {"friendly_name": f"Sim {self.id} phases", "options": ["1", "3"]},
+                )
+            )
+        if self.soc_id is not None:
+            out.append(
+                StateOut(
+                    self.soc_id,
+                    _text(self.soc_pct),
+                    {
+                        "friendly_name": f"Sim {self.id} vehicle SoC",
+                        "unit_of_measurement": "%",
+                        "device_class": "battery",
+                        "state_class": "measurement",
+                    },
+                )
+            )
+        if self.connected_id is not None:
+            out.append(
+                StateOut(
+                    self.connected_id,
+                    "on" if self.connected_at(now) else "off",
+                    {"friendly_name": f"Sim {self.id} vehicle connected", "device_class": "plug"},
+                )
+            )
+        return out
+
+    def _set_current(self, value: float) -> None:
+        self.current_a = value
+
+    def _set_enabled(self, on: bool) -> None:
+        self.enabled = on
+
+    def _set_phases(self, phases: int) -> None:
+        if phases != self.active_phases:
+            self.phase_changes += 1
+            if self.p.phase_switch_s > 0 and self._t is not None:
+                self._switching_until = self._t + timedelta(seconds=self.p.phase_switch_s)
+        self.active_phases = phases
+
+    def call(
+        self, now: datetime, domain: str, service: str, entity_id: str, data: dict[str, Any]
+    ) -> Effect:
+        del now
+        p = self.p
+        if entity_id == self.current_id and (domain, service) == ("number", "set_value"):
+            value = float(data["value"])
+            if not p.current_min <= value <= p.current_max:
+                raise validation_error(
+                    f"Value {value} for {entity_id} is outside valid range "
+                    f"{p.current_min} - {p.current_max}."
+                )
+            return Effect(p.call_s, (Step(0.0, partial(self._set_current, value)),), p.push_delay_s)
+        if (
+            entity_id == self.enable_id
+            and domain == "switch"
+            and service in ("turn_on", "turn_off")
+        ):
+            on = service == "turn_on"
+            return Effect(p.call_s, (Step(0.0, partial(self._set_enabled, on)),), p.push_delay_s)
+        if entity_id == self.phases_id and (domain, service) == ("select", "select_option"):
+            option = str(data["option"])
+            if option not in ("1", "3"):
+                raise validation_error(f"Option {option} is not valid for entity {entity_id}")
+            target = int(option)
+            return Effect(p.call_s, (Step(0.0, partial(self._set_phases, target)),), p.push_delay_s)
+        raise validation_error(f"{entity_id} does not support {domain}.{service}")
+
+    def manual(self, action: str, value: float | str | None) -> Effect:
+        if action in ("turn_on", "turn_off"):
+            on = action == "turn_on"
+            return Effect(0.0, (Step(0.0, partial(self._set_enabled, on)),), self.p.push_delay_s)
+        if action == "set_value" and value is not None and not isinstance(value, str):
+            target = _clamp(float(value), self.p.current_min, self.p.current_max)
+            return Effect(
+                0.0, (Step(0.0, partial(self._set_current, target)),), self.p.push_delay_s
+            )
+        return super().manual(action, value)
+
+
+AnyDeviceParams = ClimateParams | SwitchParams | NumberParams | WaterHeaterParams | WallboxParams
+DeviceParams = Annotated[AnyDeviceParams, Field(discriminator="kind")]
+
+
+def build_device(device_id: str, params: AnyDeviceParams) -> SimDevice:
     """The simulated device for ``params``."""
+    if isinstance(params, WallboxParams):
+        return SimWallbox(device_id, params)
     if isinstance(params, ClimateParams):
         return SimClimate(device_id, params)
     if isinstance(params, SwitchParams):
@@ -1354,7 +1637,7 @@ class SimDeviceSet:
 
 
 def build_device_set(
-    specs: Sequence[tuple[str, ClimateParams | SwitchParams | NumberParams | WaterHeaterParams]],
+    specs: Sequence[tuple[str, AnyDeviceParams]],
 ) -> SimDeviceSet:
     """A :class:`SimDeviceSet` from ``(device id, params)`` pairs."""
     result = SimDeviceSet()
@@ -1380,10 +1663,12 @@ __all__ = [
     "SimDeviceSet",
     "SimNumberLoad",
     "SimSwitchLoad",
+    "SimWallbox",
     "SimWaterHeater",
     "StateOut",
     "Step",
     "SwitchParams",
+    "WallboxParams",
     "WaterHeaterParams",
     "build_device",
     "build_device_set",

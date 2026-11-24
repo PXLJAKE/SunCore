@@ -77,7 +77,8 @@ from suncore.core.controlstate import (
     SiteControlState,
 )
 from suncore.core.decisions import Action, Decision, Reason
-from suncore.core.devices import DeviceConfig, control_roles
+from suncore.core.devices import ChargerControl, DeviceConfig, control_roles
+from suncore.core.flex import EV_MODE_DEFAULT, EvMode, EvState
 from suncore.core.grid import GridState
 from suncore.core.identity import identity_token
 from suncore.core.measurements import (
@@ -93,6 +94,7 @@ from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.devices.battery import BatteryDriver, create_battery_driver
 from suncore.devices.drivers import ClimateDriver, NumberDriver, create_driver
+from suncore.devices.drivers.charger import ChargerDriver
 from suncore.devices.power import create_power_model, restore_power_model
 from suncore.devices.power.common import PowerEstimator
 from suncore.ha.cache import EntityCache
@@ -233,6 +235,8 @@ class ControlStack:
             recording can never disturb the control loop.
         plan_provider: ``now -> Plan`` read once per tick (``PlanningService.active_plan``); without
             it the plan given to :meth:`set_plan` (default ``Plan.default()``) is used.
+        ev_states: ``device id -> EvState | None`` - the runtime EV mode and target of a charger
+            (``flex_state``, PR 6-I); ``None`` or a missing state = the device's default mode.
         defer_recover: wait for :meth:`allow_recover` before ``gate.recover()`` (the runtime
             first learns Home Assistant's time zone, whose change would rebuild the stack in
             the middle of the recovery).
@@ -267,8 +271,10 @@ class ControlStack:
         on_measurements: MeasurementSink | None = None,
         battery: BatteryWiring | None = None,
         grid_monitor: GridMonitor | None = None,
+        ev_states: Callable[[str], EvState | None] | None = None,
     ) -> None:
         self._connection = connection
+        self._ev_states = ev_states
         self.grid_monitor = grid_monitor if grid_monitor is not None else GridMonitor(tz)
         """Monthly peak and grid events (PR 6-F); in memory unless the runtime gives a store."""
         self.grid: GridInputs | None = None
@@ -346,6 +352,9 @@ class ControlStack:
             power_snaps={
                 k: v.snap_power_w for k, v in self.drivers.items() if isinstance(v, NumberDriver)
             },
+            current_snaps={
+                k: v.snap_current_a for k, v in self.drivers.items() if isinstance(v, ChargerDriver)
+            },
         )
         self.controller = Controller(devices, settings=settings, tz=tz, quantiser=quantiser)
         self.gate = SafetyGate(
@@ -363,6 +372,8 @@ class ControlStack:
             sleep=sleep,
             predecessor=predecessor,
             battery=gate_battery,
+            ev_modes=self.ev_mode,
+            plan=self.current_plan,
         )
         self.deviations: deque[DeviationEvent] = deque(maxlen=DEVIATION_HISTORY)
         self.loop = ControllerLoop(
@@ -419,9 +430,39 @@ class ControlStack:
             log.warning("control.battery_adapter_unusable", error=str(exc)[:200])
             return None
 
+    def ev_mode(self, device_id: str) -> EvMode:
+        """The runtime EV mode of a charger, else its configured default (PR 6-I).
+
+        An unreadable runtime state counts as ``off`` (no increase) rather than a guess.
+        """
+        device = self._devices.get(device_id)
+        default = (
+            device.ev.default_mode
+            if device is not None and device.ev is not None
+            else EV_MODE_DEFAULT
+        )
+        if self._ev_states is None:
+            return default
+        try:
+            state = self._ev_states(device_id)
+        except Exception:
+            log.exception("control.ev_state_failed", device_id=device_id)
+            return EvMode.OFF
+        return default if state is None else state.mode
+
     def _lookup(self, entity_id: str) -> EntityState | None:
         entry = self.cache.get(entity_id)
         return None if entry is None else entry.state
+
+    def device_state(self, device_id: str) -> DeviceState | None:
+        """The driver's view of one device now (``None`` = unknown device or unreadable)."""
+        if device_id not in self.drivers:
+            return None
+        try:
+            return self._device_state(device_id)
+        except Exception:
+            log.exception("control.device_state_failed", device_id=device_id)
+            return None
 
     def _device_state(self, device_id: str) -> DeviceState | None:
         return self._with_temperature(
@@ -836,6 +877,12 @@ class ControlStack:
             plan=plan,
             battery=await self._battery_inputs(now),
             grid=grid,
+            ev_modes={
+                d.id: self.ev_mode(d.id)
+                for d in self._devices.values()
+                if isinstance(d.control, ChargerControl)
+            },
+            battery_present=self._site is None or self._site.battery is not None,
         )
         self.estimates = estimates
         self.states = states

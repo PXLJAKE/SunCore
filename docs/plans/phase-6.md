@@ -787,3 +787,73 @@ detection; CO₂ weighting.
   `planner.job.ignored`.
 - **Runtime wiring:** `FlexRequest`/`GridRequest` are not built by the app yet; the planner
   service passes them from 6-I..6-L. Plans carry the bands; nothing writes.
+
+### 6-I (wallbox/EV)
+
+- **No integration template:** only the home-assistant.io page of the `wallbox` integration
+  was readable (2026-11-24); the core source and its translation keys were not, so only
+  `generic.wallbox` ships. An integration template (wallbox, keba) follows when the source can
+  be read (plan WP9 asked for one).
+- **E6 by lock, not by accounting:** grid power for the car (`now`, `min_pv` floor, plan
+  `grid_power_max_w`) is accepted only without a home battery or while SunCore holds a
+  confirmed discharge lock (`max_discharge_w` 0 or `min_soc` at the SoC). The battery
+  controller requests the lock while a charger has an allowance (`controller.battery.ev_lock`),
+  B4 accepts it also without a fresh plan. Consequence: with a battery in shadow or
+  observe-only, the car charges from surplus only, also in `now` (safe default, question 1).
+- **E2 for a charger SunCore never paused:** the gate waits the pause from its own
+  `last_off_ts`; when SunCore has never started or stopped charging on the charger, the
+  observed "not charging" is the gate's condition and the controller waits the pause from when
+  it first saw the charger idle.
+- **Floors and the deficit back-off:** the back-off does not lower a charger below its floor
+  unless the import limit is exceeded (G1 always wins); §14a, fuse and phase caps win over the
+  floor and give their own reason.
+- **Fail-safe:** untrusted site inputs cap the charger at the minimum current (no increase);
+  a site watchdog trip releases to the baseline. The mode lookup failing counts as `off`.
+- **Runtime:** EV states come from `flex_state` (reloaded each planning round); the planner
+  gets `FlexRequest` with the live SoC and plug state. `GridRequest` is still not wired, and
+  there is no API to set the EV mode/target yet (6-D/6-M).
+- **Simulator:** `ControlParams.site_battery: false` removes the demo site's battery for EV
+  scenarios without one. In `ev_arrives_late` the 6-H planner stops permitting grid power at
+  about 77 % (target 80 %); the controller follows the plan (finding for 6-H).
+- **Behaviour cap:** unconfirmed chargers stay capped at assisted (E8, 6-B rule unchanged);
+  scenarios set `behaviour_confirmed: true`.
+
+#### Safety self-review 6-I (control-safety)
+
+| Invariant | Result | Evidence |
+|---|---|---|
+| E1 current 0 (pause possible) or in control and entity range | pass | `check_current_range`; `test_e1_an_accepted_current_is_a_possible_pause_or_inside_both_ranges`, `test_e1_current_outside_the_range_is_rejected`; driver snaps down to the step (`test_current_is_clamped_to_the_control_range`) |
+| E2 phase change only paused, <= max/h, never in `now`, resume after the pause | pass | `check_phases`; `test_e2_a_phase_change_is_accepted_only_paused_rarely_and_never_in_now`, `test_e2_charging_resumes_only_after_the_pause`, `test_flicker_never_exceeds_the_phase_switch_limit`; scenario `ev_phase_switching` |
+| E3 import for the car <= the mode's allowance (ADR-0017 d. 4) | pass | `check_charge_grid`, `ev_allowance_w`; `test_e3_e6_g1_an_accepted_charge_imports_at_most_the_allowance`, `test_surplus_only_modes_get_no_grid_power`, `test_target_uses_the_fresh_plan_band_only`; scenarios `ev_pv_only_flicker` (caused import <= 2 % of moved energy), `ev_min_pv` (no import beyond the floor) |
+| E4 / G1-G6 hold for a charge | pass | `expected_power_w` knows the charge power; `test_g1_the_import_limit_holds_for_a_user_demanded_floor`; scenario `ev_para14a` (<= 4200 W while dimmed, no rise in the cool-down or with an unknown signal) |
+| E5 no increase unplugged or in `off` | pass | `check_ev_mode`; `test_e5_no_increase_unplugged_or_off`, `test_e5_unplugged_or_off_never_raises_but_pauses`, `test_an_unreadable_mode_counts_as_off`; `ev_min_pv` pauses on departure |
+| E6 home battery never discharges into the car | pass | `battery_locked` in the gate, `controller.battery.ev_lock`, B4 extension; `test_e6_grid_power_needs_a_battery_lock`, `test_the_battery_locks_for_the_ev_also_without_a_fresh_plan`; scenario `ev_arrives_late` (`battery_w >= -50 W` whenever the car draws) |
+| E7 write on change, rate, read-back | pass | unchanged gate path; `charge_matches`; `test_write_only_on_change`, `test_read_back_and_device_state` |
+| E8 assisted until the behaviour is confirmed | pass | `test_e8_unconfirmed_behaviour_is_capped_at_assisted`, `test_unconfirmed_phase6_devices_are_capped_at_assisted` |
+| E9 release restores current, phases, switch | pass | full `ChargeAction` baseline with `enabled`; `test_release_restores_current_phases_and_switch`, `test_release_of_a_charging_baseline_resumes_it`, `test_e9_back_to_normal_restores_the_baseline` |
+| Min run/pause, switches per hour | pass | template defaults 300 s / 6 per hour; `test_nothing_is_rejected_and_switching_stays_within_the_limits` (four scenarios) |
+| No oscillation (cloud flicker) | pass | `test_pv_only_flicker_does_not_oscillate` (<= 2 transitions per flicker episode), `test_flicker_never_exceeds_the_phase_switch_limit` (hypothesis) |
+| Stale/missing inputs -> safe state | pass | fail-safe cap at the minimum (`test_floor_and_cap_by_mode`), surplus unknown rejected (`check_charge_grid`), stale plan band permits nothing; a pause is accepted with unknown inputs (`test_a_pause_is_accepted_even_with_unknown_inputs`) |
+| Shadow / assisted / automatic | pass | `test_shadow_is_the_default_and_writes_nothing`, `test_shadow_writes_nothing` (all four scenarios) |
+| Emergency "back to normal" from any state | pass | `ReleaseAction` never judged by E1-E6; `test_a_release_of_a_phase6_device_writes_nothing[wallbox]`, E9 tests |
+| Only `safety/` calls `apply()` | pass | boundary test green; `controller/ev.py` and the runtime wiring write nothing |
+| Reserve never undercut by SunCore | pass | the EV lock only stops discharging; B1/B6 unchanged |
+
+#### Offene Fragen an den Maintainer (6-I)
+
+1. **Hausbatterie im Schattenmodus:** Solange SunCore die Batterie nicht steuern darf, kann es
+   keine Entladesperre setzen – dann lädt das Auto auch in „Sofort“ und „Min+PV“ nur aus
+   Überschuss (sonst könnte die Batterie ins Auto entladen). **Empfehlung:** so lassen und im
+   UI erklären. Einverstanden?
+2. **Entladesperre kostet Hausbezug:** Während das Auto aus dem Netz lädt, deckt auch die
+   Hauslast nicht die Batterie, sondern das Netz. **Empfehlung:** akzeptieren (einfach und
+   sicher); eine genauere Aufteilung erst mit `allow_discharge_to_ev`.
+3. **Integrations-Vorlage:** Welche Wallbox planst du? Ich konnte nur die Doku der
+   `wallbox`-Integration lesen, nicht ihren Quellcode; eine Vorlage dafür folgt, sobald der
+   Quellcode gelesen werden kann.
+4. **Phasenumschaltung ohne vorherige SunCore-Pause:** Wenn SunCore die Wallbox nie selbst
+   pausiert hat, reicht der Gate „lädt gerade nicht“, die Wartezeit hält der Regler ein.
+   **Empfehlung:** so lassen. Einverstanden?
+5. **Ziel knapp verfehlt:** Im Szenario „Auto kommt spät“ hört der Planer bei ca. 77 % statt
+   80 % auf, Netzleistung freizugeben. Soll ein Ziel hart bis zur Abfahrtszeit gelten (dann
+   auch zu teureren Preisen)? **Empfehlung:** ja, Prüfung in 6-H/QA.

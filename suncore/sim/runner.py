@@ -58,6 +58,7 @@ from suncore.core.decisions import (
     SwitchAction,
 )
 from suncore.core.devices import DeviceConfig, step_power_w
+from suncore.core.flex import EvState
 from suncore.core.identity import battery_identity_token
 from suncore.core.site import SiteConfig
 from suncore.ha.connection import RateLimiter
@@ -187,6 +188,8 @@ def build_device_config(
         "settle_s": d.settle_s,
         "comfort": d.comfort.model_dump(mode="json") if d.comfort else None,
     }
+    if d.ev is not None:
+        base["ev"] = d.ev.model_dump(mode="json", exclude_none=True)
     return DeviceConfig.model_validate(_merge(base, spec.control))
 
 
@@ -440,6 +443,17 @@ class ScenarioRunner:
         self._steps: list[StepLog] = []
         self._device_logs: dict[str, DeviceLog] = {}
         self._connected = False
+        self.ev_states: dict[str, EvState] = {
+            spec.id: EvState(
+                device_id=spec.id,
+                mode=spec.ev_mode,
+                target=spec.ev_target,
+                updated_at=scenario.start,
+            )
+            for spec in scenario.devices
+            if spec.ev_mode is not None
+        }
+        """PR 6-I: the chargers' runtime EV state (``flex_state``); a test may change it."""
 
     # --- composition -------------------------------------------------------------------------
 
@@ -470,11 +484,14 @@ class ScenarioRunner:
             decisions=self.decisions,
             plan_provider=self.plan_provider,
             battery=self.battery_wiring(),
+            ev_states=self.ev_states.get,
         )
 
     def site_config(self) -> SiteConfig:
         """The simulator's site with the scenario's grid connection (PR 6-F)."""
         site = demo_site_config()
+        if not self.scenario.control.site_battery:
+            site = site.model_copy(update={"battery": None})
         grid = self.scenario.grid
         if grid is None:
             return site

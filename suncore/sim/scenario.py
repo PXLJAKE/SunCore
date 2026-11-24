@@ -29,6 +29,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 
 from suncore.core.battery import GridChargePolicy
 from suncore.core.decisions import OperatingMode
+from suncore.core.flex import EvMode, EvTarget
 from suncore.core.grid import PARA14A_DEFAULT_LIMIT_W, Para14aSignalKind, PeakShaving
 from suncore.sim.devices import DeviceParams
 from suncore.sim.house import House, HouseParams
@@ -124,6 +125,10 @@ class SimDeviceSpec(BaseModel):
     ``min_run_s`` ...) merged over the template defaults."""
     mode: OperatingMode = OperatingMode.AUTOMATIC
     """Operating mode of the device in the runner (the global mode is automatic)."""
+    ev_mode: EvMode | None = None
+    """PR 6-I: the runtime EV mode of a charger (``flex_state``); ``None`` = its default."""
+    ev_target: EvTarget | None = None
+    """PR 6-I: the charging target of mode ``target``."""
 
     @model_validator(mode="after")
     def _control_needs_template(self) -> SimDeviceSpec:
@@ -155,6 +160,9 @@ class ControlParams(BaseModel):
     climate_before_export: bool = True
     settings: dict[str, float | int] = Field(default_factory=dict)
     """Overrides of ``ControlSettings`` (``smoothing_s``, ``min_write_interval_s`` ...)."""
+    site_battery: bool = True
+    """PR 6-I: ``False`` = the site has no home battery configured (the demo site has one, even
+    when ``house.battery.capacity_wh`` is 0); E6 then needs no discharge lock for EV grid power."""
 
 
 PriceProfile = Literal["default", "negative_midday"]

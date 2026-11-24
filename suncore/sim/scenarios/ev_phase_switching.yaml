@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0
+name: ev_phase_switching
+description: >-
+  PR 6-I. A three-phase wallbox with 1/3-phase switching (plan §0 decision 6) charges from
+  surplus only. In the morning the surplus is below the three-phase minimum (4140 W) but above
+  the one-phase minimum (1380 W): SunCore switches to one phase (paused around the switch) and
+  charges; when the surplus has stayed above the three-phase minimum plus 500 W for 5 minutes
+  it switches back. Cloud flicker around the threshold does not cause more than 4 switches per
+  hour, and the charger is never switched while charging.
+start: "2026-04-15T08:30:00+02:00"
+duration_s: 18000
+step_s: 5
+house:
+  seed: 51
+  pv: {kwp: 9.0}
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 14.0, amplitude_c: 5.0}
+control:
+  site_battery: false
+devices:
+  - id: wallbox
+    template: generic.wallbox
+    physics:
+      kind: wallbox
+      current_max: 16
+      initial_current_a: 16
+      initial_enabled: false
+      phase_select: true
+      initial_phases: 3
+      phase_switch_s: 30
+      initial_soc_pct: 25
+      capacity_wh: 60000
+    control:
+      power_model: {kind: measured, power_role: charger_power, nominal_w: 11040}
+      control:
+        phases_role: phases
+        phase_option_1: "1"
+        phase_option_3: "3"
+        phase_switching: true
+      ev: {capacity_wh: 60000, vehicle_soc_role: vehicle_soc, connected_role: connected}
+      behaviour_confirmed: true
+    ev_mode: pv
+clouds:
+  - {at_s: 0, factor: 0.55}
+  - {at_s: 5400, factor: 1.0}
+  - {at_s: 9000, factor: 0.45}
+  - {at_s: 9030, factor: 0.9}
+  - {at_s: 9060, factor: 0.45}
+  - {at_s: 9100, factor: 0.9}
+  - {at_s: 9140, factor: 0.45}
+  - {at_s: 9160, factor: 0.9}
+  - {at_s: 9200, factor: 0.45}
+  - {at_s: 9240, factor: 0.9}
+  - {at_s: 9280, factor: 0.45}
+  - {at_s: 9300, factor: 0.9}
+  - {at_s: 9340, factor: 0.45}
+  - {at_s: 9380, factor: 0.9}
+  - {at_s: 9420, factor: 0.45}
+  - {at_s: 9460, factor: 0.9}
+  - {at_s: 9500, factor: 0.45}
+  - {at_s: 9540, factor: 0.9}
+  - {at_s: 9600, factor: 1.0}
+  - {at_s: 14400, factor: 0.5}

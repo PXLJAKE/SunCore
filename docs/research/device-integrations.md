@@ -401,6 +401,14 @@ when the advanced options are on).
 
 ## Verification
 
+- 2026-11-24 (PR 6-I): home-assistant.io `integrations/wallbox` read: number "Max charging
+  current" (A, needs sufficient rights), switch pause/resume, sensors "Charging power" (kW) and
+  "State of charge" (%), lock, select solar mode, cloud polling every 90 s. No phase entity, no
+  min/max/step and no status values are documented; the core source
+  (`homeassistant/components/wallbox`) was not reachable in the session, so no integration
+  template was written (matcher keys would be guesses). The generic template `generic.wallbox`
+  relies only on the verified `number`/`switch`/`select`/`binary_sensor` services.
+
 Read on 2026-10-13, `home-assistant/core` `dev` HEAD `14f093e`:
 `homeassistant/core.py`, `tests/test_core.py`, `components/lg_thinq/{climate,
 sensor,entity,const,manifest.json,strings.json}`, `components/tibber/{sensor,

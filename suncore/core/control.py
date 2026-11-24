@@ -83,6 +83,14 @@ class DeviceState(_Frozen):
     ``None`` = no probe, or the probe is unavailable, stale or not in °C (the control stack
     fills it from the entity cache, see :func:`heat_capped`)."""
 
+    # PR 6-I (additive): an EV charger (``ChargerControl``) and its vehicle (``EvSpec`` roles).
+    phases: Literal[1, 3] | None = None
+    """The charger's active phase setting (``None`` = no ``phases`` role or unknown)."""
+    connected: bool | None = None
+    """The vehicle is plugged in (``None`` = no ``connected`` role or unavailable)."""
+    soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    """The vehicle's state of charge (``None`` = no ``vehicle_soc`` role or unavailable)."""
+
     @property
     def known(self) -> bool:
         """Whether the state can be trusted for a decision (ok or stale, never missing)."""
@@ -127,6 +135,10 @@ class GateInputs:
     kinds skips min run (G2)."""
     para14a_devices: frozenset[str] = frozenset()
     """Ids of the devices flagged ``para14a`` (the gate sums their power against the budget)."""
+    # PR 6-I (additive): the home battery and the EV (invariant E6).
+    battery_present: bool = True
+    """The site has a home battery that could discharge into an EV (``False`` = none
+    configured). The conservative default assumes one."""
 
 
 # --- settings -----------------------------------------------------------------
@@ -451,6 +463,19 @@ def battery_band_now(plan: Plan, at: datetime) -> tuple[BatteryBand | None, bool
     return interval.battery, fresh
 
 
+def device_band_now(plan: Plan, device_id: str, at: datetime) -> DeviceBand | None:
+    """The device's band of the interval covering ``at`` of a **fresh** plan, else ``None``.
+
+    Same freshness as :func:`battery_band_now`. Used where a band *permits* something beyond
+    the Phase 3 rule (EV grid power, ADR-0017 decision 4): a stale plan permits nothing.
+    """
+    interval = plan.interval_at(at)
+    _, fresh = battery_band_now(plan, at)
+    if interval is None or not fresh:
+        return None
+    return interval.devices.get(device_id)
+
+
 def plan_from_payload(payload: Mapping[str, Any]) -> Plan:
     """Load a stored plan of any known schema version (v1 rows are stamped v2).
 
@@ -520,6 +545,7 @@ __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single cons
     "PowerEstimate",
     "SolverStats",
     "battery_band_now",
+    "device_band_now",
     "has_heat_limit",
     "heat_capped",
     "plan_from_payload",

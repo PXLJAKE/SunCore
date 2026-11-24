@@ -81,7 +81,8 @@ from suncore.core.controlstate import (
 )
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
-from suncore.core.devices import DeviceConfig
+from suncore.core.devices import ChargerControl, DeviceConfig
+from suncore.core.flex import EvState
 from suncore.core.grid import month_key
 from suncore.core.identity import battery_identity_token, identity_token
 from suncore.core.series import QuantileSeries
@@ -127,6 +128,7 @@ from suncore.ha import (
 )
 from suncore.planner import build_inputs
 from suncore.planner import reasons as planner_reasons
+from suncore.planner.flex import EvLive, FlexRequest
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck, Trigger
 from suncore.safety.gate import REASON_OVERRIDE_HELD, Clock, SafetyGate
 from suncore.storage import (
@@ -140,6 +142,7 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
+from suncore.storage.flex import FlexStateStore
 from suncore.storage.grid import GridStore
 from suncore.storage.summaries import DaySummaryRow
 from suncore.storage.timeseries import META_HISTORY_BACKFILLED, META_HISTORY_REBUILT
@@ -247,6 +250,10 @@ class Runtime:
     _load_task: asyncio.Task[None] | None = None
     _accuracy_task: asyncio.Future[None] | None = None
     _tariff_task: asyncio.Task[None] | None = None
+    flex_store: FlexStateStore | None = None
+    """``flex_state`` (EV modes/targets, PR 6-B); ``None`` = every charger in its default mode."""
+    _ev_states: dict[str, EvState] = field(default_factory=dict)
+    """The EV states as last loaded (the control stack reads them synchronously, PR 6-I)."""
     planning: PlanningService | None = None
     """The planner runtime (built in :meth:`prepare`; the control stack reads its plan)."""
     _planning_task: asyncio.Task[None] | None = None
@@ -279,6 +286,7 @@ class Runtime:
         Called by ``build_runtime`` so that the gate exists before :meth:`start`.
         """
         await self._load_live_sections()
+        await self.reload_ev_states()
         self.planning = self._new_planning()
         self.stack = self._new_stack()
         self.pv_service = self._new_pv_service()
@@ -407,6 +415,8 @@ class Runtime:
             load_reasons = self.load_service.planning_reasons(choice)
         risk = self._risk(now, battery, pv, load)
         devices = [] if self.devices is None else list(self.devices.devices)
+        await self.reload_ev_states()
+        flex = FlexRequest(ev_states=dict(self._ev_states), ev_live=self._ev_live())
         inputs = build_inputs(
             now,
             tz=self._blend_tz(),
@@ -425,6 +435,7 @@ class Runtime:
             export_limit_w=export_limit_w(site),
             previous=previous,
             load_reasons=load_reasons,
+            flex=flex,
         )
         complete = (
             (prices is None or any(v is not None for v in prices.import_price.values))
@@ -551,9 +562,39 @@ class Runtime:
             plan_provider=None if self.planning is None else self.planning.active_plan,
             battery=self._battery_wiring(),
             grid_monitor=self._grid_monitor(),
+            ev_states=self._ev_states.get,
         )
         stack.add_listener(self._notify_control)
         return stack
+
+    async def reload_ev_states(self) -> None:
+        """Re-read ``flex_state`` (at start and every planning round, PR 6-I).
+
+        A failed read keeps the last known states.
+        """
+        if self.flex_store is None:
+            return
+        try:
+            states = await self.flex_store.all_ev()
+        except Exception:
+            log.exception("runtime.ev_states_failed")
+            return
+        self._ev_states.clear()
+        self._ev_states.update({s.device_id: s for s in states})
+
+    def _ev_live(self) -> dict[str, EvLive]:
+        """Live vehicle data of every charger (``connected``, SoC) for the planner (PR 6-I)."""
+        if self.stack is None or self.devices is None:
+            return {}
+        out: dict[str, EvLive] = {}
+        for device in self.devices.devices:
+            if not isinstance(device.control, ChargerControl):
+                continue
+            state = self.stack.device_state(device.id)
+            if state is None:
+                continue
+            out[device.id] = EvLive(soc_pct=state.soc_pct, connected=state.connected)
+        return out
 
     def _grid_monitor(self) -> GridMonitor:
         """Monthly peak and grid events (PR 6-F): persisted in ``timeseries.db`` when it is open;

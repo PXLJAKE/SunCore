@@ -221,6 +221,10 @@ class BatteryContext:
     baseline: BatteryAction | None = None
     grid: GridSafety = NO_GRID_SAFETY
     """Island, §14a and the cool-down after them (PR 6-F, ``safety.grid``)."""
+    ev_lock: bool = False
+    """PR 6-I (E6): an EV charger under SunCore's control may draw grid power now (mode
+    ``now``/``min_pv``, or a fresh ``target`` band with grid power); the house battery must
+    not discharge into it, so a discharge lock is allowed (B4) while this holds."""
 
 
 def plan_band(plan: Plan, now: datetime) -> tuple[BatteryBand | None, bool]:
@@ -445,8 +449,12 @@ def check_grid_charge(ctx: BatteryContext) -> Reason | None:  # noqa: PLR0911 - 
 
 
 def check_discharge_lock(ctx: BatteryContext) -> Reason | None:
-    """B4: a discharge lock only while a fresh plan interval carries ``discharge_lock``."""
+    """B4: a discharge lock only while a fresh plan interval carries ``discharge_lock`` - or,
+    since PR 6-I, while an EV may draw grid power (``ev_lock``, invariant E6: the house battery
+    is not discharged into the car)."""
     if not is_discharge_lock(ctx):
+        return None
+    if ctx.ev_lock:
         return None
     band = ctx.band
     if band is None or not band.discharge_lock:

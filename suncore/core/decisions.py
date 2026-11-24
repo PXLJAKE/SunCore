@@ -129,12 +129,13 @@ class ActionKind(StrEnum):
 
 
 NOT_YET_SUPPORTED_KINDS: Final[frozenset[ActionKind]] = frozenset(
-    {ActionKind.CHARGE, ActionKind.LOADPOINT, ActionKind.INVERTER_LIMIT}
+    {ActionKind.LOADPOINT, ActionKind.INVERTER_LIMIT}
 )
 """Action kinds that are in the contract but not judged by any invariant yet (ADR-0011
 addendum): the safety gate rejects each with ``safety.<kind>_not_supported`` before mode
 handling. A kind leaves this set only in the PR that adds its invariants, scenarios and the
-``control-safety`` sign-off (6-G inverter limit, 6-I charge, 6-J loadpoint)."""
+``control-safety`` sign-off (6-G inverter limit, 6-J loadpoint). ``charge`` left it in 6-I
+(invariants E1-E9, ``safety.flex``)."""
 
 
 class SwitchAction(_FrozenModel):
@@ -246,18 +247,29 @@ class BatteryAction(_FrozenModel):
 
 
 class ChargeAction(_FrozenModel):
-    """Desired state of an EV charger (ADR-0017 decision 1; PR 6-I lifts the rejection).
+    """Desired state of an EV charger (ADR-0017 decision 1; judged since PR 6-I, E1-E9).
 
-    **Full desired state.** ``current_a`` 0 = paused (the charger stays enabled, the car is not
-    charged), otherwise within the charger's ``[min_current_a, max_current_a]`` - the range
-    check needs the device and is invariant E1 of the gate, not of this contract.
-    ``phases`` ``None`` = leave the phases as they are. Release = the baseline captured at
-    takeover (current, phases, enable).
+    **Full desired state.** ``current_a`` 0 = paused (the car is not charged: the driver turns
+    the ``enable`` switch off, or writes 0 A where the current entity accepts it), otherwise
+    within the charger's ``[min_current_a, max_current_a]`` - the range check needs the device
+    and is invariant E1 of the gate, not of this contract. ``phases`` ``None`` = leave the
+    phases as they are. Release = the baseline captured at takeover (current, phases, enable).
+
+    ``enabled`` (PR 6-I, additive) is the charger's ``enable`` switch as a driver *reads it
+    back*: a baseline keeps the user's current setting **and** their switch, so a release
+    restores both (E9). ``None`` = derived from the current (enabled iff ``current_a > 0``);
+    the controller never sets it. :meth:`effective_current_a` is what the car may draw.
     """
 
     kind: Literal[ActionKind.CHARGE] = ActionKind.CHARGE
     current_a: float = Field(ge=0, le=500, allow_inf_nan=False)
     phases: Literal[1, 3] | None = None
+    enabled: bool | None = None
+
+    @property
+    def effective_current_a(self) -> float:
+        """The current the car may draw: 0 while the enable switch is off."""
+        return 0.0 if self.enabled is False else self.current_a
 
 
 EVCC_MODES: Final = ("off", "smart", "now")

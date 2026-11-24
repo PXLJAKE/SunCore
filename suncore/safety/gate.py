@@ -61,18 +61,27 @@ import contextlib
 from collections.abc import Awaitable, Callable, Collection, Mapping
 from datetime import UTC, datetime, timedelta, tzinfo
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Protocol, runtime_checkable
 
 import structlog
 
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BATTERY_ASSET_ID, BatteryCapability, resolve_battery_action
-from suncore.core.control import ControlSettings, DeviceState, GateInputs, PowerEstimate
+from suncore.core.control import (
+    ControlSettings,
+    DeviceBand,
+    DeviceState,
+    GateInputs,
+    Plan,
+    PowerEstimate,
+    device_band_now,
+)
 from suncore.core.decisions import (
     NOT_YET_SUPPORTED_KINDS,
     Action,
     ActionKind,
     BatteryAction,
+    ChargeAction,
     Decision,
     DecisionKind,
     Intent,
@@ -90,6 +99,7 @@ from suncore.core.devices import (
     SgReadyControl,
     behaviour_mode_capped,
 )
+from suncore.core.flex import EV_MODE_DEFAULT, EvMode
 from suncore.core.grid import (
     GridMemory,
     advance_grid_memory,
@@ -110,6 +120,7 @@ from suncore.safety.battery import (
     BatteryLive,
     BatteryWatch,
     evaluate_battery,
+    is_discharge_lock,
     lease_violations,
     plan_band,
     quantise,
@@ -117,6 +128,12 @@ from suncore.safety.battery import (
     restore_target,
     same_state,
     user_changed_fields,
+)
+from suncore.safety.flex import (
+    EvSafety,
+    active_phases,
+    ev_allowance_w,
+    holds_discharge_lock,
 )
 from suncore.safety.grid import GridSafety
 from suncore.safety.invariants import (
@@ -203,7 +220,6 @@ REASON_BATTERY_RELEASE_CONFIRMED: Final = Reason(key="safety.battery_release_con
 """The battery shows its own settings again: control of it has ended."""
 REASON_NOT_SUPPORTED: Final[Mapping[ActionKind, Reason]] = MappingProxyType(
     {
-        ActionKind.CHARGE: Reason(key="safety.charge_not_supported"),
         ActionKind.LOADPOINT: Reason(key="safety.loadpoint_not_supported"),
         ActionKind.INVERTER_LIMIT: Reason(key="safety.inverter_limit_not_supported"),
     }
@@ -212,6 +228,10 @@ REASON_NOT_SUPPORTED: Final[Mapping[ActionKind, Reason]] = MappingProxyType(
 invariants yet; the gate rejects each before mode handling (also in shadow and assisted), writes
 nothing and creates no proposal. Lifted per kind with its ``control-safety`` sign-off (6-G
 inverter limit, 6-I charge, 6-J loadpoint)."""
+REASON_CHARGE_NOT_CHARGER: Final = Reason(key="safety.charge_not_charger")
+"""A ``charge`` action for a device that is not an EV charger (PR 6-I)."""
+REASON_CHARGER_NEEDS_CHARGE: Final = Reason(key="safety.charger_needs_charge")
+"""Any action but ``charge`` and a release for an EV charger (PR 6-I)."""
 REASON_SG_READY_NOT_SUPPORTED: Final = Reason(key="safety.sg_ready_not_supported")
 """Any action but a release for an SG-Ready heat pump (until PR 6-K, ADR-0017 decision 8)."""
 REASON_PROGRAM_NOT_SUPPORTED: Final = Reason(key="safety.program_not_supported")
@@ -233,6 +253,19 @@ MAX_CONSECUTIVE_FAILURES: Final = 3
 
 
 InputsProvider = Callable[[], GateInputs | None]
+
+EvModeLookup = Callable[[str], EvMode]
+"""The effective EV mode of a charger device (runtime state, or its ``ev.default_mode``)."""
+
+PlanLookup = Callable[[datetime], Plan]
+"""The plan the controller follows (``ControlStack.current_plan``)."""
+
+
+@runtime_checkable
+class ChargerLimits(Protocol):
+    """A charger driver that reports the live range of its current entity (E1)."""
+
+    def current_range_a(self) -> tuple[float | None, float | None]: ...
 
 
 async def _asyncio_sleep(seconds: float) -> None:
@@ -264,8 +297,12 @@ class SafetyGate:
         sleep: Sleeper | None = None,
         predecessor: SafetyGate | None = None,
         battery: BatteryGateConfig | None = None,
+        ev_modes: EvModeLookup | None = None,
+        plan: PlanLookup | None = None,
     ) -> None:
         self._clock = clock
+        self._ev_modes = ev_modes
+        self._plan = plan
         # Actuators of assets a configuration change removed or re-mapped while their release
         # failed (``handover``): used only to release them, never to write (the identity of the
         # runtime selects them). Dropped once the release succeeded.
@@ -741,10 +778,15 @@ class SafetyGate:
         if device is None:
             return None
         control = device.control
+        if isinstance(action, ChargeAction) != isinstance(control, ChargerControl):
+            # 6-I: a charger takes only ``charge`` actions, and only a charger takes them.
+            return (
+                REASON_CHARGE_NOT_CHARGER
+                if isinstance(action, ChargeAction)
+                else REASON_CHARGER_NEEDS_CHARGE
+            )
         if isinstance(control, SgReadyControl):
             return REASON_SG_READY_NOT_SUPPORTED
-        if isinstance(control, ChargerControl):
-            return REASON_NOT_SUPPORTED[ActionKind.CHARGE]
         if isinstance(control, LoadpointControl):
             return REASON_NOT_SUPPORTED[ActionKind.LOADPOINT]
         if device.program is not None:
@@ -921,6 +963,7 @@ class SafetyGate:
             now=now,
             baseline=base,
             grid=self._grid_safety(inputs, now, None),
+            ev_lock=self._ev_lock(now),
         )
 
     async def _battery_write(  # noqa: PLR0911, PLR0912, PLR0915 - one return per verdict
@@ -1142,9 +1185,12 @@ class SafetyGate:
             reason = actuator.refusal()
         if reason is None:
             ctx = self._battery_context(held, actuator, runtime.baseline, now)
-            if ctx.band is None or not ctx.plan_fresh:
+            if (ctx.band is None or not ctx.plan_fresh) and not (
+                ctx.ev_lock and is_discharge_lock(ctx)
+            ):
                 # ADR-0013 5B: every held state - also one that cannot cause import - is held
-                # only while a fresh plan interval covers it (review 4-G, minor 8).
+                # only while a fresh plan interval covers it (review 4-G, minor 8). PR 6-I: a
+                # discharge lock is also held while an EV may draw grid power (E6).
                 reason = REASON_BATTERY_PLAN_ENDED
             else:
                 violations = lease_violations(ctx)
@@ -1333,6 +1379,8 @@ class SafetyGate:
                 failed_write = True
             runtime = runtime.model_copy(update={"last_write_ts": now})
             target = action_turns_on(intent.action, device) if switched else None
+            if _changes_phases(intent.action, self._states(device_id)):
+                runtime = runtime.with_phase_switch(now)  # E2, recorded when sent (as below)
             if target is not None:
                 # Recorded when the switch is *sent*, not when it is confirmed: a slow echo
                 # (late confirmation), a release or a rebuild during the settle wait, or a
@@ -1911,7 +1959,90 @@ class SafetyGate:
             reserve_soc_pct=inputs.reserve_soc_pct,
             claimed_w=self._claimed_w() if inputs.ts is not None else 0.0,
             grid=self._grid_safety(inputs, now, device),
+            ev=self._ev_safety(device, now, inputs),
         )
+
+    # --- EV (PR 6-I, ``safety.flex``) --------------------------------------------------------
+
+    def ev_mode(self, device: DeviceConfig) -> EvMode:
+        """The effective EV mode of a charger (the injected lookup, else its default)."""
+        default = device.ev.default_mode if device.ev is not None else EV_MODE_DEFAULT
+        if self._ev_modes is None:
+            return default
+        try:
+            return self._ev_modes(device.id)
+        except Exception:
+            log.exception("safety.ev_mode_failed", device_id=device.id)
+            return EvMode.OFF  # unknown runtime state: no increase at all (conservative)
+
+    def _ev_band(self, device_id: str, now: datetime) -> DeviceBand | None:
+        if self._plan is None:
+            return None
+        try:
+            return device_band_now(self._plan(now), device_id, now)
+        except Exception:
+            log.exception("safety.ev_plan_failed")
+            return None
+
+    def _ev_safety(
+        self, device: DeviceConfig, now: datetime, inputs: GateInputs | None = None
+    ) -> EvSafety:
+        """E1-E6 inputs of a charger: mode, allowance, connection, battery lock, read-back."""
+        control = device.control
+        if not isinstance(control, ChargerControl):
+            return EvSafety()
+        inputs = inputs if inputs is not None else (self._inputs() or GateInputs())
+        state = self._states(device.id)
+        observed = _observed_charge(state)
+        mode = self.ev_mode(device)
+        connected = None if state is None else state.connected
+        allowance = ev_allowance_w(
+            mode,
+            control,
+            active_phases(control, None, observed),
+            connected=connected,
+            band=self._ev_band(device.id, now),
+        )
+        low: float | None = None
+        high: float | None = None
+        actuator = self._actuators.get(device.id)
+        if isinstance(actuator, ChargerLimits):
+            low, high = actuator.current_range_a()
+        return EvSafety(
+            mode=mode,
+            allowance_w=allowance,
+            connected=connected,
+            battery_locked=self._battery_locked(inputs),
+            observed=observed,
+            entity_min_a=low,
+            entity_max_a=high,
+        )
+
+    def _battery_locked(self, inputs: GateInputs) -> bool:
+        """E6: no home battery, or SunCore holds (and has confirmed) a discharge lock."""
+        if not inputs.battery_present:
+            return True
+        runtime = self._runtimes.get(BATTERY_ASSET_ID)
+        if runtime is None or not runtime.under_control or runtime.release_pending:
+            return False
+        held = runtime.last_written
+        soc = self._battery_live().soc_pct
+        return holds_discharge_lock(held if isinstance(held, BatteryAction) else None, soc)
+
+    def _ev_lock(self, now: datetime) -> bool:
+        """B4 with E6: a charger SunCore may drive (not shadow) may draw grid power now."""
+        inputs = self._inputs() or GateInputs()
+        for device_id in self._actuators:
+            device = self._devices(device_id)
+            if device is None or not isinstance(device.control, ChargerControl):
+                continue
+            if self.modes_of(device_id).effective is OperatingMode.SHADOW:
+                continue
+            if self._watchdog.pause_reason(device_id, now) is not None:
+                continue
+            if self._ev_safety(device, now, inputs).allowance_w > 0:
+                return True
+        return False
 
     # --- grid (PR 6-F, ``safety.grid``) ------------------------------------------------------
 
@@ -2114,6 +2245,25 @@ def _was_transition(action: Action, device: DeviceConfig, runtime: DeviceRuntime
     before = action_turns_on(runtime.last_written, device)
     after = action_turns_on(action, device)
     return before is not None and after is not None and before != after
+
+
+def _observed_charge(state: DeviceState | None) -> ChargeAction | None:
+    """The charger's observed state as a ``ChargeAction`` (``None`` = unknown)."""
+    if state is None or not state.known or state.on is None:
+        return None
+    current = state.value if state.value is not None and state.value >= 0 else 0.0
+    return ChargeAction(current_a=current if state.on else 0.0, phases=state.phases)
+
+
+def _changes_phases(action: Action, state: DeviceState | None) -> bool:
+    """A charge that sets phases other than the observed ones (E2 bookkeeping)."""
+    return (
+        isinstance(action, ChargeAction)
+        and action.phases is not None
+        and state is not None
+        and state.phases is not None
+        and state.phases != action.phases
+    )
 
 
 def _no_device(_: str) -> DeviceConfig | None:

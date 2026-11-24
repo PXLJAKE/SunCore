@@ -23,6 +23,7 @@ drift).
 | device | `generic.switch` | any switch, optional power sensor | generic |
 | device | `generic.climate` | any `climate` entity, power measured (sensor may be on another device) or nominal | generic |
 | device | `generic.number_load` | load set through a number entity (W, A or %) | generic |
+| device | `generic.wallbox` | wallbox: current number (A), pause switch, optional phase select, charging power, vehicle SoC and plug sensor | generic, simulator only (`UNVERIFIED`: no hardware) |
 | device | `generic.water_heater_steps` | water heater with power levels through one select entity, optional tank probe | generic, simulator only (`UNVERIFIED`: no hardware) |
 | device | `generic.water_heater_relays` | water heater with 1-3 heating elements switched by relays | generic, simulator only (`UNVERIFIED`: no hardware) |
 | tariff | `tibber.price` | Tibber dynamic price, curve from `tibber.get_prices` | from integration source |

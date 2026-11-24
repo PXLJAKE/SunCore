@@ -1708,17 +1708,24 @@ export interface components {
         Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback" | "ev_charging" | "phase_switching" | "sg_ready" | "remote_start" | "export_limit" | "ac_limit" | "backup_state";
         /**
          * ChargeAction
-         * @description Desired state of an EV charger (ADR-0017 decision 1; PR 6-I lifts the rejection).
+         * @description Desired state of an EV charger (ADR-0017 decision 1; judged since PR 6-I, E1-E9).
          *
-         *     **Full desired state.** ``current_a`` 0 = paused (the charger stays enabled, the car is not
-         *     charged), otherwise within the charger's ``[min_current_a, max_current_a]`` - the range
-         *     check needs the device and is invariant E1 of the gate, not of this contract.
-         *     ``phases`` ``None`` = leave the phases as they are. Release = the baseline captured at
-         *     takeover (current, phases, enable).
+         *     **Full desired state.** ``current_a`` 0 = paused (the car is not charged: the driver turns
+         *     the ``enable`` switch off, or writes 0 A where the current entity accepts it), otherwise
+         *     within the charger's ``[min_current_a, max_current_a]`` - the range check needs the device
+         *     and is invariant E1 of the gate, not of this contract. ``phases`` ``None`` = leave the
+         *     phases as they are. Release = the baseline captured at takeover (current, phases, enable).
+         *
+         *     ``enabled`` (PR 6-I, additive) is the charger's ``enable`` switch as a driver *reads it
+         *     back*: a baseline keeps the user's current setting **and** their switch, so a release
+         *     restores both (E9). ``None`` = derived from the current (enabled iff ``current_a > 0``);
+         *     the controller never sets it. :meth:`effective_current_a` is what the car may draw.
          */
         ChargeAction: {
             /** Current A */
             current_a: number;
+            /** Enabled */
+            enabled?: boolean | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2349,14 +2356,20 @@ export interface components {
          *     and ``mode`` is the HVAC mode. ``quality`` is the worst quality of the entities read.
          */
         DeviceState: {
+            /** Connected */
+            connected?: boolean | null;
             /** Mode */
             mode?: string | null;
             /** On */
             on?: boolean | null;
+            /** Phases */
+            phases?: (1 | 3) | null;
             /** @default ok */
             quality: components["schemas"]["Quality"];
             /** Setpoint C */
             setpoint_c?: number | null;
+            /** Soc Pct */
+            soc_pct?: number | null;
             /** Step */
             step?: number | null;
             /** Temperature C */

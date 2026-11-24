@@ -353,7 +353,8 @@ def test_observed_level_per_kind() -> None:
 
 
 def test_programs_and_phase6_controls_have_no_levels() -> None:
-    """The gate rejects their writes until 6-I..6-L; no levels means no repeated intents."""
+    """The gate rejects their writes until 6-J..6-L; no levels means no repeated intents
+    (the charger has levels since 6-I: ``tests/controller/test_ev.py``)."""
     for device in PHASE6_DEVICES:
         assert build_levels(device, None, None, SETTINGS, Q) is None, device.id
     plug = program_device()

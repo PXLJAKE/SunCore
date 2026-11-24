@@ -1,0 +1,55 @@
+template: generic.wallbox
+sim_scenario: ev_pv_only_flicker
+user_input:
+  nominal_w: 11000
+# The demo house has no wallbox: the wallbox entities as the simulator publishes them
+# (suncore/sim/devices.py SimWallbox), one registry device for the charger, the car's SoC and
+# plug sensor on another device (a car integration).
+extra_entities:
+  - entity_id: number.sim_wallbox_current
+    unit: A
+    device_class: current
+    device_id: sim_dev_wallbox
+    state: "16.0"
+  - entity_id: switch.sim_wallbox_charging
+    device_id: sim_dev_wallbox
+    state: "off"
+  - entity_id: select.sim_wallbox_phases
+    device_id: sim_dev_wallbox
+    state: "3"
+  - entity_id: sensor.sim_wallbox_power
+    unit: W
+    device_class: power
+    device_id: sim_dev_wallbox
+    state: "0.0"
+  - entity_id: sensor.sim_wallbox_soc
+    unit: "%"
+    device_class: battery
+    device_id: sim_dev_car
+    state: "40.0"
+  - entity_id: binary_sensor.sim_wallbox_connected
+    device_class: plug
+    device_id: sim_dev_car
+    state: "on"
+roles:
+  current:
+    entity: number.sim_wallbox_current
+    unit: A
+    criteria: [domain, units]
+  enable:
+    entity: switch.sim_wallbox_charging
+    criteria: [domain, same_device]
+  phases:
+    entity: select.sim_wallbox_phases
+    criteria: [domain, same_device]
+  charger_power:
+    entity: sensor.sim_wallbox_power
+    unit: W
+    criteria: [domain, device_class, units, same_device]
+  vehicle_soc:
+    # The house battery's SoC matches too: the user picks the car's.
+    tied: [sensor.sim_battery_soc, sensor.sim_wallbox_soc]
+    pick: sensor.sim_wallbox_soc
+  connected:
+    entity: binary_sensor.sim_wallbox_connected
+    criteria: [domain, device_class]

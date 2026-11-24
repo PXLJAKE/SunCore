@@ -69,6 +69,7 @@ from suncore.controller.battery import (
     BatteryIntents,
     BatteryView,
 )
+from suncore.controller.ev import battery_holds_lock
 from suncore.controller.grid import GridHolds, GridInputs, situation_reasons
 from suncore.controller.levels import ConfigQuantiser, Quantiser
 from suncore.controller.surplus import SiteSurplus, SurplusTracker
@@ -77,6 +78,7 @@ from suncore.core.config import GoalsConfig
 from suncore.core.control import ControlSettings, DeviceState, GateInputs, Plan, PowerEstimate
 from suncore.core.decisions import Decision, Intent, Reason
 from suncore.core.devices import DeviceConfig
+from suncore.core.flex import EvMode
 from suncore.core.grid import (
     GridMemory,
     advance_grid_memory,
@@ -116,6 +118,10 @@ class ControllerInputs:
     grid: GridInputs | None = None
     """PR 6-F: effective import limit (fuse and peak), §14a, island
     (``controller.grid.resolve_grid_inputs``); ``None`` = only ``import_limit_w`` (Phase 3)."""
+    ev_modes: Mapping[str, EvMode] = field(default_factory=dict)
+    """PR 6-I: the runtime EV mode per charger (``flex_state``; missing = the default mode)."""
+    battery_present: bool = True
+    """PR 6-I (E6): the site has a home battery (the conservative default assumes one)."""
 
     @property
     def grid_inputs(self) -> GridInputs:
@@ -222,7 +228,13 @@ class Controller:
             island_s=island_hold_s(self._grid_memory, now, cooldown),
             para14a_s=para14a_hold_s(self._grid_memory, now, cooldown),
         )
+        soc_flow = None if inputs.flows is None else inputs.flows.battery_soc_pct
+        # Only an OK reading counts (review 4-G minor 7): a stale SoC never sets a floor.
+        soc = soc_flow.value if soc_flow is not None and soc_flow.quality is Quality.OK else None
+        held = None if inputs.battery is None else inputs.battery.held
         allocation = AllocationInputs(
+            ev_modes=inputs.ev_modes,
+            battery_locked=not inputs.battery_present or battery_holds_lock(held, soc),
             states=inputs.states,
             estimates=inputs.estimates,
             blocked=inputs.blocked,
@@ -233,7 +245,6 @@ class Controller:
             grid_holds=holds,
         )
         outcome = self._allocator.prepare(now, allocation)
-        held = None if inputs.battery is None else inputs.battery.held
         site = self._surplus.update(
             now,
             inputs.flows,
@@ -246,9 +257,6 @@ class Controller:
         # (each intent's own added demand is the gate's ``delta``).
         surplus = site.gate_estimate(self._settings.reserve_w, outcome.committed_w)
         outcome = self._allocator.run(now, site, allocation, outcome)
-        soc_flow = None if inputs.flows is None else inputs.flows.battery_soc_pct
-        # Only an OK reading counts (review 4-G minor 7): a stale SoC never sets a floor.
-        soc = soc_flow.value if soc_flow is not None and soc_flow.quality is Quality.OK else None
         battery_intent = self._battery.step(
             now,
             inputs.plan,
@@ -258,6 +266,7 @@ class Controller:
             holds=holds,
             deficit_w=_house_deficit_w(inputs.flows),
             reserve_w=self._settings.reserve_w,
+            ev_lock=outcome.ev_lock and inputs.battery_present,
         )
         intents = (*outcome.intents, battery_intent) if battery_intent else tuple(outcome.intents)
         gate_inputs = GateInputs(
@@ -273,6 +282,7 @@ class Controller:
             grid_state=grid.grid_state,
             fuse_limit_w=grid.fuse_limit_w,
             para14a_devices=self._para14a_ids,
+            battery_present=inputs.battery_present,
         )
         return TickResult(
             ts=now,

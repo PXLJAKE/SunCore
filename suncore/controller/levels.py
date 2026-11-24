@@ -42,6 +42,7 @@ from suncore.core.decisions import (
 )
 from suncore.core.devices import (
     PHASE6_CONTROLS,
+    ChargerControl,
     ContinuousControl,
     DeviceConfig,
     ModeControl,
@@ -77,6 +78,10 @@ class Quantiser(Protocol):
         """The power a continuous load will really be set to for a request of ``power_w``."""
         ...
 
+    def current_a(self, device_id: str, current_a: float) -> float:
+        """The current an EV charger will really be set to for ``current_a`` (PR 6-I)."""
+        ...
+
 
 class ConfigQuantiser:
     """Quantisation from the device configuration (control ``step``/``step_c``, limits)."""
@@ -105,6 +110,15 @@ class ConfigQuantiser:
                 value = low + math.floor((value - low) / step_w + SETPOINT_EPS) * step_w
         return round(value, 6)
 
+    def current_a(self, device_id: str, current_a: float) -> float:
+        device = self._devices.get(device_id)
+        if device is None or not isinstance(device.control, ChargerControl):
+            return max(0.0, current_a)
+        control = device.control
+        if current_a <= 0:
+            return 0.0
+        return round(min(max(current_a, control.min_current_a), control.max_current_a), 6)
+
 
 class CallableQuantiser:
     """Quantisation through per-device callables (the composition root's driver wiring).
@@ -119,10 +133,12 @@ class CallableQuantiser:
         *,
         setpoint_steps: Mapping[str, Callable[[], float]] | None = None,
         power_snaps: Mapping[str, Callable[[float], float]] | None = None,
+        current_snaps: Mapping[str, Callable[[float], float]] | None = None,
         fallback: Quantiser | None = None,
     ) -> None:
         self._steps = dict(setpoint_steps or {})
         self._snaps = dict(power_snaps or {})
+        self._currents = dict(current_snaps or {})
         self._fallback: Quantiser = fallback if fallback is not None else ConfigQuantiser()
 
     def setpoint_step_c(self, device_id: str) -> float | None:
@@ -137,6 +153,13 @@ class CallableQuantiser:
         if snap is None:
             return self._fallback.power_w(device_id, power_w)
         value = snap(power_w)
+        return value if math.isfinite(value) and value >= 0 else 0.0
+
+    def current_a(self, device_id: str, current_a: float) -> float:
+        snap = self._currents.get(device_id)
+        if snap is None:
+            return self._fallback.current_a(device_id, current_a)
+        value = snap(current_a)
         return value if math.isfinite(value) and value >= 0 else 0.0
 
 
@@ -213,10 +236,15 @@ def build_levels(  # noqa: PLR0911 - one return per control kind
 ) -> LevelTable | None:
     """The level table of ``device`` in its current situation; ``None`` = not controllable.
 
-    Job-driven programs (``device.program``) and the Phase 6 control variants are not
-    controllable by surplus levels until their PRs (6-L; 6-I, 6-J, 6-K): the gate rejects
+    EV chargers (PR 6-I) get the levels of ``controller.ev``. Job-driven programs
+    (``device.program``) and the other Phase 6 control variants are not controllable by
+    surplus levels until their PRs (6-L; 6-J, 6-K): the gate rejects
     their writes, so offering levels would only repeat rejected intents (review of 6-B, A2).
     """
+    if isinstance(device.control, ChargerControl) and device.program is None:
+        from suncore.controller.ev import charger_levels  # noqa: PLC0415 - ev imports levels
+
+        return charger_levels(device, state, quantiser)
     if device.program is not None or isinstance(device.control, PHASE6_CONTROLS):
         return None
     control = device.control
@@ -385,6 +413,10 @@ def observed_level(  # noqa: PLR0911, PLR0912 - one branch per control kind
     if state is None or not state.known:
         return None
     control = device.control
+    if isinstance(control, ChargerControl):
+        from suncore.controller.ev import charger_observed_level  # noqa: PLC0415
+
+        return charger_observed_level(table, state)
     if isinstance(control, OnOffControl):
         return None if state.on is None else int(state.on)
     if isinstance(control, StepsControl | RelaysControl):

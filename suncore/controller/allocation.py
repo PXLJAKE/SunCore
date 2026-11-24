@@ -55,6 +55,7 @@ from datetime import datetime, timedelta, tzinfo
 from typing import Final
 
 from suncore.controller import reasons as rs
+from suncore.controller.ev import EvDirective, EvMachine, EvTick
 from suncore.controller.grid import (
     NO_HOLDS,
     CapInput,
@@ -78,10 +79,18 @@ from suncore.core.control import (
     DeviceState,
     Plan,
     PowerEstimate,
+    device_band_now,
     heat_capped,
 )
 from suncore.core.decisions import Decision, DecisionKind, Intent, Origin, Reason, SetpointAction
-from suncore.core.devices import THERMAL_KINDS, DeviceConfig, SetpointControl, TimeWindow
+from suncore.core.devices import (
+    THERMAL_KINDS,
+    ChargerControl,
+    DeviceConfig,
+    SetpointControl,
+    TimeWindow,
+)
+from suncore.core.flex import EV_MODE_DEFAULT, EvMode
 from suncore.core.signals import Quality
 
 POOR_ESTIMATE_REL: Final = 0.5
@@ -142,6 +151,10 @@ class Candidate:
     gate_lower_w: float | None = None
     """The current draw as the gate's grid invariant counts it (``power_delta_w``:
     the estimate's lower bound); ``None`` = ``current_lower_w``."""
+    min_level: int = 0
+    """A floor the device is raised to without surplus (EV ``now``/``min_pv``/plan grid power,
+    ADR-0017 decision 4; PR 6-I); the cap still wins."""
+    floor_reason: Reason | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,9 +167,11 @@ class Wanted:
     """A cap (window, plan) drives the change: no hysteresis delay."""
     need_w: float = 0.0
     """Added power of a rise (what the gate's grid invariant will compare)."""
+    floor: bool = False
+    """The level is a floor (PR 6-I): no surplus guard, no hysteresis delay."""
 
 
-def allocate_levels(
+def allocate_levels(  # noqa: PLR0912, PLR0915 - one branch per allocation rule
     candidates: Iterable[Candidate], total_w: float, uncertainty_w: float
 ) -> tuple[Wanted, ...]:
     """Wanted level per device in the given (priority) order; pure, no state.
@@ -196,6 +211,14 @@ def allocate_levels(
             else:
                 need = table.need_w(level, level + 1) if table.top > level else 0.0
                 reason = rs.no_surplus(usable, need)
+        floor = min(c.min_level, cap)
+        capped = floor < c.min_level  # §14a, fuse, phase pause ... win over the floor
+        at_floor = False
+        if wanted < floor:
+            wanted, forced, at_floor = floor, True, True
+            reason = (c.cap_reason if capped else c.floor_reason) or reason
+        elif floor > 0 and wanted == floor:
+            reason = (c.cap_reason if capped else c.floor_reason) or reason
         need = 0.0
         if wanted > level:
             power = table.level(wanted).power_w
@@ -210,7 +233,7 @@ def allocate_levels(
         else:
             reserved = c.draw_w
         remaining -= reserved
-        out.append(Wanted(c.device_id, wanted, reserved, reason, forced, need))
+        out.append(Wanted(c.device_id, wanted, reserved, reason, forced, need, at_floor))
     return tuple(out)
 
 
@@ -287,6 +310,10 @@ class AllocationInputs:
     """Island, §14a, peak and fuse limits (PR 6-F); ``None`` = only ``import_limit_w``."""
     grid_holds: GridHolds = NO_HOLDS
     """The cool-down after island/§14a as the controller mirrors it (G6)."""
+    ev_modes: Mapping[str, EvMode] = field(default_factory=dict)
+    """PR 6-I: the runtime EV mode per charger (missing = the device's default mode)."""
+    battery_locked: bool = False
+    """PR 6-I (E6): no home battery, or SunCore holds a discharge lock on it."""
 
     @property
     def grid_inputs(self) -> GridInputs:
@@ -362,6 +389,8 @@ class TickOutcome:
     total_w: float | None = None
     free_w: float | None = None
     attributable_deficit_w: float = 0.0
+    ev_lock: bool = False
+    """PR 6-I (E6): a charger may draw grid power - the battery should hold a discharge lock."""
 
     @property
     def controlled_draw(self) -> dict[str, float]:
@@ -422,6 +451,8 @@ class Allocator:
         self._shed_order: list[str] = []
         self._deficit = DeficitTracker()
         self._caps = GridCaps()
+        self._ev: dict[str, EvMachine] = {}
+        self._ev_directives: dict[str, EvDirective] = {}
 
     # --- devices ---------------------------------------------------------------------
 
@@ -440,6 +471,13 @@ class Allocator:
                 machine = fresh
             keep[device.id] = machine
         self._machines = keep
+        self._ev = {
+            d.id: (
+                self._ev[d.id] if d.id in self._ev and self._ev[d.id].device == d else EvMachine(d)
+            )
+            for d in ordered
+            if isinstance(d.control, ChargerControl)
+        }
         self._order = [d.id for d in ordered]
         self._shed_order = shed_order(ordered)
 
@@ -455,6 +493,9 @@ class Allocator:
         return self._deficit
 
     def report(self, decision: Decision) -> bool:
+        ev = self._ev.get(decision.intent.asset_id)
+        if ev is not None and ev.report(decision):
+            return True
         machine = self._machines.get(decision.intent.asset_id)
         return machine is not None and machine.report(decision)
 
@@ -482,6 +523,7 @@ class Allocator:
         out.free_w = site.free_w(reserve, sum(committed.values()))
 
         self._caps = self._grid_caps(synced, inputs, out.draws)
+        self._ev_directives = self._ev_tick(now, site, synced, inputs, out)
         backoff = self._deficit_backoff(now, site, synced, committed, inputs, out)
 
         wanted_by_id: dict[str, Wanted] = {}
@@ -506,7 +548,64 @@ class Allocator:
             ):
                 m.reasons = (*m.reasons, rs.battery_target(site.soc_pct, site.target_soc_pct))
             out.views[m.device.id] = self._view(m, out.draws.get(m.device.id))
+        self._ev_phase_intents(now, inputs, out)
         return out
+
+    # --- EV (PR 6-I) -----------------------------------------------------------------------
+
+    def ev_machine(self, device_id: str) -> EvMachine | None:
+        return self._ev.get(device_id)
+
+    def _ev_tick(
+        self,
+        now: datetime,
+        site: SiteSurplus,
+        synced: Sequence[DeviceMachine],
+        inputs: AllocationInputs,
+        out: TickOutcome,
+    ) -> dict[str, EvDirective]:
+        """The EV directive of every synced charger (``controller.ev``)."""
+        directives: dict[str, EvDirective] = {}
+        for m in synced:
+            ev = self._ev.get(m.device.id)
+            if ev is None or m.table is None:
+                continue
+            spec = m.device.ev
+            mode = inputs.ev_modes.get(
+                m.device.id, spec.default_mode if spec is not None else EV_MODE_DEFAULT
+            )
+            draw = out.draws.get(m.device.id)
+            available = (
+                None
+                if out.free_w is None or draw is None
+                else max(0.0, out.free_w + draw.committed_w)
+            )
+            tick = EvTick(
+                mode=mode,
+                band=device_band_now(inputs.plan, m.device.id, now),
+                battery_locked=inputs.battery_locked,
+                site_trusted=site.trusted,
+                available_w=available,
+            )
+            directive = ev.directive(now, m.table, inputs.states.get(m.device.id), m.level, tick)
+            directives[m.device.id] = directive
+            out.ev_lock = out.ev_lock or directive.lock_wanted
+        return directives
+
+    def _ev_phase_intents(self, now: datetime, inputs: AllocationInputs, out: TickOutcome) -> None:
+        for device_id, ev in self._ev.items():
+            m = self._machines.get(device_id)
+            if m is None or not m.synced:
+                continue
+            intent = ev.phase_intent(
+                now,
+                inputs.states.get(device_id),
+                m.level,
+                m.last_off_ts,
+                machine_busy=m.in_flight_id is not None or m.pending_level is not None,
+            )
+            if intent is not None:
+                out.intents.append(intent)
 
     def _ordered(self) -> list[DeviceMachine]:
         return [self._machines[i] for i in self._order]
@@ -678,6 +777,14 @@ class Allocator:
         grid_cap = self._caps.get(device.id)
         if grid_cap is not None and grid_cap.level < cap:
             cap, cap_reason = grid_cap.level, grid_cap.reason
+        directive = self._ev_directives.get(device.id)
+        min_level, floor_reason = 0, None
+        if directive is not None:
+            if directive.cap is not None and directive.cap < cap:
+                cap, cap_reason = directive.cap, directive.cap_reason
+            min_level, floor_reason = directive.floor, directive.floor_reason
+            if directive.floor_reason is not None and directive.floor == 0 and cap > 0:
+                cap_reason = cap_reason or directive.floor_reason
         return Candidate(
             device_id=device.id,
             table=m.table,
@@ -690,6 +797,8 @@ class Allocator:
             cap_reason=cap_reason,
             hold=m.in_flight_id is not None,
             gate_lower_w=self._gate_lower_w(m, estimate, inputs.states.get(device.id)),
+            min_level=min_level,
+            floor_reason=floor_reason,
         )
 
     @staticmethod
@@ -746,7 +855,9 @@ class Allocator:
             and wanted.level == 1
         ):
             reason = rs.plain(rs.SWITCH_ON)
-        return Transition(wanted.level, reason, forced=wanted.forced, need_w=wanted.need_w)
+        return Transition(
+            wanted.level, reason, forced=wanted.forced, need_w=wanted.need_w, floor=wanted.floor
+        )
 
     def _drive(  # noqa: PLR0911, PLR0917 - one return per outcome
         self,
@@ -776,7 +887,7 @@ class Allocator:
             m.reasons = (transition.reason, blocked)
             return
         rising = transition.level > m.level
-        if rising:
+        if rising and not transition.floor:
             guard = self._rise_guard(site, inputs)
             if guard is None and transition.need_w > budget.w:
                 # The surplus is promised to a device that has not backed off yet (or to
@@ -793,7 +904,7 @@ class Allocator:
         if action is None:  # pragma: no cover - every level has an action today
             m.steady(now, transition.reason)
             return
-        if rising:
+        if rising and not transition.floor:
             budget.w -= transition.need_w
         intent = Intent(
             id=m.next_intent_id(now),
@@ -877,10 +988,15 @@ class Allocator:
             assert m.table is not None
             if m.in_flight_id is not None:
                 continue
+            directive = self._ev_directives.get(m.device.id)
+            if not over_limit and directive is not None and m.level <= directive.floor:
+                continue  # a user-demanded floor is import by design (ADR-0017 decision 4)
             target = min(
                 m.level - 1,
                 _fall_level(m.table, m.level, committed.get(m.device.id, 0.0), attributable),
             )
+            if not over_limit and directive is not None:
+                target = max(target, directive.floor)  # back off to the floor, not below
             waive = fuse and m.device.kind not in THERMAL_KINDS and not m.table.level(target).on
             protection = m.blocked_by_protection(now, target, waive_run=waive)
             if protection is not None:
