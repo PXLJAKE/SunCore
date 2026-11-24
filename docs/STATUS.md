@@ -3,12 +3,40 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-23 · **Phase:** 5 started (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
+**Last update:** 2026-11-24 (Phase 6 PR 6-B contracts) · **Phase:** 5 started
+(plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
 **Branch:** `claude/project-thread-7gkqcr`
 
 ## Done
+
+- **Phase 6 - PR 6-B, WP2 contracts and configuration (branch `phase-6/b-contracts`, on 6-A;
+  `control-safety`)** - additive, no behaviour yet:
+  - Actions `charge`, `loadpoint`, `inverter_limit` in the `Action` union; the gate rejects
+    them with `safety.<kind>_not_supported` before mode handling, and every action but a release
+    for a device with a `charger`, `loadpoint` or `sg_ready` control (`safety.charge_/
+    loadpoint_/sg_ready_not_supported`) or a program spec (`safety.program_not_supported`).
+    Property test: every `ActionKind` is judged or rejected; nothing is written, released or
+    proposed. Devices of these controls get a placeholder driver that never writes.
+  - `core/devices.py`: the three controls, `EvSpec`, `ProgramSpec`, `ThermalSpec`, `shed_rank`,
+    `para14a`, `behaviour_confirmed` (identity; Phase 3 tokens unchanged). Phase 6 devices run at
+    most assisted until the behaviour is confirmed.
+  - `core/grid.py` (effective import/export limit, §14a budget, `GridState`, `BackupConfig`,
+    `PeakShaving`, DST-safe month bounds), `core/thermal.py` (RC model, COP curve, generic
+    air/water assumption), `core/flex.py` (EV modes/targets, program jobs and transitions);
+    `DeviceBand.grid_power_max_w`/`start`, `GateInputs` export limit, §14a budget/status, grid
+    state; `GridConfig` additions (peak shaving, dynamic/zero export, §14a limit and signal kind,
+    backup).
+  - New config sections `mqtt` (password stored, masked in API, export and history; a masked
+    value keeps the stored secret), `notifications`, `inverter` (an import resets
+    `limit_verified`). Template schema v1: the three controls, `defaults.ev/program/thermal`,
+    seven capabilities (`templates/README.md`).
+  - Storage: `suncore.db` 5 -> 6 (`flex_state`), `timeseries.db` 2 -> 3 (`grid_event` 400 days,
+    `grid_peak` for ever). **Export the configuration before updating** (older versions refuse
+    both files).
+  - Frontend follows the regenerated types; the site form keeps the grid fields it does not
+    edit yet. Deviations: plan section 8 (6-B).
 
 - **Phase 5 - PR 5-F, WP7 plan chart v2 (branch `phase-5/f-plan-chart`, on 5-H;
   `frontend-engineer`)**:
@@ -1045,6 +1073,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |
 | Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (`power_update_s` is in the device editor since WP10) |
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
+| §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018 | a grid operator's control box / documentation |
+| SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
 | Open-Meteo Solar Forecast: translation key assumed equal to the description key (the CC BY 4.0 attribution is shown in the plan view since 4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration |

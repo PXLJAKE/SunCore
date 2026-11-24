@@ -628,4 +628,27 @@ detection; CO₂ weighting.
 
 ## 8. Deviations during implementation
 
-(empty – filled per PR as in Phase 5)
+### 6-B (contracts and configuration)
+
+- **No config schema bump** for `site`/`devices`: the new fields are additive with defaults, a
+  bump would make the shipped frontend's PUT fail, and a downgrade is blocked by `suncore.db`
+  schema 6 anyway.
+- **Behaviour cap is conservative:** every device with a Phase 6 control (`charger`, `sg_ready`,
+  `loadpoint`) or a program spec runs at most assisted until `behaviour_confirmed`, whatever
+  its template's verification, until 6-I/6-J/6-K/6-L read the template's unverified list.
+- **Wider gate rejection:** besides the three new action kinds, every action but a release for
+  a device with a Phase 6 control or a program spec is rejected
+  (`safety.sg_ready_not_supported`, `safety.program_not_supported`, ...). These devices also
+  get a placeholder driver that never writes (second line of defence).
+- **No `inverter` template kind** and no battery-template inverter roles yet: only the
+  capabilities `export_limit`, `ac_limit`, `backup_state` (rejected on device templates); roles
+  follow in 6-G. Changing the inverter adapter does not reset `limit_verified` yet (6-G); an
+  import does.
+- **Notify-only programs** still need a control spec; open for 6-L.
+- **§14a numeric signal:** 0 = not dimmed, a value = the allowed power in W (`UNVERIFIED`).
+- **MQTT password:** stored in clear text in `suncore.db`, masked in API, export and history; an
+  import of a masked value onto a new system drops the secret (enter it again).
+- **Peak-floor validator** (`peak_floor_w` below the fuse) applies only while peak shaving is
+  enabled, so stored sites stay valid.
+- **Frontend:** the site form keeps the grid fields it does not edit; the device form keeps
+  `behaviour_confirmed`/`para14a`.
