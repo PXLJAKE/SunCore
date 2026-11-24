@@ -85,6 +85,9 @@
   <nav aria-label={t('nav.label')}>
     <a href="#/" aria-current={router.route === 'now' ? 'page' : undefined}>{t('nav.now')}</a>
     <a href="#/plan" aria-current={router.route === 'plan' ? 'page' : undefined}>{t('nav.plan')}</a>
+    <a href="#/history" aria-current={router.route === 'history' ? 'page' : undefined}
+      >{t('nav.history')}</a
+    >
     <a href="#/decisions" aria-current={router.route === 'decisions' ? 'page' : undefined}
       >{t('nav.decisions')}</a
     >
@@ -128,6 +131,10 @@
     <Settings />
   {:else if router.route === 'plan'}
     {#await import('./lib/views/Plan.svelte') then view}
+      <view.default />
+    {/await}
+  {:else if router.route === 'history'}
+    {#await import('./lib/views/History.svelte') then view}
       <view.default />
     {/await}
   {:else if router.route === 'decisions'}
@@ -201,9 +208,10 @@
     nav {
       order: 3;
       width: 100%;
+      flex-wrap: wrap;
     }
     nav a {
-      padding: 0 10px;
+      padding: 0 8px;
     }
     .status {
       order: 4;

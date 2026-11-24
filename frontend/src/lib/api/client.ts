@@ -89,7 +89,7 @@ async function fetchOk(path: string, init?: RequestInit): Promise<Response> {
   return res;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetchOk(path, init);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -270,7 +270,7 @@ export const planApi = {
   forecastRisk: () => request<RiskView>(`${API_PREFIX}forecast/risk`),
 };
 
-function query(params: Record<string, string | undefined>): string {
+export function query(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) search.set(key, value);

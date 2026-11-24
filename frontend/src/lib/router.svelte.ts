@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// Tiny hash router (`#/`, `#/plan`, `#/settings`, `#/decisions`, `#/setup[/<step>]`): independent of the ingress base path.
+// Tiny hash router (`#/`, `#/plan`, `#/settings`, `#/decisions`, `#/history`, `#/setup[/<step>]`): independent of the ingress base path.
 import { SvelteURLSearchParams } from 'svelte/reactivity';
 import { isStepId, type StepId } from './wizard/steps';
 
-export type Route = 'now' | 'plan' | 'settings' | 'setup' | 'decisions';
+export type Route = 'now' | 'plan' | 'settings' | 'setup' | 'decisions' | 'history';
 
 export interface Location {
   route: Route;
@@ -14,6 +14,7 @@ export interface Location {
 export function parseLocation(hash: string): Location {
   const path = hash.replace(/^#/, '').split('?')[0] ?? '';
   if (path === '/plan') return { route: 'plan', step: null };
+  if (path === '/history') return { route: 'history', step: null };
   if (path === '/decisions') return { route: 'decisions', step: null };
   if (path === '/settings') return { route: 'settings', step: null };
   if (path === '/setup' || path === '/setup/') return { route: 'setup', step: null };
@@ -37,7 +38,6 @@ class Router {
   private current = $state<Location>(
     parseLocation(typeof location === 'undefined' ? '' : location.hash),
   );
-
   /** The current hash, so views can read their `?query` reactively. */
   private hash = $state(typeof location === 'undefined' ? '' : location.hash);
 
