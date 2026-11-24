@@ -103,6 +103,8 @@
 </script>
 
 <article
+  id="device-card-{device.device_id}"
+  tabindex="-1"
   class="card dev"
   class:held={device.held}
   aria-labelledby="{uid}-name"

@@ -10,10 +10,11 @@
   import FlowList from '../components/FlowList.svelte';
   import PlannedActions from '../components/PlannedActions.svelte';
   import { nameMap } from '../control/present';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { t } from '../i18n/index.svelte';
   import { isUsable } from '../flow';
   import { plannedActions, windowIntervals } from '../plan/model';
+  import { router } from '../router.svelte';
   import { app } from '../stores/app.svelte';
   import { live } from '../stores/live.svelte';
   import { plan } from '../stores/plan.svelte';
@@ -37,6 +38,19 @@
     void live.planUpdates;
     void live.snapshotCount;
     plan.syncWithFeed();
+  });
+  // `#/?device=<id>` (a link from the decision log) shows and focuses that device's card.
+  const wanted = $derived(router.query.get('device'));
+  let shown: string | null = null;
+  $effect(() => {
+    const id = wanted;
+    if (!id || id === shown || !devices.some((d) => d.device_id === id)) return;
+    shown = id;
+    void tick().then(() => {
+      const card = document.getElementById(`device-card-${id}`);
+      card?.scrollIntoView({ block: 'center' });
+      card?.focus({ preventScroll: true });
+    });
   });
   const upcoming = $derived(
     plannedActions(windowIntervals(plan.view, 24, new Date(plan.nowMs)), new Date(plan.nowMs), 4),

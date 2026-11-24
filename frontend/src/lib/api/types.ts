@@ -118,3 +118,13 @@ export type DecisionsMessage = S['DecisionsMessage'];
 export type ControlMessage = S['ControlMessage'];
 export type LiveMessage =
   SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage | PlanMessage;
+
+export type DecisionExplain = S['DecisionExplainOut'];
+export type DecisionOrigin = S['Origin'];
+
+/** One page of the decision log: `ids[i]` is the row id of `items[i]`. */
+export interface DecisionPage {
+  items: Decision[];
+  ids: number[];
+  total: number;
+}
