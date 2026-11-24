@@ -40,6 +40,14 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     0.05 s), with perfect foresight 16.6 s; 30 days 22.5 s / 39.2 s; peak RSS 80 MB. Override-free
     replay of the demo's last 14 days: 17.41 EUR vs 17.21 EUR recorded (+1.1 %); the test allows
     5 %. `UNVERIFIED`: run time and RSS on aarch64 (Pi 4).
+  - `control-safety` review (PR #47, conditions A1–A10) addressed: the overlay is applied at
+    start (422 `api.error.backtest_overlay_invalid|_no_battery`, nothing stored); a battery size,
+    power or reserve change without a battery model is refused; the result echoes the effective
+    params (`params`, budget capped) next to `params_requested` and lists values above the
+    hardware (`backtest.limit.overlay_capped`); replays run in the planner's daemon-thread helper
+    at niceness 10 (Linux, ignored elsewhere); cancel and shutdown wait at most 2 s and abandon a
+    running solve; no start while shutting down; the loop yields between days and old days read
+    `measurement_15m` only. Loop lag while a run replays: 65 ms worst (test bound 250 ms).
   - Deviations: see plan §8 (5-J).
 
 - **Phase 5 – PR 5-D, WP4 history API (branch `phase-5/d-api`, on 5-C; `backend-engineer`)**:
