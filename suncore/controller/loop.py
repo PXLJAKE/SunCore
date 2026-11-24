@@ -77,7 +77,13 @@ from suncore.core.config import GoalsConfig
 from suncore.core.control import ControlSettings, DeviceState, GateInputs, Plan, PowerEstimate
 from suncore.core.decisions import Decision, Intent, Reason
 from suncore.core.devices import DeviceConfig
-from suncore.core.grid import GridMemory, advance_grid_memory, island_hold_s, para14a_hold_s
+from suncore.core.grid import (
+    GridMemory,
+    advance_grid_memory,
+    island_hold_s,
+    merge_grid_memory,
+    para14a_hold_s,
+)
 from suncore.core.signals import Quality
 
 log = structlog.get_logger(__name__)
@@ -193,6 +199,10 @@ class Controller:
     @property
     def grid_memory(self) -> GridMemory:
         return self._grid_memory
+
+    def seed_grid_memory(self, memory: GridMemory) -> None:
+        """Add a restored island/§14a history (mirrors ``SafetyGate.seed_grid_memory``)."""
+        self._grid_memory = merge_grid_memory(self._grid_memory, memory)
 
     def step(self, now: datetime, inputs: ControllerInputs) -> TickResult:
         """One deterministic tick."""

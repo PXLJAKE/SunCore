@@ -538,7 +538,11 @@ class ControlStack:
             self._unsubscribe.append(self._connection.add_entity_listener(self.on_update))
             self._unsubscribe.append(self._connection.add_state_listener(self.on_state))
             await self._connection.subscribe_entities(self.entity_ids)
-        await self.grid_monitor.load(self._clock())
+        now = self._clock()
+        await self.grid_monitor.load(now)
+        memory = await self.grid_monitor.load_memory(now)
+        self.gate.seed_grid_memory(memory)
+        self.controller.seed_grid_memory(memory)
         if self._connection.state is ConnectionState.CONNECTED:
             await self.recover()
 

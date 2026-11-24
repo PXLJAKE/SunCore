@@ -702,8 +702,10 @@ detection; CO₂ weighting.
   `Plan.default()` while the grid state is `island`); the planning service keeps computing
   plans that are not used. Pausing the planning loop itself is left to 6-H.
 - **Cool-down memory** lives in the gate (and a mirror in the controller), survives a
-  configuration change (`predecessor`), but not a restart; `seed_grid_memory` exists for
-  restoring it from `grid_event` later (the restart itself already releases every device).
+  configuration change (`predecessor`) and, since review H1, a restart: the control stack
+  rebuilds it from the `grid_event` rows of the last two days at start and merges it
+  conservatively (a seed never shortens a running hold; an `island_start` without
+  `island_end` holds increases until a connected snapshot plus the cool-down).
 - **Notifications and MQTT events** for island/§14a are recorded as `grid_event` rows only;
   sending them is 6-C/6-E.
 
@@ -737,3 +739,28 @@ detection; CO₂ weighting.
    vorgesehen). Kennst du eine Steuerbox, die das anders meldet?
 4. **Notstrom-Entity:** Welche Entity und welcher Zustand zeigen beim Kostal BackUp Switch G3
    den Inselbetrieb (Frage 10 aus §6)?
+
+#### Review conditions 6-F (control-safety, PR #54)
+
+- **A1 (done):** the G2 waiver needs a fresh snapshot (`GridSafety.inputs_fresh`); an old
+  `OK` value above the fuse in a stale snapshot keeps min run and the switch limit
+  (`test_a_stale_snapshot_never_waives_min_run`).
+- **A2 (done):** the §14a sum of the other flagged devices raises each estimate to the expected
+  power of a write in flight: sent and not yet read back (the gate's settle wait), a pending
+  unconfirmed read-back, or a confirmed write while the snapshot is older than write + settle
+  time + one tick (`test_gate_para14a_counts_a_write_during_its_settle_wait`,
+  `test_gate_para14a_counts_a_write_until_a_settled_snapshot`).
+- **H1 (done):** see "Cool-down memory" above (`test_gate_seed_restores_a_running_cooldown`,
+  `test_memory_from_events_and_merge`, `test_flush_persists_and_load_seeds`).
+- **H2 (done, pre-existing):** G1 (`check_grid`) rejects a load increase of unknown size (no
+  nominal power, no estimate) with `safety.power_unknown`; before, such a delta passed and was
+  not claimed (`test_an_increase_of_unknown_size_is_rejected`, updated property
+  `test_grid_passes_only_with_proven_surplus`).
+- **H3 (for 6-L):** the G2 waiver must not interrupt a running program (ADR-0018 decision 11):
+  6-L exempts devices with a running program from `fuse_shed_waiver` (min run and switch limit
+  stay).
+- **H4 (known behaviour):** an automatic release in island mode (manual override, watchdog,
+  stop) restores the device's baseline; when the user's own state at takeover was "on", the
+  release switches the device on although island forbids SunCore increases. This is
+  intended: "back to normal" restores the user's state (BRIEF §5) and is never judged by
+  G1-G6; the inverter's backup limits stay the hard bound.

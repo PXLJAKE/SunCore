@@ -67,7 +67,7 @@ import structlog
 
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BATTERY_ASSET_ID, BatteryCapability, resolve_battery_action
-from suncore.core.control import ControlSettings, DeviceState, GateInputs
+from suncore.core.control import ControlSettings, DeviceState, GateInputs, PowerEstimate
 from suncore.core.decisions import (
     NOT_YET_SUPPORTED_KINDS,
     Action,
@@ -94,6 +94,7 @@ from suncore.core.grid import (
     GridMemory,
     advance_grid_memory,
     island_hold_s,
+    merge_grid_memory,
     para14a_hold_s,
 )
 from suncore.core.identity import identity_token
@@ -123,6 +124,7 @@ from suncore.safety.invariants import (
     action_matches,
     action_turns_on,
     evaluate,
+    expected_power_w,
     is_switch_transition,
     power_delta_w,
 )
@@ -294,6 +296,8 @@ class SafetyGate:
         self._failures: dict[str, int] = {}
         self._site_tripped = False
         self._locks: dict[str, asyncio.Lock] = {}
+        # Actions sent and not yet read back (the settle wait): the §14a sum counts them.
+        self._writing: dict[str, Action] = {}
         # Load increases let through against one GateInputs snapshot (key: its ts).
         self._claims_ts: datetime | None = None
         self._claims: dict[str, float] = {}
@@ -1321,6 +1325,7 @@ class SafetyGate:
             switched = is_switch_transition(
                 intent.action, device, self._states(device_id)
             ) or _was_transition(intent.action, device, runtime)
+            self._writing[device_id] = intent.action
             try:
                 context_id = await actuator.apply(intent)
             except Exception as exc:
@@ -1336,15 +1341,19 @@ class SafetyGate:
                 runtime = runtime.with_switch(now, on=target)
             await self._save(runtime)
         if failed_write:
+            self._writing.pop(device_id, None)
             await self._count_failure(device_id, now)
             return await self._decide(
                 intent, DecisionKind.FAILED, now, (REASON_WRITE_FAILED,), mode
             )
-        await self._sleep(self._settle_s(device))
-        observed = await actuator.read_back()
-        return await self._confirm(
-            intent, device, now, observed=observed, context_id=context_id, mode=mode
-        )
+        try:
+            await self._sleep(self._settle_s(device))
+            observed = await actuator.read_back()
+            return await self._confirm(
+                intent, device, now, observed=observed, context_id=context_id, mode=mode
+            )
+        finally:
+            self._writing.pop(device_id, None)
 
     async def _confirm(
         self,
@@ -1912,8 +1921,9 @@ class SafetyGate:
         return self._grid_memory
 
     def seed_grid_memory(self, memory: GridMemory) -> None:
-        """Start from a remembered island/§14a history (the app restores it from grid events)."""
-        self._grid_memory = memory
+        """Add a remembered island/§14a history (the app restores it from grid events after a
+        restart); merged conservatively, so a seed never shortens a running hold."""
+        self._grid_memory = merge_grid_memory(self._grid_memory, memory)
 
     def _observe_grid(self) -> None:
         """Advance the island/§14a memory with the newest snapshot (idempotent per snapshot)."""
@@ -1929,7 +1939,9 @@ class SafetyGate:
     ) -> GridSafety:
         """The grid situation an intent is judged with (G2-G6).
 
-        The §14a sum of the *other* flagged devices takes the upper bound of each estimate and,
+        The §14a sum of the *other* flagged devices takes the upper bound of each estimate,
+        raised to the expected power of a write still in flight (a pending read-back, or a
+        confirmed write within the device's settle time: the estimate may not show it yet), and,
         conservatively, every increase already let through against the same snapshot; an
         unknown estimate makes the sum unknown (no increase of a flagged device while dimmed).
         """
@@ -1945,7 +1957,7 @@ class SafetyGate:
                 others = None
                 break
             assert others is not None
-            others += estimate.upper_w
+            others += self._para14a_power_w(device_id, estimate, inputs.ts)
         if others is not None and inputs.ts is not None:
             others += self._claimed_w()
         cooldown = self._settings.safe_state_cooldown_s
@@ -1959,6 +1971,44 @@ class SafetyGate:
             fuse_limit_w=inputs.fuse_limit_w,
             inputs_fresh=fresh,
         )
+
+    def _para14a_power_w(
+        self, device_id: str, estimate: PowerEstimate, snapshot_ts: datetime | None
+    ) -> float:
+        """Upper power of another §14a device, including a write the estimate may not show.
+
+        A write is in flight while it is sent and not read back (the settle wait), while an
+        unconfirmed read-back is pending, or while the snapshot behind the estimate was taken
+        before the device settled (write + settle time + one tick).
+        """
+        power = estimate.upper_w
+        runtime = self._runtimes.get(device_id)
+        config = self._devices(device_id)
+        if config is None:
+            return power
+        in_flight: list[Action] = []
+        writing = self._writing.get(device_id)
+        if writing is not None:
+            in_flight.append(writing)
+        if runtime is None:
+            runtime = DeviceRuntime(device_id=device_id)
+        if runtime.pending_action is not None:
+            in_flight.append(runtime.pending_action)
+        if (
+            runtime.last_written is not None
+            and runtime.last_write_ts is not None
+            and (
+                snapshot_ts is None
+                or (snapshot_ts - runtime.last_write_ts).total_seconds()
+                < self._settle_s(config) + self._settings.tick_s
+            )
+        ):
+            in_flight.append(runtime.last_written)
+        for action in in_flight:
+            expected = expected_power_w(action, config, estimate)
+            if expected is not None:
+                power = max(power, expected)
+        return power
 
     def _settle_s(self, device: DeviceConfig | None) -> float:
         if device is not None and device.settle_s is not None:

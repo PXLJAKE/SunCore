@@ -110,7 +110,14 @@ contexts = st.builds(
 def test_grid_passes_only_with_proven_surplus(c: InvariantContext) -> None:
     delta = inv.power_delta_w(c)
     verdict = inv.check_grid(c)
-    if delta is None or delta <= 0:
+    if delta is None:
+        # An increase of unknown size is rejected (G1, PR 6-F review H2); anything else passes.
+        if inv.is_load_increase(c):
+            assert verdict == inv.REASON_POWER_UNKNOWN
+        else:
+            assert verdict is None
+        return
+    if delta <= 0:
         assert verdict is None, "reducing load never trips the grid invariant"
         return
     grid = c.flows.grid_w.value if c.flows is not None else None

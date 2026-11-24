@@ -35,6 +35,9 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     flicker), `grid_outage_island`. Behaviour change: with only a fuse limit the import-limit
     back-off now reports `controller.grid.fuse_shed` and skips min run of non-thermal kinds.
     Deviations, safety self-review and questions: plan section 8 (6-F).
+  - Review conditions (PR #54): no G2 waiver on a stale snapshot; the §14a sum counts writes
+    in flight; the cool-down memory is restored from `grid_event` at start; G1 rejects load
+    increases of unknown size (`safety.power_unknown`). H3 (running programs) is due in 6-L.
 
 - **Phase 6 - PR 6-B, WP2 contracts and configuration (branch `phase-6/b-contracts`, on 6-A;
   `control-safety`)** - additive, no behaviour yet:

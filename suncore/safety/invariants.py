@@ -219,15 +219,22 @@ def _toward_base(action: SetpointAction, runtime: DeviceRuntime, state: DeviceSt
 # --- invariants -----------------------------------------------------------------
 
 
+REASON_POWER_UNKNOWN: Final = Reason(key="safety.power_unknown")
+
+
 def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one per rule
     """No grid import caused by SunCore and never above the import limit (plan WP7).
 
     Adding ``delta`` W needs a known surplus with ``surplus - uncertainty - claimed >=
     delta``, no current import and ``grid + claimed + delta <= import_limit_w`` where
     configured (``claimed`` = increases already accepted against the same snapshot).
+    A load increase of unknown size (no nominal power, no estimate) is rejected: it could
+    exceed any of these bounds (G1, the conservative direction).
     """
     delta = power_delta_w(ctx)
-    if delta is None or delta <= 0:
+    if delta is None:
+        return REASON_POWER_UNKNOWN if is_load_increase(ctx) else None
+    if delta <= 0:
         return None
     if ctx.surplus is None or ctx.surplus.quality is not Quality.OK:
         return Reason(key="safety.surplus_unknown")

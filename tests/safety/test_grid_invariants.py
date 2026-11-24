@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import math
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 from hypothesis import given, settings
@@ -23,13 +24,14 @@ from suncore.core.control import DeviceState, GateInputs, PowerEstimate
 from suncore.core.decisions import (
     Decision,
     DecisionKind,
+    Intent,
     OperatingMode,
     PowerSetpointAction,
     ReleaseAction,
     SwitchAction,
 )
 from suncore.core.devices import DeviceConfig, DeviceKind
-from suncore.core.grid import GridState, Para14aStatus
+from suncore.core.grid import GridMemory, GridState, Para14aStatus
 from suncore.core.signals import Quality
 from suncore.safety import grid as g
 from suncore.safety import invariants as inv
@@ -400,5 +402,132 @@ def test_gate_memory_survives_a_rebuild() -> None:
         clock=clock, sink=gate._sink, inputs=inputs, predecessor=gate, sleep=clock.sleep
     )
     assert successor.grid_memory.island_seen
+    # A seed is merged conservatively: it can never end a hold the gate still sees.
     successor.seed_grid_memory(dataclasses.replace(successor.grid_memory, island_seen=False))
-    assert not successor.grid_memory.island_seen
+    assert successor.grid_memory.island_seen
+
+
+# --- review conditions of PR 6-F (A1, A2, H1, H2) ----------------------------------------------
+
+
+def test_a_stale_snapshot_never_waives_min_run() -> None:
+    """A1: an old OK value above the fuse in a stale snapshot is unknown, not a breach."""
+    pump = switch_device(min_run_s=600, max_switches_per_hour=4)
+    fresh = _min_run_ctx(pump, 20_000, 3000)
+    assert inv.check_min_run_pause(fresh) is None
+    stale = dataclasses.replace(fresh, grid=GridSafety(fuse_limit_w=3000, inputs_fresh=False))
+    verdict = inv.check_min_run_pause(stale)
+    assert verdict is not None
+    assert verdict.key == "safety.min_run"
+    assert inv.check_switch_rate(stale) is not None
+
+
+def _two_flagged_gate(
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+) -> tuple[SafetyGate, FakeClock, _Inputs, dict[str, SpyActuator], dict[str, object]]:
+    clock = FakeClock()
+    configs = {
+        d: switch_device(d, nominal_w=1000, settle_s=10).model_copy(update={"para14a": True})
+        for d in ("a", "b")
+    }
+    actuators = {d: SpyActuator(d, observed=SwitchAction(on=False)) for d in configs}
+    inputs = _Inputs(clock)
+    gate = SafetyGate(
+        clock=clock,
+        sink=lambda _d: asyncio.sleep(0),
+        actuators=actuators,  # type: ignore[arg-type]
+        modes=StaticModes(OperatingMode.AUTOMATIC, dict.fromkeys(configs, OperatingMode.AUTOMATIC)),
+        devices=configs.get,
+        states=lambda _: DeviceState(on=False),
+        inputs=inputs,
+        sleep=sleep if sleep is not None else clock.sleep,
+    )
+    active: dict[str, object] = {
+        "para14a_status": Para14aStatus.ACTIVE,
+        "para14a_budget_w": 1500.0,
+        "para14a_devices": frozenset(configs),
+        "estimates": {d: PowerEstimate(value_w=0, uncertainty_w=0) for d in configs},
+    }
+    return gate, clock, inputs, actuators, active
+
+
+def _on(device_id: str, clock: FakeClock, n: int) -> Intent:
+    return make_intent(SwitchAction(on=True), asset_id=device_id, ts=clock.now, intent_id=f"i{n}")
+
+
+LIMIT_2000 = g.Reason(key="safety.para14a_limit", args={"budget_w": 1500, "total_w": 2000})
+
+
+def test_gate_para14a_counts_a_write_during_its_settle_wait() -> None:
+    """A2: B is judged while A's write waits for its read-back, on a new snapshot (no claim)
+    in which A's estimate still shows its old power: rejected."""
+    released = asyncio.Event()
+
+    async def held_sleep(seconds: float) -> None:
+        await released.wait()
+        clock.advance(seconds)
+
+    gate, clock, inputs, actuators, active = _two_flagged_gate(held_sleep)
+    inputs.set(**active)
+
+    async def go() -> tuple[Decision, Decision]:
+        first = asyncio.create_task(gate.submit(_on("a", clock, 1)))
+        await asyncio.sleep(0)
+        assert actuators["a"].applied  # sent, read-back pending
+        clock.advance(5)
+        inputs.set(**active)
+        second = await gate.submit(_on("b", clock, 2))
+        released.set()
+        return await first, second
+
+    first, second = asyncio.run(go())
+    assert first.kind is DecisionKind.ACCEPTED
+    assert second.kind is DecisionKind.REJECTED
+    assert second.reasons[0] == LIMIT_2000
+    assert actuators["b"].applied == []
+
+
+def test_gate_para14a_counts_a_write_until_a_settled_snapshot() -> None:
+    """A2: after the read-back, a snapshot taken before A settled (write + settle + one tick)
+    does not show A's power yet; a later one does (its estimate is the authority again)."""
+    gate, clock, inputs, actuators, active = _two_flagged_gate()
+    written = clock.now
+    inputs.set(**active)
+    assert asyncio.run(gate.submit(_on("a", clock, 1))).kind is DecisionKind.ACCEPTED
+    clock.advance(2)  # 12 s after the write: snapshot before write + 10 s settle + 5 s tick
+    inputs.set(**active)
+    assert inputs.value.ts == written + timedelta(seconds=12)
+    d = asyncio.run(gate.submit(_on("b", clock, 2)))
+    assert d.kind is DecisionKind.REJECTED
+    assert d.reasons[0] == LIMIT_2000
+    clock.advance(4)  # 16 s: settled
+    inputs.set(**active)
+    assert asyncio.run(gate.submit(_on("b", clock, 3))).kind is DecisionKind.ACCEPTED
+    assert len(actuators["b"].applied) == 1
+
+
+def test_gate_seed_restores_a_running_cooldown() -> None:
+    """H1: a restart within the cool-down: the seeded memory still holds increases."""
+    gate, clock, inputs, _, _ = _gate()
+    inputs.set()
+    ended = clock.now - timedelta(seconds=60)
+    gate.seed_grid_memory(GridMemory(island_ended_at=ended))
+    d = _submit(gate, clock)
+    assert d.reasons[0] == g.Reason(key="safety.grid_cooldown", args={"remaining_s": 60})
+    clock.advance(61)
+    inputs.set()
+    assert _submit(gate, clock, 2).kind is DecisionKind.ACCEPTED
+
+
+def test_an_increase_of_unknown_size_is_rejected() -> None:
+    """H2: no nominal power and no estimate: the switch-on could exceed every bound (G1)."""
+    device = switch_device()
+    device = device.model_copy(
+        update={"power_model": device.power_model.model_copy(update={"nominal_w": None})}
+    )
+    c = context(SwitchAction(on=True), device, GridSafety(), state=DeviceState(on=False))
+    assert inv.power_delta_w(c) is None
+    assert inv.check_grid(c) == inv.REASON_POWER_UNKNOWN
+    off = dataclasses.replace(c, action=SwitchAction(on=False), state=DeviceState(on=True))
+    assert inv.check_grid(off) is None
+    assert inv.check_grid(dataclasses.replace(c, action=ReleaseAction())) is None

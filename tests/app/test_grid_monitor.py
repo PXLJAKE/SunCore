@@ -91,6 +91,10 @@ def test_flush_persists_and_load_seeds(tmp_path: Path) -> None:
             fresh = GridMonitor(TZ, store=store)
             await fresh.load(T0)
             assert fresh.month_peak_w(T0) == 2000.0
+            # Restart while island was still open (review H1): the memory holds increases.
+            memory = await fresh.load_memory(T0 + timedelta(minutes=20))
+            assert memory.island_seen
+            assert (await GridMonitor(TZ).load_memory(T0)).island_seen is False
         finally:
             await db.close()
 

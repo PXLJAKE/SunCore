@@ -183,8 +183,14 @@ def fuse_shed_waiver(
     kind: DeviceKind, switches_off: bool, flows: FlowSnapshot | None, grid: GridSafety
 ) -> bool:
     """G2: a switch-off above the fuse limit skips min run and the switch limit, except for
-    thermal kinds (compressors keep their minimum run time)."""
-    return switches_off and kind not in THERMAL_KINDS and fuse_exceeded(flows, grid)
+    thermal kinds (compressors keep their minimum run time). Needs a fresh snapshot: an old
+    ``OK`` value above the fuse in a stale snapshot is an unknown situation, not a breach."""
+    return (
+        switches_off
+        and grid.inputs_fresh
+        and kind not in THERMAL_KINDS
+        and fuse_exceeded(flows, grid)
+    )
 
 
 # --- battery ----------------------------------------------------------------------------------

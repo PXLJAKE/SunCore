@@ -13,6 +13,7 @@ Signs and units: W, import and export limits are magnitudes (>= 0).
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, tzinfo
 from enum import StrEnum, unique
@@ -304,6 +305,54 @@ def para14a_hold_s(memory: GridMemory, now: datetime, cooldown_s: float) -> floa
     return _remaining(memory.para14a_ended_at, now, cooldown_s)
 
 
+def merge_grid_memory(current: GridMemory, seed: GridMemory) -> GridMemory:
+    """The more conservative union of two memories (a restored one never shortens a hold).
+
+    "Seen" wins over "ended"; of two end times the later one counts; ``ts`` stays the
+    current memory's, so the next live snapshot is still taken.
+    """
+
+    def later(a: datetime | None, b: datetime | None) -> datetime | None:
+        if a is None or b is None:
+            return a if b is None else b
+        return max(a, b)
+
+    island_seen = current.island_seen or seed.island_seen
+    para_seen = current.para14a_seen or seed.para14a_seen
+    return GridMemory(
+        island_seen=island_seen,
+        island_ended_at=None
+        if island_seen
+        else later(current.island_ended_at, seed.island_ended_at),
+        para14a_seen=para_seen,
+        para14a_ended_at=None
+        if para_seen
+        else later(current.para14a_ended_at, seed.para14a_ended_at),
+        ts=current.ts,
+    )
+
+
+def grid_memory_from_events(events: Iterable[tuple[datetime, str]]) -> GridMemory:
+    """Rebuild the memory from stored grid events ``(ts, kind)``, oldest first (restart).
+
+    ``island_start`` without a later ``island_end`` keeps island "seen" (the cool-down then
+    starts at the first live connected snapshot); ``para14a_start``/``para14a_unknown`` alike
+    for §14a. Other kinds are ignored. ``ts`` stays ``None``: every live snapshot counts.
+    """
+    island_seen, island_ended = False, None
+    para_seen, para_ended = False, None
+    for ts, kind in events:
+        if kind == "island_start":
+            island_seen, island_ended = True, None
+        elif kind == "island_end":
+            island_seen, island_ended = False, ts
+        elif kind in {"para14a_start", "para14a_unknown"}:
+            para_seen, para_ended = True, None
+        elif kind == "para14a_end":
+            para_seen, para_ended = False, ts
+    return GridMemory(island_seen, island_ended, para_seen, para_ended, None)
+
+
 def _remaining(ended: datetime | None, now: datetime, cooldown_s: float) -> float:
     if ended is None:
         return 0.0
@@ -323,8 +372,10 @@ __all__ = [
     "advance_grid_memory",
     "effective_export_limit_w",
     "effective_import_limit_w",
+    "grid_memory_from_events",
     "grid_state_from",
     "island_hold_s",
+    "merge_grid_memory",
     "month_bounds",
     "month_key",
     "para14a_budget_w",

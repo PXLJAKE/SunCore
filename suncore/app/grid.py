@@ -28,7 +28,15 @@ import structlog
 
 from suncore.controller.grid import GridInputs
 from suncore.core.balance import FlowSnapshot
-from suncore.core.grid import GridState, Para14aStatus, month_key, updated_month_peak_w
+from suncore.core.grid import (
+    GridMemory,
+    GridState,
+    Para14aStatus,
+    grid_memory_from_events,
+    month_key,
+    updated_month_peak_w,
+)
+from suncore.core.series import TimeRange
 from suncore.core.signals import Quality
 from suncore.storage.grid import GridEvent, GridStore
 
@@ -37,6 +45,8 @@ log = structlog.get_logger(__name__)
 QUARTER_S: Final = 900
 MIN_COVERAGE: Final = 0.5
 """A quarter with less measured time than this share does not set a peak."""
+MEMORY_LOOKBACK: Final = timedelta(days=2)
+"""How far back the grid events are read to restore the cool-down memory at start."""
 MAX_GAP_S: Final = 60.0
 """A gap between two ticks longer than this is not integrated (missing time)."""
 
@@ -93,6 +103,20 @@ class GridMonitor:
             return
         if stored is not None:
             self.seed(month, stored.peak_w)
+
+    async def load_memory(self, now: datetime) -> GridMemory:
+        """The island/§14a memory rebuilt from the stored events of the last
+        :data:`MEMORY_LOOKBACK` (restart within a cool-down, G6); empty without a store or on
+        a read failure (logged; the restart itself has already released every device)."""
+        if self.store is None:
+            return GridMemory()
+        window = TimeRange(start=now - MEMORY_LOOKBACK, end=now + timedelta(seconds=1))
+        try:
+            events = await self.store.events(window)
+        except Exception:
+            log.exception("grid.memory_load_failed")
+            return GridMemory()
+        return grid_memory_from_events((e.ts, e.kind) for e in events)
 
     def _integrate(self, now: datetime, import_w: float | None) -> None:
         slot = datetime.fromtimestamp(

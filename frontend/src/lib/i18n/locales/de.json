@@ -732,6 +732,7 @@
   "safety.grid_import_limit": "Nicht eingeschaltet: Die Bezugsgrenze von {limit_w} W würde überschritten (aktuell {grid_w} W).",
   "safety.grid_importing": "Nicht eingeschaltet: Das Haus bezieht {grid_w} W aus dem Netz.",
   "safety.grid_unknown": "Nicht eingeschaltet: Die Netzleistung ist unbekannt.",
+  "safety.power_unknown": "Nicht eingeschaltet: Die Leistung, die das Gerät aufnehmen würde, ist unbekannt.",
   "safety.intent_stale": "Verworfen: Die Anforderung war zu alt, als sie die Sicherheitsebene erreichte.",
   "safety.max_switches": "Nicht geschaltet: {count} von {limit} Schaltvorgängen pro Stunde bereits verbraucht.",
   "safety.min_pause": "Nicht eingeschaltet: Mindestpausenzeit, noch {remaining_s} s.",

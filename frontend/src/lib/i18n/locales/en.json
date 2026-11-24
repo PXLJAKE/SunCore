@@ -732,6 +732,7 @@
   "safety.grid_import_limit": "Not switched on: the grid import limit of {limit_w} W would be exceeded (now {grid_w} W).",
   "safety.grid_importing": "Not switched on: the house is importing {grid_w} W from the grid.",
   "safety.grid_unknown": "Not switched on: the grid power is unknown.",
+  "safety.power_unknown": "Not switched on: how much power the device would draw is unknown.",
   "safety.intent_stale": "Dropped: the request was too old when it reached the safety layer.",
   "safety.max_switches": "Not switched: {count} of {limit} switch operations per hour already used.",
   "safety.min_pause": "Not switched on: minimum pause time, {remaining_s} s left.",
