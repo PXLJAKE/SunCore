@@ -430,3 +430,12 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   newest snapshot created at or before `ts` even when its intervals have run out
   (`interval_index` is then `null`). The explain inputs are the raw site readings (grid, PV, house,
   battery, SoC, the device's power and state), not a derived surplus.
+- **5-G:** no free custom range (`/history/summary` takes a period and a day only); the date field
+  jumps to any day's period instead. The heatmap shows at least the last 28 days, cycles and
+  forecast skill the 14 days up to a single day (the caption names the range). The deep link to
+  the plan chart is `#/plan?day=YYYY-MM-DD`; the plan view reads it in 5-F. The shared chunks
+  `echarts-core`/`echarts-history` of decision 6 are not split yet: the history charts register
+  into the one existing `echarts` chunk (194 kB of 200 kB). First paint is at 124.9 of 125 kB
+  because the catalogues are part of it; the next PR with new strings needs lazy per-view or
+  per-locale catalogues. The router has a `history` route and parses the hash query. The
+  mobile navigation wraps (five links no longer fit 375 px).

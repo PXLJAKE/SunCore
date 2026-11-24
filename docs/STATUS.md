@@ -10,6 +10,22 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 5 – PR 5-G, WP8 history view and export (branch `phase-5/g-history`, on 5-D;
+  `frontend-engineer`)**:
+  - `#/history` (lazy chunk): period day/week/month/year with previous/next/today and a date jump,
+    state in the URL (`#/history?period=week&date=2026-06-10`); tiles (autarky, self-consumption,
+    PV, consumption, import, export, cost, savings against both baselines, cycles) with the
+    attribution box; charts energy bars, cost against the baselines, Sankey, heatmap, cycles with
+    SoC range, forecast skill; device run-time table. Every chart has a data table as text
+    alternative, a CSV link (`format=csv`) and a PNG button. Incomplete days are dashed and
+    marked; collecting, unavailable (503) and per-section error states.
+  - ECharts only in the existing chunk (`HistoryChart.svelte`: bar, line, sankey, heatmap,
+    visualMap added). `api/history.ts` and the store live in the lazy chunk, not in first paint.
+  - Verified: Vitest 307, `npm run verify` green, Playwright `history.spec.ts` 36 passed (desktop,
+    phone, tablet; axe light and dark), screenshots `history-*` in `docs/assets/screenshots/`.
+  - Bundle: first paint 124.9 kB gzip (budget 125 kB, the catalogues grew by about 90 keys),
+    everything but ECharts 202 kB, ECharts chunk 194 kB (budget 200 kB). Deviations: plan §8 (5-G).
+
 - **Phase 5 – PR 5-D, WP4 history API (branch `phase-5/d-api`, on 5-C; `backend-engineer`)**:
   - `GET /api/v1/history/{summary,series,sankey,heatmap,cycles,forecast-skill,devices}`, each with
     `format=csv` (UTF-8, comma, dot, ISO time with the site offset, units in column names);
