@@ -13,12 +13,12 @@ by default, set up in minutes.**
 > and battery control**: a plan with a reason for every interval, a risk level and buffers, and
 > limits on your home battery (generic Home Assistant entities, Kostal Plenticore), all behind a
 > safety layer. Phase 5 (built, awaiting review) adds **history and analysis** (day to year,
-> autarky, savings against two baselines, Sankey, heatmap, forecast skill, CSV and PNG export), a **decision log with
-> "Why?"**, a **plan chart** that sets the plan against measured values, an **expert mode** with
+> autarky, savings against two baselines, Sankey, heatmap, forecast skill, CSV and PNG
+> export), a **decision log with "Why?"**, a **plan chart** that sets the plan against measured values, an **expert mode** with
 > a generated parameter reference, and **what-if backtests** of the real planner on past days
 > (an estimate, see its limits). Everything starts in **shadow mode** and switches or writes
-> nothing until you set a device or the battery to automatic or assisted; neither the controller nor the planner
-> and battery control have run against real hardware yet. See
+> nothing until you set a device or the battery to automatic or assisted; neither the
+> controller nor the planner and battery control have run against real hardware yet. See
 > [Planning and battery control](docs/user/en/planning-and-battery.md),
 > [Surplus control](docs/user/en/surplus-control.md), the [roadmap](docs/roadmap.md) and
 > [status](docs/STATUS.md).
