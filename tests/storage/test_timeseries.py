@@ -376,6 +376,8 @@ async def test_maintain_on_an_empty_database_and_size_report(store: TimeseriesSt
         "price",
         "day_summary",
         "accuracy_day",
+        "grid_event",
+        "grid_peak",
     }
     assert all(count == 0 for count in size.rows.values())
 

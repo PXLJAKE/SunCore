@@ -15,6 +15,8 @@ from suncore.storage.errors import (
     StorageError,
     UnknownSectionError,
 )
+from suncore.storage.flex import FlexStateStore
+from suncore.storage.grid import GridEvent, GridStore, MonthPeak
 from suncore.storage.learned import LearnedParam, LearnedParamStore
 from suncore.storage.plans import PlanSnapshot, PlanSnapshotMeta, PlanSnapshotStore
 from suncore.storage.runtime import PowerModelStateStore, SqliteRuntimeStore
@@ -29,12 +31,16 @@ __all__ = [
     "ConfigStore",
     "Database",
     "DecisionLog",
+    "FlexStateStore",
+    "GridEvent",
+    "GridStore",
     "HistoryEntry",
     "HistoryEntryNotFoundError",
     "ImportRejectedError",
     "LearnedParam",
     "LearnedParamStore",
     "MigrationError",
+    "MonthPeak",
     "PlanSnapshot",
     "PlanSnapshotMeta",
     "PlanSnapshotStore",

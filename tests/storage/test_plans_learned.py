@@ -43,7 +43,7 @@ async def test_v3_database_upgrades_to_v4_and_keeps_data(tmp_path: Path) -> None
 
 async def test_fresh_database_has_the_latest_schema(tmp_path: Path) -> None:
     async with await Database.open(tmp_path / "s.db") as db:
-        assert await db.user_version() == latest_version() == 5
+        assert await db.user_version() == latest_version() == 6
 
 
 async def test_reader_of_schema_3_refuses_a_newer_schema(tmp_path: Path) -> None:

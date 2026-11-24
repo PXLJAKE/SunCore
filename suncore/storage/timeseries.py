@@ -18,6 +18,8 @@ table                     content                                 kept
 ``price``                 import/export price per slot            400 days
 ``day_summary``           frozen daily flows, KPIs, cost (WP3)    unlimited
 ``accuracy_day``          daily forecast error per source (WP3)   unlimited
+``grid_event``            island/§14a/peak events (Phase 6)       400 days
+``grid_peak``             monthly 15-min import peak (Phase 6)    unlimited
 ========================  ======================================  =============
 
 Conventions: timestamps are integer seconds since the UNIX epoch (UTC); a gap in a measurement
@@ -56,6 +58,7 @@ from suncore.core.series import (
 )
 from suncore.storage.db import Database, Row, SqlParam
 from suncore.storage.errors import MigrationError, SchemaTooNewError
+from suncore.storage.grid import GRID_EVENT_KEEP, GridStore
 from suncore.storage.migrations import Migration, load_migrations
 from suncore.storage.summaries import AccuracyDayStore, DaySummaryStore
 
@@ -86,6 +89,8 @@ SIZE_TABLES: Final = (
     "price",
     "day_summary",
     "accuracy_day",
+    "grid_event",
+    "grid_peak",
 )
 """Tables whose row counts the size report lists."""
 
@@ -260,10 +265,11 @@ class RetentionReport:
     minute: int
     forecast: int
     price: int
+    grid_event: int = 0
 
     @property
     def total(self) -> int:
-        return self.raw + self.minute + self.forecast + self.price
+        return self.raw + self.minute + self.forecast + self.price + self.grid_event
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +312,11 @@ class TimeseriesStore:
     def day_summaries(self) -> DaySummaryStore:
         """The frozen daily summaries (Phase 5)."""
         return DaySummaryStore(self._db)
+
+    @property
+    def grid(self) -> GridStore:
+        """Grid events and monthly peaks (Phase 6)."""
+        return GridStore(self._db)
 
     @property
     def accuracy_days(self) -> AccuracyDayStore:
@@ -674,7 +685,13 @@ class TimeseriesStore:
                 "DELETE FROM forecast WHERE slot_start < ?", (forecast_cut,)
             )
             price = await tx.execute("DELETE FROM price WHERE slot_start < ?", (price_cut,))
-        return RetentionReport(raw=raw, minute=minute, forecast=forecast, price=price)
+            grid_event = await tx.execute(
+                "DELETE FROM grid_event WHERE ts < ?",
+                (now_s - int(GRID_EVENT_KEEP.total_seconds()),),
+            )
+        return RetentionReport(
+            raw=raw, minute=minute, forecast=forecast, price=price, grid_event=grid_event
+        )
 
     async def maintain(self, now: datetime) -> MaintenanceReport:
         """The nightly job: downsample first (nothing is deleted before it is aggregated),

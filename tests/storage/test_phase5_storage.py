@@ -33,7 +33,7 @@ async def test_timeseries_db_of_schema_1_upgrades_and_keeps_its_rows(tmp_path: P
             "VALUES ('site.pv_w', 900, 5.0, 5.0, 5.0, 1, 0)"
         )
     async with await open_timeseries(path) as db:
-        assert await db.user_version() == len(timeseries_migrations()) == 2
+        assert await db.user_version() == len(timeseries_migrations()) == 3
         tables = {r[0] for r in await db.fetchall("SELECT name FROM sqlite_master")}
         assert {"day_summary", "accuracy_day"} <= tables
         assert await db.fetchone("SELECT mean FROM measurement_15m") == (5.0,)
@@ -46,9 +46,10 @@ async def test_timeseries_schema_1_reader_refuses_schema_2(tmp_path: Path) -> No
     async with aiosqlite.connect(path, isolation_level=None) as conn:
         with pytest.raises(SchemaTooNewError) as info:
             await run_migrations(conn, timeseries_migrations()[:1])
-    assert (info.value.db_version, info.value.code_version) == (2, 1)
+    newest = len(timeseries_migrations())  # 3 since Phase 6
+    assert (info.value.db_version, info.value.code_version) == (newest, 1)
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone() == (2,)  # left untouched
+    assert con.execute("PRAGMA user_version").fetchone() == (newest,)  # left untouched
     con.close()
 
 
@@ -61,7 +62,7 @@ async def test_suncore_db_of_schema_4_upgrades_to_5(tmp_path: Path) -> None:
             "VALUES ('t', 'x', 1, x'00')"
         )
     async with await Database.open(path) as db:
-        assert await db.user_version() == latest_version() == 5
+        assert await db.user_version() == latest_version() == 6
         tables = {r[0] for r in await db.fetchall("SELECT name FROM sqlite_master")}
         assert "backtest_run" in tables
         assert await db.fetchone("SELECT COUNT(*) FROM plan_snapshot") == (1,)
@@ -74,7 +75,7 @@ async def test_suncore_db_schema_4_reader_refuses_schema_5(tmp_path: Path) -> No
     async with aiosqlite.connect(path, isolation_level=None) as conn:
         with pytest.raises(SchemaTooNewError) as info:
             await run_migrations(conn, load_migrations()[:4])
-    assert (info.value.db_version, info.value.code_version) == (5, 4)
+    assert (info.value.db_version, info.value.code_version) == (latest_version(), 4)
 
 
 # --- day_summary ------------------------------------------------------------------------------
