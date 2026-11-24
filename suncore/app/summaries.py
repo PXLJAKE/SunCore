@@ -309,6 +309,13 @@ class DaySummaryJob:
             )
         return SummaryReport(examined, written, unchanged, no_data)
 
+    async def preview(self, day: date, context: SummaryContext) -> DaySummaryRow | None:
+        """The row ``day`` would get now, without storing it (the history API's live day).
+
+        ``None`` if not one complete slot of the day was measured yet.
+        """
+        return (await self._chunk(day, day, context))[0]
+
     async def _chunk(
         self, first: date, last: date, context: SummaryContext
     ) -> list[DaySummaryRow | None]:
