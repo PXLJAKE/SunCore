@@ -11,6 +11,35 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 6 - PR 6-L, WP12 shiftable programs (branch `phase-6/l-programs`, on 6-I + 6-E;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - Control kind `program` is judged now (no longer rejected). `safety/programs.py`: P1-P5 as
+    pure functions (start only for an armed job with a fresh measured power; never off while
+    the job runs, the appliance draws `idle_w` or more, its power is unknown or within run
+    time + 15 min of SunCore's switch-on; off only within 600 s of arming; a deadline-bound
+    start may import up to the program's peak power, the import limit holds). The plug's
+    takeover baseline is on (P3); a release never switches a possibly running program off; the
+    G2 fuse waiver skips running programs (6-F review H3); programs have no surplus levels, so
+    the deficit back-off never touches them. P6 = the existing behaviour cap.
+  - New control kind `notify` (`NotifyControl`, only with `start_method: notify`): nothing is
+    ever written, the gate rejects every action but a release.
+  - `devices/drivers/program.py`: plug (`switch`/`input_boolean`), remote start (switch, never
+    switched off, release writes nothing), notify (no entity).
+  - `controller/programs.py`: armed -> scheduled (fresh plan `start` band) -> running (start
+    accepted, or power >= `idle_w` for 30 s: manual start) -> done (run time + 5 min idle);
+    start at the planned window or at the latest start that meets the deadline; missed
+    deadline = cancelled + notification; no start on unknown power, untrusted site inputs, a
+    blocked device or in island; one release after a job SunCore wrote for.
+  - `app/programs.py` `ProgramJobBook` (open jobs, persisted to `flex_state`), notifications
+    `notify.program.start_now/done/missed` through `NotificationService.post`; the runtime
+    passes the open jobs to the planner (`FlexRequest.jobs`). No API/MQTT/panel to arm a job
+    yet (6-D/6-M, like the EV mode in 6-I).
+  - Templates `generic.program_plug`, `generic.program_notify`, `generic.program_remote`
+    (+ conformance scenarios), en/de keys; simulator `SimProgram` and scenarios
+    `program_deadline_plug` (with and without the real planner, cloud flicker),
+    `program_notify_start`, `program_crash_recovery`; e2e gallery count 10.
+  - Deviations, safety self-review and questions: plan section 8 (6-L).
+
 - **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
   - `charge` is a judged action kind now (`NOT_YET_SUPPORTED_KINDS` = loadpoint, inverter
@@ -1238,6 +1267,7 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
 | SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
 | Wallbox control: exercised in the simulator only (no wallbox in the session); the phase switch pause (120 s default), whether a charger accepts a phase change while paused, min run/pause defaults (300 s) for cloud-polled chargers; no integration template verified from `home-assistant/core` source (only home-assistant.io `wallbox` page, 2026-11-24) | `templates/device/generic.wallbox.yaml`, `suncore/devices/drivers/charger.py`, plan section 8 (6-I) | a real wallbox; a session with access to the core source |
+| Shiftable programs (6-L): exercised in the simulator only; whether an appliance resumes its programme after the plug's power returns (per appliance, the user confirms `resume_confirmed`); remote-start switches per integration (a `button` role is not supported yet); placeholder run time 120 min, `idle_w` 5 W and peak power in the templates; appliances that draw more than `idle_w` right after start are treated as running (no delay) | `templates/device/generic.program_*.yaml`, `suncore/devices/drivers/program.py`, plan section 8 (6-L) | a real washing machine/dishwasher behind a plug; an integration with a remote start |
 | Notifications (6-E): payload of `mobile_app_notification_action` beyond `data.action`; that the Supervisor token may `subscribe_events` for it (else plain messages); `data.actions` on every legacy `notify.<service>`; `notify.send_message` has no button field | `suncore/ha/connection.py`, `suncore/notify/`, `research/ha-websocket-api.md` | first run on HA OS with the companion app |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |

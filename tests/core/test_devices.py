@@ -23,6 +23,7 @@ from suncore.core.devices import (
     DeviceKind,
     LoadpointControl,
     ModeControl,
+    NotifyControl,
     OnOffControl,
     PowerModel,
     PowerModelKind,
@@ -234,6 +235,7 @@ def test_control_kinds_match_the_enum() -> None:
             ChargerControl,
             SgReadyControl,
             LoadpointControl,
+            NotifyControl,
         )
     }
     assert kinds == {k.value for k in ControlKind}

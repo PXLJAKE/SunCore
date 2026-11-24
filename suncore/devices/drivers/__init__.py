@@ -20,6 +20,7 @@ from suncore.devices.drivers.factory import create_driver
 from suncore.devices.drivers.mode import ModeDriver
 from suncore.devices.drivers.number import NumberDriver
 from suncore.devices.drivers.onoff import OnOffDriver
+from suncore.devices.drivers.program import ProgramDriver
 from suncore.devices.drivers.steps import StepsDriver
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "ModeDriver",
     "NumberDriver",
     "OnOffDriver",
+    "ProgramDriver",
     "ServiceWriter",
     "StateLookup",
     "StepsDriver",

@@ -192,6 +192,7 @@ VALIDATION_KEYS: Final[dict[str, str]] = {
     "suncore.mqtt_password_needs_user": "api.validation.mqtt_password_needs_user",
     "suncore.mqtt_password_is_mask": "api.validation.mqtt_password_is_mask",
     "suncore.mqtt_supervisor_extra": "api.validation.mqtt_supervisor_extra",
+    "suncore.notify_control_needs_program": "api.validation.notify_control_needs_program",
     "suncore.notify_target_entity": "api.validation.notify_target_entity",
     "suncore.notify_target_service": "api.validation.notify_target_service",
     "suncore.notify_targets_unique": "api.validation.notify_targets_unique",

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from hypothesis import strategies as st
 
@@ -31,6 +32,7 @@ from suncore.core.devices import (
     OverridePolicy,
     PowerModel,
     PowerModelKind,
+    ProgramSpec,
     SetpointControl,
     Step,
     StepsControl,
@@ -311,3 +313,43 @@ surpluses = st.one_of(
         quality=st.sampled_from(Quality),
     ),
 )
+
+
+# --- shiftable programs (PR 6-L) ---------------------------------------------------
+
+RUNTIME_MIN = 120
+IDLE_W = 5.0
+
+
+def program_device(method: Literal["plug", "remote", "notify"] = "plug") -> DeviceConfig:
+    role = {"plug": "switch", "remote": "start"}.get(method)
+    entities = {"power": EntityRef(entity_id="sensor.washer_power")}
+    if role is not None:
+        entities[role] = EntityRef(entity_id=f"switch.washer_{role}")
+    control = OnOffControl(kind="on_off", role=role) if role is not None else {"kind": "notify"}
+    return DeviceConfig.model_validate(
+        {
+            "id": "washer",
+            "template_id": f"generic.program_{method}",
+            "name": "Washer",
+            "kind": DeviceKind.PROGRAM,
+            "entities": entities,
+            "power_model": PowerModel(
+                kind=PowerModelKind.MEASURED, power_role="power", nominal_w=2000
+            ),
+            "control": control,
+            "program": ProgramSpec(
+                runtime_min=RUNTIME_MIN,
+                profile_wh=(500, 120, 60, 60, 60, 60, 250, 120),
+                start_method=method,
+                idle_w=IDLE_W,
+                resume_confirmed=method == "plug",
+            ),
+            "behaviour_confirmed": True,
+        }
+    )
+
+
+PLUG = program_device("plug")
+REMOTE = program_device("remote")
+NOTIFY = program_device("notify")

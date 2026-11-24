@@ -78,8 +78,35 @@ EV_BATTERY_WAIT: Final = "controller.ev.battery_wait"
 EV_INPUTS_UNKNOWN: Final = "controller.ev.inputs_unknown"
 EV_PHASE_SWITCH: Final = "controller.ev.phase_switch"
 EV_PHASE_PAUSE: Final = "controller.ev.phase_pause"
+# Phase 6 PR 6-L: shiftable programs (``controller.programs``).
+PROGRAM_START: Final = "controller.program.start"
+PROGRAM_DEADLINE_START: Final = "controller.program.deadline_start"
+PROGRAM_ARM_OFF: Final = "controller.program.arm_off"
+PROGRAM_RELEASE: Final = "controller.program.release"
+PROGRAM_NO_JOB: Final = "controller.program.no_job"
+PROGRAM_ARMED: Final = "controller.program.armed"
+PROGRAM_SCHEDULED: Final = "controller.program.scheduled"
+PROGRAM_RUNNING: Final = "controller.program.running"
+PROGRAM_START_NOW: Final = "controller.program.start_now"
+PROGRAM_INPUTS_UNKNOWN: Final = "controller.program.inputs_unknown"
+PROGRAM_ISLAND: Final = "controller.program.island"
+PROGRAM_BLOCKED: Final = "controller.program.blocked"
+PROGRAM_NO_POWER_SENSOR: Final = "controller.program.no_power_sensor"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
+    PROGRAM_START,
+    PROGRAM_DEADLINE_START,
+    PROGRAM_ARM_OFF,
+    PROGRAM_RELEASE,
+    PROGRAM_NO_JOB,
+    PROGRAM_ARMED,
+    PROGRAM_SCHEDULED,
+    PROGRAM_RUNNING,
+    PROGRAM_START_NOW,
+    PROGRAM_INPUTS_UNKNOWN,
+    PROGRAM_ISLAND,
+    PROGRAM_BLOCKED,
+    PROGRAM_NO_POWER_SENSOR,
     BATTERY_EV_LOCK,
     EV_MODE_OFF,
     EV_NOT_CONNECTED,

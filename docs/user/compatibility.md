@@ -21,6 +21,9 @@ a template only tested in the simulator has never run against real hardware.
 |---|---|---|---|---|---|---|
 | `generic.climate` | device | Generic climate device | any | `energy_counter`, `hvac_modes`, `power_measured`, `temperature_setpoint` | not tested on hardware | 3 |
 | `generic.number_load` | device | Load with a number entity | any | `power_measured`, `power_setpoint` | not tested on hardware | 3 |
+| `generic.program_notify` | device | Shiftable program (notification) | any | `power_measured` | not tested on hardware | 2 |
+| `generic.program_plug` | device | Shiftable program (smart plug) | any | `on_off`, `power_measured` | not tested on hardware | 4 |
+| `generic.program_remote` | device | Shiftable program (remote start switch) | any | `power_measured`, `remote_start` | not tested on hardware | 3 |
 | `generic.switch` | device | Switch or smart plug | any | `on_off`, `power_measured` | not tested on hardware | 2 |
 | `generic.wallbox` | device | Wallbox (generic entities) | any | `ev_charging`, `power_measured` | not tested on hardware | 5 |
 | `generic.water_heater_relays` | device | Water heater with 1-3 relays | any | `power_measured`, `power_setpoint` | not tested on hardware | 7 |

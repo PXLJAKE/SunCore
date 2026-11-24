@@ -43,6 +43,7 @@ from typing import Final, cast
 import structlog
 
 from suncore.app.grid import GridMonitor
+from suncore.app.programs import ProgramJobBook
 from suncore.controller import (
     CallableQuantiser,
     Controller,
@@ -53,6 +54,7 @@ from suncore.controller import (
 from suncore.controller.battery import BatteryControlInputs
 from suncore.controller.grid import GridInputs, resolve_grid_inputs
 from suncore.controller.loop import TickResult
+from suncore.controller.programs import ProgramEvent
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.battery import (
     BATTERY_ASSET_ID,
@@ -239,6 +241,10 @@ class ControlStack:
             it the plan given to :meth:`set_plan` (default ``Plan.default()``) is used.
         ev_states: ``device id -> EvState | None`` - the runtime EV mode and target of a charger
             (``flex_state``, PR 6-I); ``None`` or a missing state = the device's default mode.
+        programs: the open program jobs (PR 6-L; the runtime's book persists to
+            ``flex_state``); ``None`` = a private in-memory book.
+        on_program_event: receives the controller's program events (start now, done, missed)
+            after the tick; an exception is logged and swallowed.
         defer_recover: wait for :meth:`allow_recover` before ``gate.recover()`` (the runtime
             first learns Home Assistant's time zone, whose change would rebuild the stack in
             the middle of the recovery).
@@ -274,8 +280,13 @@ class ControlStack:
         battery: BatteryWiring | None = None,
         grid_monitor: GridMonitor | None = None,
         ev_states: Callable[[str], EvState | None] | None = None,
+        programs: ProgramJobBook | None = None,
+        on_program_event: Callable[[ProgramEvent], None] | None = None,
     ) -> None:
         self._connection = connection
+        self.programs = programs if programs is not None else ProgramJobBook()
+        """The open program jobs (PR 6-L) the controller and the gate read."""
+        self._on_program_event = on_program_event
         self._ev_states = ev_states
         self.grid_monitor = grid_monitor if grid_monitor is not None else GridMonitor(tz)
         """Monthly peak and grid events (PR 6-F); in memory unless the runtime gives a store."""
@@ -378,6 +389,7 @@ class ControlStack:
             battery=gate_battery,
             ev_modes=self.ev_mode,
             plan=self.current_plan,
+            programs=self.programs.jobs_of,
         )
         self.deviations: deque[DeviationEvent] = deque(maxlen=DEVIATION_HISTORY)
         self.loop = ControllerLoop(
@@ -888,15 +900,35 @@ class ControlStack:
             },
             # review 6-I H3: a measured battery flow is a battery, configured or not
             battery_present=self._battery_present(flows),
+            jobs=self.programs.open_jobs(),
         )
         self.estimates = estimates
         self.states = states
         self._record_measurements(now, flows, estimates, states)
         self.last = await self.loop.tick(now, inputs)
+        self._program_outcome(self.last)
         self._observe_grid(now, flows, grid)
         self._maybe_save_models(now)
         self._notify()
         return self.last
+
+    def _program_outcome(self, result: TickResult) -> None:
+        """Persist the tick's job changes and announce its program events (PR 6-L)."""
+        if self.programs.update_jobs(result.program_jobs):
+            self._spawn(self.programs.flush())
+        for event in result.program_events:
+            log.info(
+                "control.program_event",
+                kind=event.kind,
+                device_id=event.device_id,
+                job=event.job.id,
+            )
+            if self._on_program_event is None:
+                continue
+            try:
+                self._on_program_event(event)
+            except Exception:
+                log.exception("control.program_event_failed")
 
     def _battery_present(self, flows: FlowSnapshot | None) -> bool:
         """E6: a home battery exists - configured, wired as an adapter, or ever measured.

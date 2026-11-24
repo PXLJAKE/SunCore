@@ -653,7 +653,7 @@ detection; CO₂ weighting.
   capabilities `export_limit`, `ac_limit`, `backup_state` (rejected on device templates); roles
   follow in 6-G. Changing the inverter adapter does not reset `limit_verified` yet (6-G); an
   import does.
-- **Notify-only programs** still need a control spec; open for 6-L.
+- **Notify-only programs** still need a control spec; done in 6-L (control kind `notify`).
 - **§14a numeric signal:** 0 = not dimmed, a value = the allowed power in W (`UNVERIFIED`).
 - **MQTT password:** stored in clear text in `suncore.db`, masked in API, export and history; an
   import of a masked value onto a new system drops the secret (enter it again).
@@ -1113,3 +1113,95 @@ reconnect is not detected (the service stays `active`, taps just never arrive).
   (sticky for the session; without a configured battery `core.balance` reports a synthetic
   0 W) or a battery adapter is wired (`tests/app/test_ev_battery_present.py`).
 - **CI (done):** the e2e gallery count includes `generic.wallbox` (7 templates).
+
+### 6-L (shiftable programs)
+
+- **Arming:** one open job per device (`ProgramJobBook.arm`, `api.error.program_job_open`).
+  There is no API, MQTT command or panel to arm or cancel a job yet; the book is ready
+  (`arm`, `cancel`, error keys in the catalogue) and the services follow with 6-D/6-M, like
+  the EV mode in 6-I. Until then jobs come only from the simulator.
+- **Plug method, P4 interpretation:** the user selects the programme, presses start and arms
+  the job; SunCore switches the plug off right after arming (within
+  `PROGRAM_ARM_WINDOW_S` = 600 s, while the appliance draws less than `idle_w`). A plug that is
+  on later (the user, a release, the crash recovery) stays on for this job. An appliance that
+  draws `idle_w` or more right after its start button is seen as a manual start and runs at
+  once (no delay); the template says so in its `unverified` list.
+- **Start without a plan:** without a fresh plan `start` band the controller starts at the
+  latest start that still meets the deadline (deadline - run time). A stale plan permits
+  nothing beyond that. The deadline binding (plan band or latest start) lets the start import
+  up to the program's peak power (P5, `program_allowance_w`); the import limit holds, and the
+  battery reserve and B-invariants are unchanged, so a deadline start can still be rejected
+  (then the job is missed: cancelled with a `notify.program.missed` notification).
+- **Fail-safe = "on":** a release, the emergency "back to normal", the crash recovery, a
+  watchdog trip on a stale power sensor, a missed or cancelled job all restore the plug's
+  baseline, which is **on** (P3): the appliance then runs earlier than planned rather than
+  never. Consequence (scenario `program_deadline_plug` with a stale sensor): the watchdog
+  releases the plug and the waiting machine starts on its own (question 1).
+- **Release never interrupts:** a stored *off* baseline (only possible from a store written
+  before 6-L) is not applied while the program may run (`_release_baseline`, the write is
+  skipped); remote and notify programs write nothing on release.
+- **Notify-only programs:** new control kind `notify` (closes the 6-B item "notify-only
+  programs still need a control spec"). The gate rejects every action but a release
+  (`safety.program_notify_only`), the driver has no entity. The "start now" notification is
+  sent in every mode, also in shadow, because it writes nothing (question 2).
+- **Remote start:** a `switch` role only; a `button` (`button.press`) is not supported yet
+  (WP12 asked for `button` or `switch`; `UNVERIFIED` per integration). A remote start is never
+  switched off (`safety.program_remote_off`).
+- **Running detection:** power >= `idle_w` for 30 s (`MANUAL_START_S`) or an accepted start;
+  done after the run time and 5 min below `idle_w` (`PROGRAM_DONE_IDLE_S`); an unknown power
+  never ends a run. Programs need a measured power role; without one the controller starts
+  nothing (`controller.program.no_power_sensor`).
+- **Runtime:** the job book loads the open jobs from `flex_state` at start, the planner gets
+  them (`FlexRequest.jobs`), the control stack persists the controller's job updates and posts
+  the program events through `NotificationService.post` (category `program`, quiet hours for
+  `done`/`missed`, not for `start_now`).
+- **6-I M1 boundary (found by hypothesis here):** `BatteryIntents._lock_floor` kept a held
+  `min_soc` lock only for `soc < held + 0.5`, `discharge_lock_held` accepts `soc <= held +
+  0.5`; at exactly the tolerance the controller rewrote a lock the gate still counted as
+  held (`held=20, soc=20.5`). Now both use `<=` (one character in `controller/battery.py`).
+- **Templates:** `generic.program_plug`, `generic.program_notify`, `generic.program_remote`;
+  `program.resume_confirmed` moved from `ProgramSpec` to the device check, so the plug template
+  can default to `start_method: plug` while the user confirms on the device. Run time, idle
+  and peak power are placeholders the wizard asks for (6-M).
+
+#### Safety self-review 6-L (control-safety)
+
+| Invariant | Result | Evidence |
+|---|---|---|
+| P1 switch-on only for an armed job of that device, with a fresh measured power | pass | `check_program`; `test_p1_a_start_needs_an_armed_job_and_a_known_power` (hypothesis), `test_p1_no_start_without_an_armed_job`, `test_p1_no_start_while_the_power_is_unknown_or_stale`, `test_an_unreadable_job_lookup_counts_as_no_job` |
+| P2 never switch off a running program | pass | `program_running` (job running, power >= `idle_w`, unknown power, run time + 15 min after SunCore's switch-on); `test_p2_a_switch_off_never_passes_while_the_program_may_run` (hypothesis), `test_p2_drawing_idle_power_or_more_counts_as_running`, `test_p2_a_running_program_is_not_switched_off_even_above_the_fuse_limit`, `test_p2_a_release_never_switches_a_running_program_off`; scenarios: `interruptions == 0` in all program scenarios |
+| P3 plug baseline on; release and crash recovery switch it on | pass | gate takeover `PROGRAM_BASELINE_ON`; `test_p1_an_armed_start_on_surplus_is_written_and_the_baseline_is_on`, `test_p3_a_release_restores_the_on_baseline`, `test_plug_program_is_released_to_on_after_it_finished`, `test_the_crash_recovery_switches_the_plug_on_and_the_program_runs` |
+| P4 off at arming only while idle | pass | `check_program` (armed job, <= 600 s after arming, power < `idle_w`); `test_p4_a_switch_off_needs_an_armed_job_within_the_arm_window` (hypothesis), `test_p4_a_plug_that_is_on_later_stays_on`, `test_p4_no_switch_off_after_the_arm_window`, controller `test_no_power_down_after_the_arm_window_or_when_the_machine_draws_power` |
+| P5 G1/G4 hold; deadline-bound start may import its peak | pass | `check_program_grid`, `program_allowance_w`; `test_p5_an_accepted_start_stays_within_allowance_and_import_limit` (hypothesis), `test_p5_without_surplus_a_start_waits_until_the_deadline_binds`, `test_p5_the_import_limit_holds_for_a_bound_start`, `test_the_planned_start_imports_nothing_beyond_the_import_limit` |
+| P6 assisted until the behaviour is confirmed | pass | existing cap; `test_p6_an_unconfirmed_program_is_capped_at_assisted` |
+| G2 fuse waiver never interrupts a running program (6-F H3) | pass | `_fuse_shed` returns False for a running or unknown program; `test_p2_a_running_program_is_not_switched_off_even_above_the_fuse_limit` |
+| Deficit back-off never touches a program | pass | programs have no surplus levels (`controller/levels.py`); the program controller never emits a switch-off after arming (`test_a_manual_start_is_detected_by_power_and_never_switched_off`) |
+| Deadline guaranteed or reported | pass | start at the latest start without a plan (`test_without_a_plan_the_start_is_at_the_latest_start`, `test_plug_program_is_powered_down_at_arming_and_started_once_at_the_latest_start`: finished <= 18:00); a missed deadline is cancelled and notified (`test_a_job_that_did_not_start_by_its_deadline_is_missed`) |
+| Write on change, rate limits, read-back | pass | unchanged gate path; driver `test_plug_switches_on_and_off_and_writes_only_on_change` |
+| No oscillation (cloud flicker) | pass | `test_cloud_flicker_does_not_switch_the_program` (exactly 2 switches, 4 physical transitions); `program_notify_start` and `program_crash_recovery` carry flicker too |
+| Stale/missing inputs: no start, safe state | pass | `test_unknown_inputs_or_island_never_start` (hypothesis), `test_p5_stale_site_inputs_never_start_a_program`, `test_a_stale_power_sensor_never_starts_the_program_but_its_safe_state_is_on`, `test_unknown_power_never_ends_a_run` |
+| Shadow / assisted / automatic | pass | `test_shadow_writes_nothing`, `test_shadow_writes_nothing_and_the_machine_runs_as_the_user_left_it`, `test_notify_shadow_still_asks_and_writes_nothing` |
+| Emergency "back to normal" from any state | pass | `ReleaseAction` never judged by P1-P5; `test_p3_a_release_restores_the_on_baseline`, `test_an_off_baseline_is_restored_when_the_program_is_idle` |
+| Fail-safe on shutdown, crash, connection loss, update | pass | release to on (P3) via the existing paths; crash and restart: `program_crash_recovery` |
+| Notify-only programs never written | pass | `test_a_notify_program_is_never_written` (hypothesis and gate), `test_notify_never_writes`, `test_notify_program_is_never_written_and_asks_once` |
+| Only `safety/` calls `apply()` | pass | boundary test green; `controller/programs.py`, `app/programs.py` (`update_jobs`) and the runtime wiring write nothing |
+| Reserve never undercut by SunCore | pass | B-invariants unchanged; a program start is a load, not a battery action |
+| Deterministic, time injected | pass | `test_the_controller_is_deterministic`; no sleeps or wall-clock reads in `controller/programs.py` |
+
+#### Offene Fragen an den Maintainer (6-L)
+
+1. **Sicherer Zustand „an“:** Fällt der Leistungssensor aus, gibt der Watchdog die Steckdose
+   frei, und die Freigabe schaltet sie ein – die wartende Maschine läuft dann sofort los
+   (früher als geplant, aber sicher fertig). Dasselbe gilt für Absturz, Not-Aus-„Zurück zu
+   normal“ und einen verpassten Auftrag. **Empfehlung:** so lassen („lieber zu früh als nie“).
+   Einverstanden?
+2. **„Jetzt starten“ auch im Schattenmodus:** Bei Programmen mit Benachrichtigung schickt
+   SunCore die Bitte „jetzt starten“ auch im Schattenmodus, weil nichts geschaltet wird.
+   **Empfehlung:** so lassen. Oder soll der Schattenmodus auch Benachrichtigungen unterdrücken?
+3. **Fernstart per Taste (`button.press`):** Nur ein Schalter wird unterstützt. Welche
+   Geräte planst du (Hersteller/Integration)? Dann prüfe ich die Taste anhand des Quellcodes.
+4. **Vormerken bedienen:** Es gibt noch keine API, kein MQTT-Kommando und keine Karte zum
+   Vormerken („fertig bis“). **Empfehlung:** mit 6-D/6-M nachziehen (wie der EV-Modus aus
+   6-I). Einverstanden?
+5. **Startfenster 600 s:** SunCore schaltet die Steckdose nur in den ersten 10 Minuten nach
+   dem Vormerken aus. Reicht das, oder soll das Fenster einstellbar sein?

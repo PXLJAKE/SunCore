@@ -38,7 +38,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from suncore.core.battery import BatteryModel, BatterySettings, ModbusByteOrder, ModbusLink
-from suncore.core.devices import DeviceConfig
+from suncore.core.devices import DeviceConfig, control_roles
 from suncore.core.entities import EntityMeta
 from suncore.core.series import TimeRange, floor_to_step
 from suncore.core.site import EntityRef
@@ -339,10 +339,22 @@ def _check_device(
             "settle_s": defaults.settle_s,
             "comfort": scenario.user_input.get("comfort"),
             "ev": defaults.ev.model_dump(exclude_none=True) if defaults.ev is not None else None,
+            "program": _program(defaults.program, scenario.user_input.get("program")),
         }
     )
-    assert config.control.role in config.entities
+    for role in control_roles(config.control):
+        assert role in config.entities, role
     assert config.max_switches_per_hour is None  # None = safety default, not unlimited
+
+
+def _program(defaults: BaseModel | None, user: object) -> dict[str, Any] | None:
+    """A program template's defaults plus what the user confirms (``resume_confirmed``)."""
+    if defaults is None:
+        return None
+    program: dict[str, Any] = defaults.model_dump(exclude_none=True)
+    if isinstance(user, Mapping):
+        program.update(user)
+    return program
 
 
 FIXTURES = ROOT / "tests" / "fixtures" / "tariff"

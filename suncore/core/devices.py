@@ -83,6 +83,8 @@ class ControlKind(StrEnum):
     CHARGER = "charger"
     SG_READY = "sg_ready"
     LOADPOINT = "loadpoint"
+    NOTIFY = "notify"
+    """PR 6-L: a notify-only program (nothing is written)."""
 
 
 class PowerModel(_Frozen):
@@ -159,6 +161,17 @@ class OnOffControl(_Frozen):
 
     kind: Literal["on_off"]
     role: RoleName
+
+
+class NotifyControl(_Frozen):
+    """A program that SunCore never switches (PR 6-L, plan §8 6-B question "notify-only").
+
+    The user is asked to start the appliance by a notification; SunCore writes nothing and
+    detects the start by the appliance's power. Valid only for kind ``program`` with
+    ``program.start_method: notify``.
+    """
+
+    kind: Literal["notify"]
 
 
 class StepsControl(_Frozen):
@@ -424,7 +437,8 @@ ControlSpec = Annotated[
     | RelaysControl
     | ChargerControl
     | SgReadyControl
-    | LoadpointControl,
+    | LoadpointControl
+    | NotifyControl,
     Field(discriminator="kind"),
 ]
 """How a device is driven and which role is written (ADR-0012 item 5)."""
@@ -444,7 +458,7 @@ def control_roles(control: ControlSpec) -> tuple[RoleName, ...]:
         )
     if isinstance(control, SgReadyControl):
         return (control.contact_a, control.contact_b)
-    if isinstance(control, LoadpointControl):
+    if isinstance(control, LoadpointControl | NotifyControl):
         return ()
     return (control.role,)
 
@@ -572,6 +586,9 @@ class ProgramSpec(_Frozen):
     needs ``resume_confirmed``, the user's statement that the appliance resumes after power
     returns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or
     ``notify`` (the user is asked to start it). ``idle_w`` is the "finished" threshold.
+
+    PR 6-L: the ``resume_confirmed`` rule is checked on the device (``DeviceConfig``), not here,
+    so a template can default to ``plug`` while the user still has to confirm on the device.
     """
 
     runtime_min: Annotated[int, Field(ge=1, le=1440)]
@@ -592,11 +609,6 @@ class ProgramSpec(_Frozen):
                 "program: `profile_wh` needs {slots} values for {runtime} min",
                 slots=slots,
                 runtime=self.runtime_min,
-            )
-        if self.start_method == "plug" and not self.resume_confirmed:
-            raise invalid(
-                "program_plug_resume",
-                "program: start by plug needs the confirmation that the appliance resumes",
             )
         return self
 
@@ -787,10 +799,44 @@ class DeviceConfig(_Frozen):
                 "program: start method `{method}` needs an on_off control",
                 method=self.program.start_method,
             )
+        if isinstance(control, NotifyControl) and (
+            self.program is None or self.program.start_method != "notify"
+        ):
+            raise invalid(
+                "notify_control_needs_program",
+                "control: kind `notify` needs a program with start method `notify`",
+            )
+        if (
+            self.program is not None
+            and self.program.start_method == "plug"
+            and not self.program.resume_confirmed
+        ):
+            raise invalid(
+                "program_plug_resume",
+                "program: start by plug needs the confirmation that the appliance resumes",
+            )
 
     def entity_refs(self) -> list[EntityRef]:
         """All referenced entities, for subscriptions."""
         return list(self.entities.values())
+
+
+def program_peak_w(device: DeviceConfig) -> float | None:
+    """The highest power a run of a job-driven program draws (W; PR 6-L, P5).
+
+    The largest ``profile_wh`` slot as power (Wh per 15 minutes x 4), at least the nominal
+    power when one is configured; ``None`` without a profile and a nominal power (unknown:
+    the gate never starts such a program).
+    """
+    spec = device.program
+    if spec is None:
+        return None
+    nominal = device.power_model.nominal_w
+    profile = max(spec.profile_wh, default=None)
+    peak = None if profile is None else profile * 60.0 / PROFILE_SLOT_MIN
+    if peak is None:
+        return nominal
+    return peak if nominal is None else max(peak, nominal)
 
 
 def needs_behaviour_confirmation(device: DeviceConfig) -> bool:

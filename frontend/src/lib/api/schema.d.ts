@@ -2252,7 +2252,7 @@ export interface components {
             behaviour_confirmed: boolean;
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"] | components["schemas"]["NotifyControl"];
             /** Entities */
             entities?: {
                 [key: string]: components["schemas"]["EntityRef"];
@@ -2383,7 +2383,7 @@ export interface components {
         DeviceDefaults: {
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"] | components["schemas"]["NotifyControl"];
             ev?: components["schemas"]["EvSpec"] | null;
             /** Hysteresis Delay S */
             hysteresis_delay_s?: number | null;
@@ -4098,6 +4098,21 @@ export interface components {
             reason_key: string | null;
         };
         /**
+         * NotifyControl
+         * @description A program that SunCore never switches (PR 6-L, plan §8 6-B question "notify-only").
+         *
+         *     The user is asked to start the appliance by a notification; SunCore writes nothing and
+         *     detects the start by the appliance's power. Valid only for kind ``program`` with
+         *     ``program.start_method: notify``.
+         */
+        NotifyControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "notify";
+        };
+        /**
          * NotifyTarget
          * @description A push target: a ``notify`` entity (``notify.send_message``) or a legacy service name
          *     (``notify.<service>``, e.g. ``mobile_app_pixel``).
@@ -4754,6 +4769,9 @@ export interface components {
          *     needs ``resume_confirmed``, the user's statement that the appliance resumes after power
          *     returns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or
          *     ``notify`` (the user is asked to start it). ``idle_w`` is the "finished" threshold.
+         *
+         *     PR 6-L: the ``resume_confirmed`` rule is checked on the device (``DeviceConfig``), not here,
+         *     so a template can default to ``plug`` while the user still has to confirm on the device.
          */
         ProgramSpec: {
             /**

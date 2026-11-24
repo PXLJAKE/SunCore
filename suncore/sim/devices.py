@@ -30,6 +30,8 @@ Devices:
   :class:`SimNumberLoad` (a W number such as a heating rod limit).
 * :class:`SimWallbox` (PR 6-I) - a wallbox (current number in A, pause switch, optional phase
   select) with a vehicle (SoC, arrival/departure, minimum charging current).
+* :class:`SimProgram` (PR 6-L) - a shiftable programme (profile, start lag, resumes after power
+  returns or not) behind a smart plug, a remote-start switch or only a power sensor.
 """
 
 from __future__ import annotations
@@ -1572,7 +1574,220 @@ class SimWallbox(SimDevice):
         return super().manual(action, value)
 
 
-AnyDeviceParams = ClimateParams | SwitchParams | NumberParams | WaterHeaterParams | WallboxParams
+# --- shiftable program (PR 6-L) ---------------------------------------------------------------
+
+
+class ProgramParams(_Frozen):
+    """A washing machine / dishwasher / dryer with a programme profile (PR 6-L).
+
+    ``method``: ``plug`` (a smart plug ``switch.sim_<id>`` in front of it), ``remote`` (a
+    remote-start switch ``switch.sim_<id>_start``), ``notify`` (only the power sensor). The user
+    *loads* the appliance (a manual ``turn_on`` on the device: programme selected, start pressed)
+    at ``loaded_at_s`` (``None`` = only by a manual event). A loaded appliance first draws
+    ``lag_w`` (door lock, water intake) for the first ``lag_s`` of its profile (W per 15 minutes),
+    which lasts ``slot_s`` x the number of values. With
+    the plug off it draws nothing and the programme pauses; when the power returns it resumes
+    if ``resumes`` (else the programme is lost). A remote start begins the programme of a loaded
+    appliance (a notify or plug appliance runs as soon as it is loaded and powered).
+    """
+
+    kind: Literal["program"] = "program"
+    method: Literal["plug", "remote", "notify"] = "plug"
+    profile_w: tuple[float, ...] = Field(default=(2000.0, 480.0, 240.0, 240.0), min_length=1)
+    slot_s: float = Field(default=900.0, gt=0)
+    lag_s: float = Field(default=120.0, ge=0)
+    lag_w: float = Field(default=2.0, ge=0)
+    standby_w: float = Field(default=0.5, ge=0)
+    resumes: bool = True
+    initial_plug_on: bool = True
+    loaded_at_s: float | None = None
+    push_delay_s: float = Field(default=0.0, ge=0)
+    call_s: float = Field(default=0.1, ge=0)
+
+
+class SimProgram(SimDevice):
+    """See :class:`ProgramParams`. ``runs`` counts completed programmes, ``interruptions`` the
+    times the power was cut while the programme drew more than ``lag_w``."""
+
+    kind: ClassVar[str] = "program"
+
+    def __init__(self, device_id: str, params: ProgramParams) -> None:
+        super().__init__(device_id)
+        self.p = params
+        base = f"sim_{device_id}"
+        self.switch_id = (
+            f"switch.{base}"
+            if params.method == "plug"
+            else f"switch.{base}_start"
+            if params.method == "remote"
+            else None
+        )
+        self.power_id = f"sensor.{base}_power"
+        self.plug_on = params.initial_plug_on if params.method == "plug" else True
+        self.remote_on = False
+        self.loaded = False
+        self.started = False
+        """The programme was started (remote) - plug and notify appliances start when loaded."""
+        self.elapsed_s = 0.0
+        self.runs = 0
+        self.interruptions = 0
+        self.lost = 0
+        self.started_at: list[datetime] = []
+        self.finished_at: list[datetime] = []
+        self._origin: datetime | None = None
+        self._rep_switch = self.plug_on if params.method == "plug" else self.remote_on
+
+    # --- identity -----------------------------------------------------------------------------
+
+    def entity_ids(self) -> tuple[str, ...]:
+        return (self.power_id,) if self.switch_id is None else (self.switch_id, self.power_id)
+
+    def roles(self) -> dict[str, str]:
+        out = {"power": self.power_id}
+        if self.p.method == "plug" and self.switch_id is not None:
+            out["switch"] = self.switch_id
+        elif self.switch_id is not None:
+            out["start"] = self.switch_id
+        return out
+
+    def heartbeats(self) -> dict[str, float]:
+        return {self.power_id: REPORT_PERIOD_S}
+
+    # --- physics ------------------------------------------------------------------------------
+
+    @property
+    def runtime_s(self) -> float:
+        return self.p.slot_s * len(self.p.profile_w)
+
+    def _running(self) -> bool:
+        if not self.loaded or not self.plug_on:
+            return False
+        return self.started or self.p.method != "remote"
+
+    def power_w(self) -> float:
+        if not self.plug_on:
+            return 0.0
+        if not self._running():
+            return self.p.standby_w
+        if self.elapsed_s < self.p.lag_s:
+            return self.p.lag_w
+        slot = int(self.elapsed_s // self.p.slot_s)
+        return self.p.profile_w[min(slot, len(self.p.profile_w) - 1)]
+
+    def is_on(self) -> bool:
+        return self._running()
+
+    def _breakpoints(self, after: datetime) -> Iterable[datetime]:
+        if self._origin is not None and self.p.loaded_at_s is not None and not self.loaded:
+            yield self._origin + timedelta(seconds=self.p.loaded_at_s)
+        if self._running():
+            yield after + timedelta(seconds=max(0.001, self.runtime_s - self.elapsed_s))
+
+    def advance(self, now: datetime, outdoor_c: float) -> None:
+        if self._origin is None:
+            self._origin = now
+        super().advance(now, outdoor_c)
+
+    def _integrate(self, t0: datetime, t1: datetime, outdoor_c: float) -> None:
+        del outdoor_c
+        if self._running():
+            self.elapsed_s += (t1 - t0).total_seconds()
+
+    def _reached(self, at: datetime) -> None:
+        if (
+            self._origin is not None
+            and self.p.loaded_at_s is not None
+            and not self.loaded
+            and self.runs == 0
+            and at >= self._origin + timedelta(seconds=self.p.loaded_at_s)
+        ):
+            self._load(at)
+        if self._running() and self.elapsed_s >= self.runtime_s - 1e-6:
+            self.runs += 1
+            self.finished_at.append(at)
+            self.loaded = False
+            self.started = False
+            self.elapsed_s = 0.0
+
+    def _load(self, at: datetime | None) -> None:
+        if self.loaded:
+            return
+        self.loaded = True
+        self.elapsed_s = 0.0
+        if at is not None:
+            self.started_at.append(at)
+
+    def _set_plug(self, on: bool) -> None:
+        if self.plug_on and not on and self._running():
+            if self.elapsed_s > self.p.lag_s:
+                self.interruptions += 1
+            if not self.p.resumes:
+                self.loaded = False
+                self.started = False
+                self.elapsed_s = 0.0
+                self.lost += 1
+        self.plug_on = on
+
+    def _set_remote(self, on: bool) -> None:
+        self.remote_on = on
+        if on and self.loaded:
+            self.started = True
+
+    # --- HA side ------------------------------------------------------------------------------
+
+    def report(self) -> None:
+        self._rep_switch = self.plug_on if self.p.method == "plug" else self.remote_on
+
+    def states(self, now: datetime) -> list[StateOut]:
+        del now
+        out = [
+            StateOut(
+                self.power_id,
+                _text(self.power_w() if self._t is not None else 0.0),
+                {
+                    "friendly_name": f"Sim {self.id} power",
+                    "unit_of_measurement": "W",
+                    "device_class": "power",
+                    "state_class": "measurement",
+                },
+            )
+        ]
+        if self.switch_id is not None:
+            out.insert(
+                0,
+                StateOut(
+                    self.switch_id,
+                    "on" if self._rep_switch else "off",
+                    {"friendly_name": f"Sim {self.id} switch"},
+                ),
+            )
+        return out
+
+    def call(
+        self, now: datetime, domain: str, service: str, entity_id: str, data: dict[str, Any]
+    ) -> Effect:
+        del now, data
+        if self.switch_id is None or entity_id != self.switch_id or domain != "switch":
+            raise validation_error(f"{entity_id} does not support {domain}.{service}")
+        if service not in ("turn_on", "turn_off"):
+            raise validation_error(f"{entity_id} does not support {domain}.{service}")
+        on = service == "turn_on"
+        change = partial(self._set_plug if self.p.method == "plug" else self._set_remote, on)
+        return Effect(self.p.call_s, (Step(0.0, change),), self.p.push_delay_s)
+
+    def manual(self, action: str, value: float | str | None) -> Effect:
+        """``turn_on``: the user loads the appliance and presses start (``turn_off`` pulls the
+        plug of a plug appliance)."""
+        if action == "turn_on":
+            return Effect(0.0, (Step(0.0, partial(self._load, self._t)),), self.p.push_delay_s)
+        if action == "turn_off" and self.p.method == "plug":
+            return Effect(0.0, (Step(0.0, partial(self._set_plug, False)),), self.p.push_delay_s)
+        return super().manual(action, value)
+
+
+AnyDeviceParams = (
+    ClimateParams | SwitchParams | NumberParams | WaterHeaterParams | WallboxParams | ProgramParams
+)
 DeviceParams = Annotated[AnyDeviceParams, Field(discriminator="kind")]
 
 
@@ -1580,6 +1795,8 @@ def build_device(device_id: str, params: AnyDeviceParams) -> SimDevice:
     """The simulated device for ``params``."""
     if isinstance(params, WallboxParams):
         return SimWallbox(device_id, params)
+    if isinstance(params, ProgramParams):
+        return SimProgram(device_id, params)
     if isinstance(params, ClimateParams):
         return SimClimate(device_id, params)
     if isinstance(params, SwitchParams):
@@ -1657,11 +1874,13 @@ __all__ = [
     "HourlyCounter",
     "NumberParams",
     "PolledSensor",
+    "ProgramParams",
     "ServiceError",
     "SimClimate",
     "SimDevice",
     "SimDeviceSet",
     "SimNumberLoad",
+    "SimProgram",
     "SimSwitchLoad",
     "SimWallbox",
     "SimWaterHeater",

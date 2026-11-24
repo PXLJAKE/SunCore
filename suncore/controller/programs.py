@@ -1,0 +1,458 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Shiftable programs: the job state machine of the controller (plan WP12, PR 6-L).
+
+Deterministic and pure (time injected, no I/O): :meth:`ProgramController.step` takes the open
+jobs (runtime ``flex_state``), the devices' observed state and power, the plan and the site's
+trust in its inputs, and returns the intents for the gate, the changed jobs (the composition
+root persists them) and the events the notification layer announces. Decisions on its intents
+come back through :meth:`ProgramController.report`.
+
+Job states (``core.flex``): ``armed -> scheduled -> running -> done``; ``cancelled`` when the
+deadline passed without a start (``missed``). Per device and tick:
+
+* **Scheduled** from the first interval of a *fresh* plan whose band has ``start`` (6-H plans
+  one job per device); a fresh plan without a start puts it back to ``armed``.
+* **Start due** when the fresh band covering now has ``start`` (the planner's window) or the
+  latest start that still meets the deadline has come (the deadline guarantee; also without a
+  plan). Only with trusted inputs: a fresh measured power of the appliance, an ``OK`` grid
+  reading, not blocked by the gate, not in island (fail-safe: no start).
+
+  - ``plug``/``remote``: one ``SwitchAction(on)``; an accepted decision makes the job
+    ``running``. A rejected or shadowed start is retried after :data:`RETRY_S`
+    (:data:`RETRY_QUIET_S` after a shadow or proposal decision).
+  - ``notify``: one "start now" event per job; the user starts the appliance.
+* **Arming** (plug only): right after arming (:data:`~suncore.core.flex.PROGRAM_ARM_WINDOW_S`),
+  while the start is not due, the plug is on and the appliance draws less than ``idle_w``, the
+  plug is switched off so the appliance resumes when it is switched on again (P4; the gate
+  judges it again). A plug that is on later (the user, a release, the crash recovery) stays on:
+  the appliance then starts early rather than never.
+* **Running** is detected by power as well: the appliance draws ``idle_w`` or more for
+  :data:`MANUAL_START_S` (a manual start, also the notify case).
+* **Done** once the run time has passed and the power stayed below ``idle_w`` for
+  :data:`~suncore.core.flex.PROGRAM_DONE_IDLE_S` (unknown power never ends a run).
+* **Missed**: the deadline passed without a start: ``cancelled``.
+
+A running program is never switched off and never shed: the controller emits no switch-off for
+it, and it has no surplus levels, so neither the deficit back-off nor the grid shedding of the
+allocator touch it. After ``done``, ``missed`` or a cancellation by the user the device is
+released once (the plug goes back to its baseline, on - P3).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta, tzinfo
+from typing import Final, Literal
+
+from suncore.controller.reasons import (
+    PROGRAM_ARM_OFF,
+    PROGRAM_ARMED,
+    PROGRAM_BLOCKED,
+    PROGRAM_DEADLINE_START,
+    PROGRAM_INPUTS_UNKNOWN,
+    PROGRAM_ISLAND,
+    PROGRAM_NO_JOB,
+    PROGRAM_NO_POWER_SENSOR,
+    PROGRAM_RELEASE,
+    PROGRAM_RUNNING,
+    PROGRAM_SCHEDULED,
+    PROGRAM_START,
+    PROGRAM_START_NOW,
+)
+from suncore.core.control import (
+    DeviceState,
+    Plan,
+    PowerEstimate,
+    battery_band_now,
+    device_band_now,
+)
+from suncore.core.decisions import (
+    Decision,
+    DecisionKind,
+    Intent,
+    Origin,
+    Reason,
+    ReleaseAction,
+    SwitchAction,
+)
+from suncore.core.devices import DeviceConfig
+from suncore.core.flex import (
+    PROGRAM_ARM_WINDOW_S,
+    PROGRAM_DONE_IDLE_S,
+    JobState,
+    ProgramJob,
+    latest_start,
+    open_job,
+    transition,
+)
+from suncore.core.signals import Quality
+
+RETRY_S: Final = 60.0
+"""A start or an arming switch-off the gate rejected is tried again after this long."""
+RETRY_QUIET_S: Final = 900.0
+"""... and after this long when it was shadowed or proposed (no decision-log flood)."""
+MANUAL_START_S: Final = 30.0
+"""The appliance drew ``idle_w`` or more this long: it runs (a manual or notified start)."""
+INTENT_PREFIX: Final = "program:"
+IN_FLIGHT_TIMEOUT_S: Final = 300.0
+"""An intent without a decision after this long (a transport error) no longer blocks."""
+
+EventKind = Literal["start_now", "started", "done", "missed"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramEvent:
+    """Something to tell the user (``suncore.notify``, category ``program``)."""
+
+    kind: EventKind
+    device_id: str
+    job: ProgramJob
+    ts: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramInputs:
+    """What one tick of the program controller looks at."""
+
+    jobs: Mapping[str, Sequence[ProgramJob]]
+    """Open jobs per device (``flex_state``)."""
+    states: Mapping[str, DeviceState]
+    estimates: Mapping[str, PowerEstimate]
+    blocked: Mapping[str, Reason]
+    plan: Plan
+    site_ok: bool
+    """The site inputs are trusted (an ``OK`` grid reading)."""
+    island: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramOutcome:
+    intents: tuple[Intent, ...] = ()
+    jobs: tuple[ProgramJob, ...] = ()
+    """Jobs that changed this tick (to persist)."""
+    events: tuple[ProgramEvent, ...] = ()
+    reasons: Mapping[str, tuple[Reason, ...]] = field(default_factory=dict)
+    """Why each program device is where it is (the "Why?" view)."""
+
+
+@dataclass(slots=True)
+class _Memory:
+    job_id: str | None = None
+    above_since: datetime | None = None
+    idle_since: datetime | None = None
+    in_flight: str | None = None
+    in_flight_kind: str | None = None
+    in_flight_ts: datetime | None = None
+    retry_at: datetime | None = None
+    started_at: datetime | None = None
+    """An accepted start decision (the job becomes ``running`` at the next tick)."""
+    notified: bool = False
+    pending_release: str | None = None
+    """The job id whose end still needs a release."""
+    wrote_job: str | None = None
+    """The job for which the gate accepted a write (only then is a release due)."""
+
+    def reset(self, job_id: str | None) -> None:
+        self.job_id = job_id
+        self.above_since = None
+        self.idle_since = None
+        self.retry_at = None
+        self.started_at = None
+        self.notified = False
+
+
+class ProgramController:
+    """Job state machine per program device (see the module docstring)."""
+
+    def __init__(self, devices: Iterable[DeviceConfig] = (), *, tz: tzinfo = UTC) -> None:
+        self._tz = tz
+        self._devices: dict[str, DeviceConfig] = {}
+        self._memory: dict[str, _Memory] = {}
+        self._seq = 0
+        self.set_devices(devices)
+
+    def set_devices(self, devices: Iterable[DeviceConfig]) -> None:
+        self._devices = {d.id: d for d in devices if d.program is not None}
+        self._memory = {k: v for k, v in self._memory.items() if k in self._devices}
+
+    @property
+    def device_ids(self) -> frozenset[str]:
+        return frozenset(self._devices)
+
+    # --- the tick --------------------------------------------------------------------------
+
+    def step(self, now: datetime, inputs: ProgramInputs) -> ProgramOutcome:
+        intents: list[Intent] = []
+        changed: list[ProgramJob] = []
+        events: list[ProgramEvent] = []
+        reasons: dict[str, tuple[Reason, ...]] = {}
+        for device_id, device in self._devices.items():
+            memory = self._memory.setdefault(device_id, _Memory())
+            job = open_job(list(inputs.jobs.get(device_id, ())))
+            reasons[device_id] = self._device(
+                now, device, memory, job, inputs, intents, changed, events
+            )
+        return ProgramOutcome(tuple(intents), tuple(changed), tuple(events), reasons)
+
+    def _device(  # noqa: PLR0917 - one tick of one device
+        self,
+        now: datetime,
+        device: DeviceConfig,
+        memory: _Memory,
+        job: ProgramJob | None,
+        inputs: ProgramInputs,
+        intents: list[Intent],
+        changed: list[ProgramJob],
+        events: list[ProgramEvent],
+    ) -> tuple[Reason, ...]:
+        spec = device.program
+        assert spec is not None
+        if job is None or job.id != memory.job_id:
+            if memory.job_id is not None and memory.job_id == memory.wrote_job:
+                # The previous job ended (done, missed, cancelled by the user): release once.
+                memory.pending_release = memory.job_id
+            memory.reset(None if job is None else job.id)
+        if (
+            memory.pending_release is not None
+            and memory.in_flight is None
+            and device.id not in inputs.blocked
+        ):
+            intents.append(self._intent(now, device.id, ReleaseAction(), PROGRAM_RELEASE))
+            memory.pending_release = None
+            memory.wrote_job = None
+        if job is None:
+            return (Reason(key=PROGRAM_NO_JOB),)
+        power = _power(device, inputs.estimates.get(device.id))
+        self._track_power(now, memory, power, spec.idle_w)
+        if job.state is JobState.RUNNING:
+            return self._running(now, device, memory, job, power, changed, events)
+        # armed or scheduled
+        if memory.started_at is not None or _sustained(memory.above_since, now, MANUAL_START_S):
+            started = memory.started_at or memory.above_since or now
+            running = transition(job, JobState.RUNNING, started)
+            changed.append(running)
+            events.append(ProgramEvent("started", device.id, running, now))
+            memory.started_at = None
+            return (Reason(key=PROGRAM_RUNNING),)
+        if now >= job.deadline:
+            missed = transition(job, JobState.CANCELLED, now)
+            changed.append(missed)
+            events.append(ProgramEvent("missed", device.id, missed, now))
+            return (Reason(key=PROGRAM_NO_JOB),)
+        job = self._schedule(now, device, job, inputs.plan, changed)
+        return self._waiting(now, device, memory, job, power, inputs, intents, events)
+
+    def _waiting(  # noqa: PLR0911, PLR0917 - one return per verdict
+        self,
+        now: datetime,
+        device: DeviceConfig,
+        memory: _Memory,
+        job: ProgramJob,
+        power: float | None,
+        inputs: ProgramInputs,
+        intents: list[Intent],
+        events: list[ProgramEvent],
+    ) -> tuple[Reason, ...]:
+        """An armed or scheduled job: notify, start, or power the appliance down (P4)."""
+        spec = device.program
+        assert spec is not None
+        latest = latest_start(job, spec.runtime_min)
+        band = device_band_now(inputs.plan, device.id, now)
+        planned = band is not None and band.start
+        due = planned or now >= latest
+        waiting = self._waiting_reason(job, latest)
+        if device.power_model.power_role is None:
+            return (Reason(key=PROGRAM_NO_POWER_SENSOR), waiting)
+        if power is None or not inputs.site_ok:
+            return (Reason(key=PROGRAM_INPUTS_UNKNOWN), waiting)
+        blocked = inputs.blocked.get(device.id)
+        if blocked is not None:
+            return (Reason(key=PROGRAM_BLOCKED), blocked, waiting)
+        if inputs.island and due:
+            return (Reason(key=PROGRAM_ISLAND), waiting)
+        state = inputs.states.get(device.id)
+        on = None if state is None or not state.known else state.on
+        if spec.start_method == "notify":
+            if due and not memory.notified:
+                memory.notified = True
+                events.append(ProgramEvent("start_now", device.id, job, now))
+            return (Reason(key=PROGRAM_START_NOW),) if memory.notified else (waiting,)
+        if (
+            memory.in_flight is not None
+            and memory.in_flight_ts is not None
+            and _sustained(memory.in_flight_ts, now, IN_FLIGHT_TIMEOUT_S)
+        ):
+            memory.in_flight = None
+        if memory.in_flight is not None or (memory.retry_at is not None and now < memory.retry_at):
+            return (waiting,)
+        if due and on is False:
+            key = PROGRAM_START if planned else PROGRAM_DEADLINE_START
+            intent = self._intent(now, device.id, SwitchAction(on=True), key, kind="start")
+            memory.in_flight, memory.in_flight_kind = intent.id, "start"
+            memory.in_flight_ts = now
+            intents.append(intent)
+            return intent.reasons
+        if (
+            spec.start_method == "plug"
+            and on is True
+            and power < spec.idle_w
+            and not due
+            and now - job.armed_at <= timedelta(seconds=PROGRAM_ARM_WINDOW_S)
+        ):
+            # P4: power the waiting appliance down so it resumes when the plug comes back.
+            intent = self._intent(
+                now, device.id, SwitchAction(on=False), PROGRAM_ARM_OFF, kind="arm_off"
+            )
+            memory.in_flight, memory.in_flight_kind = intent.id, "arm_off"
+            memory.in_flight_ts = now
+            intents.append(intent)
+            return (*intent.reasons, waiting)
+        return (waiting,)
+
+    def _running(  # noqa: PLR0917
+        self,
+        now: datetime,
+        device: DeviceConfig,
+        memory: _Memory,
+        job: ProgramJob,
+        power: float | None,
+        changed: list[ProgramJob],
+        events: list[ProgramEvent],
+    ) -> tuple[Reason, ...]:
+        spec = device.program
+        assert spec is not None
+        started = job.started_at or now
+        ran = now - started >= timedelta(minutes=spec.runtime_min)
+        if ran and power is not None and _sustained(memory.idle_since, now, PROGRAM_DONE_IDLE_S):
+            done = transition(job, JobState.DONE, now)
+            changed.append(done)
+            events.append(ProgramEvent("done", device.id, done, now))
+            return (Reason(key=PROGRAM_NO_JOB),)
+        return (Reason(key=PROGRAM_RUNNING),)
+
+    def _schedule(
+        self,
+        now: datetime,
+        device: DeviceConfig,
+        job: ProgramJob,
+        plan: Plan,
+        changed: list[ProgramJob],
+    ) -> ProgramJob:
+        """Follow the fresh plan's start band (a stale or no plan keeps the job as it is)."""
+        _, fresh = battery_band_now(plan, now)
+        if not fresh:
+            return job  # no plan, or a stale one: keep what the last fresh plan said
+        start = next(
+            (
+                i.start
+                for i in plan.intervals
+                if i.end > now and (band := i.devices.get(device.id)) is not None and band.start
+            ),
+            None,
+        )
+        if start is None:
+            if job.state is JobState.SCHEDULED:
+                updated = transition(job, JobState.ARMED, now)
+                changed.append(updated)
+                return updated
+            return job
+        if job.state is JobState.SCHEDULED and job.planned_start == start:
+            return job
+        updated = transition(job, JobState.SCHEDULED, now, planned_start=start)
+        changed.append(updated)
+        return updated
+
+    def _waiting_reason(self, job: ProgramJob, latest: datetime) -> Reason:
+        if job.state is JobState.SCHEDULED and job.planned_start is not None:
+            return Reason(key=PROGRAM_SCHEDULED, args={"start": self._hhmm(job.planned_start)})
+        return Reason(key=PROGRAM_ARMED, args={"latest": self._hhmm(latest)})
+
+    def _hhmm(self, at: datetime) -> str:
+        return at.astimezone(self._tz).strftime("%H:%M")
+
+    @staticmethod
+    def _track_power(now: datetime, memory: _Memory, power: float | None, idle_w: float) -> None:
+        if power is None:
+            memory.above_since = None
+            memory.idle_since = None
+            return
+        if power >= idle_w:
+            memory.idle_since = None
+            if memory.above_since is None:
+                memory.above_since = now
+        else:
+            memory.above_since = None
+            if memory.idle_since is None:
+                memory.idle_since = now
+
+    def _intent(
+        self,
+        now: datetime,
+        device_id: str,
+        action: SwitchAction | ReleaseAction,
+        key: str,
+        *,
+        kind: str = "release",
+    ) -> Intent:
+        self._seq += 1
+        return Intent(
+            id=f"{INTENT_PREFIX}{device_id}:{kind}:{self._seq}",
+            ts=now,
+            asset_id=device_id,
+            action=action,
+            reasons=(Reason(key=key),),
+            origin=Origin.CONTROLLER,
+        )
+
+    # --- feedback --------------------------------------------------------------------------
+
+    def report(self, decision: Decision) -> bool:
+        """A decision on one of this controller's intents; ``True`` if it was ours."""
+        intent = decision.intent
+        if not intent.id.startswith(INTENT_PREFIX):
+            return False
+        memory = self._memory.get(intent.asset_id)
+        if memory is None or memory.in_flight != intent.id:
+            return True
+        kind = memory.in_flight_kind
+        memory.in_flight = None
+        memory.in_flight_kind = None
+        if decision.kind is DecisionKind.ACCEPTED:
+            memory.retry_at = None
+            memory.wrote_job = memory.job_id
+            if kind == "start":
+                memory.started_at = decision.ts
+            return True
+        wait = (
+            RETRY_QUIET_S
+            if decision.kind in (DecisionKind.SHADOW, DecisionKind.PROPOSED, DecisionKind.HELD)
+            else RETRY_S
+        )
+        memory.retry_at = decision.ts + timedelta(seconds=wait)
+        return True
+
+
+def _power(device: DeviceConfig, estimate: PowerEstimate | None) -> float | None:
+    """A fresh measured power of the appliance (``None`` = unknown: no start, no done)."""
+    if device.power_model.power_role is None or estimate is None:
+        return None
+    if estimate.quality is not Quality.OK:
+        return None
+    return estimate.value_w
+
+
+def _sustained(since: datetime | None, now: datetime, seconds: float) -> bool:
+    return since is not None and (now - since).total_seconds() >= seconds
+
+
+__all__ = [
+    "INTENT_PREFIX",
+    "MANUAL_START_S",
+    "RETRY_QUIET_S",
+    "RETRY_S",
+    "ProgramController",
+    "ProgramEvent",
+    "ProgramInputs",
+    "ProgramOutcome",
+]

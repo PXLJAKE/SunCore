@@ -110,6 +110,23 @@ class OutdoorParams(BaseModel):
         return self.mean_c + self.amplitude_c * math.cos(2 * math.pi * (hour - self.peak_hour) / 24)
 
 
+class SimJob(BaseModel):
+    """PR 6-L: the user arms a program job at ``arm_at_s``, to be finished ``deadline_s`` after
+    the scenario start."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    arm_at_s: int = Field(ge=0)
+    deadline_s: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> SimJob:
+        if self.deadline_s <= self.arm_at_s:
+            msg = "deadline_s must be after arm_at_s"
+            raise ValueError(msg)
+        return self
+
+
 class SimDeviceSpec(BaseModel):
     """One simulated device and, optionally, how the controller sees it."""
 
@@ -129,6 +146,8 @@ class SimDeviceSpec(BaseModel):
     """PR 6-I: the runtime EV mode of a charger (``flex_state``); ``None`` = its default."""
     ev_target: EvTarget | None = None
     """PR 6-I: the charging target of mode ``target``."""
+    jobs: tuple[SimJob, ...] = ()
+    """PR 6-L: program jobs the user arms (a ``program`` device with a template)."""
 
     @model_validator(mode="after")
     def _control_needs_template(self) -> SimDeviceSpec:

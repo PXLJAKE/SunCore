@@ -51,7 +51,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, tzinfo
 from types import MappingProxyType
 
@@ -72,15 +72,21 @@ from suncore.controller.battery import (
 from suncore.controller.ev import battery_holds_lock
 from suncore.controller.grid import GridHolds, GridInputs, situation_reasons
 from suncore.controller.levels import ConfigQuantiser, Quantiser
+from suncore.controller.programs import (
+    ProgramController,
+    ProgramEvent,
+    ProgramInputs,
+)
 from suncore.controller.surplus import SiteSurplus, SurplusTracker
 from suncore.core.balance import FlowSnapshot
 from suncore.core.config import GoalsConfig
 from suncore.core.control import ControlSettings, DeviceState, GateInputs, Plan, PowerEstimate
 from suncore.core.decisions import Decision, Intent, Reason
 from suncore.core.devices import DeviceConfig
-from suncore.core.flex import EvMode
+from suncore.core.flex import EvMode, ProgramJob
 from suncore.core.grid import (
     GridMemory,
+    GridState,
     advance_grid_memory,
     island_hold_s,
     merge_grid_memory,
@@ -122,6 +128,8 @@ class ControllerInputs:
     """PR 6-I: the runtime EV mode per charger (``flex_state``; missing = the default mode)."""
     battery_present: bool = True
     """PR 6-I (E6): the site has a home battery (the conservative default assumes one)."""
+    jobs: Mapping[str, Sequence[ProgramJob]] = field(default_factory=dict)
+    """PR 6-L: the open program jobs per device (``flex_state``)."""
 
     @property
     def grid_inputs(self) -> GridInputs:
@@ -154,6 +162,10 @@ class TickResult:
     battery: BatteryView | None = None
     """The battery decision of the tick (``None`` without a battery adapter)."""
     grid: GridView | None = None
+    program_jobs: tuple[ProgramJob, ...] = ()
+    """PR 6-L: program jobs that changed this tick (the composition root persists them)."""
+    program_events: tuple[ProgramEvent, ...] = ()
+    """PR 6-L: program starts, ends and "start now" requests (notifications)."""
 
 
 class Controller:
@@ -183,6 +195,7 @@ class Controller:
         self._surplus = SurplusTracker(self._settings.smoothing_s)
         self._allocator = Allocator(self._settings, quantiser, tz=tz)
         self._allocator.set_devices(devices)
+        self._programs = ProgramController(devices, tz=tz)
         self._para14a_ids = frozenset(d.id for d in devices if d.para14a)
         self._grid_memory = GridMemory()
 
@@ -200,7 +213,12 @@ class Controller:
         if self._config_quantiser is not None:
             self._config_quantiser.update({d.id: d for d in devices})
         self._allocator.set_devices(devices)
+        self._programs.set_devices(devices)
         self._para14a_ids = frozenset(d.id for d in devices if d.para14a)
+
+    @property
+    def programs(self) -> ProgramController:
+        return self._programs
 
     @property
     def grid_memory(self) -> GridMemory:
@@ -274,7 +292,31 @@ class Controller:
             reserve_w=self._settings.reserve_w,
             ev_lock=outcome.ev_lock and inputs.battery_present,
         )
-        intents = (*outcome.intents, battery_intent) if battery_intent else tuple(outcome.intents)
+        grid_flow = None if inputs.flows is None else inputs.flows.grid_w
+        programs = self._programs.step(
+            now,
+            ProgramInputs(
+                jobs=inputs.jobs,
+                states=inputs.states,
+                estimates=inputs.estimates,
+                blocked=inputs.blocked,
+                plan=inputs.plan,
+                site_ok=grid_flow is not None
+                and grid_flow.quality is Quality.OK
+                and grid_flow.value is not None
+                and surplus is not None
+                and surplus.quality is Quality.OK,
+                island=grid.grid_state is GridState.ISLAND,
+            ),
+        )
+        intents = (*outcome.intents, *programs.intents)
+        if battery_intent:
+            intents = (*intents, battery_intent)
+        views = dict(outcome.views)
+        for device_id, why in programs.reasons.items():
+            view = views.get(device_id)
+            if view is not None:
+                views[device_id] = replace(view, reasons=why)
         gate_inputs = GateInputs(
             flows=inputs.flows,
             surplus=surplus,
@@ -295,7 +337,7 @@ class Controller:
             gate_inputs=gate_inputs,
             site=site,
             intents=intents,
-            views=MappingProxyType(dict(outcome.views)),
+            views=MappingProxyType(views),
             deviations=tuple(outcome.deviations),
             total_w=outcome.total_w,
             free_w=outcome.free_w,
@@ -303,11 +345,15 @@ class Controller:
             attributable_deficit_w=outcome.attributable_deficit_w,
             battery=self._battery.view,
             grid=GridView(grid, situation_reasons(grid), holds),
+            program_jobs=programs.jobs,
+            program_events=programs.events,
         )
 
     def report(self, decision: Decision) -> bool:
         """Feed the gate's decision on an intent back; ``True`` if it was ours and pending."""
         if self._battery.report(decision):
+            return True
+        if self._programs.report(decision):
             return True
         return self._allocator.report(decision)
 

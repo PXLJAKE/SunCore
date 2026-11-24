@@ -9,6 +9,7 @@ from suncore.core.devices import (
     ContinuousControl,
     DeviceConfig,
     ModeControl,
+    NotifyControl,
     OnOffControl,
     RelaysControl,
     SetpointControl,
@@ -20,6 +21,7 @@ from suncore.devices.drivers.climate import ClimateDriver
 from suncore.devices.drivers.mode import ModeDriver
 from suncore.devices.drivers.number import NumberDriver
 from suncore.devices.drivers.onoff import OnOffDriver
+from suncore.devices.drivers.program import ProgramDriver
 from suncore.devices.drivers.steps import StepsDriver
 from suncore.devices.drivers.unsupported import UnsupportedDriver
 
@@ -33,6 +35,10 @@ def create_driver(  # noqa: PLR0911 - one driver per control kind
     ``states`` a lookup in the entity cache; the composition root supplies both.
     """
     control = device.control
+    if device.program is not None:
+        return ProgramDriver(device, write=write, states=states)  # PR 6-L, any start method
+    if isinstance(control, NotifyControl):
+        return UnsupportedDriver(device, write=write, states=states)  # pragma: no cover
     if isinstance(control, OnOffControl):
         return OnOffDriver(device, write=write, states=states)
     if isinstance(control, SetpointControl):

@@ -135,12 +135,12 @@ def program_device() -> DeviceConfig:
     )
 
 
-PHASE6_DEVICES = (loadpoint_device(), sg_device(), program_device())
-"""The Phase 6 device families still without a write path (the charger has one since 6-I)."""
+PHASE6_DEVICES = (loadpoint_device(), sg_device())
+"""The Phase 6 device families still without a write path (the charger has one since 6-I,
+programs since 6-L: ``tests/safety/test_program_gate.py``)."""
 EXPECTED_DEVICE_REASON = {
     "evcc_lp": "safety.loadpoint_not_supported",
     "hp": "safety.sg_ready_not_supported",
-    "washer": "safety.program_not_supported",
 }
 
 DEVICE_ACTIONS: tuple[Action, ...] = (

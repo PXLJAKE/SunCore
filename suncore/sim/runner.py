@@ -38,6 +38,7 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 
 from suncore.app.control import BatteryWiring, PlanProvider
+from suncore.app.programs import ProgramJobBook
 from suncore.core.battery import (
     BATTERY_ASSET_ID,
     BatteryModel,
@@ -190,6 +191,8 @@ def build_device_config(
     }
     if d.ev is not None:
         base["ev"] = d.ev.model_dump(mode="json", exclude_none=True)
+    if d.program is not None:
+        base["program"] = d.program.model_dump(mode="json", exclude_none=True)
     return DeviceConfig.model_validate(_merge(base, spec.control))
 
 
@@ -454,6 +457,10 @@ class ScenarioRunner:
             if spec.ev_mode is not None
         }
         """PR 6-I: the chargers' runtime EV state (``flex_state``); a test may change it."""
+        self.programs = ProgramJobBook()
+        """PR 6-L: the open program jobs (in memory; kept across a simulated restart)."""
+        self.program_events: list[object] = []
+        """PR 6-L: every program event of the run (``controller.programs.ProgramEvent``)."""
 
     # --- composition -------------------------------------------------------------------------
 
@@ -485,6 +492,8 @@ class ScenarioRunner:
             plan_provider=self.plan_provider,
             battery=self.battery_wiring(),
             ev_states=self.ev_states.get,
+            programs=self.programs,
+            on_program_event=self.program_events.append,
         )
 
     def site_config(self) -> SiteConfig:
@@ -593,8 +602,18 @@ class ScenarioRunner:
         self.configs = {c.id: c for c in configs}
         self._device_logs = {k: DeviceLog() for k in self.sim_devices}
         self.stack = self.new_stack()
+        for spec in self.scenario.devices:
+            for job in spec.jobs:
+                self.at(job.arm_at_s, self._arm(spec.id, job.deadline_s))
         await self.stack.start()
         await self.vt.settle()
+
+    def _arm(self, device_id: str, deadline_s: int) -> Action_:
+        async def arm(runner: ScenarioRunner) -> None:
+            deadline = runner.scenario.start + timedelta(seconds=deadline_s)
+            await runner.programs.arm(runner.configs[device_id], deadline, now=runner.vt.clock())
+
+        return arm
 
     # --- scheduling --------------------------------------------------------------------------
 

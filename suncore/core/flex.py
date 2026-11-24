@@ -202,6 +202,31 @@ def transition(
     return ProgramJob.model_validate({**job.model_dump(), **update})
 
 
+PROGRAM_DONE_IDLE_S: Final = 300.0
+"""A running program is done when, after its run time, its power stayed below ``idle_w`` this
+long (P2, plan WP12)."""
+PROGRAM_ARM_WINDOW_S: Final = 600.0
+"""Arming switches the plug off only this long after the job was armed (P4): the user presses
+start and arms; later a plug that is on was switched on by the user or a release (crash
+recovery) and is never switched off again for this job."""
+PROGRAM_OFF_MARGIN_S: Final = 900.0
+"""Margin after a start's run time during which the gate never switches the program off (P2)."""
+
+
+def latest_start(job: ProgramJob, runtime_min: int) -> datetime:
+    """The last start that still finishes by the deadline (the deadline guarantee)."""
+    return job.deadline - timedelta(minutes=runtime_min)
+
+
+def open_job(jobs: list[ProgramJob] | tuple[ProgramJob, ...]) -> ProgramJob | None:
+    """The job SunCore works on for one device: a running one, else the earliest deadline
+    (6-H plans one job per device; further jobs wait)."""
+    pending = [j for j in jobs if not j.final]
+    if not pending:
+        return None
+    return min(pending, key=lambda j: (not j.running, j.deadline, j.id))
+
+
 DEFAULT_FINISH_TIME: Final = time(18, 0)
 DEFAULT_FINISH_FALLBACK: Final = timedelta(hours=12)
 
@@ -230,6 +255,9 @@ __all__ = [
     "EV_MODE_DEFAULT",
     "FINAL_JOB_STATES",
     "JOB_TRANSITIONS",
+    "PROGRAM_ARM_WINDOW_S",
+    "PROGRAM_DONE_IDLE_S",
+    "PROGRAM_OFF_MARGIN_S",
     "ArmedBy",
     "EvMode",
     "EvState",
@@ -240,6 +268,8 @@ __all__ = [
     "ProgramJob",
     "ev_energy_need_wh",
     "evcc_mode",
+    "latest_start",
+    "open_job",
     "proposed_deadline",
     "transition",
 ]

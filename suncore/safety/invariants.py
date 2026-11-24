@@ -42,6 +42,7 @@ from suncore.core.devices import (
     DeviceConfig,
     DeviceKind,
     ModeControl,
+    program_peak_w,
     step_power_w,
 )
 from suncore.core.signals import Quality
@@ -64,6 +65,14 @@ from suncore.safety.grid import (
     device_grid_violation,
     fuse_shed_waiver,
 )
+from suncore.safety.programs import (
+    NO_PROGRAM_SAFETY,
+    ProgramSafety,
+    check_program_grid,
+    program_allowance_w,
+    program_running,
+)
+from suncore.safety.programs import check_program as _check_program
 from suncore.safety.runtime import DeviceRuntime
 
 HVAC_OFF: Final = "off"
@@ -101,6 +110,8 @@ class InvariantContext:
     """Island, §14a, cool-down and the fuse limit (PR 6-F, ``safety.grid``)."""
     ev: EvSafety = NO_EV_SAFETY
     """EV mode, allowance, connection, battery lock and the read-back (PR 6-I, E1-E9)."""
+    program: ProgramSafety = NO_PROGRAM_SAFETY
+    """The program's open job, fresh power and deadline binding (PR 6-L, P1-P6)."""
 
 
 # --- helpers ------------------------------------------------------------------
@@ -168,6 +179,8 @@ def expected_power_w(  # noqa: PLR0911, PLR0912 - one branch per action kind
         case SwitchAction(on=on):
             if not on:
                 return 0.0
+            if device.program is not None:
+                return program_peak_w(device)  # P5: a start draws up to the profile's peak
             return nominal if nominal is not None else _upper(estimate)
         case StepAction(step=step):
             return step_power_w(device.control, step)
@@ -268,6 +281,8 @@ def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one p
         return None
     if _charge_with_allowance(ctx):
         return _check_charge_grid(ctx, delta)
+    if _program_with_allowance(ctx):
+        return _check_program_grid(ctx, delta)
     if ctx.surplus is None or ctx.surplus.quality is not Quality.OK:
         return Reason(key="safety.surplus_unknown")
     grid = None if ctx.flows is None else ctx.flows.grid_w
@@ -311,6 +326,37 @@ def _check_charge_grid(ctx: InvariantContext, delta: float) -> Reason | None:
         import_limit_w=ctx.import_limit_w,
         ev=ctx.ev,
     )
+
+
+def _program_with_allowance(ctx: InvariantContext) -> bool:
+    """A deadline-bound program start (P5): judged by ``safety.programs``."""
+    return (
+        isinstance(ctx.action, SwitchAction)
+        and ctx.action.on
+        and program_allowance_w(ctx.device, ctx.program) > POWER_TOLERANCE_W
+    )
+
+
+def _check_program_grid(ctx: InvariantContext, delta: float) -> Reason | None:
+    surplus = ctx.surplus
+    lower = None if surplus is None or surplus.quality is not Quality.OK else surplus.lower_w
+    grid = None if ctx.flows is None else ctx.flows.grid_w.value
+    after = expected_power_w(ctx.action, ctx.device, ctx.estimate)
+    assert after is not None  # a known delta has a known expected power
+    return check_program_grid(
+        after_w=after,
+        current_lower_w=after - delta,
+        surplus_lower_w=lower,
+        claimed_w=ctx.claimed_w,
+        grid_w=grid,
+        import_limit_w=ctx.import_limit_w,
+        allowance_w=program_allowance_w(ctx.device, ctx.program),
+    )
+
+
+def check_program(ctx: InvariantContext) -> Reason | None:
+    """P1, P2, P4 (``safety.programs``) for an action on a job-driven program device."""
+    return _check_program(ctx.action, ctx.device, ctx.program, ctx.now)
 
 
 def check_ev(ctx: InvariantContext) -> Reason | None:
@@ -490,6 +536,11 @@ def check_heat_limit(ctx: InvariantContext) -> Reason | None:
 
 
 def _fuse_shed(ctx: InvariantContext) -> bool:
+    if ctx.device.program is not None and program_running(ctx.device, ctx.program, ctx.now) in (
+        True,
+        None,
+    ):
+        return False  # review 6-F H3: the G2 waiver never interrupts a running program
     return fuse_shed_waiver(ctx.device.kind, True, ctx.flows, ctx.grid) or ev_unlocked_shed_waiver(
         ctx.device.control, ctx.ev, True, ctx.flows
     )
@@ -522,6 +573,7 @@ def check_grid_situation(ctx: InvariantContext) -> Reason | None:
 
 
 ALL_CHECKS: Final = (
+    check_program,
     check_ev,
     check_climate_switch_on,
     check_comfort,
@@ -626,6 +678,7 @@ __all__ = [
     "check_grid",
     "check_grid_situation",
     "check_min_run_pause",
+    "check_program",
     "check_switch_rate",
     "check_write_rate",
     "device_is_on",

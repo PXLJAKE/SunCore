@@ -47,6 +47,7 @@ from suncore.app.planning import (
     PlanningSettings,
     PlanningSnapshot,
 )
+from suncore.app.programs import ProgramJobBook, program_notice
 from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
 from suncore.app.summaries import (
@@ -58,6 +59,7 @@ from suncore.app.summaries import (
     record_accuracy_days,
     tariff_fingerprint,
 )
+from suncore.controller.programs import ProgramEvent
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.battery import BatterySettings, effective_reserve_pct
 from suncore.core.config import (
@@ -267,6 +269,8 @@ class Runtime:
     """``flex_state`` (EV modes/targets, PR 6-B); ``None`` = every charger in its default mode."""
     _ev_states: dict[str, EvState] = field(default_factory=dict)
     """The EV states as last loaded (the control stack reads them synchronously, PR 6-I)."""
+    _programs: ProgramJobBook | None = None
+    """The open program jobs (PR 6-L), persisted to ``flex_state``; built in :meth:`prepare`."""
     planning: PlanningService | None = None
     """The planner runtime (built in :meth:`prepare`; the control stack reads its plan)."""
     _planning_task: asyncio.Task[None] | None = None
@@ -306,6 +310,7 @@ class Runtime:
         """
         await self._load_live_sections()
         await self.reload_ev_states()
+        await self.program_jobs.load()
         self.planning = self._new_planning()
         self.stack = self._new_stack()
         self.pv_service = self._new_pv_service()
@@ -495,7 +500,11 @@ class Runtime:
         risk = self._risk(now, battery, pv, load)
         devices = [] if self.devices is None else list(self.devices.devices)
         await self.reload_ev_states()
-        flex = FlexRequest(ev_states=dict(self._ev_states), ev_live=self._ev_live())
+        flex = FlexRequest(
+            ev_states=dict(self._ev_states),
+            ev_live=self._ev_live(),
+            jobs=tuple(self.program_jobs.all_open()),
+        )
         inputs = build_inputs(
             now,
             tz=self._blend_tz(),
@@ -642,9 +651,35 @@ class Runtime:
             battery=self._battery_wiring(),
             grid_monitor=self._grid_monitor(),
             ev_states=self._ev_states.get,
+            programs=self.program_jobs,
+            on_program_event=self._program_event,
         )
         stack.add_listener(self._notify_control)
         return stack
+
+    @property
+    def program_jobs(self) -> ProgramJobBook:
+        """The open program jobs (PR 6-L); one book for the life of the process, so a rebuilt
+        control stack keeps them."""
+        if self._programs is None:
+            self._programs = ProgramJobBook(self.flex_store)
+        return self._programs
+
+    def _program_event(self, event: ProgramEvent) -> None:
+        """A program event (start now, done, missed) as a notification (6-E)."""
+        service = self.notifications
+        if service is None:
+            return
+        notice = program_notice(event, self._program_name, self._timezone())
+        if notice is not None:
+            service.post(notice)
+
+    def _program_name(self, device_id: str) -> str:
+        if self.devices is not None:
+            for device in self.devices.devices:
+                if device.id == device_id:
+                    return device.name
+        return device_id
 
     async def reload_ev_states(self) -> None:
         """Re-read ``flex_state`` (at start and every planning round, PR 6-I).

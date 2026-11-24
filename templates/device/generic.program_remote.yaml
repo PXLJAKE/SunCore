@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# A shiftable program with a remote-start switch (PR 6-L): SunCore switches it on once at the
+# planned start and never off (switching it off might abort the programme). Which integrations
+# offer such a switch, and what it does when switched off, is vendor-specific (`UNVERIFIED`).
+id: generic.program_remote
+kind: device
+schema_version: 1
+name: template.generic.program_remote.name
+source:
+  - title: "home-assistant/core switch/__init__.py (turn_on, turn_off services; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/switch/__init__.py"
+    date: 2026-10-13
+  - title: "home-assistant/core sensor/const.py (SensorDeviceClass.POWER, unit sets)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/const.py"
+    date: 2026-10-13
+tested_with: []
+capabilities: [remote_start, power_measured]
+unverified:
+  - "Generic template, exercised in the simulator only (switch.sim_dryer_start); no integration was checked for a remote-start switch."
+  - "A `button` remote start (button.press) is not supported yet."
+  - "runtime_min 120, idle_w 5 W and nominal_w 2500 W are placeholders: the wizard asks for the programme's run time and the appliance's peak power."
+device_kind: program
+roles:
+  start:
+    matcher:
+      domain: switch
+    description: template.generic.program_remote.role.start
+  power:
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.program_remote.role.power
+defaults:
+  power_model:
+    kind: measured
+    power_role: power
+    nominal_w: 2500
+  control:
+    kind: on_off
+    role: start
+  settle_s: 3
+  program:
+    runtime_min: 120
+    start_method: remote
+    idle_w: 5

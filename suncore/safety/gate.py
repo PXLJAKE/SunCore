@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from datetime import UTC, datetime, timedelta, tzinfo
 from types import MappingProxyType
 from typing import Final, Protocol, runtime_checkable
@@ -90,6 +90,7 @@ from suncore.core.decisions import (
     Reason,
     ReleaseAction,
     SetpointAction,
+    SwitchAction,
 )
 from suncore.core.devices import (
     ChargerControl,
@@ -99,7 +100,13 @@ from suncore.core.devices import (
     SgReadyControl,
     behaviour_mode_capped,
 )
-from suncore.core.flex import EV_MODE_DEFAULT, EvMode
+from suncore.core.flex import (
+    EV_MODE_DEFAULT,
+    EvMode,
+    ProgramJob,
+    latest_start,
+    open_job,
+)
 from suncore.core.grid import (
     GridMemory,
     Para14aStatus,
@@ -148,6 +155,11 @@ from suncore.safety.invariants import (
     power_delta_w,
 )
 from suncore.safety.modes import AllShadow, ModeProvider, ModeView, view
+from suncore.safety.programs import (
+    REASON_PROGRAM_NOTIFY_ONLY,
+    ProgramSafety,
+    program_running,
+)
 from suncore.safety.ratelimit import WriteRateLimiter, is_stale_intent
 from suncore.safety.runtime import DeviceRuntime, MemoryRuntimeStore, RuntimeStore
 from suncore.safety.watchdog import (
@@ -242,9 +254,9 @@ EV_RELEASE_RECHECK_S: Final = 60.0
 """A release staged for §14a is re-checked this often."""
 REASON_SG_READY_NOT_SUPPORTED: Final = Reason(key="safety.sg_ready_not_supported")
 """Any action but a release for an SG-Ready heat pump (until PR 6-K, ADR-0017 decision 8)."""
-REASON_PROGRAM_NOT_SUPPORTED: Final = Reason(key="safety.program_not_supported")
-"""Any action but a release for a job-driven program device (``DeviceConfig.program``) until
-PR 6-L: its invariants P1-P6 (never interrupt a running program) do not exist yet."""
+PROGRAM_BASELINE_ON: Final = SwitchAction(on=True)
+"""P3 (PR 6-L): the takeover baseline of a plug-started program: a release or the crash
+recovery switches the plug on, so laundry is never stranded."""
 BATTERY_RELEASE_BACKOFF_S: Final = 30.0
 BATTERY_RELEASE_BACKOFF_MAX_S: Final = 600.0
 REASON_BATTERY_OVERRIDE: Final = Reason(key="safety.battery_override")
@@ -267,6 +279,9 @@ EvModeLookup = Callable[[str], EvMode]
 
 PlanLookup = Callable[[datetime], Plan]
 """The plan the controller follows (``ControlStack.current_plan``)."""
+
+JobLookup = Callable[[str], Sequence[ProgramJob]]
+"""The open program jobs of a device (runtime ``flex_state``, PR 6-L)."""
 
 
 @runtime_checkable
@@ -307,8 +322,10 @@ class SafetyGate:
         battery: BatteryGateConfig | None = None,
         ev_modes: EvModeLookup | None = None,
         plan: PlanLookup | None = None,
+        programs: JobLookup | None = None,
     ) -> None:
         self._clock = clock
+        self._programs = programs
         self._ev_modes = ev_modes
         self._plan = plan
         # Actuators of assets a configuration change removed or re-mapped while their release
@@ -814,8 +831,9 @@ class SafetyGate:
             return REASON_SG_READY_NOT_SUPPORTED
         if isinstance(control, LoadpointControl):
             return REASON_NOT_SUPPORTED[ActionKind.LOADPOINT]
-        if device.program is not None:
-            return REASON_PROGRAM_NOT_SUPPORTED
+        if device.program is not None and device.program.start_method == "notify":
+            # PR 6-L: a notify-only program has nothing SunCore may write.
+            return REASON_PROGRAM_NOTIFY_ONLY
         return None
 
     async def _claimed_write(  # noqa: PLR0917
@@ -1379,6 +1397,8 @@ class SafetyGate:
                 if blocked is not None:
                     self._limiter.release_slot(device_id, previous_slot)
                     return await self._decide(intent, DecisionKind.REJECTED, now, (blocked,), mode)
+                if device.program is not None and device.program.start_method == "plug":
+                    baseline = PROGRAM_BASELINE_ON  # P3: the plug's baseline is on
                 runtime = runtime.model_copy(
                     update={
                         "baseline": baseline,
@@ -1583,7 +1603,7 @@ class SafetyGate:
                         held_until=due,
                     )
             try:
-                await actuator.release(runtime.baseline)
+                await actuator.release(self._release_baseline(device, runtime, now, orphan))
             except Exception as exc:
                 log.warning("safety.release_failed", device_id=device_id, error=str(exc)[:200])
                 reasons = (REASON_RELEASE_FAILED, reason)
@@ -1991,7 +2011,73 @@ class SafetyGate:
             claimed_w=self._claimed_w() if inputs.ts is not None else 0.0,
             grid=self._grid_safety(inputs, now, device),
             ev=self._ev_safety(device, now, inputs),
+            program=self._program_safety(device, runtime, now, inputs, fresh=fresh),
         )
+
+    # --- programs (PR 6-L, ``safety.programs``) ----------------------------------------------
+
+    def program_job(self, device_id: str) -> ProgramJob | None:
+        """The device's open job (the injected lookup); an unreadable state counts as none
+        (no job: P1 never starts, P4 never switches off)."""
+        if self._programs is None:
+            return None
+        try:
+            return open_job(list(self._programs(device_id)))
+        except Exception:
+            log.exception("safety.program_jobs_failed", device_id=device_id)
+            return None
+
+    def _program_safety(
+        self,
+        device: DeviceConfig,
+        runtime: DeviceRuntime,
+        now: datetime,
+        inputs: GateInputs,
+        *,
+        fresh: bool,
+    ) -> ProgramSafety:
+        """P1-P5 inputs: the open job, a fresh *measured* power, the deadline binding."""
+        spec = device.program
+        if spec is None:
+            return ProgramSafety()
+        job = self.program_job(device.id)
+        estimate = inputs.estimates.get(device.id)
+        power: float | None = None
+        if (
+            fresh
+            and device.power_model.power_role is not None
+            and estimate is not None
+            and estimate.quality is Quality.OK
+        ):
+            power = estimate.value_w
+        bound = False
+        if job is not None:
+            band = self._ev_band(device.id, now)
+            bound = (band is not None and band.start) or now >= latest_start(job, spec.runtime_min)
+        return ProgramSafety(job=job, power_w=power, start_bound=bound, last_on=runtime.last_on_ts)
+
+    def _release_baseline(
+        self, device: DeviceConfig | None, runtime: DeviceRuntime, now: datetime, orphan: bool
+    ) -> Action | None:
+        """What a release restores; P2: never a switch-off of a program that may be running
+        (the write is skipped: the plug stays as it is)."""
+        baseline = runtime.baseline
+        if (
+            orphan
+            or device is None
+            or device.program is None
+            or not isinstance(baseline, SwitchAction)
+            or baseline.on
+        ):
+            return baseline
+        inputs = self._inputs() or GateInputs()
+        max_age = timedelta(seconds=self._settings.inputs_max_age_ticks * self._settings.tick_s)
+        fresh = inputs.ts is not None and now - inputs.ts <= max_age
+        ps = self._program_safety(device, runtime, now, inputs, fresh=fresh)
+        if program_running(device, ps, now) is False:
+            return baseline
+        log.info("safety.program_release_keeps_running", device_id=device.id)
+        return None
 
     # --- EV (PR 6-I, ``safety.flex``) --------------------------------------------------------
 

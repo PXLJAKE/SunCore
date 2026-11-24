@@ -241,7 +241,7 @@ class BatteryIntents:
         if (
             held is not None
             and held >= inputs.reserve_pct
-            and soc_pct < held + SOC_LOCK_TOLERANCE_PCT
+            and soc_pct <= held + SOC_LOCK_TOLERANCE_PCT  # the same bound as discharge_lock_held
         ):
             # Still a lock by the same tolerance the gate and the EV logic use (review 6-I M1):
             # the floor is rounded up to the step, so a rising SoC rewrites it once per step.

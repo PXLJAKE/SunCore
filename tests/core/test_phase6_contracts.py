@@ -307,9 +307,38 @@ def test_program_spec_rules() -> None:
     with pytest.raises(ValidationError) as exc:
         ProgramSpec(runtime_min=95, start_method="notify", profile_wh=(1,) * 6)
     assert err_type(exc) == "suncore.program_profile_length"
+    # PR 6-L: the spec (a template default) may say `plug`; the device needs the confirmation.
+    unconfirmed = ProgramSpec(runtime_min=60, start_method="plug")
+    switch = {
+        "id": "washer",
+        "template_id": "generic.program_plug",
+        "name": "Washer",
+        "kind": DeviceKind.PROGRAM,
+        "entities": {"switch": EntityRef(entity_id="switch.washer")},
+        "power_model": PM,
+        "control": {"kind": "on_off", "role": "switch"},
+    }
     with pytest.raises(ValidationError) as exc:
-        ProgramSpec(runtime_min=60, start_method="plug")
+        DeviceConfig.model_validate({**switch, "program": unconfirmed})
     assert err_type(exc) == "suncore.program_plug_resume"
+    with pytest.raises(ValidationError) as exc:
+        DeviceConfig.model_validate(
+            {
+                **switch,
+                "entities": {},
+                "control": {"kind": "notify"},
+            }
+        )
+    assert err_type(exc) == "suncore.notify_control_needs_program"
+    notify = DeviceConfig.model_validate(
+        {
+            **switch,
+            "entities": {},
+            "control": {"kind": "notify"},
+            "program": ProgramSpec(runtime_min=60, start_method="notify"),
+        }
+    )
+    assert notify.entity_refs() == []
     plug = ProgramSpec(runtime_min=60, start_method="plug", resume_confirmed=True)
     with pytest.raises(ValidationError) as exc:
         DeviceConfig(

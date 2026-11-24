@@ -603,6 +603,104 @@
  },
  {
   "lang": "en",
+  "key": "controller.program.arm_off",
+  "args": {},
+  "expected": "Switching the plug off until the planned start; the appliance resumes when the power returns."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.armed",
+  "args": {
+   "latest": "abc"
+  },
+  "expected": "Armed: waiting for a planned window, starts at abc at the latest."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.armed",
+  "args": {
+   "latest": 42
+  },
+  "expected": "Armed: waiting for a planned window, starts at 42 at the latest."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.blocked",
+  "args": {},
+  "expected": "Waiting: SunCore may not switch this device right now."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.deadline_start",
+  "args": {},
+  "expected": "Starting the program now so it is finished in time."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.inputs_unknown",
+  "args": {},
+  "expected": "Waiting: the power of the appliance or the grid reading is unknown, so nothing is started."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.island",
+  "args": {},
+  "expected": "Waiting: the house runs on backup power, no program is started."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.no_job",
+  "args": {},
+  "expected": "No program is armed."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.no_power_sensor",
+  "args": {},
+  "expected": "No power sensor is mapped: SunCore cannot see whether the program runs and starts nothing."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.release",
+  "args": {},
+  "expected": "The program job has ended: the device is back to normal."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.running",
+  "args": {},
+  "expected": "The program is running. SunCore never interrupts it."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.scheduled",
+  "args": {
+   "start": "abc"
+  },
+  "expected": "Planned start at abc."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.scheduled",
+  "args": {
+   "start": 42
+  },
+  "expected": "Planned start at 42."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.start",
+  "args": {},
+  "expected": "Starting the program in the planned window."
+ },
+ {
+  "lang": "en",
+  "key": "controller.program.start_now",
+  "args": {},
+  "expected": "You were asked to start the program now."
+ },
+ {
+  "lang": "en",
   "key": "controller.quiet_hours",
   "args": {},
   "expected": "Quiet hours: the device is not switched on."
@@ -784,6 +882,12 @@
   "key": "device.control.mode",
   "args": {},
   "expected": "SunCore selects one of several modes."
+ },
+ {
+  "lang": "en",
+  "key": "device.control.notify",
+  "args": {},
+  "expected": "SunCore asks you by a notification to start the appliance; it switches nothing."
  },
  {
   "lang": "en",
@@ -2411,6 +2515,106 @@
   "key": "notify.panel_hint",
   "args": {},
   "expected": "Open the SunCore panel to answer."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.done",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc has finished its program."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.done",
+  "args": {
+   "device": 42
+  },
+  "expected": "42 has finished its program."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.done.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc is finished"
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.done.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 is finished"
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.missed",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "abc could not be started in time for abc. The job was cancelled; a smart plug is switched back on."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.missed",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "42 could not be started in time for 42. The job was cancelled; a smart plug is switched back on."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.missed.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc did not start"
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.missed.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 did not start"
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.start_now",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "Now is a good time to start abc, so it is finished by abc."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.start_now",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "Now is a good time to start 42, so it is finished by 42."
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.start_now.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: start abc now"
+ },
+ {
+  "lang": "en",
+  "key": "notify.program.start_now.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: start 42 now"
  },
  {
   "lang": "en",
@@ -6568,9 +6772,63 @@
  },
  {
   "lang": "en",
-  "key": "safety.program_not_supported",
+  "key": "safety.program_arm_window",
   "args": {},
-  "expected": "Starting shiftable programs is not available yet in this version; nothing was written."
+  "expected": "Not switched off: the plug is only switched off right after arming; later it stays on."
+ },
+ {
+  "lang": "en",
+  "key": "safety.program_import_exception",
+  "args": {
+   "need_w": "abc",
+   "allowed_w": "abc"
+  },
+  "expected": "The start would draw abc W, more than the allowed abc W (surplus plus the grid power the deadline permits)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.program_import_exception",
+  "args": {
+   "need_w": 42,
+   "allowed_w": 42
+  },
+  "expected": "The start would draw 42 W, more than the allowed 42 W (surplus plus the grid power the deadline permits)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.program_no_job",
+  "args": {},
+  "expected": "Not switched: the program is not armed (SunCore starts or prepares a program only for an armed job)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.program_notify_only",
+  "args": {},
+  "expected": "Nothing written: this program is started by you after a notification."
+ },
+ {
+  "lang": "en",
+  "key": "safety.program_power_unknown",
+  "args": {},
+  "expected": "Not switched: the power of the appliance is unknown or out of date."
+ },
+ {
+  "lang": "en",
+  "key": "safety.program_remote_off",
+  "args": {},
+  "expected": "Not switched off: a remote start is never switched off by SunCore."
+ },
+ {
+  "lang": "en",
+  "key": "safety.program_running",
+  "args": {},
+  "expected": "Not switched off: the program may be running. SunCore never interrupts a running program."
+ },
+ {
+  "lang": "en",
+  "key": "safety.program_switch_only",
+  "args": {},
+  "expected": "Not applied: a shiftable program is only switched on or off."
  },
  {
   "lang": "en",
@@ -7414,6 +7672,104 @@
  },
  {
   "lang": "de",
+  "key": "controller.program.arm_off",
+  "args": {},
+  "expected": "Schaltet die Steckdose bis zum geplanten Start aus; das Gerät läuft weiter, sobald der Strom zurückkommt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.armed",
+  "args": {
+   "latest": "abc"
+  },
+  "expected": "Vorgemerkt: wartet auf ein geplantes Zeitfenster, startet spätestens um abc."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.armed",
+  "args": {
+   "latest": 42
+  },
+  "expected": "Vorgemerkt: wartet auf ein geplantes Zeitfenster, startet spätestens um 42."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.blocked",
+  "args": {},
+  "expected": "Wartet: SunCore darf dieses Gerät gerade nicht schalten."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.deadline_start",
+  "args": {},
+  "expected": "Startet das Programm jetzt, damit es rechtzeitig fertig ist."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.inputs_unknown",
+  "args": {},
+  "expected": "Wartet: Die Leistung des Geräts oder der Netzmesswert ist unbekannt, deshalb wird nichts gestartet."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.island",
+  "args": {},
+  "expected": "Wartet: Das Haus läuft im Notstrom, es wird kein Programm gestartet."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.no_job",
+  "args": {},
+  "expected": "Kein Programm ist vorgemerkt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.no_power_sensor",
+  "args": {},
+  "expected": "Kein Leistungssensor zugeordnet: SunCore sieht nicht, ob das Programm läuft, und startet nichts."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.release",
+  "args": {},
+  "expected": "Der Programmauftrag ist beendet: Das Gerät ist wieder im Normalzustand."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.running",
+  "args": {},
+  "expected": "Das Programm läuft. SunCore unterbricht es nie."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.scheduled",
+  "args": {
+   "start": "abc"
+  },
+  "expected": "Geplanter Start um abc."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.scheduled",
+  "args": {
+   "start": 42
+  },
+  "expected": "Geplanter Start um 42."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.start",
+  "args": {},
+  "expected": "Startet das Programm im geplanten Zeitfenster."
+ },
+ {
+  "lang": "de",
+  "key": "controller.program.start_now",
+  "args": {},
+  "expected": "Du wurdest gebeten, das Programm jetzt zu starten."
+ },
+ {
+  "lang": "de",
   "key": "controller.quiet_hours",
   "args": {},
   "expected": "Ruhezeit: Das Gerät wird nicht eingeschaltet."
@@ -7595,6 +7951,12 @@
   "key": "device.control.mode",
   "args": {},
   "expected": "SunCore wählt einen von mehreren Modi."
+ },
+ {
+  "lang": "de",
+  "key": "device.control.notify",
+  "args": {},
+  "expected": "SunCore bittet dich per Benachrichtigung, das Gerät zu starten; es schaltet nichts."
  },
  {
   "lang": "de",
@@ -9222,6 +9584,106 @@
   "key": "notify.panel_hint",
   "args": {},
   "expected": "Öffne das SunCore-Panel, um zu antworten."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.done",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc hat sein Programm beendet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.done",
+  "args": {
+   "device": 42
+  },
+  "expected": "42 hat sein Programm beendet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.done.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc ist fertig"
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.done.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 ist fertig"
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.missed",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "abc konnte nicht rechtzeitig für abc gestartet werden. Der Auftrag wurde abgebrochen; eine Steckdose wird wieder eingeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.missed",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "42 konnte nicht rechtzeitig für 42 gestartet werden. Der Auftrag wurde abgebrochen; eine Steckdose wird wieder eingeschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.missed.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc wurde nicht gestartet"
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.missed.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 wurde nicht gestartet"
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.start_now",
+  "args": {
+   "device": "abc",
+   "deadline": "abc"
+  },
+  "expected": "Jetzt ist ein guter Zeitpunkt, abc zu starten, damit es bis abc fertig ist."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.start_now",
+  "args": {
+   "device": 42,
+   "deadline": 42
+  },
+  "expected": "Jetzt ist ein guter Zeitpunkt, 42 zu starten, damit es bis 42 fertig ist."
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.start_now.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc jetzt starten"
+ },
+ {
+  "lang": "de",
+  "key": "notify.program.start_now.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 jetzt starten"
  },
  {
   "lang": "de",
@@ -13379,9 +13841,63 @@
  },
  {
   "lang": "de",
-  "key": "safety.program_not_supported",
+  "key": "safety.program_arm_window",
   "args": {},
-  "expected": "Das Starten verschiebbarer Programme ist in dieser Version noch nicht verfügbar; nichts geschrieben."
+  "expected": "Nicht ausgeschaltet: Die Steckdose wird nur direkt nach dem Vormerken ausgeschaltet; danach bleibt sie an."
+ },
+ {
+  "lang": "de",
+  "key": "safety.program_import_exception",
+  "args": {
+   "need_w": "abc",
+   "allowed_w": "abc"
+  },
+  "expected": "Der Start würde abc W ziehen, mehr als die erlaubten abc W (Überschuss plus die Netzleistung, die die Fertig-bis-Zeit erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.program_import_exception",
+  "args": {
+   "need_w": 42,
+   "allowed_w": 42
+  },
+  "expected": "Der Start würde 42 W ziehen, mehr als die erlaubten 42 W (Überschuss plus die Netzleistung, die die Fertig-bis-Zeit erlaubt)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.program_no_job",
+  "args": {},
+  "expected": "Nicht geschaltet: Das Programm ist nicht vorgemerkt (SunCore startet oder bereitet ein Programm nur für einen vorgemerkten Auftrag vor)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.program_notify_only",
+  "args": {},
+  "expected": "Nichts geschrieben: Dieses Programm startest du selbst nach einer Benachrichtigung."
+ },
+ {
+  "lang": "de",
+  "key": "safety.program_power_unknown",
+  "args": {},
+  "expected": "Nicht geschaltet: Die Leistung des Geräts ist unbekannt oder veraltet."
+ },
+ {
+  "lang": "de",
+  "key": "safety.program_remote_off",
+  "args": {},
+  "expected": "Nicht ausgeschaltet: Einen Fernstart schaltet SunCore nie aus."
+ },
+ {
+  "lang": "de",
+  "key": "safety.program_running",
+  "args": {},
+  "expected": "Nicht ausgeschaltet: Das Programm läuft möglicherweise. SunCore unterbricht nie ein laufendes Programm."
+ },
+ {
+  "lang": "de",
+  "key": "safety.program_switch_only",
+  "args": {},
+  "expected": "Nicht ausgeführt: Ein verschiebbares Programm wird nur ein- oder ausgeschaltet."
  },
  {
   "lang": "de",

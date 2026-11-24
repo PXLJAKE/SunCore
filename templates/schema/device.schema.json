@@ -328,6 +328,7 @@
               "continuous": "#/$defs/ContinuousControl",
               "loadpoint": "#/$defs/LoadpointControl",
               "mode": "#/$defs/ModeControl",
+              "notify": "#/$defs/NotifyControl",
               "on_off": "#/$defs/OnOffControl",
               "relays": "#/$defs/RelaysControl",
               "setpoint": "#/$defs/SetpointControl",
@@ -363,6 +364,9 @@
             },
             {
               "$ref": "#/$defs/LoadpointControl"
+            },
+            {
+              "$ref": "#/$defs/NotifyControl"
             }
           ],
           "title": "Control"
@@ -855,6 +859,22 @@
       "title": "ModeControl",
       "type": "object"
     },
+    "NotifyControl": {
+      "additionalProperties": false,
+      "description": "A program that SunCore never switches (PR 6-L, plan §8 6-B question \"notify-only\").\n\nThe user is asked to start the appliance by a notification; SunCore writes nothing and\ndetects the start by the appliance's power. Valid only for kind ``program`` with\n``program.start_method: notify``.",
+      "properties": {
+        "kind": {
+          "const": "notify",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "NotifyControl",
+      "type": "object"
+    },
     "OnOffControl": {
       "additionalProperties": false,
       "description": "Switch on/off through ``role``.",
@@ -958,7 +978,7 @@
     },
     "ProgramSpec": {
       "additionalProperties": false,
-      "description": "A shiftable program (kind ``program``; ADR-0017 decision 7).\n\n``profile_wh`` is the energy per 15 minutes of a run (``None`` = nominal power x run time);\nits length must cover ``runtime_min``. ``start_method``: ``plug`` (a smart plug switched on;\nneeds ``resume_confirmed``, the user's statement that the appliance resumes after power\nreturns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or\n``notify`` (the user is asked to start it). ``idle_w`` is the \"finished\" threshold.",
+      "description": "A shiftable program (kind ``program``; ADR-0017 decision 7).\n\n``profile_wh`` is the energy per 15 minutes of a run (``None`` = nominal power x run time);\nits length must cover ``runtime_min``. ``start_method``: ``plug`` (a smart plug switched on;\nneeds ``resume_confirmed``, the user's statement that the appliance resumes after power\nreturns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or\n``notify`` (the user is asked to start it). ``idle_w`` is the \"finished\" threshold.\n\nPR 6-L: the ``resume_confirmed`` rule is checked on the device (``DeviceConfig``), not here,\nso a template can default to ``plug`` while the user still has to confirm on the device.",
       "properties": {
         "idle_w": {
           "default": 5.0,

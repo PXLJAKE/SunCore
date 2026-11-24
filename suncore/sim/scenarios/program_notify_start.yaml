@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+name: program_notify_start
+description: >-
+  PR 6-L. A dishwasher SunCore never switches (start method notify, only a power sensor). The
+  user arms "finished by 18:30" at 08:00. Without a plan the start is due at the latest start
+  16:30: SunCore sends one "start now" notification, writes nothing, and sees the user's start
+  at 16:32 and the end of the programme on the power sensor.
+start: "2026-06-20T08:00:00+02:00"
+duration_s: 39600
+step_s: 30
+house:
+  seed: 62
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.05}
+outdoor: {mean_c: 20.0, amplitude_c: 6.0}
+control:
+  import_limit_w: 16000
+devices:
+  - id: dishwasher
+    template: generic.program_notify
+    physics:
+      kind: program
+      method: notify
+      profile_w: [1800, 200, 200, 1800, 200, 100, 50, 50]
+      lag_s: 60
+      lag_w: 3
+    control:
+      power_model: {kind: measured, power_role: power, nominal_w: 2000}
+      program:
+        runtime_min: 120
+        profile_wh: [450, 50, 50, 450, 50, 25, 13, 13]
+        start_method: notify
+        idle_w: 5
+      behaviour_confirmed: true
+    jobs:
+      - {arm_at_s: 0, deadline_s: 37800}
+manual:
+  - {at_s: 30720, device: dishwasher, action: turn_on}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 14400, factor: 0.3}
+  - {at_s: 14700, factor: 1.0}
+  - {at_s: 15000, factor: 0.3}
+  - {at_s: 15300, factor: 1.0}

@@ -14,7 +14,8 @@ import type {
 import { emptyRef, fromRef, slugify, toRef, uniqueId, type RefField } from './forms';
 
 /** The primary entity role a control writes (the first relay of a `relays` control, the first
- * contact of an SG-Ready control; an evcc loadpoint writes no entity). */
+ * contact of an SG-Ready control; an evcc loadpoint and a notify-only program write no
+ * entity). */
 export function controlRoleOf(control: ControlSpec): string {
   switch (control.kind) {
     case 'relays':
@@ -22,6 +23,7 @@ export function controlRoleOf(control: ControlSpec): string {
     case 'sg_ready':
       return control.contact_a;
     case 'loadpoint':
+    case 'notify':
       return '';
     default:
       return control.role;
