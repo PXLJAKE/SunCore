@@ -1835,6 +1835,580 @@
  },
  {
   "lang": "en",
+  "key": "notify.action.confirm",
+  "args": {},
+  "expected": "Confirm"
+ },
+ {
+  "lang": "en",
+  "key": "notify.action.reject",
+  "args": {},
+  "expected": "Reject"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": "abc",
+   "end": "abc",
+   "price": 0
+  },
+  "expected": "Cheap electricity from abc to abc (about 0 per kWh)."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": 42,
+   "end": 42,
+   "price": 1
+  },
+  "expected": "Cheap electricity from 42 to 42 (about 1 per kWh)."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": "abc",
+   "end": "abc",
+   "price": 2
+  },
+  "expected": "Cheap electricity from abc to abc (about 2 per kWh)."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": 42,
+   "end": 42,
+   "price": 5
+  },
+  "expected": "Cheap electricity from 42 to 42 (about 5 per kWh)."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": "abc",
+   "end": "abc",
+   "price": 21
+  },
+  "expected": "Cheap electricity from abc to abc (about 21 per kWh)."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": 42,
+   "end": 42,
+   "price": 1234.5
+  },
+  "expected": "Cheap electricity from 42 to 42 (about 1,234.5 per kWh)."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": "abc",
+   "end": "abc",
+   "price": -3.25
+  },
+  "expected": "Cheap electricity from abc to abc (about -3.25 per kWh)."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": 42,
+   "end": 42,
+   "price": 0.125
+  },
+  "expected": "Cheap electricity from 42 to 42 (about 0.125 per kWh)."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cheap_window.start.title",
+  "args": {},
+  "expected": "SunCore: cheap electricity"
+ },
+ {
+  "lang": "en",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": "abc",
+   "switched": 0
+  },
+  "expected": "Operating mode: abc. No device was switched today."
+ },
+ {
+  "lang": "en",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": 42,
+   "switched": 1
+  },
+  "expected": "Operating mode: 42. One device was switched today."
+ },
+ {
+  "lang": "en",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": "abc",
+   "switched": 2
+  },
+  "expected": "Operating mode: abc. 2 devices were switched today."
+ },
+ {
+  "lang": "en",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": 42,
+   "switched": 5
+  },
+  "expected": "Operating mode: 42. 5 devices were switched today."
+ },
+ {
+  "lang": "en",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": "abc",
+   "switched": 21
+  },
+  "expected": "Operating mode: abc. 21 devices were switched today."
+ },
+ {
+  "lang": "en",
+  "key": "notify.daily_summary.text.title",
+  "args": {},
+  "expected": "SunCore: daily summary"
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.device_tripped",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore paused abc because its values looked wrong or went missing. It resumes by itself when they are back."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.device_tripped",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore paused 42 because its values looked wrong or went missing. It resumes by itself when they are back."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.device_tripped.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc paused"
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.device_tripped.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 paused"
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.mqtt_lost",
+  "args": {
+   "minutes": "abc"
+  },
+  "expected": "SunCore has been without its MQTT broker for abc minutes. The SunCore entities in Home Assistant are not updated; control is not affected."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.mqtt_lost",
+  "args": {
+   "minutes": 42
+  },
+  "expected": "SunCore has been without its MQTT broker for 42 minutes. The SunCore entities in Home Assistant are not updated; control is not affected."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.mqtt_lost.title",
+  "args": {},
+  "expected": "SunCore: MQTT connection lost"
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 0
+  },
+  "expected": "SunCore could not make a plan for 0 hours. Devices follow the last plan or the safe defaults. See the system check in the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 1
+  },
+  "expected": "SunCore could not make a plan for 1 hour. Devices follow the last plan or the safe defaults. See the system check in the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 2
+  },
+  "expected": "SunCore could not make a plan for 2 hours. Devices follow the last plan or the safe defaults. See the system check in the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 5
+  },
+  "expected": "SunCore could not make a plan for 5 hours. Devices follow the last plan or the safe defaults. See the system check in the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 21
+  },
+  "expected": "SunCore could not make a plan for 21 hours. Devices follow the last plan or the safe defaults. See the system check in the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.planner_failed.title",
+  "args": {},
+  "expected": "SunCore: no plan"
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.write_failed",
+  "args": {
+   "device": "abc",
+   "count": "abc"
+  },
+  "expected": "Switching abc failed abc times in a row. SunCore has stopped controlling it until it works again. Check the device in Home Assistant."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.write_failed",
+  "args": {
+   "device": 42,
+   "count": 42
+  },
+  "expected": "Switching 42 failed 42 times in a row. SunCore has stopped controlling it until it works again. Check the device in Home Assistant."
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.write_failed.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc does not respond"
+ },
+ {
+  "lang": "en",
+  "key": "notify.error.write_failed.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 does not respond"
+ },
+ {
+  "lang": "en",
+  "key": "notify.panel_hint",
+  "args": {},
+  "expected": "Open the SunCore panel to answer."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.confirmed",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc was switched as proposed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.confirmed",
+  "args": {
+   "device": 42
+  },
+  "expected": "42 was switched as proposed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.confirmed.title",
+  "args": {},
+  "expected": "SunCore: confirmed"
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.gone",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "The proposal for abc has expired or was already handled. Nothing was changed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.gone",
+  "args": {
+   "device": 42
+  },
+  "expected": "The proposal for 42 has expired or was already handled. Nothing was changed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.gone.title",
+  "args": {},
+  "expected": "SunCore: proposal no longer valid"
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": "abc",
+   "minutes": 0
+  },
+  "expected": "SunCore proposes to switch abc. The proposal expires in 0 minutes."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": 42,
+   "minutes": 1
+  },
+  "expected": "SunCore proposes to switch 42. The proposal expires in 1 minute."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": "abc",
+   "minutes": 2
+  },
+  "expected": "SunCore proposes to switch abc. The proposal expires in 2 minutes."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": 42,
+   "minutes": 5
+  },
+  "expected": "SunCore proposes to switch 42. The proposal expires in 5 minutes."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": "abc",
+   "minutes": 21
+  },
+  "expected": "SunCore proposes to switch abc. The proposal expires in 21 minutes."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.offer.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: confirm abc?"
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.offer.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: confirm 42?"
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.refused",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore did not switch abc: a safety rule or an error stopped it. See the decision log in the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.refused",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore did not switch 42: a safety rule or an error stopped it. See the decision log in the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.refused.title",
+  "args": {},
+  "expected": "SunCore: not switched"
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.rejected",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "The proposal for abc was rejected. Nothing was changed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.rejected",
+  "args": {
+   "device": 42
+  },
+  "expected": "The proposal for 42 was rejected. Nothing was changed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.proposal.rejected.title",
+  "args": {},
+  "expected": "SunCore: rejected"
+ },
+ {
+  "lang": "en",
+  "key": "notify.reason.actions_entity_only",
+  "args": {},
+  "expected": "Buttons need a companion app service such as mobile_app_PHONE. Notify entities get plain messages with a pointer to the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.reason.actions_offline",
+  "args": {},
+  "expected": "Waiting for Home Assistant: the buttons for confirming proposals are checked as soon as the connection is up."
+ },
+ {
+  "lang": "en",
+  "key": "notify.reason.actions_refused",
+  "args": {},
+  "expected": "Home Assistant does not let SunCore receive notification button taps. Messages are sent without buttons and point to the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.reason.no_targets",
+  "args": {},
+  "expected": "No push target is chosen yet. Only persistent notifications in Home Assistant are used."
+ },
+ {
+  "lang": "en",
+  "key": "notify.reason.test_rate_limited",
+  "args": {},
+  "expected": "A test message was sent a moment ago. Wait a few seconds."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.emergency_stop",
+  "args": {},
+  "expected": "The emergency stop is active. SunCore released every device and writes nothing until you clear it in the SunCore panel."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.emergency_stop.title",
+  "args": {},
+  "expected": "SunCore: emergency stop"
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.emergency_stop_cleared",
+  "args": {},
+  "expected": "The emergency stop is cleared. The operating modes are unchanged."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.emergency_stop_cleared.title",
+  "args": {},
+  "expected": "SunCore: emergency stop cleared"
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.island_end",
+  "args": {},
+  "expected": "The house is connected to the grid again. SunCore resumes normal control after a short cool-down."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.island_end.title",
+  "args": {},
+  "expected": "SunCore: grid is back"
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.island_start",
+  "args": {},
+  "expected": "The house runs disconnected from the grid. SunCore only keeps the devices on your keep list running."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.island_start.title",
+  "args": {},
+  "expected": "SunCore: island operation"
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.mqtt_raise_refused",
+  "args": {
+   "entity": "abc"
+  },
+  "expected": "Home Assistant (abc) tried to raise an operating mode or clear the emergency stop. This is switched off in the SunCore settings, so nothing was changed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.mqtt_raise_refused",
+  "args": {
+   "entity": 42
+  },
+  "expected": "Home Assistant (42) tried to raise an operating mode or clear the emergency stop. This is switched off in the SunCore settings, so nothing was changed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.mqtt_raise_refused.title",
+  "args": {},
+  "expected": "SunCore: command from Home Assistant refused"
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.para14a_end",
+  "args": {},
+  "expected": "The limit of the grid operator (§14a) is no longer active."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.para14a_end.title",
+  "args": {},
+  "expected": "SunCore: grid operator limit ended"
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.para14a_start",
+  "args": {},
+  "expected": "The grid operator limits controllable loads. SunCore dims the flagged devices while the signal is active."
+ },
+ {
+  "lang": "en",
+  "key": "notify.safety.para14a_start.title",
+  "args": {},
+  "expected": "SunCore: grid operator limit (§14a)"
+ },
+ {
+  "lang": "en",
+  "key": "notify.test",
+  "args": {},
+  "expected": "This is a test message from SunCore. Notifications reach this device."
+ },
+ {
+  "lang": "en",
+  "key": "notify.test.title",
+  "args": {},
+  "expected": "SunCore: test"
+ },
+ {
+  "lang": "en",
   "key": "planner.battery.at_reserve",
   "args": {
    "soc_pct": 0
@@ -6572,6 +7146,580 @@
   "key": "mqtt.status.no_broker",
   "args": {},
   "expected": "Kein Broker"
+ },
+ {
+  "lang": "de",
+  "key": "notify.action.confirm",
+  "args": {},
+  "expected": "Bestätigen"
+ },
+ {
+  "lang": "de",
+  "key": "notify.action.reject",
+  "args": {},
+  "expected": "Ablehnen"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": "abc",
+   "end": "abc",
+   "price": 0
+  },
+  "expected": "Günstiger Strom von abc bis abc Uhr (etwa 0 pro kWh)."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": 42,
+   "end": 42,
+   "price": 1
+  },
+  "expected": "Günstiger Strom von 42 bis 42 Uhr (etwa 1 pro kWh)."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": "abc",
+   "end": "abc",
+   "price": 2
+  },
+  "expected": "Günstiger Strom von abc bis abc Uhr (etwa 2 pro kWh)."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": 42,
+   "end": 42,
+   "price": 5
+  },
+  "expected": "Günstiger Strom von 42 bis 42 Uhr (etwa 5 pro kWh)."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": "abc",
+   "end": "abc",
+   "price": 21
+  },
+  "expected": "Günstiger Strom von abc bis abc Uhr (etwa 21 pro kWh)."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": 42,
+   "end": 42,
+   "price": 1234.5
+  },
+  "expected": "Günstiger Strom von 42 bis 42 Uhr (etwa 1.234,5 pro kWh)."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": "abc",
+   "end": "abc",
+   "price": -3.25
+  },
+  "expected": "Günstiger Strom von abc bis abc Uhr (etwa -3,25 pro kWh)."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start",
+  "args": {
+   "start": 42,
+   "end": 42,
+   "price": 0.125
+  },
+  "expected": "Günstiger Strom von 42 bis 42 Uhr (etwa 0,125 pro kWh)."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cheap_window.start.title",
+  "args": {},
+  "expected": "SunCore: günstiger Strom"
+ },
+ {
+  "lang": "de",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": "abc",
+   "switched": 0
+  },
+  "expected": "Betriebsmodus: abc. Heute wurde kein Gerät geschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": 42,
+   "switched": 1
+  },
+  "expected": "Betriebsmodus: 42. Heute wurde ein Gerät geschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": "abc",
+   "switched": 2
+  },
+  "expected": "Betriebsmodus: abc. Heute wurden 2 Geräte geschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": 42,
+   "switched": 5
+  },
+  "expected": "Betriebsmodus: 42. Heute wurden 5 Geräte geschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.daily_summary.text",
+  "args": {
+   "mode": "abc",
+   "switched": 21
+  },
+  "expected": "Betriebsmodus: abc. Heute wurden 21 Geräte geschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.daily_summary.text.title",
+  "args": {},
+  "expected": "SunCore: Tageszusammenfassung"
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.device_tripped",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore hat abc pausiert, weil die Werte unplausibel waren oder fehlten. Es geht von selbst weiter, sobald sie wieder da sind."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.device_tripped",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore hat 42 pausiert, weil die Werte unplausibel waren oder fehlten. Es geht von selbst weiter, sobald sie wieder da sind."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.device_tripped.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc pausiert"
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.device_tripped.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 pausiert"
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.mqtt_lost",
+  "args": {
+   "minutes": "abc"
+  },
+  "expected": "SunCore hat seit abc Minuten keinen MQTT-Broker. Die SunCore-Entities in Home Assistant werden nicht aktualisiert; die Steuerung ist nicht betroffen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.mqtt_lost",
+  "args": {
+   "minutes": 42
+  },
+  "expected": "SunCore hat seit 42 Minuten keinen MQTT-Broker. Die SunCore-Entities in Home Assistant werden nicht aktualisiert; die Steuerung ist nicht betroffen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.mqtt_lost.title",
+  "args": {},
+  "expected": "SunCore: MQTT-Verbindung verloren"
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 0
+  },
+  "expected": "SunCore konnte seit 0 Stunden keinen Plan erstellen. Die Geräte folgen dem letzten Plan oder den sicheren Standardwerten. Siehe Systemprüfung im SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 1
+  },
+  "expected": "SunCore konnte seit 1 Stunde keinen Plan erstellen. Die Geräte folgen dem letzten Plan oder den sicheren Standardwerten. Siehe Systemprüfung im SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 2
+  },
+  "expected": "SunCore konnte seit 2 Stunden keinen Plan erstellen. Die Geräte folgen dem letzten Plan oder den sicheren Standardwerten. Siehe Systemprüfung im SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 5
+  },
+  "expected": "SunCore konnte seit 5 Stunden keinen Plan erstellen. Die Geräte folgen dem letzten Plan oder den sicheren Standardwerten. Siehe Systemprüfung im SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.planner_failed",
+  "args": {
+   "hours": 21
+  },
+  "expected": "SunCore konnte seit 21 Stunden keinen Plan erstellen. Die Geräte folgen dem letzten Plan oder den sicheren Standardwerten. Siehe Systemprüfung im SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.planner_failed.title",
+  "args": {},
+  "expected": "SunCore: kein Plan"
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.write_failed",
+  "args": {
+   "device": "abc",
+   "count": "abc"
+  },
+  "expected": "Das Schalten von abc ist abc-mal hintereinander fehlgeschlagen. SunCore steuert es nicht mehr, bis es wieder funktioniert. Prüfe das Gerät in Home Assistant."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.write_failed",
+  "args": {
+   "device": 42,
+   "count": 42
+  },
+  "expected": "Das Schalten von 42 ist 42-mal hintereinander fehlgeschlagen. SunCore steuert es nicht mehr, bis es wieder funktioniert. Prüfe das Gerät in Home Assistant."
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.write_failed.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc reagiert nicht"
+ },
+ {
+  "lang": "de",
+  "key": "notify.error.write_failed.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 reagiert nicht"
+ },
+ {
+  "lang": "de",
+  "key": "notify.panel_hint",
+  "args": {},
+  "expected": "Öffne das SunCore-Panel, um zu antworten."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.confirmed",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "abc wurde wie vorgeschlagen geschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.confirmed",
+  "args": {
+   "device": 42
+  },
+  "expected": "42 wurde wie vorgeschlagen geschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.confirmed.title",
+  "args": {},
+  "expected": "SunCore: bestätigt"
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.gone",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "Der Vorschlag für abc ist abgelaufen oder wurde schon bearbeitet. Es wurde nichts geändert."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.gone",
+  "args": {
+   "device": 42
+  },
+  "expected": "Der Vorschlag für 42 ist abgelaufen oder wurde schon bearbeitet. Es wurde nichts geändert."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.gone.title",
+  "args": {},
+  "expected": "SunCore: Vorschlag nicht mehr gültig"
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": "abc",
+   "minutes": 0
+  },
+  "expected": "SunCore schlägt vor, abc zu schalten. Der Vorschlag verfällt in 0 Minuten."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": 42,
+   "minutes": 1
+  },
+  "expected": "SunCore schlägt vor, 42 zu schalten. Der Vorschlag verfällt in 1 Minute."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": "abc",
+   "minutes": 2
+  },
+  "expected": "SunCore schlägt vor, abc zu schalten. Der Vorschlag verfällt in 2 Minuten."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": 42,
+   "minutes": 5
+  },
+  "expected": "SunCore schlägt vor, 42 zu schalten. Der Vorschlag verfällt in 5 Minuten."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.offer",
+  "args": {
+   "device": "abc",
+   "minutes": 21
+  },
+  "expected": "SunCore schlägt vor, abc zu schalten. Der Vorschlag verfällt in 21 Minuten."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.offer.title",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore: abc bestätigen?"
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.offer.title",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore: 42 bestätigen?"
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.refused",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "SunCore hat abc nicht geschaltet: Eine Sicherheitsregel oder ein Fehler hat es verhindert. Siehe Entscheidungsprotokoll im SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.refused",
+  "args": {
+   "device": 42
+  },
+  "expected": "SunCore hat 42 nicht geschaltet: Eine Sicherheitsregel oder ein Fehler hat es verhindert. Siehe Entscheidungsprotokoll im SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.refused.title",
+  "args": {},
+  "expected": "SunCore: nicht geschaltet"
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.rejected",
+  "args": {
+   "device": "abc"
+  },
+  "expected": "Der Vorschlag für abc wurde abgelehnt. Es wurde nichts geändert."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.rejected",
+  "args": {
+   "device": 42
+  },
+  "expected": "Der Vorschlag für 42 wurde abgelehnt. Es wurde nichts geändert."
+ },
+ {
+  "lang": "de",
+  "key": "notify.proposal.rejected.title",
+  "args": {},
+  "expected": "SunCore: abgelehnt"
+ },
+ {
+  "lang": "de",
+  "key": "notify.reason.actions_entity_only",
+  "args": {},
+  "expected": "Schaltflächen brauchen einen Companion-App-Dienst wie mobile_app_HANDY. Notify-Entities bekommen einfache Meldungen mit Hinweis auf das SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.reason.actions_offline",
+  "args": {},
+  "expected": "Warte auf Home Assistant: Die Schaltflächen zum Bestätigen von Vorschlägen werden geprüft, sobald die Verbindung steht."
+ },
+ {
+  "lang": "de",
+  "key": "notify.reason.actions_refused",
+  "args": {},
+  "expected": "Home Assistant lässt SunCore keine Tipps auf Benachrichtigungs-Schaltflächen empfangen. Meldungen kommen ohne Schaltflächen und verweisen auf das SunCore-Panel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.reason.no_targets",
+  "args": {},
+  "expected": "Es ist noch kein Push-Ziel gewählt. Es werden nur dauerhafte Benachrichtigungen in Home Assistant verwendet."
+ },
+ {
+  "lang": "de",
+  "key": "notify.reason.test_rate_limited",
+  "args": {},
+  "expected": "Vor einem Moment wurde schon eine Testnachricht gesendet. Warte ein paar Sekunden."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.emergency_stop",
+  "args": {},
+  "expected": "Der Not-Aus ist aktiv. SunCore hat alle Geräte freigegeben und schreibt nichts, bis du ihn im SunCore-Panel aufhebst."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.emergency_stop.title",
+  "args": {},
+  "expected": "SunCore: Not-Aus"
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.emergency_stop_cleared",
+  "args": {},
+  "expected": "Der Not-Aus ist aufgehoben. Die Betriebsmodi sind unverändert."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.emergency_stop_cleared.title",
+  "args": {},
+  "expected": "SunCore: Not-Aus aufgehoben"
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.island_end",
+  "args": {},
+  "expected": "Das Haus ist wieder am Netz. SunCore steuert nach einer kurzen Wartezeit wieder normal."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.island_end.title",
+  "args": {},
+  "expected": "SunCore: Netz ist zurück"
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.island_start",
+  "args": {},
+  "expected": "Das Haus läuft getrennt vom Netz. SunCore hält nur die Geräte deiner Behalte-Liste in Betrieb."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.island_start.title",
+  "args": {},
+  "expected": "SunCore: Inselbetrieb"
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.mqtt_raise_refused",
+  "args": {
+   "entity": "abc"
+  },
+  "expected": "Home Assistant (abc) wollte einen Betriebsmodus anheben oder den Not-Aus aufheben. Das ist in den SunCore-Einstellungen ausgeschaltet, deshalb wurde nichts geändert."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.mqtt_raise_refused",
+  "args": {
+   "entity": 42
+  },
+  "expected": "Home Assistant (42) wollte einen Betriebsmodus anheben oder den Not-Aus aufheben. Das ist in den SunCore-Einstellungen ausgeschaltet, deshalb wurde nichts geändert."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.mqtt_raise_refused.title",
+  "args": {},
+  "expected": "SunCore: Befehl aus Home Assistant abgelehnt"
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.para14a_end",
+  "args": {},
+  "expected": "Die Begrenzung des Netzbetreibers (§14a) ist nicht mehr aktiv."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.para14a_end.title",
+  "args": {},
+  "expected": "SunCore: Netzbetreiber-Begrenzung beendet"
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.para14a_start",
+  "args": {},
+  "expected": "Der Netzbetreiber begrenzt steuerbare Verbraucher. SunCore dimmt die markierten Geräte, solange das Signal aktiv ist."
+ },
+ {
+  "lang": "de",
+  "key": "notify.safety.para14a_start.title",
+  "args": {},
+  "expected": "SunCore: Netzbetreiber-Begrenzung (§14a)"
+ },
+ {
+  "lang": "de",
+  "key": "notify.test",
+  "args": {},
+  "expected": "Das ist eine Testnachricht von SunCore. Benachrichtigungen erreichen dieses Gerät."
+ },
+ {
+  "lang": "de",
+  "key": "notify.test.title",
+  "args": {},
+  "expected": "SunCore: Test"
  },
  {
   "lang": "de",

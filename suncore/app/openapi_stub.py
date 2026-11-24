@@ -33,6 +33,7 @@ from suncore.forecast.load_service import LoadForecastService
 from suncore.forecast.risk import ErrorModel
 from suncore.forecast.risk_learning import risk_view
 from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView, RiskView
+from suncore.notify import ActionsState, NotifyStatus, TestResult
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import HistoryEntry
 from suncore.tariff.report import PriceReport
@@ -196,6 +197,15 @@ class StubServices:
 
     async def ha_entities_republish(self) -> bool:
         return False
+
+    def notifications_status(self) -> NotifyStatus:
+        return NotifyStatus(ActionsState.PENDING, "notify.reason.no_targets", 0, 0, 0, 0)
+
+    def notify_entity_targets(self) -> list[str]:
+        return []
+
+    async def notifications_test(self) -> TestResult:
+        return TestResult(0, 0, "notify.reason.no_targets")
 
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
         return lambda: None

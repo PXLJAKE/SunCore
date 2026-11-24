@@ -10,14 +10,14 @@ a device directly, and nothing calls ``apply``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Final
 
 from suncore import __version__
 from suncore.core.config import MqttConfig
 from suncore.core.controlstate import OverrideCommand
-from suncore.core.decisions import DecisionKind, OperatingMode
+from suncore.core.decisions import DecisionKind, OperatingMode, Reason
 from suncore.ha.connection import ConnectionState
 from suncore.ha.mqtt import (
     DeviceInfo,
@@ -221,7 +221,9 @@ class RuntimeEntitySource:
         return events
 
 
-def build_ha_entities(runtime: Runtime) -> HaEntityService | None:
+def build_ha_entities(
+    runtime: Runtime, on_refusal: Callable[[str, Reason], None] | None = None
+) -> HaEntityService | None:
     """The service for ``runtime`` (``None`` in demo mode or without the learned store)."""
     if runtime.demo or runtime.learned is None:
         return None
@@ -237,4 +239,5 @@ def build_ha_entities(runtime: Runtime) -> HaEntityService | None:
         store=SqliteInstallStore(runtime.learned),
         services=supervisor_services_from_env(),
         commands=RuntimeCommandPort(runtime),
+        on_refusal=on_refusal,
     )

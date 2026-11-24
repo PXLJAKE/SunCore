@@ -52,6 +52,8 @@ from suncore.api.models import (
     InfoOut,
     LiveMessage,
     ModeRequest,
+    NotificationsStatusOut,
+    NotificationTestOut,
     PlanMessage,
     PreviewItemOut,
     PreviewOut,
@@ -75,6 +77,7 @@ from suncore.api.validation import validation_exception_handler
 from suncore.core.config import (
     SECTION_MODELS,
     MqttPasswordIsMaskError,
+    NotificationsConfig,
     OperationConfig,
     TariffConfig,
     formula_on_all_in_source,
@@ -176,6 +179,7 @@ def create_app(
     _register_prices(app, services)
     _register_plan(app, services)
     _register_ha_entities(app, services)
+    _register_notifications(app, services)
     register_history(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
@@ -431,6 +435,54 @@ def _register_ha_entities(app: FastAPI, services: Services) -> None:
         """Publish the discovery configs and all states again (for a broker without the Home
         Assistant birth message). ``republished`` is ``false`` when there is no broker session."""
         return HaEntitiesRepublishOut(republished=await services.ha_entities_republish())
+
+
+def _register_notifications(app: FastAPI, services: Services) -> None:
+    """Notification settings, status and a test message (Phase 6 WP5)."""
+
+    @app.get(
+        f"{API_PREFIX}/notifications/settings",
+        response_model=NotificationsConfig,
+        operation_id="notifications_settings",
+    )
+    async def settings() -> NotificationsConfig:
+        """Categories, push targets, quiet hours and the daily cap (the ``notifications``
+        section; defaults while nothing is stored)."""
+        stored = await services.get_section("notifications")
+        return stored if isinstance(stored, NotificationsConfig) else NotificationsConfig()
+
+    @app.put(
+        f"{API_PREFIX}/notifications/settings",
+        response_model=NotificationsConfig,
+        operation_id="notifications_put_settings",
+    )
+    async def put_settings(body: NotificationsConfig) -> NotificationsConfig:
+        """Replace the notification settings; the service picks them up at once."""
+        stored = await services.put_section("notifications", body)
+        assert isinstance(stored, NotificationsConfig)
+        return stored
+
+    @app.get(
+        f"{API_PREFIX}/notifications/status",
+        response_model=NotificationsStatusOut,
+        operation_id="notifications_status",
+    )
+    async def status() -> NotificationsStatusOut:
+        """Whether the confirm buttons work (``active``) or Home Assistant refused the event
+        subscription (``refused``: plain messages with a pointer to the panel), how many push
+        targets can carry buttons, and the ``notify`` entities to choose from."""
+        return NotificationsStatusOut.from_core(
+            services.notifications_status(), services.notify_entity_targets()
+        )
+
+    @app.post(
+        f"{API_PREFIX}/notifications/test",
+        response_model=NotificationTestOut,
+        operation_id="notifications_test",
+    )
+    async def test() -> NotificationTestOut:
+        """Send a test message to every push target (at most one every five seconds)."""
+        return NotificationTestOut.from_core(await services.notifications_test())
 
 
 def _register_control(app: FastAPI, services: Services) -> None:

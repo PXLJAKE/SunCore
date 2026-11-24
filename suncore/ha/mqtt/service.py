@@ -27,6 +27,7 @@ from typing import Any, Final, Protocol
 import structlog
 
 from suncore.core.config import MqttConfig
+from suncore.core.decisions import Reason
 from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.ha.mqtt.broker import (
     BrokerLookup,
@@ -35,7 +36,7 @@ from suncore.ha.mqtt.broker import (
     lookup_broker,
 )
 from suncore.ha.mqtt.client import LinkState, MqttClient, Will
-from suncore.ha.mqtt.commands import CommandHandler, CommandPort
+from suncore.ha.mqtt.commands import REASON_RAISE_DISABLED, CommandHandler, CommandPort
 from suncore.ha.mqtt.discovery import (
     BIRTH_PAYLOAD,
     BIRTH_TOPIC,
@@ -126,6 +127,7 @@ class HaEntityService:
         store: InstallStore,
         services: SupervisorServices | None,
         commands: CommandPort | None = None,
+        on_refusal: Callable[[str, Reason], None] | None = None,
         client_factory: Callable[..., Any] | None = None,
         retry_s: float = RETRY_S,
         poll_s: float = SYNC_POLL_S,
@@ -139,6 +141,7 @@ class HaEntityService:
         self._store = store
         self._services = services
         self._commands = commands
+        self._on_refusal = on_refusal
         self._client_factory = client_factory
         self._retry_s = retry_s
         self._poll_s = poll_s
@@ -388,6 +391,11 @@ class HaEntityService:
         self.refresh()  # the true state (also after a refusal) goes out at the next sync
         if result.refused and not retain:
             log.info("mqtt.command_refused", entity=object_id, reason=result.reason.key)
+            if self._on_refusal is not None and result.reason.key == REASON_RAISE_DISABLED:
+                try:
+                    self._on_refusal(object_id, result.reason)
+                except Exception:
+                    log.exception("mqtt.refusal_hook_failed")
 
     async def _after_birth(self, session: _Session) -> None:
         await asyncio.sleep(self._rng(*self._birth_delay))

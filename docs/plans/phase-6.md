@@ -795,3 +795,79 @@ HA-Entities brauchen eine Konfigurationsänderung durch HA. Soll ich dafür den 
 Konfiguration um einen „Urheber“ (`mqtt`) erweitern (eine kleine Migration) oder reichen die
 Betriebsmodi und der Not-Aus aus HA vorerst? **Empfehlung:** vorerst nur Modi und Not-Aus; die
 Batterie-Einstellungen bleiben im Panel.
+
+### 6-E (notifications)
+
+- **Scope.** Built: `HAConnection.notify` (allowlist, own limiter), `subscribe_notification_actions`,
+  `suncore/notify/` (rules, rate limits, tokens, sink, render, service), the app composition
+  (`app/notifications.py`), the API (`GET/PUT /api/v1/notifications/settings`, `GET .../status`,
+  `POST .../test`), the persistent notification for a refused mode raise from HA (6-D hook
+  `HaEntityService(on_refusal=...)`), 46 new catalogue keys per language and the regenerated backend
+  catalogue and golden file. Demo mode runs no notification service.
+- **`notify` imports the types of `ha.connection`** (errors, `NotificationAction`) besides `core`
+  and `i18n`: the plan said `core` and `i18n` only; the boundary test bans every other `suncore`
+  package and `ha.websocket`/`ha.mqtt`.
+- **Entity targets get plain text.** `notify.send_message` has no documented button field, so
+  buttons go only to legacy `notify.<service>` targets (companion app); entity targets receive the
+  text with a pointer to the panel. The status reports `notify.reason.actions_entity_only`.
+- **Targets are entered by name.** The list of legacy `notify.*` services (`get_services`) is not
+  read (`UNVERIFIED` over the proxy, plan WP5); the status lists the `notify` entities from the
+  entity cache, services are typed in. Service names that could switch something
+  (`send_message`, `persistent_notification`, anything with a dot or capital) are rejected by the
+  config model; the connection's allowlist only sends configured names.
+- **Event subscription tried when HA is first connected**, not at process start (nothing can be
+  subscribed before). A refusal (`CommandError`) is final until a restart (`actions: refused`);
+  an offline error is retried at the next connect. After a reconnect the connection renews the
+  subscription itself; a failure there is only logged, the service keeps `active` (a tap then
+  simply never arrives, which is safe).
+- **Quiet hours drop, they do not queue.** A proposal or cheap-window message in the quiet hours
+  is not sent later (a proposal expires within minutes anyway). Persistent notifications ignore
+  quiet hours and the cap.
+- **Sources not yet there.** Island and section 14a (6-F) enter through `Observation.island` and
+  `.para14a` (both `None` today: no event); program start/done and EV target at risk (6-L, 6-I)
+  through `NotificationService.post`; "trip" is read from a watchdog pause
+  (`safety.watchdog_*`), "adapter refuses" has no source yet. The daily summary only carries the
+  mode and the number of switchings seen today (no cost or savings reader yet, see 6-C).
+- **Cheap window** = cheapest contiguous block of at least 1 h with prices strictly below the
+  25th percentile of the next 24 h, from the tariff report (refreshed every 5 min), announced once
+  per window start.
+- **Replies.** A tap is answered with a short message (confirmed, rejected, no longer valid, not
+  switched). A tap on an expired, used or forged token is logged and not answered (no amplification).
+- **Tests.** pytest, the sim fake, the WebSocket fake server (`FakeHA`) and a stub connection; no
+  network. The stub MQTT broker is not needed.
+- `UNVERIFIED`: see `docs/research/ha-websocket-api.md`, section "Notifications and notification
+  actions" (the `home-assistant/core` source was not reachable).
+
+**Safety self-review (6-E), for the `control-safety` review of the confirm path**
+
+| # | Requirement | Where | Evidence |
+|---|---|---|---|
+| S1 | A confirm from a notification takes the panel's service path | `NotificationService._handle` -> `ProposalPort.confirm_proposal` -> `Runtime.confirm_proposal` -> `gate.confirm` (`Origin.USER`) | `test_a_tap_confirms_through_the_same_gate_path_as_the_panel`, boundary tests (`confirm_proposal` only at `self._proposals`, port has two methods) |
+| S2 | Proposal still current: id, expiry, mode | token bound to the intent id and `expires_at`; `open_proposals()` must list the id, `now < expires_at`, device `assisted`; the gate re-checks expiry | `test_confirm_after_expiry...`, `test_confirm_needs_the_proposal_to_be_current_and_assisted`, `test_the_port_expiry_is_checked_by_the_service_too`, runtime tests (expired, panel first, mode lowered) |
+| S3 | Idempotent | the token is consumed synchronously by the first tap (its sibling dies with it); the gate pops the proposal once | `test_confirm_goes_through_the_services_layer_once_and_is_idempotent`, `test_a_second_tap_does_not_confirm_again`, `tests/notify/test_actions.py` |
+| S4 | Never raises a mode or clears the emergency stop | the port has no such method; `RuntimeProposalPort` calls `proposals`/`confirm_proposal` only; during an emergency stop the gate rejects | `test_a_tap_never_raises_the_mode_or_clears_the_emergency_stop`, `test_the_app_port_calls_only_the_two_service_methods`, `test_notify_package_never_calls_a_write_path` |
+| S5 | Rejected when action events cannot be authenticated | taps are honoured only in `ActionsState.ACTIVE` (subscription succeeded) and only for a 128-bit token SunCore issued (the event carries no sender proof, `UNVERIFIED`); a refused subscription issues no buttons | `test_a_refused_subscription_means_plain_notifications_and_no_taps`, `test_before_the_subscription_succeeds_no_tap_is_honoured`, `test_forged_and_foreign_actions_do_nothing` |
+| S6 | Token hygiene | random (`secrets`), memory only (a restart voids all), SHA-256 keyed, never logged, verb must match, 32 open proposals at most | `tests/notify/test_actions.py` |
+| S7 | Reject does not act | no service call; the proposal lapses | `test_reject_calls_nothing_and_kills_the_confirm_button` |
+| S8 | No device write from the notification layer | AST bans `apply`, `release`, `call_service`, gate and stack names; imports of `safety`, `controller`, `devices`, `api`, `app` forbidden; `HAConnection.notify` allowlist | `tests/notify/test_boundary.py`, `tests/ha/test_websocket_notify.py` (switch.turn_on etc. refused before the wire) |
+| S9 | A flood cannot hurt | forged ids cost one hash; at most 8 tasks in flight; notification rate 1/s on its own limiter; push cap per day | `test_a_tap_flood_is_bounded` |
+| S10 | Shadow stays default | the service reads modes, never writes them; no default target, push off until a target is chosen | defaults of `NotificationsConfig`, API default test |
+
+Residual risks: anyone who can fire events on the HA bus *and* reads the notification's token (the
+phone, the HA event log while the event is public) can confirm that one proposal within its
+lifetime; the effect is limited to what the panel's confirm does (one assisted proposal, all
+invariants apply). The token travels in the notification payload through the HA notify service and
+the push provider (as every actionable notification does). A refusal of the subscription after a
+reconnect is not detected (the service stays `active`, taps just never arrive).
+
+**New questions for the maintainer (19-21):**
+
+- **Frage 19: Push-Ziele (6-E):** Der Name des Ziels (z. B. `mobile_app_<handy>`) wird in den
+    Einstellungen eingetragen; die Liste der `notify`-Dienste liest SunCore nicht. Reicht das,
+    oder soll die Liste über Home Assistant geholt werden (ungeprüft über den Supervisor)?
+    **Empfehlung:** vorerst eintragen; `notify`-Entities werden als Auswahl angeboten.
+- **Frage 20: Aktions-Buttons (6-E):** Buttons gibt es nur für Companion-App-Dienste
+    (`notify.mobile_app_...`), nicht für `notify`-Entities. Ist das für dich in Ordnung?
+    **Empfehlung:** ja; ohne Button steht der Hinweis auf das Panel in der Meldung.
+- **Frage 21: Ruhezeit (6-E):** Vorschläge in der Ruhezeit (22-7 Uhr) werden verworfen statt am Morgen
+    nachgereicht (sie verfallen nach Minuten). **Empfehlung:** so lassen.

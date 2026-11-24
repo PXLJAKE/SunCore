@@ -31,6 +31,7 @@ from suncore.forecast.views import (
     PvForecastView,
     RiskView,
 )
+from suncore.notify import NotifyStatus, TestResult
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import DecisionLog, HistoryEntry, PlanSnapshotStore, TimeseriesStore
 from suncore.storage.summaries import DaySummaryRow
@@ -318,6 +319,18 @@ class Services(Protocol):
 
     async def ha_entities_republish(self) -> bool:
         """Announce the entities and their states again; ``False`` = no broker session."""
+        ...
+
+    def notifications_status(self) -> NotifyStatus:
+        """Whether push and action buttons work as configured, and why not (ADR-0016)."""
+        ...
+
+    def notify_entity_targets(self) -> list[str]:
+        """``notify.*`` entities Home Assistant knows (the choices for ``entity`` targets)."""
+        ...
+
+    async def notifications_test(self) -> TestResult:
+        """Send a test message to every configured push target."""
         ...
 
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:

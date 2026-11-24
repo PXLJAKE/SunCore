@@ -762,6 +762,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Settings
+         * @description Categories, push targets, quiet hours and the daily cap (the ``notifications``
+         *     section; defaults while nothing is stored).
+         */
+        get: operations["notifications_settings"];
+        /**
+         * Put Settings
+         * @description Replace the notification settings; the service picks them up at once.
+         */
+        put: operations["notifications_put_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Status
+         * @description Whether the confirm buttons work (``active``) or Home Assistant refused the event
+         *     subscription (``refused``: plain messages with a pointer to the panel), how many push
+         *     targets can carry buttons, and the ``notify`` entities to choose from.
+         */
+        get: operations["notifications_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test
+         * @description Send a test message to every push target (at most one every five seconds).
+         */
+        post: operations["notifications_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operation/battery": {
         parameters: {
             query?: never;
@@ -3934,6 +4001,18 @@ export interface components {
             safety: boolean;
         };
         /**
+         * NotificationTestOut
+         * @description Result of ``POST /api/v1/notifications/test``.
+         */
+        NotificationTestOut: {
+            /** Failed */
+            failed: number;
+            /** Reason Key */
+            reason_key: string | null;
+            /** Sent */
+            sent: number;
+        };
+        /**
          * NotificationsConfig
          * @description Notification settings (ADR-0016 decision 7, plan WP5).
          *
@@ -3981,6 +4060,29 @@ export interface components {
              * @default []
              */
             targets: components["schemas"]["NotifyTarget"][];
+        };
+        /**
+         * NotificationsStatusOut
+         * @description ``GET /api/v1/notifications/status``: do push and the confirm buttons work?
+         */
+        NotificationsStatusOut: {
+            /**
+             * Actions
+             * @enum {string}
+             */
+            actions: "pending" | "active" | "refused";
+            /** Button Targets */
+            button_targets: number;
+            /** Entity Targets */
+            entity_targets: string[];
+            /** Open Buttons */
+            open_buttons: number;
+            /** Push Targets */
+            push_targets: number;
+            /** Pushed Today */
+            pushed_today: number;
+            /** Reason Key */
+            reason_key: string | null;
         };
         /**
          * NotifyTarget
@@ -7416,6 +7518,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InfoOut"];
+                };
+            };
+        };
+    };
+    notifications_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsConfig"];
+                };
+            };
+        };
+    };
+    notifications_put_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationsConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsConfig"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    notifications_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsStatusOut"];
+                };
+            };
+        };
+    };
+    notifications_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationTestOut"];
                 };
             };
         };

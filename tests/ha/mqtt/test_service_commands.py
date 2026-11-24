@@ -171,6 +171,20 @@ async def test_raise_is_refused_and_the_true_state_is_republished(harness: Harne
     assert harness.port.calls == []
 
 
+async def test_a_refused_raise_calls_the_refusal_hook_and_nothing_else_does(
+    harness: Harness,
+) -> None:
+    seen: list[tuple[str, str]] = []
+    harness.service._on_refusal = lambda entity, reason: seen.append((entity, reason.key))
+    await harness.connected()
+    harness.command("auto", "ON")
+    await harness.broker.wait_for(lambda: bool(seen))
+    harness.command("replan", "PRESS")  # an accepted command is no refusal
+    harness.command("auto", "garbage")  # an invalid payload is no raise refusal
+    await asyncio.sleep(0.2)
+    assert seen == [("auto", "safety.mqtt_mode_raise_disabled")]
+
+
 async def test_raise_works_with_the_opt_in(opted_in: Harness) -> None:
     await opted_in.connected()
     opted_in.command("auto", "ON")

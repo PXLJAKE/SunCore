@@ -36,6 +36,7 @@ KEY_PREFIXES = (
     "tariff.error.",
     "mqtt.reason.",
     "mqtt.hint.",
+    "notify.reason.",
 )
 CONTROLLER_KEYS = Path("controller") / "reasons.py"
 """The controller defines its keys as constants in one module (log event names elsewhere

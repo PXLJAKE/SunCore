@@ -21,6 +21,7 @@ from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.haentities import HaEntitiesStatus
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem, worst_severity
+from suncore.notify import NotifyStatus, TestResult
 from suncore.planner.views import PlanSummary
 from suncore.storage import HistoryEntry
 from suncore.templates import (
@@ -204,6 +205,52 @@ class HaEntitiesStatusOut(_Model):
             reason_key=status.reason_key,
             hint_key="mqtt.hint.install_broker" if status.state.value == "no_broker" else None,
         )
+
+
+# --- notifications (Phase 6 WP5, ADR-0016 decision 7) ---------------------------------------
+
+
+class NotificationsStatusOut(_Model):
+    """``GET /api/v1/notifications/status``: do push and the confirm buttons work?"""
+
+    actions: Literal["pending", "active", "refused"]
+    """``active``: Home Assistant lets SunCore receive taps on notification buttons.
+    ``refused``: it does not; messages carry no buttons and point to the panel."""
+    reason_key: str | None
+    """Why something does not work as configured (``notify.reason.*``), else ``null``."""
+    push_targets: int
+    button_targets: int
+    """Push targets that can carry buttons (companion app services)."""
+    pushed_today: int
+    open_buttons: int
+    """Proposals that currently have working buttons."""
+    entity_targets: list[str]
+    """``notify.*`` entities Home Assistant knows, for choosing ``entity`` targets."""
+
+    @classmethod
+    def from_core(cls, status: NotifyStatus, entities: list[str]) -> NotificationsStatusOut:
+        return cls(
+            actions=status.actions.value,
+            reason_key=status.reason_key,
+            push_targets=status.push_targets,
+            button_targets=status.button_targets,
+            pushed_today=status.pushed_today,
+            open_buttons=status.open_buttons,
+            entity_targets=entities,
+        )
+
+
+class NotificationTestOut(_Model):
+    """Result of ``POST /api/v1/notifications/test``."""
+
+    sent: int
+    failed: int
+    reason_key: str | None
+    """``notify.reason.no_targets`` or ``notify.reason.test_rate_limited`` when nothing was sent."""
+
+    @classmethod
+    def from_core(cls, result: TestResult) -> NotificationTestOut:
+        return cls(sent=result.sent, failed=result.failed, reason_key=result.reason_key)
 
 
 class HaEntitiesRepublishOut(_Model):

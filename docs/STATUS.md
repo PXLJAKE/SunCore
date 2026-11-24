@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PR 6-D MQTT commands) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PR 6-E notifications) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
@@ -11,6 +11,28 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 6 - PR 6-E, WP5 notifications (branch `phase-6/e-notify`, on 6-D;
+  `backend-engineer`, `ha-integration`, `control-safety` review pending for the confirm path)** -
+  SunCore tells the user what matters and lets them confirm an assisted proposal from the phone:
+  - `HAConnection.notify(domain, service, data, target)` with an allowlist
+    (`persistent_notification.create|dismiss`, `notify.send_message` to `notify.*` entities,
+    `notify.<name>` only for configured names), its own 1 s limiter, no payload in logs;
+    `subscribe_notification_actions` (event `mobile_app_notification_action`, only the `action`
+    string passes). WebSocket client and `sim` fake both implement it.
+  - `suncore/notify/`: `rules.py` (categories: error, safety, proposal, program, EV target,
+    cheap window, daily summary; first observation = baseline), `ratelimit.py` (dedupe key,
+    interval, quiet hours 22:00-07:00, 20 push a day), `actions.py` (random single-use tokens
+    bound to a proposal and its expiry), `sink.py`, `render.py` (backend ICU catalogue),
+    `service.py` (observe, deliver, confirm path).
+  - Confirm path: a tap is honoured only after the event subscription succeeded; token valid and
+    unused, proposal still open, not expired, device still `assisted`; then one
+    `Runtime.confirm_proposal` (the panel's `gate.confirm`, `Origin.USER`). Reject calls nothing.
+    The port cannot raise a mode or clear the emergency stop (boundary tests).
+  - API `GET/PUT /api/v1/notifications/settings`, `GET .../status`, `POST .../test`; MQTT
+    mode-raise refusals (6-D) now raise a persistent notification.
+  - Not in this PR: grid events (island, section 14a) are consumed from `Observation` once 6-F
+    delivers them; program and EV events come with 6-L and 6-I (`NotificationService.post`);
+    settings UI is 6-M. Deviations, safety self-review and questions: plan section 8 (6-E).
 - **Phase 6 - PR 6-D, WP4 MQTT commands (branch `phase-6/d-mqtt-commands`, on 6-C;
   `ha-integration`, `control-safety` review pending)** - Home Assistant can now command SunCore,
   only through the services layer:
@@ -1126,6 +1148,7 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
 | §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018 | a grid operator's control box / documentation |
 | SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
+| Notifications (6-E): payload of `mobile_app_notification_action` beyond `data.action`; that the Supervisor token may `subscribe_events` for it (else plain messages); `data.actions` on every legacy `notify.<service>`; `notify.send_message` has no button field | `suncore/ha/connection.py`, `suncore/notify/`, `research/ha-websocket-api.md` | first run on HA OS with the companion app |
 | evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
 | Open-Meteo Solar Forecast: translation key assumed equal to the description key (the CC BY 4.0 attribution is shown in the plan view since 4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration |
