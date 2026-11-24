@@ -516,3 +516,10 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   periods (from `expected.battery_w` with a 50 W threshold), measured bars from
   `device.<id>.on` (share >= 0.5 ran, less partial) and `site.battery_w`. Devices outside the plan
   have no lane. Zoom state is not in the URL.
+
+- **5-L:** two further guides next to the three planned (`decision-log.md`, `plan-chart.md`), no
+  separate screenshots (existing demo ones). There is no `mkdocs.yml` in the repository, so the
+  README documentation list is the index. `docs/architecture.md` §7 and §9 were not touched
+  (engineering document, left to the architect). After merging 5-F into 5-K the total bundle
+  without ECharts is 265.9 kB against 250 kB; the budget was not changed (open question in
+  STATUS).

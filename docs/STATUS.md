@@ -3,12 +3,38 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-23 · **Phase:** 5 started (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
-(4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
-the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
+**Last update:** 2026-11-24 · **Phase:** 5 built as stacked PRs 5-A…5-L (#38–#50, branch
+`phase-5/l-docs` on top of 5-K and 5-F), awaiting review and merge in order (plan
+`docs/plans/phase-5.md`). Phase 4 (4-A…4-I, #25–#36) was merged on 2026-11-23; the acceptance of
+Phases 3 and 4 on the maintainer's system is still open (two stages, see "Next steps") ·
 **Branch:** `claude/project-thread-7gkqcr`
 
 ## Done
+
+- **Phase 5 – PR 5-L, WP12 docs (branch `phase-5/l-docs`, on 5-K + 5-F; `docs-writer`)**:
+  - **Phase 5 in short:** analytics core (`suncore/analysis`, ADR-0014: attribution rule, two
+    baselines), frozen `day_summary`/`accuracy_day` with a 365-day backfill, history API with CSV,
+    plan-at/compare and decision explain, parameter registry with 32 parameters and the expert API
+    (ADR-0015, `control-safety` reviewed), UI: plan chart v2, history, decision log with "Why?",
+    expert mode, what-if; backtest engine with job API (`control-safety` reviewed). No new write
+    path to devices; the backtest reads through `ReadOnlyHistory` and writes nothing back.
+  - Guides en + de: `history-and-analysis.md`, `decision-log.md`, `plan-chart.md`,
+    `expert-mode.md`, `what-if-and-backtesting.md` (limitations, the 5 % cost-fidelity tolerance
+    as a stated expectation, link to the generated reference); quick start, README, both app
+    `DOCS.md` and the roadmap point to them. Screenshots are the existing demo ones. There is no
+    `mkdocs.yml` in the repository, so the README documentation list is the index.
+  - Not done here: `docs/architecture.md` §7 (new tables) and §9 (routes, chunks) stay as they
+    are because it is an engineering document; the architect should add `day_summary`,
+    `accuracy_day`, `backtest_run`, and the routes `#/history`, `#/decisions`, `#/whatif`.
+    The generated parameter reference (`docs/reference/parameters*.md`) is current from 5-E.
+  - Merge of 5-F into 5-K: conflicts in STATUS, plan §8 and the catalogues were unions; router and
+    `vite.config.ts` merged without conflict (chunks `echarts-core|plan|history`).
+  - **Bundle after the merge (`npm run verify`):** tests and type check green (Vitest 382),
+    first paint 106.3 kB (budget 125), ECharts chunks core 182.9 / history 13.3 / plan 9.1 kB
+    (each under 200), core + history 196.2 and core + plan 192.0 kB (budget 240), **total
+    without ECharts 265.9 kB against 250 kB: `npm run size` fails**. That is 15.9 kB over,
+    not the 1.7 kB measured in 5-K alone: 5-F (232 kB on its own) and 5-K add up.
+    The budget is not changed (decision pending, see "Open maintainer questions" below).
 
 - **Phase 5 – PR 5-K, WP11 what-if UI (branch `phase-5/k-whatif`, on 5-J + 5-I + 5-H;
   `frontend-engineer`)**:
@@ -1132,8 +1158,44 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 4. The questions of 4-A/4-B/4-C were answered with the defaults on 2026-10-19. Still open: what needs
    the maintainer's system or bills (VAT on negative spot prices, the EEG tiers, the Kostal fallback
    timer measurement, the publication time of next-day prices) and the 4-I questions (defaults built).
-5. Phase 5: plan `docs/plans/phase-5.md`, built on the defaults of its §6 while the maintainer is
-   away.
+5. Phase 5 (#38–#50): review and merge in the order A to L (see the table in
+   `docs/plans/phase-5.md` §3); decide the bundle budget first (item 1 below). It was built on the
+   defaults of plan §6 while the maintainer was away. After the merge: run a backtest and the
+   history on the real system, and a 14-day backtest on a Pi (time and memory).
+
+### Open maintainer questions from PRs #38–#50
+
+Each was built with the proposed default; the answer may change that default.
+
+1. **Bundle budget (5-K, #50):** total without ECharts is 265.9 kB against 250 kB after the 5-F
+   and 5-K merge. Raise the budget (to about 270 kB), or drop features (CSV of the what-if,
+   grid chart, change list) and trim more. Not decided; `npm run size` fails until then.
+2. **Backtest start while the planner solves (#50):** the server answers 409; should the UI retry
+   by itself?
+3. **Max. switches per hour in expert mode (#42):** hard bound 30, safety review recommends 12.
+4. **Negative-price reference (#42):** is a sensor with the current spot price enough for now?
+5. **Restore/import with changed safety values (#42):** no confirmation (the UI shows the
+   difference first, 5-I). The dialog (#44) does not show the allowed range; add it?
+6. **Backtest (#47):** what-if battery and tariff fields as `whatif` registry parameters instead
+   of fixed request fields? Memory guard 280 MB (plan said 200 MB)? Prices known from 13:00
+   local the day before? HT/NT and price formulas in the what-if form or flat tariff only? State
+   the 5 % cost-fidelity tolerance in the user guide (done in 5-L, change if you disagree).
+7. **History API (#43):** headers `X-Total-Count` and `X-Decision-Ids` instead of a new response
+   model; `layer` filters on `intent.origin`; resolution picks the finest one within 2 000 points
+   (plan decision 8 contradicts itself).
+8. **Storage (#41):** run the 365-day backfill once on existing installs (default yes); demo
+   history on by default (about 2 s longer start, default yes).
+9. **Analytics (#40):** equivalent full cycles over the usable capacity (default) or the nominal
+   one; cost is grid exchange only, without battery wear and standing charges.
+10. **History view (#46):** is "period plus date jump" enough, or should `/history/summary` take a
+    free range?
+11. **Decision log (#45):** link `#/plan?at=<time>` (done in 5-F); are site readings plus device
+    power and state enough in the "Why?" panel?
+12. **Plan chart (#48):** no blocking questions; window snapshot per window, measured CSV with at
+    most three devices, zoom not in the URL.
+13. **Release:** `timeseries.db` 1 to 2 and `suncore.db` 4 to 5 are one-way; the release note must
+    say "export before updating" (plan R9). #39 (dependency bump) and #49 (Phase 6 plan) are not
+    part of Phase 5.
 
 ## Known problems and `UNVERIFIED` items
 
@@ -1182,6 +1244,10 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (the `days_offset` handling is verified from source; a changed country/holiday list is not visible in the attributes, so the day-type cache only resets on a changed entity, `workdays`, `excludes` or offset) | `suncore/app/adapters.py`, `suncore/forecast/load_service.py` | maintainer maps a Workday sensor |
 | Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, 7 clean days, degree-day bases 15/22 °C, coverage 75 %/90 %, 20 h temperature days, anchors sunrise + 1 h / sunset − 1 h, sunrise threshold 2 %/20 W) and the default PV bands per weather class (clear 0.85/1.10, mixed 0.55/1.35, overcast 0.35/1.70) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |
 | Known limitation (n6): the load history and the risk samples are not re-derived when the device list changes - a device added later is only subtracted from the base load from the day its power is recorded (or rebuilt), and older risk samples keep the old base load | `suncore/forecast/load_service.py`, `risk_learning.py` | accepted for Phase 4; the KNN model (4-I) shares the base load and the limitation; revisit in Phase 5 |
+| Backtest run time and peak memory on aarch64 (Pi 4, HA Green); amd64: 14 days 8.9 s, 30 days 22.5 s, RSS 80 MB (`scripts/bench_backtest.py`); the 5 % cost fidelity was measured on the demo history only (+1.1 %), not on real data | `suncore/sim/backtest.py`, `docs/user/*/what-if-and-backtesting.md` | CI arm runner or a Pi; a 14-day override-free run on the maintainer's history |
+| Number of days of long-term statistics a Home Assistant keeps and whether the Supervisor proxy forwards `recorder/*` for 365-day ranges; time and memory of the 365-day backfill on aarch64 | `suncore/storage/`, `suncore/app/summaries.py` | first start on HA OS |
+| Expert parameter bounds in `SAFETY_LIMITS` (reviewed, not tried on hardware); the "needs restart" marker (no parameter uses it) | `suncore/core/control.py`, `docs/reference/parameters.md` | shadow run; maintainer's decision on the switches-per-hour bound |
+| Wording and walk-through of the Phase 5 guides (written from the code, the demo and the catalogues, not followed on a real system) | `docs/user/*/history-and-analysis.md`, `decision-log.md`, `plan-chart.md`, `expert-mode.md`, `what-if-and-backtesting.md` | maintainer follows them on his system |
 
 ## Environment notes
 

@@ -14,7 +14,8 @@ by default, set up in minutes.**
 > limits on your home battery (generic Home Assistant entities, Kostal Plenticore), all behind a
 > safety layer. Phase 5 (built, awaiting review) adds **history and analysis** (day to year,
 > autarky, savings against two baselines, Sankey, heatmap, forecast skill, CSV and PNG
-> export), a **decision log with "Why?"**, a **plan chart** that sets the plan against measured values, an **expert mode** with
+> export), a **decision log with "Why?"**, a **plan chart** that sets the plan against
+> measured values, an **expert mode** with
 > a generated parameter reference, and **what-if backtests** of the real planner on past days
 > (an estimate, see its limits). Everything starts in **shadow mode** and switches or writes
 > nothing until you set a device or the battery to automatic or assisted; neither the
