@@ -900,6 +900,44 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   25.4 kB, ECharts chunks unchanged. Within the budgets (125 / 250 / 30 kB); the 115 kB target of
   criterion 3 depends on the lazy wizard steps and settings sub-pages of 7-G.
 
+### 7-E
+
+- Based on `phase-7/d-design-shell` with `phase-7/c-demo-flex` merged, so the screenshots show
+  the wallbox, washing machine and heat pump (`SUNCORE_DEMO_FLEX=1`).
+- **Energy now:** the flow is HTML, not an SVG with text: the nodes are the list items of
+  "Current power values" (values once; the separate tiles and the screen-reader-only list are
+  gone), lines and arrows are CSS decoration. Node test ids are `flow-<id>` (the `node-<id>` ids
+  are gone); quality is `data-quality`. `EnergyFlow` and `SiteSummary` are removed; `FlowList`
+  stays because the wizard summary uses it.
+- **Surplus** sits in the energy card (WP5); the "would run" hint is in a `Disclosure`.
+- **Battery card** stays a card of its own next to "Next up" (desktop) rather than in the device
+  grid; SoC and power appear both in the flow and, larger, on the card, as the maintainer asked
+  for the card (question in `review-7e.md`).
+- **Mode controls:** `ToggleGroup` with `aria-pressed` buttons, not `SegmentedControl` (a radio
+  group selects on arrow keys, which would change a device's mode or open the confirmation
+  while moving). Short visible labels (`mode.short.*`), the full name as accessible name
+  (WCAG 2.5.3: the visible label is contained).
+- **"Why?" and "Take over manually"** are disclosure buttons in a `CardFooter`; panels stay in the
+  DOM (`hidden`). The planned actions are a timeline whose whole row is the `<details>` summary
+  with a visible "Why?"; this applies to the Plan view's list too (same component).
+- **Collapsed device cards** (WP5: only name, state, power, mode chip collapsed) were not built:
+  the mode switch stays visible on every card because it is the main control; the secondary
+  parts are collapsed instead.
+- **Decisions:** four entries (WP5 said three; the maintainer's brief allowed 3-5); reasons all
+  entries share (same key and arguments) are shown once (`splitSharedReasons`).
+- `Card` gained `article`, `id` (tabindex -1) and `data-*` pass-through and is a flex column whose
+  footer sits at the end, so cards in a row have equal heights.
+- `review-shots.spec.ts` gained `REVIEW_SHOTS_VIEWS` and a device-cards crop for the Now view.
+- **E2E order dependence (from 7-C, not changed here):** in a full three-project run, the 7-C
+  test "the demo shows the flexible loads" fails on phone and tablet because the washer's armed
+  job is gone after the desktop `phase6.spec.ts` reset the demo; the shell test "Analysis has
+  tabs" saw `#/history?period=week` after earlier history specs. Both pass when their specs run
+  on a fresh server (99 of 99 for `now`, `shell`, `control` on all three projects).
+  Follow-up for `backend-engineer`/`qa-engineer`: re-arm the demo job on reset, or make the test
+  arm it.
+- **Budgets:** first paint 118.9 → 120.1 kB, standard path 243.7 → 245.5 kB, expert extras
+  25.4 kB, ECharts unchanged.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

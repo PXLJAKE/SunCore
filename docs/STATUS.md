@@ -10,11 +10,12 @@ flexible loads (`SUNCORE_DEMO_FLEX=1`: EV on a wallbox, washing machine, heat pu
 Bundle budget split pending maintainer decision; option A implemented (standard path 250 kB,
 expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
 PR 7-D adds the design system and the new shell (review stop 1: `docs/design/review-7d.md`;
-first paint 118.9 kB, standard path 243.7 kB).
+first paint 118.9 kB, standard path 243.7 kB). PR 7-E rebuilds the Now view and its cards
+(`docs/design/review-7e.md`; first paint 120.1 kB, standard path 245.5 kB).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-7/c-demo-flex` (on `phase-7/b-phase5-tail`)
+**Branch:** `phase-7/e-now` (on `phase-7/d-design-shell`, with `phase-7/c-demo-flex` merged)
 
 ## Phase 6 at a glance
 
@@ -39,6 +40,20 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-E, Now view and cards (frontend; branch `phase-7/e-now`, on 7-D with 7-C
+  merged; `frontend-engineer`)** - presentation only (stores, API calls, routes and the safety
+  paths unchanged):
+  - *Energy now* card: the flow nodes are the text (one list item per flow, values once, the
+    four duplicate tiles gone); surplus figures in the same card, the "would run" explanation in
+    a `Disclosure`.
+  - Battery card: SoC with a bar, power and state; compact mode switch; limits and "Why?" in a
+    quiet footer. Next actions: a three-entry timeline whose rows open the reasons (also on the
+    Plan view). Device, EV, heat pump and program cards on `Card` with equal heights, the mode
+    as `ToggleGroup` (`aria-pressed`, no arrow-key selection), "Why?" and "Take over manually"
+    in `CardFooter`. Latest decisions: four entries, a note all share shown once.
+  - New `ui/ToggleGroup`, `ui/CardFooter`, icons house/battery/grid, global `.facts` and
+    `.kicker`; `EnergyFlow` and `SiteSummary` removed (`FlowList` stays for the wizard summary).
+  - Screenshots `docs/assets/screenshots/after-7e/`; deviations in plan section 8 (7-E).
 - **Phase 7 - PR 7-D, design system and shell (frontend; branch `phase-7/d-design-shell`, on
   7-B; `frontend-engineer`)** - review stop 1, presentation only (stores, API calls, routes
   unchanged):
