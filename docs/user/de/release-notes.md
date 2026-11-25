@@ -12,8 +12,11 @@ Versionen.
 ## SunCore 1.0 (Release-Kandidat)
 
 1.0 ist noch nicht veröffentlicht. Die neueste getaggte Version ist 0.2.0. Bis 1.0 erscheint,
-lässt dich der Schnellstart die Beta-App (**SunCore (beta)**) installieren; ihre
-Release-Kandidaten heißen `1.0.0-beta.<n>`. Die stabile App springt von 0.2.0 direkt auf 1.0.0.
+lässt dich der Schnellstart die Beta-App (**SunCore (beta)**) installieren. Falls der
+Maintainer eine 1.0-Nummerierung für die Beta-App festlegt (Planfragen 15 und 25), heißen ihre
+Release-Kandidaten künftig `1.0.0-beta.<n>`; bis dahin behält die Beta-App ihr bisheriges
+Versionsschema.
+Die stabile App springt von 0.2.0 direkt auf 1.0.0.
 
 ### Was seit 0.2.0 neu ist
 

@@ -61,8 +61,9 @@ the `demo-screenshots` skill. `prepare-release` repo-side items: see below.
   (OpenAPI, reasons, schemas, compatibility, backend catalogue, beta translations, parameters,
   templates) green; every generator re-run after each merge changed nothing. pytest: **10,138
   passed, 1 skipped**, coverage 95 % overall and 97 % on the control-critical packages (gate
-  80 %). Run with `pytest-xdist -n 4` and coverage (6 min) because the serial run would have
-  taken hours in the session; same test selection.
+  80 %). The serial `check.sh` run was not completed on `p-release`; the count comes from an
+  ad-hoc `pytest -n 4` run with the xdist plugin (not a project dependency; nothing was added)
+  and coverage, same test selection. CI runs the serial command.
 - `pytest -m simulator`: **486 passed**.
 - Frontend: `npm ci`, `gen:api:check`, `check:tokens`, `format:check`, `check` (svelte-check, 0
   errors, 0 warnings), `lint`, `test` (**511 tests in 59 files passed**), `build` green;
@@ -106,10 +107,14 @@ which contains all of them with the conflicts resolved.
 
 **Open before 1.0:** the maintainer acceptance H0 to H7 (plan section 6); the bundle budget
 (question 34); the 1.0 numbering (`release-as`, question 25) and `breaking_versions`
-(question 26); the final `reviewer` pass on the whole Phase 7 diff and the final
-`control-safety` read of 7-J and 7-K (WP15; not done in this session); the dashboard recipe
-(WP11, still a placeholder page); the first CI run of the upgrade test, the loaded smoke test,
-the arm benchmark, the docs jobs and the SHA pins.
+(question 26); the final `reviewer` pass on the whole Phase 7 diff (WP15; not done in this
+session); the dashboard recipe (WP11, still a placeholder page); the first CI run of the upgrade
+test, the loaded smoke test, the arm benchmark, the docs jobs and the SHA pins.
+
+**Control-safety reviews done:** 7-J had independent reviews (approved with conditions, then approved
+after the fixes cf7e557 and 73a66de); 7-K was approved earlier with follow-ups F1 to F3 and I1
+done (0f05f53); 7-Q was approved after fixes; a short final review of `p-release` found no
+safety blocker. These reviews do not replace the hardware acceptance H0 to H7, which stays open.
 
 **Open maintainer questions** (plan section 10; the recommendation applies until answered):
 needing an action from the maintainer: 7 and 24 (Weblate project), 10 (when 1.0), 14 (Pi 4

@@ -12,8 +12,10 @@ versions.
 ## SunCore 1.0 (release candidate)
 
 1.0 is not released yet. The newest tagged version is 0.2.0. Until 1.0 is out, the quick start
-has you install the beta app (**SunCore (beta)**); its release candidates are numbered
-`1.0.0-beta.<n>`. The stable app goes from 0.2.0 straight to 1.0.0.
+has you install the beta app (**SunCore (beta)**). If the maintainer decides on a 1.0 numbering
+for the beta app (plan questions 15 and 25), its release candidates will be numbered
+`1.0.0-beta.<n>`; until then the beta app keeps its current version scheme.
+The stable app goes from 0.2.0 straight to 1.0.0.
 
 ### What is new since 0.2.0
 
