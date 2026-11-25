@@ -19,9 +19,3 @@
 - name: translation
   color: 1d76db
   description: Translations (Weblate or pull request)
-- name: documentation
-  color: 0075ca
-  description: Improvements to the docs
-- name: safety
-  color: b60205
-  description: Touches the safety layer or device writes
