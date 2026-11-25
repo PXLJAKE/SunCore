@@ -933,8 +933,9 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - `review-shots.spec.ts` gained `REVIEW_SHOTS_VIEWS` and a device-cards crop for the Now view.
 - **E2E order dependence (from 7-C, not changed here):** in a full three-project run, the 7-C
   test "the demo shows the flexible loads" fails on phone and tablet because the washer's armed
-  job is gone after the desktop `phase6.spec.ts` reset the demo. Being fixed on the 7-C branch
-  (the demo job is re-created on reset).
+  job is gone after the desktop `phase6.spec.ts` reset the demo. Fixed on the 7-C branch
+  (b2ca0c9: the demo washer keeps a job with a rolling deadline), merged here; the full suite
+  (desktop, phone, tablet in project order) then ran 426 passed, 0 failed, 228 skipped.
 - **Polish after the first review:**
   - Reasons render through `control/reasonText.ts` (`tReason`): the planner puts the device *id*
     into `args.device` (it has no display names), so the panel substitutes the configured name
