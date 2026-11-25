@@ -142,8 +142,7 @@ async def demo_flex_user(runtime: Runtime) -> None:
     demo would show a job for the first load only and none for the rest of the (accelerated)
     day. Scenario time, no wall clock.
     """
-    from suncore.sim.demo_flex import WASHER_ID, demo_washer_deadline  # noqa: PLC0415
-    from suncore.sim.devices import SimProgram  # noqa: PLC0415
+    from suncore.sim.demo_flex import WASHER_ID  # noqa: PLC0415
     from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
 
     connection = runtime.connection
@@ -155,13 +154,28 @@ async def demo_flex_user(runtime: Runtime) -> None:
             demo = connection.demo
         except AssertionError:  # not connected yet
             continue
-        washer = demo.devices.devices.get(WASHER_ID)
-        if not isinstance(washer, SimProgram) or not washer.loaded:
-            continue
-        if runtime.program_jobs.current(WASHER_ID) is not None:
-            continue
-        with contextlib.suppress(Exception):
-            await runtime.arm_program(WASHER_ID, demo_washer_deadline(runtime.clock()))
+        await demo_flex_user_tick(runtime, demo.devices.devices.get(WASHER_ID))
+
+
+async def demo_flex_user_tick(runtime: Runtime, washer: object) -> bool:
+    """One step of :func:`demo_flex_user`: arm a job if the washing machine is loaded and has none.
+
+    Returns whether a job was armed. Separate from the loop so a test can drive it with its own
+    clock (``runtime.clock``) and a simulated programme, without any sleeping.
+    """
+    from suncore.sim.demo_flex import WASHER_ID, demo_washer_deadline  # noqa: PLC0415
+    from suncore.sim.devices import SimProgram  # noqa: PLC0415
+
+    if not isinstance(washer, SimProgram) or not washer.loaded:
+        return False
+    if runtime.program_jobs.current(WASHER_ID) is not None:
+        return False
+    try:
+        await runtime.arm_program(WASHER_ID, demo_washer_deadline(runtime.clock()))
+    except Exception:
+        log.exception("demo.washer_arm_failed")
+        return False
+    return True
 
 
 async def build_runtime(  # noqa: PLR0915 - the composition root
