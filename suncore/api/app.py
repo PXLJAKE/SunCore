@@ -28,6 +28,7 @@ from pydantic import BaseModel, TypeAdapter
 from pydantic_core import PydanticCustomError
 from starlette.websockets import WebSocketState
 
+from suncore.api.flex import register_flex
 from suncore.api.history import register_decisions, register_history
 from suncore.api.limits import BodyLimitMiddleware
 from suncore.api.models import (
@@ -184,6 +185,7 @@ def create_app(
     _register_ha_entities(app, services)
     _register_notifications(app, services)
     register_history(app, services)
+    register_flex(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
     app.openapi = lambda: _openapi(app)  # type: ignore[method-assign]

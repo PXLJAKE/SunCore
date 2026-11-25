@@ -252,6 +252,15 @@ def proposed_deadline(now_local: datetime, runtime: timedelta) -> datetime:
     return (now_local.astimezone(UTC) + DEFAULT_FINISH_FALLBACK).astimezone(now_local.tzinfo)
 
 
+class ProgramJobError(ValueError):
+    """Arming or cancelling a program job is not possible (open job, running job, ...);
+    ``key`` is the catalogue key of the reason."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(key)
+        self.key = key
+
+
 __all__ = [
     "DEFAULT_FINISH_FALLBACK",
     "DEFAULT_FINISH_TIME",
@@ -269,6 +278,7 @@ __all__ = [
     "JobState",
     "JobTransitionError",
     "ProgramJob",
+    "ProgramJobError",
     "ev_energy_need_wh",
     "evcc_mode",
     "latest_start",

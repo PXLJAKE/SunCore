@@ -17,6 +17,13 @@ import structlog
 from pydantic import BaseModel
 
 from suncore import __version__
+from suncore.api.flex_types import (
+    GridEventRow,
+    GridEvents,
+    GridStatus,
+    MonthPeakRow,
+    NotAnEvError,
+)
 from suncore.api.services import (
     EnergyPrefsFailedError,
     EntityQuery,
@@ -90,11 +97,11 @@ from suncore.core.controlstate import (
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import ChargerControl, DeviceConfig, LoadpointControl
-from suncore.core.flex import EvState
-from suncore.core.grid import month_key
+from suncore.core.flex import EvMode, EvState, EvTarget, ProgramJob
+from suncore.core.grid import GridState, Para14aStatus, month_key, peak_limit_w
 from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.identity import battery_identity_token, identity_token
-from suncore.core.series import QuantileSeries
+from suncore.core.series import QuantileSeries, TimeRange
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import (
@@ -1826,6 +1833,86 @@ class Runtime:
             await self._apply_operation(stored)
         self._notify()
         return stored
+
+    # --- EV, programs, grid (PR 6-M) ----------------------------------------------------
+
+    def _device_config(self, device_id: str) -> DeviceConfig:
+        device = next(
+            (d for d in (self.devices.devices if self.devices else []) if d.id == device_id), None
+        )
+        if device is None:
+            raise UnknownDeviceError(device_id)
+        return device
+
+    async def flex_view(self, device_id: str) -> tuple[EvState | None, ProgramJob | None]:
+        self._device_config(device_id)
+        return self._ev_states.get(device_id), self.program_jobs.current(device_id)
+
+    async def set_ev_state(self, device_id: str, mode: EvMode, target: EvTarget | None) -> EvState:
+        """The runtime EV mode and target (``flex_state``); the controller reads it next tick."""
+        device = self._device_config(device_id)
+        if not isinstance(device.control, ChargerControl | LoadpointControl):
+            raise NotAnEvError(device_id)
+        state = EvState(
+            device_id=device_id,
+            mode=mode,
+            target=target if mode is EvMode.TARGET else None,
+            updated_at=self.clock(),
+        )
+        if self.flex_store is not None:
+            await self.flex_store.put_ev(state)
+        self._ev_states[device_id] = state
+        self._planning_event("manual")
+        self._notify_control()
+        return state
+
+    async def arm_program(self, device_id: str, deadline: datetime) -> ProgramJob:
+        device = self._device_config(device_id)
+        job = await self.program_jobs.arm(device, deadline, now=self.clock())
+        self._planning_event("manual")
+        self._notify_control()
+        return job
+
+    async def cancel_program(self, device_id: str) -> ProgramJob:
+        self._device_config(device_id)
+        job = await self.program_jobs.cancel(device_id, now=self.clock())
+        self._planning_event("manual")
+        self._notify_control()
+        return job
+
+    async def grid_status(self) -> GridStatus:
+        now = self.clock()
+        tz = self._timezone()
+        monitor = None if self.stack is None else self.stack.grid_monitor
+        peak = None if monitor is None else monitor.month_peak_w(now)
+        shaving = None if self.site is None else self.site.grid.peak_shaving
+        state = None if monitor is None else monitor.grid_state
+        para = None if monitor is None else monitor.para14a_status
+        return GridStatus(
+            state=(state or GridState.UNKNOWN).value,
+            para14a=(para or Para14aStatus.INACTIVE).value,
+            month=month_key(now, tz),
+            month_peak_w=peak,
+            peak_limit_w=None if shaving is None else peak_limit_w(shaving, peak),
+        )
+
+    async def grid_events(self, days: int) -> GridEvents:
+        if self.timeseries_db is None:
+            return GridEvents((), ())
+        store = GridStore(self.timeseries_db)
+        now = self.clock()
+        try:
+            events = await store.events(
+                TimeRange(start=now - timedelta(days=days), end=now + timedelta(seconds=1))
+            )
+            peaks = await store.peaks()
+        except Exception:
+            log.exception("runtime.grid_events_failed")
+            return GridEvents((), ())
+        return GridEvents(
+            tuple(GridEventRow(e.ts, e.kind, e.value_w) for e in events),
+            tuple(MonthPeakRow(p.month, p.peak_w, p.slot) for p in peaks),
+        )
 
     # --- control ----------------------------------------------------------------------
 

@@ -76,6 +76,16 @@ class GridMonitor:
     """Events not yet persisted (drained by :meth:`flush`)."""
     pending_peaks: list[tuple[str, datetime, float, datetime]] = field(default_factory=list)
 
+    @property
+    def grid_state(self) -> GridState | None:
+        """The last observed grid state (``None`` before the first tick)."""
+        return self._grid_state
+
+    @property
+    def para14a_status(self) -> Para14aStatus | None:
+        """The last observed §14a status (``None`` before the first tick)."""
+        return self._para14a
+
     # --- peak ----------------------------------------------------------------------------------
 
     def month_peak_w(self, now: datetime) -> float | None:

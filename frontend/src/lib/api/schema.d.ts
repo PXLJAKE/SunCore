@@ -403,6 +403,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/{device_id}/ev": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Ev
+         * @description Set the charge mode (``off``, ``now``, ``min_pv``, ``pv``, ``target``) and, for
+         *     ``target``, the SoC or energy to reach by a time. The controller follows it within a
+         *     tick; the safety gate still judges every write.
+         */
+        put: operations["device_ev_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{device_id}/flex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Device Flex
+         * @description The device's runtime EV mode and target and its open program job (or ``null``).
+         */
+        get: operations["device_flex"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/devices/{device_id}/override": {
         parameters: {
             query?: never;
@@ -417,6 +459,48 @@ export interface paths {
          * @description Boost (N minutes), pause (until a time or until resumed) or resume one device.
          */
         post: operations["override_api_v1_devices__device_id__override_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{device_id}/program/arm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Arm Program
+         * @description Arm one job "finished by ``deadline``". SunCore schedules the start; a smart plug is
+         *     switched off right after arming while the appliance is idle.
+         */
+        post: operations["device_program_arm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{device_id}/program/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Program
+         * @description Cancel the waiting job. SunCore lets go of the device: a smart plug is switched
+         *     **on**, so the appliance starts at once. A running job cannot be cancelled.
+         */
+        post: operations["device_program_cancel"];
         delete?: never;
         options?: never;
         head?: never;
@@ -543,6 +627,47 @@ export interface paths {
          *     model.
          */
         get: operations["forecast_risk_api_v1_forecast_risk_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grid/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Grid Events
+         * @description Grid events (island, §14a, new peak, import above the fuse limit) of the last
+         *     ``days`` (1-400) and the monthly peaks.
+         */
+        get: operations["grid_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grid/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Grid Status
+         * @description Island, §14a and the month's peak as the control stack sees them.
+         */
+        get: operations["grid_status"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2770,6 +2895,42 @@ export interface components {
             /** Vehicle Soc Role */
             vehicle_soc_role?: string | null;
         };
+        /**
+         * EvState
+         * @description Runtime EV state of one charger device.
+         */
+        EvState: {
+            /** Device Id */
+            device_id: string;
+            /** @default pv */
+            mode: components["schemas"]["EvMode"];
+            target?: components["schemas"]["EvTarget"] | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** EvStateRequest */
+        EvStateRequest: {
+            mode: components["schemas"]["EvMode"];
+            target?: components["schemas"]["EvTarget"] | null;
+        };
+        /**
+         * EvTarget
+         * @description Be at ``soc_pct`` (vehicle SoC known) or have charged ``energy_wh`` by ``by``.
+         */
+        EvTarget: {
+            /**
+             * By
+             * Format: date-time
+             */
+            by: string;
+            /** Energy Wh */
+            energy_wh?: number | null;
+            /** Soc Pct */
+            soc_pct?: number | null;
+        };
         /** ExplainInputOut */
         ExplainInputOut: {
             /** Key */
@@ -2851,6 +3012,16 @@ export interface components {
          * @enum {string}
          */
         FetchStatus: "ok" | "partial" | "no_data" | "not_configured" | "not_linked" | "ambiguous_entry" | "entry_not_found" | "error";
+        /**
+         * FlexOut
+         * @description The runtime EV state and the open program job of one device.
+         */
+        FlexOut: {
+            /** Device Id */
+            device_id: string;
+            ev?: components["schemas"]["EvState"] | null;
+            job?: components["schemas"]["ProgramJob"] | null;
+        };
         /**
          * FlowBreakdownOut
          * @description Attributed flows (ADR-0014 decision 2): PV serves the house, then the battery, then the
@@ -3160,6 +3331,25 @@ export interface components {
              */
             zero_export: boolean;
         };
+        /** GridEventOut */
+        GridEventOut: {
+            /** Kind */
+            kind: string;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /** Value W */
+            value_w: number | null;
+        };
+        /** GridEventsOut */
+        GridEventsOut: {
+            /** Events */
+            events: components["schemas"]["GridEventOut"][];
+            /** Peaks */
+            peaks: components["schemas"]["MonthPeakOut"][];
+        };
         /**
          * GridFeeWindow
          * @description A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3).
@@ -3174,6 +3364,19 @@ export interface components {
             /** Months */
             months?: number[] | null;
             window: components["schemas"]["TouWindow"];
+        };
+        /** GridStatusOut */
+        GridStatusOut: {
+            /** Month */
+            month: string;
+            /** Month Peak W */
+            month_peak_w: number | null;
+            /** Para14A */
+            para14a: string;
+            /** Peak Limit W */
+            peak_limit_w: number | null;
+            /** State */
+            state: string;
         };
         /**
          * HaEntitiesRepublishOut
@@ -3652,6 +3855,11 @@ export interface components {
              */
             volatile: boolean;
         };
+        /**
+         * JobState
+         * @enum {string}
+         */
+        JobState: "armed" | "scheduled" | "running" | "done" | "cancelled";
         /** KpiOut */
         KpiOut: {
             /** Autarky */
@@ -4041,6 +4249,18 @@ export interface components {
             kind: "mode";
             /** Options */
             options: components["schemas"]["BatteryModeOption"][];
+        };
+        /** MonthPeakOut */
+        MonthPeakOut: {
+            /** Month */
+            month: string;
+            /** Peak W */
+            peak_w: number;
+            /**
+             * Slot
+             * Format: date-time
+             */
+            slot: string;
         };
         /**
          * MqttConfig
@@ -4945,6 +5165,50 @@ export interface components {
              * @enum {string}
              */
             source_price_includes: "spot_only" | "all_in";
+        };
+        /** ProgramArmRequest */
+        ProgramArmRequest: {
+            /**
+             * Deadline
+             * Format: date-time
+             */
+            deadline: string;
+        };
+        /**
+         * ProgramJob
+         * @description One armed run of a shiftable program ("finished by ``deadline``").
+         */
+        ProgramJob: {
+            /**
+             * Armed At
+             * Format: date-time
+             */
+            armed_at: string;
+            /**
+             * Armed By
+             * @default user
+             * @enum {string}
+             */
+            armed_by: "user" | "mqtt" | "notification";
+            /**
+             * Deadline
+             * Format: date-time
+             */
+            deadline: string;
+            /** Device Id */
+            device_id: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Id */
+            id: string;
+            /** Notified At */
+            notified_at?: string | null;
+            /** Planned Start */
+            planned_start?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** @default armed */
+            state: components["schemas"]["JobState"];
         };
         /**
          * ProgramSpec
@@ -7156,6 +7420,90 @@ export interface operations {
             };
         };
     };
+    device_ev_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvState"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Not an EV charger */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    device_flex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexOut"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
     override_api_v1_devices__device_id__override_post: {
         parameters: {
             query?: never;
@@ -7196,6 +7544,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    device_program_arm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProgramArmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramJob"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description A job is open already, none is open or it runs */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Not a program or the deadline is in the past */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    device_program_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramJob"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description A job is open already, none is open or it runs */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Not a program or the deadline is in the past */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
         };
@@ -7360,6 +7810,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RiskView"];
+                };
+            };
+        };
+    };
+    grid_events: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GridEventsOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    grid_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GridStatusOut"];
                 };
             };
         };

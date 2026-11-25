@@ -27,6 +27,13 @@ from suncore.api import (
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.api.flex_types import (
+    GridEventRow,
+    GridEvents,
+    GridStatus,
+    MonthPeakRow,
+    NotAnEvError,
+)
 from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import Flow, FlowSnapshot
 from suncore.core.battery import BatterySettings
@@ -54,6 +61,14 @@ from suncore.core.decisions import (
 )
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import DeviceKind
+from suncore.core.flex import (
+    EvMode,
+    EvState,
+    EvTarget,
+    JobState,
+    ProgramJob,
+    ProgramJobError,
+)
 from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.signals import Quality
 from suncore.core.site import EntityRef, GridConfig, PvArray, SiteConfig
@@ -195,6 +210,8 @@ class FakeServices:
         self.static_dir: Path | None = None
         self.ha_state = "connected"
         self.ha_entities = HaEntitiesStatus(BrokerState.CONNECTED, "supervisor", 12, None)
+        self.ev_states: dict[str, EvState] = {}
+        self.jobs: dict[str, ProgramJob] = {}
         self.db_ok = True
         self.site: SiteConfig | None = None
         self.sections: dict[str, BaseModel] = {}
@@ -401,6 +418,56 @@ class FakeServices:
             raise OverrideUntilPastError(device_id)
         self.calls.append(("override", (device_id, command)))
         return make_device_state(device_id, held=command.action != "resume")
+
+    # --- EV, programs, grid (PR 6-M): "wallbox" is a charger, "washer" a program --------------
+
+    def _flex_device(self, device_id: str) -> None:
+        if device_id not in ("pool", "wallbox", "washer"):
+            raise UnknownDeviceError(device_id)
+
+    async def flex_view(self, device_id: str) -> tuple[EvState | None, ProgramJob | None]:
+        self._flex_device(device_id)
+        return self.ev_states.get(device_id), self.jobs.get(device_id)
+
+    async def set_ev_state(self, device_id: str, mode: EvMode, target: EvTarget | None) -> EvState:
+        self._flex_device(device_id)
+        if device_id != "wallbox":
+            raise NotAnEvError(device_id)
+        state = EvState(device_id=device_id, mode=mode, target=target, updated_at=NOW)
+        self.ev_states[device_id] = state
+        self.calls.append(("set_ev_state", (device_id, mode, target)))
+        return state
+
+    async def arm_program(self, device_id: str, deadline: datetime) -> ProgramJob:
+        self._flex_device(device_id)
+        if device_id != "washer":
+            raise ProgramJobError("api.error.program_not_a_program")
+        if device_id in self.jobs:
+            raise ProgramJobError("api.error.program_job_open")
+        if deadline <= NOW:
+            raise ProgramJobError("api.error.program_deadline_past")
+        job = ProgramJob(id="washer-1", device_id=device_id, deadline=deadline, armed_at=NOW)
+        self.jobs[device_id] = job
+        self.calls.append(("arm_program", (device_id, deadline)))
+        return job
+
+    async def cancel_program(self, device_id: str) -> ProgramJob:
+        self._flex_device(device_id)
+        job = self.jobs.pop(device_id, None)
+        if job is None:
+            raise ProgramJobError("api.error.program_no_job")
+        self.calls.append(("cancel_program", device_id))
+        return job.model_copy(update={"state": JobState.CANCELLED})
+
+    async def grid_status(self) -> GridStatus:
+        return GridStatus("connected", "inactive", "2026-01", 3100.0, 3100.0)
+
+    async def grid_events(self, days: int) -> GridEvents:
+        self.calls.append(("grid_events", days))
+        return GridEvents(
+            (GridEventRow(NOW, "para14a_start", 4200.0),),
+            (MonthPeakRow("2026-01", 3100.0, NOW),),
+        )
 
     def proposals(self) -> list[Decision]:
         return list(self.proposal_list)

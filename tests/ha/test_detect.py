@@ -63,6 +63,7 @@ def test_site_roles_cover_the_documented_set() -> None:
         "house_power",
         "price",
         "para14a_signal",
+        "backup_state",
     }
 
 
@@ -402,3 +403,18 @@ def test_name_affinity_needs_whole_words_in_the_friendly_name() -> None:
         role, metas[:1], name_hint="AC", device_name_of=lambda _device_id: " ac "
     )
     assert "name_affinity" in named[0].criteria
+
+
+def test_backup_state_requires_a_keyword() -> None:
+    got = detect_site_role(
+        "backup_state",
+        [
+            meta("sensor.inverter_backup_mode"),
+            meta("binary_sensor.ersatzstrom_aktiv"),
+            meta("sensor.random"),
+        ],
+    )
+    assert {m.meta.entity_id for m in got} == {
+        "sensor.inverter_backup_mode",
+        "binary_sensor.ersatzstrom_aktiv",
+    }

@@ -4284,6 +4284,107 @@
         "title": "EvSpec",
         "type": "object"
       },
+      "EvState": {
+        "additionalProperties": false,
+        "description": "Runtime EV state of one charger device.",
+        "properties": {
+          "device_id": {
+            "pattern": "^[a-z][a-z0-9_]{0,47}$",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/EvMode",
+            "default": "pv"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "updated_at"
+        ],
+        "title": "EvState",
+        "type": "object"
+      },
+      "EvStateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/EvMode"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "EvStateRequest",
+        "type": "object"
+      },
+      "EvTarget": {
+        "additionalProperties": false,
+        "description": "Be at ``soc_pct`` (vehicle SoC known) or have charged ``energy_wh`` by ``by``.",
+        "properties": {
+          "by": {
+            "format": "date-time",
+            "title": "By",
+            "type": "string"
+          },
+          "energy_wh": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 500000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Wh"
+          },
+          "soc_pct": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soc Pct"
+          }
+        },
+        "required": [
+          "by"
+        ],
+        "title": "EvTarget",
+        "type": "object"
+      },
       "ExplainInputOut": {
         "additionalProperties": false,
         "properties": {
@@ -4509,6 +4610,41 @@
         ],
         "title": "FetchStatus",
         "type": "string"
+      },
+      "FlexOut": {
+        "additionalProperties": false,
+        "description": "The runtime EV state and the open program job of one device.",
+        "properties": {
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "ev": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgramJob"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "FlexOut",
+        "type": "object"
       },
       "FlowBreakdownOut": {
         "additionalProperties": false,
@@ -5212,6 +5348,63 @@
         "title": "GridConfig",
         "type": "object"
       },
+      "GridEventOut": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          },
+          "value_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value W"
+          }
+        },
+        "required": [
+          "ts",
+          "kind",
+          "value_w"
+        ],
+        "title": "GridEventOut",
+        "type": "object"
+      },
+      "GridEventsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/GridEventOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "peaks": {
+            "items": {
+              "$ref": "#/components/schemas/MonthPeakOut"
+            },
+            "title": "Peaks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "events",
+          "peaks"
+        ],
+        "title": "GridEventsOut",
+        "type": "object"
+      },
       "GridFeeWindow": {
         "additionalProperties": false,
         "description": "A grid fee that applies inside ``window`` (time-variable grid fee, §14a module 3).\n\n``months`` restricts it to some months (module 3 fees are set per quarter, e.g. only\nQ1 and Q4); ``None`` = all year. The month is that of the day the occurrence started\n(see :meth:`TouWindow.occurrence_date`).",
@@ -5248,6 +5441,54 @@
           "fee"
         ],
         "title": "GridFeeWindow",
+        "type": "object"
+      },
+      "GridStatusOut": {
+        "additionalProperties": false,
+        "properties": {
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "month_peak_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Month Peak W"
+          },
+          "para14a": {
+            "title": "Para14A",
+            "type": "string"
+          },
+          "peak_limit_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Limit W"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "para14a",
+          "month",
+          "month_peak_w",
+          "peak_limit_w"
+        ],
+        "title": "GridStatusOut",
         "type": "object"
       },
       "HaEntitiesRepublishOut": {
@@ -6540,6 +6781,17 @@
         "title": "InverterTemplate",
         "type": "object"
       },
+      "JobState": {
+        "enum": [
+          "armed",
+          "scheduled",
+          "running",
+          "done",
+          "cancelled"
+        ],
+        "title": "JobState",
+        "type": "string"
+      },
       "KpiOut": {
         "additionalProperties": false,
         "properties": {
@@ -7423,6 +7675,31 @@
           "options"
         ],
         "title": "ModeSelectControl",
+        "type": "object"
+      },
+      "MonthPeakOut": {
+        "additionalProperties": false,
+        "properties": {
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "peak_w": {
+            "title": "Peak W",
+            "type": "number"
+          },
+          "slot": {
+            "format": "date-time",
+            "title": "Slot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "peak_w",
+          "slot"
+        ],
+        "title": "MonthPeakOut",
         "type": "object"
       },
       "MqttConfig-Input": {
@@ -9391,6 +9668,117 @@
           "currency"
         ],
         "title": "PriceSourceInfo",
+        "type": "object"
+      },
+      "ProgramArmRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deadline": {
+            "format": "date-time",
+            "title": "Deadline",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deadline"
+        ],
+        "title": "ProgramArmRequest",
+        "type": "object"
+      },
+      "ProgramJob": {
+        "additionalProperties": false,
+        "description": "One armed run of a shiftable program (\"finished by ``deadline``\").",
+        "properties": {
+          "armed_at": {
+            "format": "date-time",
+            "title": "Armed At",
+            "type": "string"
+          },
+          "armed_by": {
+            "default": "user",
+            "enum": [
+              "user",
+              "mqtt",
+              "notification"
+            ],
+            "title": "Armed By",
+            "type": "string"
+          },
+          "deadline": {
+            "format": "date-time",
+            "title": "Deadline",
+            "type": "string"
+          },
+          "device_id": {
+            "pattern": "^[a-z][a-z0-9_]{0,47}$",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "notified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notified At"
+          },
+          "planned_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Start"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/JobState",
+            "default": "armed"
+          }
+        },
+        "required": [
+          "id",
+          "device_id",
+          "deadline",
+          "armed_at"
+        ],
+        "title": "ProgramJob",
         "type": "object"
       },
       "ProgramSpec": {
@@ -13554,6 +13942,116 @@
         "summary": "Decision Explain"
       }
     },
+    "/api/v1/devices/{device_id}/ev": {
+      "put": {
+        "description": "Set the charge mode (``off``, ``now``, ``min_pv``, ``pv``, ``target``) and, for\n``target``, the SoC or energy to reach by a time. The controller follows it within a\ntick; the safety gate still judges every write.",
+        "operationId": "device_ev_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown device"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Not an EV charger"
+          }
+        },
+        "summary": "Put Ev"
+      }
+    },
+    "/api/v1/devices/{device_id}/flex": {
+      "get": {
+        "description": "The device's runtime EV mode and target and its open program job (or ``null``).",
+        "operationId": "device_flex",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlexOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown device"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Device Flex"
+      }
+    },
     "/api/v1/devices/{device_id}/override": {
       "post": {
         "description": "Boost (N minutes), pause (until a time or until resumed) or resume one device.",
@@ -13612,6 +14110,136 @@
           }
         },
         "summary": "Override"
+      }
+    },
+    "/api/v1/devices/{device_id}/program/arm": {
+      "post": {
+        "description": "Arm one job \"finished by ``deadline``\". SunCore schedules the start; a smart plug is\nswitched off right after arming while the appliance is idle.",
+        "operationId": "device_program_arm",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProgramArmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgramJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown device"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "A job is open already, none is open or it runs"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Not a program or the deadline is in the past"
+          }
+        },
+        "summary": "Arm Program"
+      }
+    },
+    "/api/v1/devices/{device_id}/program/cancel": {
+      "post": {
+        "description": "Cancel the waiting job. SunCore lets go of the device: a smart plug is switched\n**on**, so the appliance starts at once. A running job cannot be cancelled.",
+        "operationId": "device_program_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgramJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown device"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "A job is open already, none is open or it runs"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Not a program or the deadline is in the past"
+          }
+        },
+        "summary": "Cancel Program"
       }
     },
     "/api/v1/entities": {
@@ -13879,6 +14507,66 @@
           }
         },
         "summary": "Forecast Risk"
+      }
+    },
+    "/api/v1/grid/events": {
+      "get": {
+        "description": "Grid events (island, §14a, new peak, import above the fuse limit) of the last\n``days`` (1-400) and the monthly peaks.",
+        "operationId": "grid_events",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GridEventsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Grid Events"
+      }
+    },
+    "/api/v1/grid/status": {
+      "get": {
+        "description": "Island, §14a and the month's peak as the control stack sees them.",
+        "operationId": "grid_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GridStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Grid Status"
       }
     },
     "/api/v1/ha-entities/republish": {

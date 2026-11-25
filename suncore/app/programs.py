@@ -29,6 +29,7 @@ from suncore.core.flex import (
     JobState,
     JobTransitionError,
     ProgramJob,
+    ProgramJobError,
     open_job,
     transition,
 )
@@ -51,14 +52,6 @@ NOTICE_UNKNOWN: Final = "notify.program.unknown"
 CAP_EXEMPT: Final = frozenset({"start_now", "missed"})
 """Never held back by the daily push cap: the only start path of a notify-only program, and
 the message that a job did not run."""
-
-
-class ProgramJobError(ValueError):
-    """Arming or cancelling is not possible (unknown device, open job, running job)."""
-
-    def __init__(self, key: str) -> None:
-        super().__init__(key)
-        self.key = key
 
 
 class ProgramJobBook:

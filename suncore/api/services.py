@@ -16,12 +16,14 @@ from typing import Any, Final, Protocol
 
 from pydantic import BaseModel
 
+from suncore.api.flex_types import GridEvents, GridStatus
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BatteryModel
 from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.flex import EvMode, EvState, EvTarget, ProgramJob
 from suncore.core.haentities import HaEntitiesStatus
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
@@ -254,6 +256,33 @@ class Services(Protocol):
 
     def proposals(self) -> list[Decision]:
         """Open assisted-mode proposals, oldest first."""
+        ...
+
+    async def flex_view(self, device_id: str) -> tuple[EvState | None, ProgramJob | None]:
+        """The runtime EV state and the open program job of a device (PR 6-M); raises
+        :class:`UnknownDeviceError`."""
+        ...
+
+    async def set_ev_state(self, device_id: str, mode: EvMode, target: EvTarget | None) -> EvState:
+        """Set a charger's mode and target; raises :class:`UnknownDeviceError` or
+        :class:`NotAnEvError`. Only the state the controller reads changes."""
+        ...
+
+    async def arm_program(self, device_id: str, deadline: datetime) -> ProgramJob:
+        """Arm a program job; raises :class:`UnknownDeviceError`, :class:`ProgramJobError`."""
+        ...
+
+    async def cancel_program(self, device_id: str) -> ProgramJob:
+        """Cancel the waiting job (the controller then releases the device); raises
+        :class:`UnknownDeviceError`, :class:`ProgramJobError`."""
+        ...
+
+    async def grid_status(self) -> GridStatus:
+        """Island, §14a and the month's peak."""
+        ...
+
+    async def grid_events(self, days: int) -> GridEvents:
+        """Grid events of the last ``days`` and the stored monthly peaks."""
         ...
 
     async def confirm_proposal(self, intent_id: str) -> Decision:

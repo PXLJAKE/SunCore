@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from suncore import __version__
+from suncore.api.flex_types import GridEvents, GridStatus
 from suncore.api.services import (
     EntityQuery,
     HealthReport,
@@ -25,6 +26,7 @@ from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.flex import EvMode, EvState, EvTarget, ProgramJob
 from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
@@ -144,6 +146,24 @@ class StubServices:
 
     def proposals(self) -> list[Decision]:
         return []
+
+    async def flex_view(self, device_id: str) -> tuple[EvState | None, ProgramJob | None]:
+        raise NotImplementedError
+
+    async def set_ev_state(self, device_id: str, mode: EvMode, target: EvTarget | None) -> EvState:
+        raise NotImplementedError
+
+    async def arm_program(self, device_id: str, deadline: datetime) -> ProgramJob:
+        raise NotImplementedError
+
+    async def cancel_program(self, device_id: str) -> ProgramJob:
+        raise NotImplementedError
+
+    async def grid_status(self) -> GridStatus:
+        raise NotImplementedError
+
+    async def grid_events(self, days: int) -> GridEvents:
+        raise NotImplementedError
 
     async def confirm_proposal(self, intent_id: str) -> Decision:
         raise NotImplementedError
