@@ -1677,6 +1677,31 @@ See the list at the end of `docs/security/review-1.0.md`. In short:
     `test_ev_grid_slots_do_not_shift_between_replans_at_flat_prices` therefore guards the
     behaviour, it does not prove that the tie-breaker is needed.
 
+### 7-P (integration and release preparation; branch `phase-7/p-release`)
+
+- Built from `phase-7/n-hygiene` (7-A to 7-G, 7-L, 7-M, 7-N) by merging, in this order,
+  `q-phase6-fields` (with 7-J), `i-diagnostics-frontend` (with the 7-I backend), `o-security`
+  (with 7-H), `k-late-car` and `fix-mqtt-test-timing` (#79). Every conflict and its resolution
+  is in the message of its merge commit; generated files were re-run with the generators after
+  each merge (no change).
+- Notable resolutions: `suncore/ha/mqtt/service.py` keeps the SEC-15 stop fields of 7-O and adds
+  #79's announce lock and closing flag (the stop path never takes the lock; teardown drains the
+  stops, then says goodbye under the lock); 7-O's questions 23 to 28 became **28 to 33**
+  (references in this plan, STATUS and `docs/security/review-1.0.md` updated); the German entity
+  page drops "no manual broker in the panel" (7-Q added it).
+- Integration breakages fixed: the 7-J verification commands bypassed the SEC-13 header (403 on
+  the integrated line; e2e could not see it because the Playwright context sets the header);
+  `bench-arm.yml` pinned by SHA; troubleshooting and the guides' navigation names; the wizard
+  screenshot spec (broken since 5-F).
+- Deviation: the full pytest run used `pytest-xdist -n 4` (same selection, with coverage); the
+  serial `check.sh` run was stopped after it projected hours.
+- Not done here: the final `reviewer` pass over the whole Phase 7 diff and the final
+  `control-safety` read of 7-J and 7-K (WP15 names them; they need their own agents), the
+  dashboard recipe (WP11), tagging and releasing. The bundle budget is unchanged (question 34).
+- Screenshots: regenerated with the `demo-screenshots` skill; images above 300 kB reduced to a
+  128-colour palette. The tablet images the docs use are all below 300 kB; the phone captures of
+  long pages (not referenced) stay at 0.5 to 1 MB.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update
@@ -1888,3 +1913,11 @@ See the list at the end of `docs/security/review-1.0.md`. In short:
     hängen an Tags. Dependabot erkennt das Basis-Image nicht, weil es über `ARG` kommt.
     **Empfehlung:** beide per Digest fixieren und den Digest im Skill `prepare-release` prüfen,
     zusammen mit dem Mosquitto-Digest des Rauchtests (Frage 27).
+34. **Bundle-Budget (7-Q, 7-P).** Auf dem Integrationszweig `phase-7/p-release` misst der
+    Standardpfad 256,9 kB gzip (Budget 250 kB), der erste Aufruf 124,9 kB (Budget 125 kB, nur
+    0,1 kB Luft), die Experten-Extras 25,5 kB (Budget 30 kB). `npm run size` schlägt damit fehl,
+    und CI ist rot, bis entschieden ist. Ursache: 7-Q (Phase-6-Felder) und 7-I (Diagnose) kamen
+    nach dem Stand von 7-G (244,1 kB) dazu; jedes Kapitel zählt, auch die nachgeladenen.
+    **Empfehlung:** das Budget für den Standardpfad auf 260 kB anheben (ein Einzeiler in
+    `frontend/scripts/bundle-size.mjs`) und den ersten Aufruf bei 125 kB lassen; Alternative:
+    rund 7 kB Code einsparen (eigener PR; das Messverfahren bleibt, wie es ist).

@@ -3,25 +3,132 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps; Phase 7: 7-B
-and 7-N part 1, release readiness) ·
-**Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
-PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line. PR 7-C adds the demo
-flexible loads (`SUNCORE_DEMO_FLEX=1`: EV on a wallbox, washing machine, heat pump; shadow).
-7-L (docs site) and 7-M (Weblate onboarding, repo side) are merged into this line.
-Bundle budget split pending maintainer decision; option A implemented (standard path 250 kB,
-expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
-PR 7-D adds the design system and the new shell (review stop 1: `docs/design/review-7d.md`;
-first paint 118.9 kB, standard path 243.7 kB). PR 7-E rebuilds the Now view and its cards
-(`docs/design/review-7e.md`; first paint 120.5 kB, standard path 245.8 kB). PR 7-F does the
-same for Plan and Analysis (`docs/design/review-7f.md`; first paint 122.6 kB, standard path
-249.6 kB). PR 7-G does Settings and the setup wizard and is **review stop 2**
-(`docs/design/review-7g.md`; first paint 121.4 kB, standard path 244.1 kB). PR 7-J adds the
-inverter limit verification test (**CS**; on 7-G, awaiting the `control-safety` review).
-Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
-steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
-heat pump, §14a box or backup switch was available in the sessions ·
+**Last update:** 2026-11-25 (Phase 7 integrated: 7-A to 7-O and 7-Q on one branch, 7-P release
+preparation; state: **1.0 release candidate**, not tagged) ·
+**Phase:** 7, final integration (7-P). Phases 1 to 6 are built; Phases 3 and 4 are merged into
+`main`, the Phase 5, 6 and 7 stacks wait for review and merge (order: "1.0 candidate" below).
+The acceptance on the maintainer's system (plan phase 7, section 6, H0 to H7) is still open,
+because no PV surplus, wallbox, heat pump, §14a box or backup switch was available in the
+sessions; 1.0 follows after H7 unless question 10 decides otherwise ·
 **Branch:** `phase-7/p-release` (integration of all Phase 7 branches on `phase-7/n-hygiene`)
+
+## 1.0 candidate (7-P, branch `phase-7/p-release`)
+
+**What is in it.** Everything of Phase 7 on top of the Phase 6 line: 7-A plan and ADRs, 7-B
+Phase 5 tail, 7-C demo flex devices, 7-D design system and shell, 7-E Now, 7-F Plan and
+Analysis, 7-G Settings and wizard, 7-H HA site sensors and event types, 7-I diagnostics and heat
+pump live values, 7-J inverter limit verification (**CS**), 7-K late-car fix (planner), 7-L docs
+site, 7-M Weblate (repo side), 7-N release readiness and community hygiene, 7-O security review
+with the SEC-13/15/16 fixes (**CS**), 7-Q Phase 6 fields in Settings, and the MQTT
+discovery fix #79 (`phase-7/fix-mqtt-test-timing`). Merge commits record every conflict.
+
+**Integration fixes on this branch** (each its own commit):
+
+- `fix(frontend)`: the 7-J verification commands called `fetch` directly and so missed the
+  SEC-13 header; on the integrated line every start, confirm and abort was refused with 403. The
+  e2e suite could not see it (the Playwright context sets the header for every request); a unit
+  test now covers it.
+- `fix(e2e)`: the wizard screenshots failed since 5-F (a pasted line used the plan shot's
+  variable), so the docs still had old wizard images; found while regenerating the set.
+- `ci(bench)`: `bench-arm.yml` (7-N) pinned by SHA like every other workflow (7-O, SEC-08).
+- Docs: troubleshooting points at the diagnostics panel (7-L predates 7-I); navigation names of
+  the new shell in the guides (History, Decision log and What-if are tabs under Analysis, expert
+  mode is in Settings, Advanced); markdownlint fixes of the merged plan.
+
+**Release preparation (WP15):** release notes en/de (`docs/user/<lang>/release-notes.md`) with
+the behaviour changes, the simulator-only list and the upgrade paths; security page en/de with
+the SEC-22 and SEC-14 outcome (closes "user-guide notes on MQTT ACLs and backup encryption");
+`DOCS.md` of both apps rewritten for 1.0 (five Settings pages, diagnostics, SEC-13 header,
+"Updating from 0.2.0", current "What is not there yet"); final screenshot set regenerated with
+the `demo-screenshots` skill. `prepare-release` repo-side items: see below.
+
+**Behaviour changes for the release notes** (all in `docs/user/*/release-notes.md`):
+
+- An inverter section with `limit_verified: true` but no `verified_identity` counts as
+  unverified; the limit is capped at assisted until the verification test passes; an import
+  resets the flag (7-J).
+- Every non-GET request needs `X-SunCore-Request: 1` (403 `api.error.request_header_missing`);
+  only `POST /api/v1/control/emergency-stop` is exempt, clearing is not (7-O, SEC-13).
+- The `homeassistant_config` map is gone (SEC-07); body caps (413) on every JSON route;
+  `proxy_headers=False`; `nosniff` and `Referrer-Policy` (7-O).
+- Database `suncore.db` schema 6 and `timeseries.db` schema 3: 0.2.0 refuses them (7-N), so
+  the way back is a backup.
+- The stable app has no `stage: experimental` any more (7-N part 2).
+
+**Checks on this branch** (2026-11-25, local, x86_64):
+
+- `./scripts/check.sh`, Python part: ruff, format, mypy (273 files), and the generator checks
+  (OpenAPI, reasons, schemas, compatibility, backend catalogue, beta translations, parameters,
+  templates) green; every generator re-run after each merge changed nothing. pytest: **10,138
+  passed, 1 skipped**, coverage 95 % overall and 97 % on the control-critical packages (gate
+  80 %). Run with `pytest-xdist -n 4` and coverage (6 min) because the serial run would have
+  taken hours in the session; same test selection.
+- `pytest -m simulator`: **486 passed**.
+- Frontend: `npm ci`, `gen:api:check`, `check:tokens`, `format:check`, `check` (svelte-check, 0
+  errors, 0 warnings), `lint`, `test` (**511 tests in 59 files passed**), `build` green;
+  **`size` fails** (bundle below).
+- Playwright (local Chromium): **501 passed, 360 skipped** (project-specific skips and the
+  screenshot spec), 0 failed.
+- `mkdocs build --strict`, markdownlint (0 errors), actionlint (clean).
+
+**Bundle (`npm run size`):** standard path **256.9 kB** gzip, budget 250 kB (**over by 6.9
+kB**; 7-G had 244.1, 7-Q alone measured 252.4, 7-I added the diagnostics chunk); first paint
+124.9 of 125 kB; expert extras 25.5 of 30 kB; ECharts core + view 196.2 and 192.0 of 240 kB.
+The budget is unchanged; the decision is question 34. Until then `npm run size` and so CI fail
+(the e2e job runs after the size step).
+
+**`prepare-release` checklist, repo side:**
+
+1. `./scripts/check.sh`: see "Checks" above; CI, App lint, docs lint and CodeQL have not run on
+   this branch (not pushed).
+2. Release PR CHANGELOG: no release-please PR for 1.0 yet (needs `release-as` or a
+   `Release-As: 1.0.0` footer, question 25).
+3. App versions: untouched (release-please bumps the stable app, `bump-beta` the beta).
+4. `addon/suncore/CHANGELOG.md`: copied from the generated CHANGELOG at release time; not
+   pre-written (Home Assistant shows the file, an unreleased entry would mislead).
+5. STATUS: this section.
+6. Breaking changes: the migration note is in both `DOCS.md` ("Updating from 0.2.0");
+   `breaking_versions` is **not** set, the maintainer decides (question 26; Supervisor
+   behaviour `UNVERIFIED`).
+7. Pins checked 2026-11-25 against the registries: `eclipse-mosquitto:2.0.23` index
+   `sha256:6a332cc7…2ad9` is still the newest `2.x.y`, and `ghcr.io/pxljake/suncore:0.2.0`
+   index `sha256:05641188…3b32` is still the last release; both pins are current. Base and `uv`
+   image digests are open (question 33).
+8. Freezing the 1.0 database for the migration tests: after tagging.
+
+**Recommended merge order into `main`** (the same order this branch merged them, so each
+conflict has the resolution recorded in its merge commit here): Phase 5 stack, Phase 6 stack,
+then the stacked line 7-A, 7-B, 7-C, 7-D, 7-E, 7-F, 7-G, 7-L, 7-M, 7-N part 1, 7-N part 2
+(`n-hygiene`); then 7-J and 7-Q; 7-I backend and 7-I frontend; 7-H and 7-O (7-O contains 7-H
+and the 7-I backend); 7-K; #79 (`fix-mqtt-test-timing`); last 7-P. Merge commits, not squash:
+the branches are stacked. Alternative: review the PRs, then merge only `phase-7/p-release`,
+which contains all of them with the conflicts resolved.
+
+**Open before 1.0:** the maintainer acceptance H0 to H7 (plan section 6); the bundle budget
+(question 34); the 1.0 numbering (`release-as`, question 25) and `breaking_versions`
+(question 26); the final `reviewer` pass on the whole Phase 7 diff and the final
+`control-safety` read of 7-J and 7-K (WP15; not done in this session); the dashboard recipe
+(WP11, still a placeholder page); the first CI run of the upgrade test, the loaded smoke test,
+the arm benchmark, the docs jobs and the SHA pins.
+
+**Open maintainer questions** (plan section 10; the recommendation applies until answered):
+needing an action from the maintainer: 7 and 24 (Weblate project), 10 (when 1.0), 14 (Pi 4
+measurement), 15 (version jump), 17 (Discussions, `main` reachable), 23 (Plesk docs hosting),
+25 (`release-as`), 26 (`breaking_versions`), 27 and 33 (image digests at each release), 34
+(bundle budget). Settled by the implementation, confirmation only: 2 (review stops held), 12
+(7-K), 19 and 28 (password storage kept), 21 (X3 waiver as built in 7-J), 29 (config map
+removed), 31 (SEC-13 built). Defaults that stand unless changed: 1, 3 to 6, 8, 9, 11, 13, 16,
+18, 20, 22, 30, 32. Further open questions live in the review pages (`docs/design/review-7*.md`)
+and in plan section 8 (7-H: `savings_today` baseline, forecast error in W).
+
+**Remaining `UNVERIFIED`:** the table "Known problems and `UNVERIFIED` items" below is the
+complete list. The groups that matter for 1.0: everything on hardware (EV, evcc, heat pump,
+programs, grid shedding, §14a, island, inverter limit and its classification, Kostal Modbus and
+REST details); the HA surface on a running HA (MQTT payload defaults, device classes, Supervisor
+proxy commands); the CI jobs that never ran (upgrade test, loaded smoke, arm benchmark, docs
+zip and deploy, Weblate sync, SHA pins); the hosted docs site and Weblate project; the HA menu
+names in the guides; budgets on aarch64; the HA backup encryption default; both ingress hops
+forwarding `X-SunCore-Request`.
 
 ## Phase 6 at a glance
 
@@ -46,6 +153,8 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - 7-P, integration and release preparation (branch `phase-7/p-release`; WP15)** -
+  details, checks and open items: "1.0 candidate" above and plan section 8 (7-P).
 - **Phase 7 - 7-N part 2, community hygiene (branch `phase-7/n-hygiene`, on 7-M with 7-N part 1
   merged; `docs-writer`)** - details: plan section 8 (7-N part 2):
   - Merge: both branches added questions 23 to 25; the 7-N ones are now 25, 26, 27.
@@ -1615,8 +1724,8 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   band and the battery settings (with the author `mqtt` in the config history; needs a
   `control-safety` review, plan section 8, 6-O). A push for a target the plan meets but the
   controller later misses is not needed (7-K: the gap had a planner cause, see plan section 8).
-- **Panel gaps:** evcc `loadpoint_id` and `topic_prefix`; bundle budget (7-Q: standard path
-  252.4 of 250 kB, needs a maintainer decision or savings elsewhere). Done since: the inverter
+- **Panel gaps:** evcc `loadpoint_id` and `topic_prefix`; bundle budget (integrated: standard
+  path 256.9 of 250 kB, question 34). Done since: the inverter
   verification test (7-J), the per-device `para14a` flag, `shed_rank`, the island keep list and
   the manual MQTT broker (7-Q), the COP and model rows on the heat pump card (7-I).
 - **Behaviour decisions deferred:** hard target at any price for the EV (the late-car gap is
@@ -1626,16 +1735,18 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
 - **Budgets to measure:** resident memory 136 MiB measured locally (7-N); the CI loaded smoke
   and the aarch64 planner job (at most 10 s; amd64: 0.26 s for the full house) still need their
   first run.
-- **Docs:** screenshots of the new views through the `demo-screenshots` skill, a followed test of
-  every new how-to on Home Assistant OS, the docs site and the Weblate project (the translation
-  structure of `docs/user/en` and `docs/user/de` is identical).
+- **Docs:** a followed test of every new how-to on Home Assistant OS, the dashboard recipe
+  (WP11, still a placeholder), the hosted docs site and the Weblate project (the translation
+  structure of `docs/user/en` and `docs/user/de` is identical). The screenshot set was
+  regenerated in 7-P.
 - **Security (7-O, `docs/security/review-1.0.md`):**
   - SEC-13, SEC-15 and SEC-16 are fixed (question 31 is answered by the fix; a reverse proxy
     in front of HA that strips custom headers would break writes, the error text says so);
   - review the 7-J verification window (SEC-24);
   - CSP after a browser check (`frontend-engineer`);
   - digests for `BUILD_FROM` and the `uv` image (question 33);
-  - user-guide notes on MQTT ACLs and backup encryption (questions 28, 30);
+  - user-guide notes on MQTT ACLs and backup encryption (questions 28, 30): done in 7-P
+    (`docs/user/*/security.md`, release notes);
   - after 1.0: a non-root user, an AppArmor profile and ECharts 6 (question 32).
 - Deferred past 1.0 unless asked: built-in PV and price fallbacks, calibration charging, per-phase
   imbalance limits, V2H, several vehicles per charger, EEBus and the certified §14a path.
