@@ -837,6 +837,87 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   standard path 236.9 kB, expert extras 25.4 kB; ECharts chunks unchanged. Budgets for first
   paint and ECharts are unchanged.
 
+### 7-N, part 1 (release readiness; branch `phase-7/n-release`, on 7-B)
+
+Part 2 (community hygiene, issue templates, badges, `stage: experimental`, the final runs
+after 7-I and 7-J) is still open.
+
+- **Frozen dumps: one, not nine.** Only `v0.2.0` exists as a tag (`git tag`, `git ls-remote
+  --tags`), and it ships `suncore.db` schema 1 and no `timeseries.db`. `suncore_v2.sql` …
+  `suncore_v6.sql` and `timeseries_v1.sql` … `timeseries_v3.sql` were never released, so nothing
+  was invented for them. `tests/fixtures/db/suncore_v1.sql` and
+  `tests/fixtures/release/export_0.2.0.json` come from `scripts/gen_release_fixtures.py`: it
+  extracts the tag with `git archive`, imports it in an isolated child interpreter and seeds a
+  data directory through the released HTTP API (`PUT /api/v1/config/site`, the safety gate for
+  three shadow decisions, `GET /api/v1/config/export`); the one `learned` row is a raw
+  `INSERT` because 0.2.0 has no writer for that table. `updated_at` is fixed, so a re-run is
+  byte-identical. `release/MANIFEST.json` pins the SHA-256 of the released
+  `0001_initial.sql`, and a test fails if that file is ever edited. Each future release adds its
+  dump with the same generator (`--tag vX.Y.Z`); the upgrade chain for the unreleased schemas
+  stays covered by `test_phase5_storage.py` (built from the shipped migration files).
+- **Config section documents of every version.** Only `site` v1 is a released document. The
+  hypothesis tests build valid v1 documents of `site`, `forecast`, `tariff` and `goals` (the
+  four sections that have migrations; a guard test fails when a fifth gains one) from the models'
+  documented v1 shapes and push them through the migrations; the fixtures of Phases 3 and 4
+  (`export_v1.json`, `export_phase3.json`) are hand-made and say so.
+- **Newer than supported.** The message is `SchemaTooNewError`'s text ("database schema version N
+  is newer than the supported M"); tests cover `Database.open`, `open_timeseries`, the import and
+  the process (`python -m suncore` exits 1, file untouched). The process logs it as `app.crashed`
+  with a traceback; a friendlier `app.schema_too_new` event is a possible follow-up for `app/`,
+  not changed here.
+- **Upgrade job.** `scripts/upgrade_test.sh` runs as steps of the `build` job (every event, both
+  architectures on `main`), so it tests the image that was just built and needs no second build.
+  Old image: `ghcr.io/pxljake/suncore@sha256:05641188…3b32`, the multi-arch index of tag `0.2.0`
+  (looked up on GHCR 2026-11-25: anonymous pull works, `linux/amd64` and `linux/arm64`, image
+  name and tag scheme match `build.yml`: `ghcr.io/<owner>/<arch>-<image>:<version>` per arch,
+  `ghcr.io/<owner>/<image>:<version>` for the manifest). 0.2.0 is started on a Docker volume with
+  `SUNCORE_HA_URL` pointing at a closed port (not supervised, so the API is loopback-only like in
+  the smoke test; the app retries the connection), seeded through its API
+  (`scripts/upgrade_probe.py seed`), stopped; the candidate starts on the same volume
+  (`verify`: `/health`, mode shadow, site entities, export, decision log) and stops cleanly;
+  finally 0.2.0 must refuse the upgraded database (downgrade). Two consequences: 0.2.0 writes no
+  decisions (nothing submits to its gate), so the log is empty in the real run (rows are covered
+  by the frozen dump test); and a downgrade from 1.0 to 0.2.0 is refused by design, which belongs
+  in the release notes (question 24). Rehearsed locally without Docker: the real 0.2.0 code
+  seeded a data directory over HTTP, the current code started on it and passed `verify`, and the
+  0.2.0 code then exited 1 with the refusal.
+- **Loaded smoke.** `LOADED=1 scripts/smoke_image.sh` (steps in the `build` job on `push` to
+  `main` and manual runs, both architectures): Mosquitto `eclipse-mosquitto:2.0.23@sha256:6a332cc7…2ad9`
+  (the multi-arch index; digest taken from Docker Hub's `docker-content-digest` and checked
+  against the SHA-256 of the manifest body; 2.0.23 is the newest `2.x.y` tag on 2026-11-25),
+  `SUNCORE_DEMO_FLEX=1` (arrives with 7-C; before that the variable is ignored),
+  `SUNCORE_DEMO_BATTERY_CONTROL=1`, `SUNCORE_DEMO_MQTT=1`, the manual broker through
+  `PUT /api/v1/config/mqtt`, `POST /api/v1/plan/replan` every 60 s for 600 s (the API debounces
+  event-triggered runs to one per minute, so this is the most it takes), memory by `docker stats`
+  every 15 s, limit 300 MiB for the peak and the final value, broker still connected at the end.
+  The API contract of this phase (PUT, status `connected`, replan 202) was run locally against the
+  real app with the test stub broker.
+- **`SUNCORE_DEMO_MQTT=1`.** `Settings.demo_mqtt` (env only, no app option), logged as
+  `app.demo_mqtt` at start; `build_ha_entities` builds the service in demo mode only with it.
+  MQTT commands then act on the demo runtime, whose database is a throw-away one. `settings.py`
+  conflicts textually with 7-C at the neighbouring `demo_flex` field (a union, tried in a scratch
+  merge).
+- **aarch64 job.** `.github/workflows/bench-arm.yml` on `ubuntu-24.04-arm` (the runner label comes
+  from `home-assistant/builder` `prepare-multi-arch-matrix@2026.09.0`, which `build.yml` already
+  uses; read from its `action.yml`): reference and full house (median and worst of 5; the full
+  house fails above 10 s via the new `bench_planner.py --fail-above-s`), the load model (above its
+  1 s budget the job only warns) and `tests/planner/test_gil.py`. The step summary carries the
+  numbers; the first run fills the STATUS rows.
+- **Versioning.** `beta_version.py` reads `release-as` of package `.` from
+  `release-please-config.json` and uses it as the base when it is above the stable version (a
+  stale value is ignored), so the betas become `1.0.0-beta.<n>`. The key is **not set yet**:
+  release-please's schema marks `release-as` as deprecated in favour of a `Release-As:` commit
+  footer (read 2026-11-25), and setting it also retargets the open release PR #17 (question 23).
+  The Supervisor `stage` key was verified in `supervisor/apps/validate.py` (line 475,
+  `vol.Optional(ATTR_STAGE, default=AppStage.STABLE)`) and `supervisor/const.py` (`AppStage`:
+  `stable`, `experimental`, `deprecated`, read 2026-11-25): removing the key gives `stable`, and
+  the app linter rejects an explicit default, so part 2 deletes the line rather than writing
+  `stage: stable`. `breaking_versions` exists (`[version_tag]`, default `[]`, same file, line
+  562); listing `1.0.0` would keep auto-update away from the schema jump. What the Supervisor does
+  with it for the installed versus the store's `config.yaml` is not verified (`UNVERIFIED`, part 2).
+- **Not run in the session** (no Docker daemon, `actionlint` and `shellcheck` not installed):
+  the three CI jobs. Checked instead: YAML parses, `bash -n`, the rehearsals above.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update
@@ -926,3 +1007,18 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 22. **Doku-Sprachen per Pull Request.** Die deutsche Nutzer-Doku wird für 1.0 weiter von uns per
     PR gepflegt, nicht in Weblate. **Empfehlung:** so lassen; Weblate für die Doku nach 1.0 prüfen,
     wenn Übersetzer für weitere Sprachen kommen.
+23. **Betas als `1.0.0-beta.<n>` (7-N).** `scripts/beta_version.py` kann den Sprung jetzt aus
+    `release-please-config.json` lesen, der Schlüssel `release-as` ist dort aber noch nicht
+    gesetzt. release-please markiert ihn als veraltet (Ersatz: ein Commit mit der Fußzeile
+    `Release-As: 1.0.0`), und er stellt auch den offenen Release-PR #17 auf 1.0.0 um.
+    **Empfehlung:** `"release-as": "1.0.0"` setzen, sobald 7-N auf `main` ist (ein Zweizeiler,
+    passend zu Frage 15), und nach dem Release wieder entfernen.
+24. **Zurück auf 0.2.0 ist nicht möglich (7-N).** Das veröffentlichte 0.2.0 verweigert eine
+    Datenbank, die 1.0 angelegt hat (Exit-Code 1, Meldung „newer than the supported“). Das ist
+    gewollt, gehört aber in die Release-Notes. **Empfehlung:** dort „vor dem Update eine
+    HA-Sicherung machen, ein Zurück gibt es nur über die Sicherung“ vermerken; zusätzlich
+    `breaking_versions: ["1.0.0"]` in der stabilen `config.yaml` erwägen, damit die automatische
+    Aktualisierung den Sprung nicht von selbst macht (Verhalten beim Supervisor noch zu prüfen).
+25. **Mosquitto im Rauchtest.** Das Image ist per Digest fixiert (2.0.23); Dependabot erneuert
+    Digests in Skripten nicht. **Empfehlung:** beim Vorbereiten jedes Releases den Digest von
+    Hand prüfen (Schritt in der Skill `prepare-release`), sonst läuft der Test mit dem alten Stand.

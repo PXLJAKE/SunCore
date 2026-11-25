@@ -25,6 +25,14 @@ SunCore releases are cut by release-please from Conventional Commits
    release.
 6. Breaking changes: add the version to `breaking_versions` in both app
    configs and write a migration note in `DOCS.md`.
+7. Pins in the CI scripts that no bot updates: the Mosquitto digest in
+   `scripts/smoke_image.sh` (`MOSQUITTO_IMAGE`; look up `docker-content-digest`
+   of the multi-arch index on Docker Hub) and the previous-release image in
+   `scripts/upgrade_test.sh` (`OLD_IMAGE`, digest of the index of the last
+   release tag on GHCR). Both jobs must be green on the release commit.
+8. After tagging, freeze the new release's database for the migration tests:
+   `uv run python scripts/gen_release_fixtures.py --tag vX.Y.Z` and commit
+   `tests/fixtures/db/` and `tests/fixtures/release/`.
 
 ## After the release is published
 
