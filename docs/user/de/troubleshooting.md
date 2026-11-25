@@ -58,11 +58,14 @@ SunCore markiert solche Werte, statt zu raten.
    starte die App neu. Tokens werden geschwärzt.
 2. Nutze in den **Einstellungen** **Konfiguration exportieren**, um eine Kopie deiner Einrichtung
    zu behalten, bevor du etwas Größeres ausprobierst.
-3. Ein Diagnose-Export (Konfiguration mit maskierten Geheimnissen und durch Pseudonyme ersetzten
-   Entitäts-IDs, die letzten Entscheidungen, Verbindungs- und Planerzustand) ist für Phase 7
-   geplant (Arbeitspaket 7-I). Ob er in deiner Version enthalten ist, ist `UNVERIFIED`: Suche
-   **Diagnose** in den **Einstellungen**. Ist er nicht da, hänge das Log an und beschreibe deine
-   Einrichtung in Worten.
+3. Hänge den Diagnose-Export an: **Einstellungen → Erweitert → Diagnose → Diagnose
+   herunterladen**. Er enthält die Versionen, die Konfiguration mit maskierten Geheimnissen, den
+   Zustand von Verbindung, Planer und Watchdog, die letzten Entscheidungen und die letzten
+   Warnungen und Fehler. Entitäts-IDs, Gerätenamen und Bereiche werden durch Codes ersetzt, die
+   sich mit jedem Export ändern; Passwörter, Tokens und Koordinaten fehlen. Das Panel zeigt eine
+   Vorschau: Lies sie, bevor du den Export veröffentlichst, denn eine Logzeile kann noch etwas über
+   deine Anlage verraten. Hat deine Version kein Panel **Diagnose**, hänge das Log an und
+   beschreibe deine Einrichtung in Worten.
 4. Eröffne ein Issue unter <https://github.com/pxljake/suncore/issues>. Poste keine Tokens,
    Passwörter oder echten Entitäts-IDs, die privat bleiben sollen. Für Sicherheitsprobleme nutze
    den privaten Weg in [Sicherheit](security.md).

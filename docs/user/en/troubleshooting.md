@@ -52,10 +52,13 @@ values instead of guessing.
    the app. Tokens are redacted.
 2. In **Settings**, use **Export configuration** to keep a copy of your setup before you try
    anything bigger.
-3. A diagnostics export (configuration with secrets masked and entity ids replaced by
-   pseudonyms, the last decisions, connection and planner state) is planned for Phase 7 (work
-   package 7-I). Whether it is part of your version is `UNVERIFIED`: look for **Diagnostics**
-   under **Settings**. If it is not there, attach the log and describe your setup in words.
+3. Attach the diagnostics export: **Settings → Advanced → Diagnostics → Download
+   diagnostics**. It holds the versions, the configuration with secrets masked, the connection,
+   planner and watchdog state, the latest decisions and the latest warnings and errors. Entity
+   ids, device names and areas are replaced by codes that change with every export; passwords,
+   tokens and coordinates are left out. The panel shows a preview: read it before you post it,
+   because a log line can still say something about your system. If your version has no
+   **Diagnostics** panel, attach the log and describe your setup in words.
 4. Open an issue at <https://github.com/pxljake/suncore/issues>. Do not post tokens, passwords or
    your real entity ids you want to keep private. For security problems use the private route in
    [Security](security.md).
