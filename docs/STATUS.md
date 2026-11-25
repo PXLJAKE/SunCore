@@ -72,11 +72,11 @@ the `demo-screenshots` skill. `prepare-release` repo-side items: see below.
   screenshot spec), 0 failed.
 - `mkdocs build --strict`, markdownlint (0 errors), actionlint (clean).
 
-**Bundle (`npm run size`):** standard path **256.9 kB** gzip, budget 250 kB (**over by 6.9
-kB**; 7-G had 244.1, 7-Q alone measured 252.4, 7-I added the diagnostics chunk); first paint
-124.9 of 125 kB; expert extras 25.5 of 30 kB; ECharts core + view 196.2 and 192.0 of 240 kB.
-The budget is unchanged; the decision is question 34. Until then `npm run size` and so CI fail
-(the e2e job runs after the size step).
+**Bundle (`npm run size`):** standard path **256.9 kB** gzip of a **260 kB** budget (raised
+from 250 kB by the maintainer on 2026-11-25, question 34; 7-G had 244.1, 7-Q and the 7-I
+diagnostics chunk added the rest); first paint 124.9 of 125 kB; expert extras 25.5 of 30 kB;
+ECharts core + view 196.2 and 192.0 of 240 kB. Precompiling the ICU messages (about 10 kB) is
+a possible later saving.
 
 **`prepare-release` checklist, repo side:**
 
@@ -1729,8 +1729,8 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   band and the battery settings (with the author `mqtt` in the config history; needs a
   `control-safety` review, plan section 8, 6-O). A push for a target the plan meets but the
   controller later misses is not needed (7-K: the gap had a planner cause, see plan section 8).
-- **Panel gaps:** evcc `loadpoint_id` and `topic_prefix`; bundle budget (integrated: standard
-  path 256.9 of 250 kB, question 34). Done since: the inverter
+- **Panel gaps:** evcc `loadpoint_id` and `topic_prefix`; bundle budget raised to 260 kB
+  (standard path 256.9 kB, question 34 decided). Done since: the inverter
   verification test (7-J), the per-device `para14a` flag, `shed_rank`, the island keep list and
   the manual MQTT broker (7-Q), the COP and model rows on the heat pump card (7-I).
 - **Behaviour decisions deferred:** hard target at any price for the EV (the late-car gap is

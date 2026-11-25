@@ -1921,3 +1921,4 @@ See the list at the end of `docs/security/review-1.0.md`. In short:
     **Empfehlung:** das Budget für den Standardpfad auf 260 kB anheben (ein Einzeiler in
     `frontend/scripts/bundle-size.mjs`) und den ersten Aufruf bei 125 kB lassen; Alternative:
     rund 7 kB Code einsparen (eigener PR; das Messverfahren bleibt, wie es ist).
+    **Entschieden (2026-11-25):** Budget für den Standardpfad auf 260 kB angehoben.

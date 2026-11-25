@@ -44,7 +44,10 @@ SITE_V1: dict[str, Any] = {
 def call(base: str, method: str, path: str, body: object | None = None) -> tuple[int, Any]:
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(
-        base + path, data=data, method=method, headers={"Content-Type": "application/json"}
+        base + path,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json", "X-SunCore-Request": "1"},
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
