@@ -11,7 +11,7 @@ Bundle budget split pending maintainer decision; option A implemented (standard 
 expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
 PR 7-D adds the design system and the new shell (review stop 1: `docs/design/review-7d.md`;
 first paint 118.9 kB, standard path 243.7 kB). PR 7-E rebuilds the Now view and its cards
-(`docs/design/review-7e.md`; first paint 120.1 kB, standard path 245.5 kB).
+(`docs/design/review-7e.md`; first paint 120.5 kB, standard path 245.8 kB).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
@@ -51,6 +51,8 @@ Carried to Phase 7: see "Open - Phase 7".
     Plan view). Device, EV, heat pump and program cards on `Card` with equal heights, the mode
     as `ToggleGroup` (`aria-pressed`, no arrow-key selection), "Why?" and "Take over manually"
     in `CardFooter`. Latest decisions: four entries, a note all share shown once.
+  - Reasons show device names instead of ids and start with a capital (`tReason`); free surplus
+    never below 0 W; an adjustable load at level 0 reads "Off".
   - New `ui/ToggleGroup`, `ui/CardFooter`, icons house/battery/grid, global `.facts` and
     `.kicker`; `EnergyFlow` and `SiteSummary` removed (`FlowList` stays for the wizard summary).
   - Screenshots `docs/assets/screenshots/after-7e/`; deviations in plan section 8 (7-E).

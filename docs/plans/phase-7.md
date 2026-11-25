@@ -930,12 +930,25 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - `review-shots.spec.ts` gained `REVIEW_SHOTS_VIEWS` and a device-cards crop for the Now view.
 - **E2E order dependence (from 7-C, not changed here):** in a full three-project run, the 7-C
   test "the demo shows the flexible loads" fails on phone and tablet because the washer's armed
-  job is gone after the desktop `phase6.spec.ts` reset the demo; the shell test "Analysis has
-  tabs" saw `#/history?period=week` after earlier history specs. Both pass when their specs run
-  on a fresh server (99 of 99 for `now`, `shell`, `control` on all three projects).
-  Follow-up for `backend-engineer`/`qa-engineer`: re-arm the demo job on reset, or make the test
-  arm it.
-- **Budgets:** first paint 118.9 → 120.1 kB, standard path 243.7 → 245.5 kB, expert extras
+  job is gone after the desktop `phase6.spec.ts` reset the demo. Being fixed on the 7-C branch
+  (the demo job is re-created on reset).
+- **Polish after the first review:**
+  - Reasons render through `control/reasonText.ts` (`tReason`): the planner puts the device *id*
+    into `args.device` (it has no display names), so the panel substitutes the configured name
+    and capitalises the first letter in the active locale. Used by `ReasonList`, the planned
+    actions, the decision list, table and "Why?" and the plan status; the catalogue is
+    unchanged.
+  - Free surplus is shown as `max(0, free_w)`: `free_w` is available minus reserve minus the
+    committed draw, and below zero it only means "no surplus" (the gate clamps the same way,
+    `SiteSample.gate_estimate`); import caused by the controlled devices is `deficit_w`.
+  - `stateView` maps an adjustable load at level 0 to `off` (was "Level 0 W").
+  - The battery and "Next up" cards keep their own height (`align-items: start`); device-card
+    footers stay pinned to the card end (checked at 768 px, two columns).
+- **E2E fix:** `shell.spec.ts` asserted `#/history$` right after the History tab click, but the
+  history view writes its state into the URL with `router.replace` (`#/history?period=week`).
+  The assertion only passed while the view's chunk loaded after the first poll; it now asserts
+  the settled canonical URL.
+- **Budgets:** first paint 118.9 → 120.5 kB, standard path 243.7 → 245.8 kB, expert extras
   25.4 kB, ECharts unchanged.
 
 ## 9. Follow-ups per agent

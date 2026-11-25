@@ -24,6 +24,9 @@ Karten kommen in den Nachher-Bildern dazu, die Seite ist dadurch länger.
 | Phase-6-Karten | Wallbox, Wärmepumpe, Programm mit eigenen Linien und eigenem Umschalter | gleiche Sprache: kleine Abschnittsüberschrift (LADEN, WÄRMEPUMPE, PROGRAMM), gleiche Wertepaare, Lademodus mit demselben Umschalter. Warnungen bleiben: Abbrechen eines Steckdosen-Programms und „Zurück zum Normalbetrieb“ warnen weiter, dass die Steckdose EINschaltet |
 | Letzte Entscheidungen | fünf Zeilen, jede mit „Schattenmodus: nur berechnet, nichts geschaltet.“ | höchstens vier Zeilen (Uhrzeit, Gerät, Aktion, Chip); ein Hinweis, den alle Zeilen teilen, steht einmal oben; Link zum Entscheidungsprotokoll |
 | Netz-Hinweise (Insel, §14a, Spitze) | Chips über dem Diagramm | unverändert über der Energie-Karte, nur wenn etwas vorliegt |
+| Begründungen | Gerätekennung klein am Satzanfang („wallbox charges …“) | Anzeigename des Geräts und großer Anfangsbuchstabe („Garage wallbox charges …“), auch im Deutschen; gilt für alle Begründungen (Jetzt, Plan, Entscheidungsprotokoll) |
+| Freier Überschuss | konnte negativ sein („-100 W“) | nie unter 0 W: ein negativer Wert heißt nur „kein Überschuss“ (Reserve nicht gedeckt), so rechnet auch die Sicherheitsprüfung; Bezug durch gesteuerte Geräte steht als Defizit daneben |
+| Zustand einstellbarer Lasten | „Level 0 W“ (Zustand und Leistung vermischt) | Stufe 0 heißt „Aus“; andere Stufen wie bisher mit Einheit |
 
 Reihenfolge von oben: Hinweise (nur bei Bedarf) – Energie jetzt – „Braucht dich“ (nur bei
 offenen Vorschlägen) – Batterie und nächste Aktionen – Geräte – letzte Entscheidungen.
@@ -50,7 +53,10 @@ sieht deshalb schon jetzt genauso aus (der Rest der Plan-Seite folgt in 7-F).
 - Neue Bausteine: `ToggleGroup` (Umschalter mit `aria-pressed`), `CardFooter` (ruhige Fußzeile
   mit aufklappbaren Feldern), drei Symbole (Haus, Batterie, Netz); `Card` kann jetzt `article`
   sein und streckt die Fußzeile ans Ende (gleiche Höhen).
-- Bundle: erste Anzeige 118,9 → 120,1 kB (Budget 125), Standardpfad 243,7 → 245,5 kB
+- Batteriekarte und „Nächste Aktionen“ behalten ihre eigene Höhe (keine leere Fläche unter dem
+  Umschalter). In den Gerätekarten sitzt die Fußzeile immer am Kartenende, auch auf dem Tablet
+  (zwei Spalten, geprüft bei 768 px).
+- Bundle: erste Anzeige 118,9 → 120,5 kB (Budget 125), Standardpfad 243,7 → 245,8 kB
   (Budget 250), Experten-Extras 25,4 kB unverändert.
 
 ## Vorher / Nachher
