@@ -15,7 +15,8 @@ its RC model and two armed programs (``suncore.sim.planner_flex.full_house_situa
 10 s on the CI arm runner and the Pi (``UNVERIFIED`` until measured); CI checks < 5 s on x86.
 
 Usage: ``uv run python scripts/bench_planner.py [--runs 5] [--scenario reference|full_house]
-[--json]``.
+[--json] [--fail-above-s 10]``. ``plan_total_s`` is the median, ``plan_total_worst_s`` the worst
+of the runs; the arm job (``.github/workflows/bench-arm.yml``) fails above 10 s for the full house.
 """
 
 from __future__ import annotations
@@ -80,6 +81,8 @@ def bench(runs: int, scenario: str = "reference") -> dict[str, float | int | str
         "solve_warm_s": round(statistics.median(warm), 4),
         "heuristic_s": round(statistics.median(heuristic), 4),
         "plan_total_s": round(statistics.median(total), 4),
+        "solve_cold_worst_s": round(max(cold), 4),
+        "plan_total_worst_s": round(max(total), 4),
         **stats,
     }
 
@@ -89,6 +92,12 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--scenario", choices=sorted(SCENARIOS), default="reference")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--fail-above-s",
+        type=float,
+        default=None,
+        help="exit 1 if the worst plan run (model build and solve) takes longer (aarch64 job)",
+    )
     args = parser.parse_args()
     result = bench(max(1, args.runs), args.scenario)
     if args.json:
@@ -96,6 +105,12 @@ def main() -> int:
     else:
         for key, value in result.items():
             print(f"{key:20s} {value}")
+    if args.fail_above_s is not None and float(result["plan_total_worst_s"]) > args.fail_above_s:
+        print(
+            f"worst run {result['plan_total_worst_s']} s exceeds {args.fail_above_s} s",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 
