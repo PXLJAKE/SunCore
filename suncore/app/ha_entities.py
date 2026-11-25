@@ -351,8 +351,9 @@ class RuntimeEntitySource:
 def build_ha_entities(
     runtime: Runtime, on_refusal: Callable[[str, Reason], None] | None = None
 ) -> HaEntityService | None:
-    """The service for ``runtime`` (``None`` in demo mode or without the learned store)."""
-    if runtime.demo or runtime.learned is None:
+    """The service for ``runtime`` (``None`` in demo mode, unless ``SUNCORE_DEMO_MQTT=1``, or
+    without the learned store)."""
+    if (runtime.demo and not runtime.settings.demo_mqtt) or runtime.learned is None:
         return None
 
     async def load_config() -> MqttConfig | None:

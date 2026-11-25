@@ -3,7 +3,8 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps) ·
+**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps; Phase 7: 7-B
+and 7-N part 1, release readiness) ·
 **Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
 PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line. PR 7-C adds the demo
 flexible loads (`SUNCORE_DEMO_FLEX=1`: EV on a wallbox, washing machine, heat pump; shadow).
@@ -142,6 +143,24 @@ Carried to Phase 7: see "Open - Phase 7".
   - CI: `mkdocs build --strict` in `docs-lint.yml`; `docs-deploy` (mike) in `build.yml` on stable
     releases. Never run yet; GitHub Pages must be enabled (plan question 23).
   - `UNVERIFIED`: the deploy job, the site on `github.io`, a followed test of the how-tos.
+- **Phase 7 - 7-N part 1, release readiness (branch `phase-7/n-release`, on 7-B;
+  `qa-engineer`, `ha-integration`)** - details and deviations: plan section 8 (7-N):
+  - Frozen `suncore_v1.sql` and the 0.2.0 export, generated from the tag by
+    `scripts/gen_release_fixtures.py` (only `v0.2.0` exists; v2 to v6 and the time-series
+    database were never released, so no dumps for them); upgrade chain, export import, refusal
+    of newer databases, hypothesis tests for the four section migrations
+    (`tests/storage/test_release_upgrade.py`).
+  - CI: `scripts/upgrade_test.sh` (0.2.0 image by digest, seeded through its API, candidate on
+    the same volume) and `LOADED=1 scripts/smoke_image.sh` (pinned Mosquitto, 10 min) as steps of
+    `build.yml`; `bench-arm.yml` on `ubuntu-24.04-arm`; `SUNCORE_DEMO_MQTT=1`; `beta_version.py`
+    reads `release-as`. None of the three CI jobs has run yet (no Docker in the session).
+  - **Memory, measured locally** (full app, demo with flexible loads, battery control, MQTT to the
+    test stub broker, 75 entities, a replan per minute for 10 min, `/proc` RSS, x86_64, CPython
+    3.13, merge of 7-N and 7-C in a scratch tree): 132.3 MiB after the broker connected, 136.4 MiB
+    after 10 min (peak = final, growth about 0.4 MiB/min early, flat from minute 6); limit 300.
+    Docker's cgroup figure will be higher (page cache, s6); the loaded smoke test in CI is the
+    authoritative reading, also on aarch64.
+
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable
@@ -1431,8 +1450,9 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
 - **Behaviour decisions deferred:** hard target at any price for the EV (the late-car scenario
   stops at about 77 % of 80 %), grid pre-heating execution, `generic.heat_pump_select`, a
   `button.press` remote start, a plan clear for evcc, resetting evcc's mode at unplugging.
-- **Budgets to measure:** resident memory below 300 MB with MQTT, notifications and a full plan,
-  planner at most 10 s on an aarch64 CI runner or Pi (amd64: 0.26 s for the full house).
+- **Budgets to measure:** resident memory 136 MiB measured locally (7-N); the CI loaded smoke
+  and the aarch64 planner job (at most 10 s; amd64: 0.26 s for the full house) still need their
+  first run.
 - **Docs:** screenshots of the new views through the `demo-screenshots` skill, a followed test of
   every new how-to on Home Assistant OS, the docs site and the Weblate project (the translation
   structure of `docs/user/en` and `docs/user/de` is identical).
@@ -1741,7 +1761,10 @@ Each was built with the proposed default; the answer may change that default.
 | Phase 6 residual risk (6-J): evcc liveness is `<prefix>/updated` younger than 120 s; a quiet evcc that publishes less often trips falsely, and an evcc clock running ahead makes an old retained timestamp look fresh | `suncore/app/evcc_link.py`, `templates/device/evcc.loadpoint.yaml` | measure the publication interval of the user's evcc |
 | Phase 6 residual risk (6-L): the safe state of a program's plug is ON (a failed power sensor, a crash, "back to normal", a missed job release it and the machine starts early); if SunCore does not run while the plug is off nobody switches it on, so the guides recommend an HA automation "plug off longer than X h -> on" (SunCore does not create it) | `suncore/safety/programs.py`, `docs/user/*/programs.md`, `docs/user/*/surplus-control.md` | maintainer decides whether SunCore should create the automation (plan section 10) |
 | Phase 6 residual risk (6-G): a held AC limit in register 533 survives a crash or a lost connection without a documented timeout; when the house load rises above it the difference is imported | `suncore/devices/inverter/`, `docs/user/*/grid-limits.md` | the inverter's communication-timeout setting; until then prefer the REST export limit |
-| Phase 6 budgets: resident memory below 300 MB with MQTT, notifications and a full plan, and the planner at most 10 s on aarch64, were not measured (amd64: 0.26 s for the full house) | `scripts/smoke_image.sh`, `scripts/bench_planner.py` | CI arm runner or a Pi 4 |
+| Budgets: resident memory is 136 MiB after 10 min with flex, MQTT and replans (x86_64, local, 7-N); the cgroup figure in the image and everything on aarch64 are not measured; the planner at most 10 s on aarch64 (amd64: 0.26 s for the full house) | `scripts/smoke_image.sh` (`LOADED=1`), `.github/workflows/bench-arm.yml`, `scripts/bench_planner.py` | first CI run on `main`; a Pi 4 (plan question 14) |
+| 7-N CI jobs (upgrade test, loaded smoke, arm benchmark) were written without a Docker daemon, `actionlint` or `shellcheck`; the pieces were rehearsed locally (real 0.2.0 code seeded over HTTP, current code verified, loaded API steps against the real app) | `scripts/upgrade_test.sh`, `scripts/upgrade_probe.py`, `scripts/smoke_image.sh`, `.github/workflows/` | first CI runs |
+| Digests pinned 2026-11-25 by lookup: `ghcr.io/pxljake/suncore` 0.2.0 index `sha256:05641188…3b32`; `eclipse-mosquitto:2.0.23` index `sha256:6a332cc7…2ad9` (verified against the manifest body hash) | `scripts/upgrade_test.sh`, `scripts/smoke_image.sh` | refresh at each release (skill `prepare-release`) |
+| `release-as` is deprecated in release-please's schema (a `Release-As:` footer replaces it) and not set yet; what `breaking_versions` does for installed versus store config is not verified; `stage` default `stable` verified in Supervisor source | `release-please-config.json`, `scripts/beta_version.py`, plan questions 25, 26 | maintainer decision; 7-N part 2 |
 | The Phase 6 user guides (6-N) are written from the code and the catalogues; their set-up steps and the UI names were not followed on a real Home Assistant, and the new views have no screenshots yet | `docs/user/*/home-assistant-entities.md`, `notifications.md`, `grid-limits.md`, `ev-charging.md`, `heat-pump.md`, `programs.md` | maintainer follows them; screenshots through `demo-screenshots` (Phase 7) |
 | 6-D MQTT commands: default payloads of the MQTT `switch` (`ON`/`OFF`), `button` (`PRESS`) and the `number` keys `min`, `max`, `step`, `mode` (HA source was not reachable in the session; used as documented); that HA sends commands with retain off | `research/mqtt-discovery.md`, `suncore/ha/mqtt/commands.py`, `discovery.py` | maintainer's HA: press the buttons, set the switches and the boost duration, see the true state come back |
 | 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); the unit rule of `monetary` sensors; TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |

@@ -1,0 +1,108 @@
+# aarch64 budgets (plan phase 7, WP13): the planner and the load model on the arm runner the
+# build matrix already uses (`ubuntu-24.04-arm`, from home-assistant/builder's
+# prepare-multi-arch-matrix 2026.09.0, verified in its action.yml on 2026-11-25).
+#
+# - scripts/bench_planner.py, reference house and full house: median and worst of 5 runs;
+#   the full house fails above 10 s (the ADR-0003 budget; the runner is faster than a Pi 4,
+#   so a real Pi or HA Green run by the maintainer stays open, STATUS question 14).
+# - scripts/bench_load_ml.py: median training + prediction per history length; above its 1 s
+#   budget the job only warns (the plan fails the full house, not this one).
+# - tests/planner/test_gil.py: the event loop keeps ticking while HiGHS solves (GIL released).
+name: Benchmarks (aarch64)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "suncore/planner/**"
+      - "suncore/forecast/**"
+      - "suncore/sim/planner_*.py"
+      - "scripts/bench_*.py"
+      - "tests/planner/test_gil.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/bench-arm.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/bench-arm.yml"
+      - "scripts/bench_*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-arm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: Planner and load model on aarch64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash  # GitHub runs this as `bash -eo pipefail`, so `| tee` keeps the exit code
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+          python-version: "3.13"
+      - name: Install
+        run: uv sync --all-groups --frozen
+      - name: Machine
+        run: |
+          uname -m
+          uv run python -c "import platform; print(platform.machine(), platform.python_version())"
+      - name: Planner, reference house
+        run: uv run python scripts/bench_planner.py --runs 5 --scenario reference --json | tee bench-reference.json
+      - name: Planner, full house (fails above 10 s)
+        run: |
+          uv run python scripts/bench_planner.py --runs 5 --scenario full_house --json \
+            --fail-above-s 10 | tee bench-full-house.json
+      - name: Load model
+        id: load
+        run: |
+          status=0
+          uv run python scripts/bench_load_ml.py --runs 5 --json | tee bench-load-ml.json || status=$?
+          if [ "${status}" != "0" ]; then
+            echo "::warning::load model training + prediction exceeds the 1 s budget on aarch64"
+          fi
+      - name: GIL test (the event loop keeps ticking during a solve)
+        run: uv run pytest tests/planner/test_gil.py -q -p no:cacheprovider
+      - name: Report
+        if: always()
+        run: |
+          uv run python - <<'EOF' >> "${GITHUB_STEP_SUMMARY}"
+          import json, pathlib
+
+          print("### aarch64 benchmarks")
+          for title, name in (("Reference house", "bench-reference.json"),
+                              ("Full house (budget 10 s)", "bench-full-house.json")):
+              path = pathlib.Path(name)
+              if not path.exists():
+                  continue
+              data = json.loads(path.read_text())
+              print(f"- {title}: machine {data['machine']}, median {data['plan_total_s']} s, "
+                    f"worst {data['plan_total_worst_s']} s, solve cold {data['solve_cold_s']} s "
+                    f"(worst {data['solve_cold_worst_s']} s), warm {data['solve_warm_s']} s")
+          path = pathlib.Path("bench-load-ml.json")
+          if path.exists():
+              data = json.loads(path.read_text())
+              rows = ", ".join(f"{k}: {v['total_s']} s" for k, v in data.items()
+                               if isinstance(v, dict))
+              print(f"- Load model (median training + prediction): {rows}")
+          print("- GIL test: see the step result")
+          EOF
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-aarch64
+          path: bench-*.json
+          retention-days: 30
+          if-no-files-found: ignore
