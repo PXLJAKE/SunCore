@@ -14,6 +14,7 @@ from typing import Any
 
 import structlog
 
+from suncore.app.logbuffer import LOG_RING
 from suncore.ha.redact import redact_processor
 
 _LEVELS = {
@@ -59,4 +60,5 @@ def configure_logging(level: str = "info", *, stream: Any = None) -> None:
     for old in list(root.handlers):
         root.removeHandler(old)
     root.addHandler(handler)
+    root.addHandler(LOG_RING)  # warning+ ring for the diagnostics export; memory only
     root.setLevel(_LEVELS.get(level, logging.INFO))
