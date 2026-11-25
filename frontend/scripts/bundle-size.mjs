@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Reports the gzip size of dist/ and fails above the budgets:
-//   * standard user path, everything except ECharts and the expert extras: 250 kB (Phase 1
-//     budget, unchanged); only the larger main language catalogue (`catalogue-en|de`) counts,
+//   * standard user path, everything except ECharts and the expert extras: 260 kB (Phase 1
+//     budget 250 kB, raised by the maintainer on 2026-11-25, plan question 34); only the
+//     larger main language catalogue (`catalogue-en|de`) counts,
 //     because the app loads just the active language,
 //   * expert extras: 30 kB. These are the lazy chunks that only expert mode loads: the
 //     `ExpertArea` and `WhatIf` entries, the parameter catalogue (`catalogue-params`, both
@@ -18,7 +19,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { expertFiles } from './bundle-classify.mjs';
 
-const BUDGET_BYTES = 250 * 1000;
+const BUDGET_BYTES = 260 * 1000;
 const EXPERT_BYTES = 30 * 1000;
 const FIRST_PAINT_BYTES = 125 * 1000;
 const ECHARTS_BYTES = 200 * 1000;
