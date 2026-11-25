@@ -43,6 +43,8 @@ class FakePort:
         self.settled = False
         self.block: asyncio.Event | None = None
         self.stop_block: asyncio.Event | None = None
+        self.stopped = False
+        """The gate flag: set by a stop before it blocks, reset by a clear."""
         """Holds the stop *after* it is recorded (the gate sets its flag first, then releases)."""
 
     def stored_global_mode(self) -> OperatingMode:
@@ -53,6 +55,9 @@ class FakePort:
 
     def stored_emergency_settled(self) -> bool:
         return self.settled
+
+    def stored_emergency_active(self) -> bool:
+        return self.stopped
 
     async def _wait(self) -> None:
         if self.block is not None:
@@ -65,11 +70,13 @@ class FakePort:
 
     async def command_emergency_stop(self) -> None:
         self._record("stop")
+        self.stopped = True
         if self.stop_block is not None:
             await self.stop_block.wait()
 
     async def command_clear_stop(self) -> None:
         self._record("clear")
+        self.stopped = False
 
     async def command_global_mode(self, mode: OperatingMode) -> None:
         await self._wait()
@@ -431,13 +438,38 @@ def test_throttle_logs_each_pair_once_per_busy_interval() -> None:
     assert t.record("a", "r1") is True  # quiet for a whole interval: in full again
 
 
-def test_throttle_bounds_invented_entities() -> None:
+def test_throttle_pools_invented_entities_from_the_start() -> None:
+    """Review F3: unknown object ids never take a slot, so a real entity is still logged."""
     clock = Clock()
     t = RefusalLogThrottle(clock, max_keys=4)
     full = [t.record(f"x{i}", "mqtt.command.unknown_entity") for i in range(1000)]
+    assert sum(full) == 1  # one line for all invented ids
+    assert t.record("replan", "mqtt.command.rate_limited") is True
+    assert t.record("auto", "mqtt.command.rate_limited") is True
+    clock.now += SUMMARY_INTERVAL_S
+    assert t.summary() == [RefusalCount(OVERFLOW_ENTITY, "mqtt.command.unknown_entity", 999)]
+
+
+def test_throttle_bounds_real_pairs_beyond_the_cap() -> None:
+    clock = Clock()
+    t = RefusalLogThrottle(clock, max_keys=4)
+    full = [t.record(f"e{i}", "mqtt.command.rate_limited") for i in range(100)]
     assert sum(full) == 5  # four pairs plus the overflow pair
     clock.now += SUMMARY_INTERVAL_S
-    assert t.summary() == [RefusalCount(OVERFLOW_ENTITY, "mqtt.command.unknown_entity", 995)]
+    assert t.summary() == [RefusalCount(OVERFLOW_ENTITY, "mqtt.command.rate_limited", 95)]
+
+
+async def test_an_unknown_id_flood_through_the_handler_hides_no_real_refusal() -> None:
+    handler, _port, _clock, ids = make()
+    with capture_logs() as logs:
+        for i in range(500):
+            await send(handler, f"invented_{i}", "PRESS")
+        await send(handler, ids["auto"], "ON")  # a raise without the opt-in
+    full = [e for e in logs if e["event"] == "mqtt.command" and not e["accepted"]]
+    assert [e["reason"] for e in full] == [
+        "mqtt.command.unknown_entity",
+        "safety.mqtt_mode_raise_disabled",
+    ]
 
 
 @settings(max_examples=200, deadline=None)

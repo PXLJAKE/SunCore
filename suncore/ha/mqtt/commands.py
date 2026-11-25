@@ -13,7 +13,8 @@ Rules, in the order they are applied to every message:
 2. the object id must be an announced command entity, the payload at most
    :data:`MAX_PAYLOAD_BYTES` of UTF-8 and valid for the platform (``ON``/``OFF``, ``PRESS``, a
    finite number inside the entity's range);
-3. the **emergency stop is never rate-limited and never refused**; everything else is limited to
+3. the **emergency stop is never rate-limited or refused by policy** (only an invalid payload
+   or a failing service call refuses it); everything else is limited to
    one command per second per entity (burst 3) and :data:`GLOBAL_BURST` per
    :data:`GLOBAL_WINDOW_S` over all entities;
 4. **raising** autonomy (a mode above the stored one, clearing the emergency stop) needs
@@ -89,6 +90,10 @@ class CommandPort(Protocol):
 
     def stored_emergency_settled(self) -> bool:
         """The stop is set and no device still waits to be released (a press changes nothing)."""
+        ...
+
+    def stored_emergency_active(self) -> bool:
+        """The stop flag is set right now (read synchronously; a clear makes it ``False``)."""
         ...
 
     async def command_emergency_stop(self) -> None: ...
@@ -189,6 +194,15 @@ class CommandHandler:
         """The emergency stop: never queued behind other commands, never rate-limited."""
         target = self._targets.get(object_id)
         return target is not None and target.spec.key == "emergency_stop_button"
+
+    def stop_in_effect(self) -> bool:
+        """The emergency stop is set now; ``False`` when it cannot be read (fail towards a new
+        stop run, never towards waiting)."""
+        try:
+            return self._port.stored_emergency_active()
+        except Exception:
+            log.exception("mqtt.stop_state_unreadable")
+            return False
 
     def is_valid_payload(self, object_id: str, payload: bytes) -> bool:
         """The payload parses for the entity (no effect, no rate-limit token taken)."""

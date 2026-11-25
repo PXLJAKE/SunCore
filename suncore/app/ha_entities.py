@@ -188,6 +188,9 @@ class RuntimeCommandPort:
             d.under_control or d.release_pending for d in state.devices
         )
 
+    def stored_emergency_active(self) -> bool:
+        return self._rt.emergency_stop_active()
+
     async def command_emergency_stop(self) -> None:
         await self._rt.emergency_stop()
 

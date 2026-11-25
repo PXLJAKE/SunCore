@@ -7,7 +7,9 @@ throttle keeps the first refusal per ``(entity, reason)`` in full and counts the
 summary with the counts is due every :data:`SUMMARY_INTERVAL_S`.
 
 Only the log changes. The refusal itself, its reason, the republished state and the refusal
-hook are untouched. The clock is injected; nothing here sleeps or reads the wall clock.
+hook are untouched. The emergency stop is never rate-limited or refused by policy, but an
+invalid stop payload is a refusal like any other and is throttled the same way. The clock
+is injected; nothing here sleeps or reads the wall clock.
 """
 
 from __future__ import annotations
@@ -18,10 +20,13 @@ from typing import Final
 
 SUMMARY_INTERVAL_S: Final = 60.0
 MAX_KEYS: Final = 64
-"""Distinct ``(entity, reason)`` pairs tracked per interval. An unknown object id comes from
-the topic, so a sender can invent any number of them; beyond the cap they are counted under
-:data:`OVERFLOW_ENTITY` (the reasons are a small fixed set)."""
+"""Distinct ``(entity, reason)`` pairs tracked per interval; beyond the cap they are counted
+under :data:`OVERFLOW_ENTITY` (the reasons are a small fixed set)."""
 OVERFLOW_ENTITY: Final = "*"
+POOLED_REASONS: Final = frozenset({"mqtt.command.unknown_entity"})
+"""Reasons whose entity comes straight from the topic: a sender can invent any number of
+object ids. They are always counted under :data:`OVERFLOW_ENTITY`, so invented ids can never
+fill the cap and hide the refusals of real entities."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +55,7 @@ class RefusalLogThrottle:
 
     def record(self, entity: str, reason: str) -> bool:
         """Count one refusal; ``True`` = log it in full (the first of its pair)."""
-        key = (entity, reason)
+        key = (OVERFLOW_ENTITY if reason in POOLED_REASONS else entity, reason)
         if key not in self._suppressed and len(self._suppressed) >= self._max_keys:
             key = (OVERFLOW_ENTITY, reason)
         if key in self._suppressed:

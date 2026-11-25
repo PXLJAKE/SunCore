@@ -2101,6 +2101,10 @@ class Runtime:
 
         return remove
 
+    def emergency_stop_active(self) -> bool:
+        """The gate's stop flag now (synchronous); ``False`` while the stack is being rebuilt."""
+        return self.stack is not None and self.stack.gate.emergency_stopped
+
     async def emergency_stop(self) -> None:
         if self.stack is not None:
             await self.stack.gate.emergency_stop()
