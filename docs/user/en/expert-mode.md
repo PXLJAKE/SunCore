@@ -39,7 +39,7 @@ current plan as JSON with a copy button, and the solver statistics. They only re
 ## 4. Parameter reference
 
 The full, generated list is the
-[parameter reference](../../reference/parameters.md) ([Deutsch](../../reference/parameters.de.md)):
+[parameter reference](reference/parameters.md):
 unit, default, range, safety tag and help text of every parameter. It is generated from the
 registry in the code. If it is wrong, the code is wrong, not the page.
 

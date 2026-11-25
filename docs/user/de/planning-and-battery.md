@@ -47,7 +47,7 @@ Modell, und ein kleiner Bonus für Autarkie hält den Plan bei flachen Preisen v
   Plan heißt: Der Regler verhält sich genau wie ohne Planer. Schatten, assistiert und Automatik
   gelten für die Wirkung des Plans wie bisher.
 
-![Planansicht mit Diagramm, nächsten geplanten Aktionen und Prognosefeld](../../assets/screenshots/plan-tablet-light-de.png)
+![Planansicht mit Diagramm, nächsten geplanten Aktionen und Prognosefeld](../assets/screenshots/plan-tablet-light-de.png)
 
 Die Ansicht **Plan** zeigt ein Diagramm der nächsten 24 oder 48 Stunden (Solar mit seinem
 P10-bis-P90-Band, Hauslast, Akkuleistung, Netzbezug und Einspeisung, den geplanten Ladestand mit
@@ -272,7 +272,7 @@ Netz zwingen:** Der Plan zeigt es als „würde laden“, und es wird nichts ges
 Der Akku hat in der Ansicht **Jetzt** eine eigene **Akku**-Karte und einen eigenen Modus, wie ein
 Gerät:
 
-![Akku-Karte und nächste geplante Aktionen in der Ansicht Jetzt](../../assets/screenshots/now-battery-tablet-light-de.png)
+![Akku-Karte und nächste geplante Aktionen in der Ansicht Jetzt](../assets/screenshots/now-battery-tablet-light-de.png)
 
 | Modus | Was SunCore mit dem Akku tut |
 |---|---|
@@ -376,7 +376,7 @@ Wähle in Schritt 5 unter **Steuerung** den **Akku-Adapter**. Vorgabe ist **Nur 
 schreibt nie)**: Der Akku gehört zum Plan, aber du stellst ihn selbst ein. Die Akku-Karte listet,
 was der Adapter **einstellen kann**.
 
-![Einrichtungsschritt 5: Akkusensoren, Modell, Adapter und Strategie](../../assets/screenshots/wizard-battery-tablet-light-de.png)
+![Einrichtungsschritt 5: Akkusensoren, Modell, Adapter und Strategie](../assets/screenshots/wizard-battery-tablet-light-de.png)
 
 ### Generisch: Home-Assistant-Entitäten
 
@@ -586,7 +586,7 @@ eröffne ein Issue mit deinen Messwerten.
 - **„Der Akku-Adapter kann kein Laden erzwingen: nur angezeigt“.** Bei Kostal Plenticore zu
   erwarten: Netzladen wird geplant und angezeigt, ist aber nicht ausführbar.
 - **Keine Genauigkeitswerte.** Sie werden jede Nacht berechnet; warte auf die erste Nacht mit Daten.
-- **Mehr** im Abschnitt zur Fehlersuche der [App-Beschreibung](../../../addon/suncore/DOCS.md)
+- **Mehr** im Abschnitt zur Fehlersuche der [App-Beschreibung](https://github.com/pxljake/suncore/blob/main/addon/suncore/DOCS.md)
   (englisch) und in der [Überschusssteuerung](surplus-control.md).
 
 ## 10. Bekannte Grenzen und UNVERIFIED
@@ -637,4 +637,4 @@ eröffne ein Issue mit deinen Messwerten.
   Entscheidung, eingerichtet über einen Assistenten. Für Ladepunkte bleibt evcc die bessere Wahl.
 
 Siehe auch: [Schnellstart](quick-start.md), [Überschusssteuerung](surplus-control.md),
-[Gerätevorlage beitragen](device-templates.md), [Kompatibilitätsliste](../compatibility.md).
+[Gerätevorlage beitragen](device-templates.md), [Kompatibilitätsliste](compatibility.md).

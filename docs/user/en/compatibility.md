@@ -14,9 +14,9 @@ a template only tested in the simulator has never run against real hardware.
   file to read them.
 - **Shiftable programs behind a smart plug:** add a Home Assistant automation that switches
   the plug on when it has been off for many hours, in case SunCore is not running while it
-  waits (see [Surplus control](en/surplus-control.md), "Shiftable programs").
+  waits (see [Surplus control](surplus-control.md), "Shiftable programs").
 - Your own templates (in `/data/templates`) are not listed here. To add a device see
-  [Contribute a device template](en/device-templates.md).
+  [Contribute a device template](device-templates.md).
 
 ## Devices
 

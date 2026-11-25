@@ -9,7 +9,7 @@ Es ist eine Experten-Funktion: Schalte den [Expertenmodus](expert-mode.md) ein, 
 der Link **Was-wäre-wenn** in der Kopfzeile (`#/whatif`). Bei ausgeschaltetem Expertenmodus zeigt
 ein Deep-Link nur einen Hinweis.
 
-![Was-wäre-wenn auf einem Tablet](../../assets/screenshots/whatif-tablet-light-de.png)
+![Was-wäre-wenn auf einem Tablet](../assets/screenshots/whatif-tablet-light-de.png)
 
 ## 1. Einen Lauf starten
 

@@ -8,11 +8,12 @@ ranks your entities against the roles and fills in the form.
 
 This guide covers device templates in detail; tariff, forecast and region
 templates follow the same header. The authoritative reference is
-[`templates/README.md`](../../../templates/README.md) with the schema
-compatibility policy; the design is in
-[ADR-0006](../../adr/0006-template-and-plugin-system.md) and
-[ADR-0012](../../adr/0012-template-schema-v1.md). Templates that exist
-already are in the generated [compatibility list](../compatibility.md).
+[`templates/README.md`](https://github.com/pxljake/suncore/blob/main/templates/README.md)
+with the schema compatibility policy; the design is in
+[ADR-0006](https://github.com/pxljake/suncore/blob/main/docs/adr/0006-template-and-plugin-system.md)
+and
+[ADR-0012](https://github.com/pxljake/suncore/blob/main/docs/adr/0012-template-schema-v1.md).
+Templates that exist already are in the generated [compatibility list](compatibility.md).
 
 Please be honest about what you verified. A template that says "not tested"
 is welcome; a template that pretends is not.
@@ -22,7 +23,7 @@ is welcome; a template that pretends is not.
 - A running Home Assistant with the device, or its integration source code, or
   a Developer tools → States dump of its entities (attributes included).
 - A checkout of the repository and `uv sync --all-groups` (see
-  [CONTRIBUTING.md](../../../CONTRIBUTING.md)).
+  [CONTRIBUTING.md](https://github.com/pxljake/suncore/blob/main/CONTRIBUTING.md)).
 - Never invent entity ids, attributes, services or registers. Everything in
   the template must come from the integration source, a vendor document or
   your own device.
@@ -165,7 +166,7 @@ any other service is refused at load time with
   real Home Assistant.
 - If `tested_with` is empty, `unverified` must list what you could not
   check. The list is also counted in the
-  [compatibility list](../compatibility.md). The wizard shows templates
+  [compatibility list](compatibility.md). The wizard shows templates
   without `tested_with` as "Not verified with real hardware".
 - Remove an `unverified` entry only when you checked that fact.
 

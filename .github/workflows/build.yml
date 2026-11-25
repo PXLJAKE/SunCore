@@ -251,3 +251,34 @@ jobs:
           done
           echo "::error::could not push the beta version bump (branch protection? see ADR-0009 addendum)"
           exit 1
+
+  docs-deploy:
+    name: Publish the documentation (mike)
+    # Stable releases only; the version number x.y and the alias `latest` go to gh-pages
+    # (ADR-0020). GitHub Pages must be enabled for the gh-pages branch by the maintainer.
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      NO_MKDOCS_2_WARNING: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+          python-version: "3.13"
+      - name: Install the docs toolchain
+        run: uv sync --only-group docs --frozen
+      - name: Deploy x.y and latest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          version="${RELEASE_TAG#v}"
+          minor="$(echo "${version}" | cut -d. -f1,2)"
+          uv run --only-group docs --frozen mike deploy --push --update-aliases "${minor}" latest
+          uv run --only-group docs --frozen mike set-default --push latest

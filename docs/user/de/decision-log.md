@@ -5,7 +5,7 @@ Entscheidung mit ihren Gründen. Die Ansicht **Entscheidungen** in der Kopfzeile
 und **Warum?** erklärt eine Entscheidung zusammen mit dem, was das System in dem Moment wusste.
 Das funktioniert auch im Schattenmodus: Die Einträge sagen dann, was SunCore getan *hätte*.
 
-![Entscheidungen auf einem Tablet](../../assets/screenshots/decisions-tablet-light-de.png)
+![Entscheidungen auf einem Tablet](../assets/screenshots/decisions-tablet-light-de.png)
 
 ## 1. Liste filtern
 

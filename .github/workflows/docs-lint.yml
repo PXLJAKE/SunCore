@@ -3,9 +3,13 @@ name: Docs lint
 on:
   push:
     branches: [main]
-    paths: ["**/*.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml"]
+    paths: ["**/*.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml", "mkdocs.yml",
+            "docs/user/**", "scripts/gen_params.py", "scripts/gen_compat.py", "pyproject.toml",
+            "uv.lock"]
   pull_request:
-    paths: ["**/*.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml"]
+    paths: ["**/*.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml", "mkdocs.yml",
+            "docs/user/**", "scripts/gen_params.py", "scripts/gen_compat.py", "pyproject.toml",
+            "uv.lock"]
   workflow_dispatch:
 
 permissions:
@@ -50,3 +54,22 @@ jobs:
           echo '{"args": ["--no-sandbox", "--disable-gpu"]}' > /tmp/puppeteer.json
           npx -y @mermaid-js/mermaid-cli@11 -p /tmp/puppeteer.json -i docs/architecture.md -o /tmp/architecture.md
           test -s /tmp/architecture-1.svg
+
+  site:
+    name: MkDocs build (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+          python-version: "3.13"
+      - name: Install the docs toolchain
+        run: uv sync --only-group docs --frozen
+      - name: Build the site (broken links and anchors fail the build)
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+        run: uv run --only-group docs --frozen mkdocs build --strict

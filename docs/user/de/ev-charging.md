@@ -34,7 +34,7 @@ ein (für einen Ladestand nötig) und den Ladewirkungsgrad (Standard 90 %, die V
 Steckdose und Batterie).
 
 Noch keine Integrations-Vorlage ist am Quellcode geprüft; es gibt nur die generische (siehe
-Grenzen). Sieh in die [Kompatibilitätsliste](../compatibility.md).
+Grenzen). Sieh in die [Kompatibilitätsliste](compatibility.md).
 
 ## 2. Lademodi
 

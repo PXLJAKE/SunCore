@@ -7,6 +7,7 @@ ADRs relevant to your task. Keep it short; history lives in git.
 **Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
 PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line. PR 7-C adds the demo
 flexible loads (`SUNCORE_DEMO_FLEX=1`: EV on a wallbox, washing machine, heat pump; shadow).
+7-L (docs site) and 7-M (Weblate onboarding, repo side) are merged into this line.
 Bundle budget split pending maintainer decision; option A implemented (standard path 250 kB,
 expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
 PR 7-D adds the design system and the new shell (review stop 1: `docs/design/review-7d.md`;
@@ -18,7 +19,7 @@ same for Plan and Analysis (`docs/design/review-7f.md`; first paint 122.6 kB, st
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-7/g-settings` (on `phase-7/f-plan-analysis`)
+**Branch:** `phase-7/m-weblate` (on `phase-7/g-settings` with `phase-7/l-docs-site` merged)
 
 ## Phase 6 at a glance
 
@@ -106,6 +107,22 @@ Carried to Phase 7: see "Open - Phase 7".
   - Before/after screenshots and the German review page `docs/design/review-7d.md`;
     deviations in plan section 8 (7-D). Bundle: first paint 118.9 kB, standard path 243.7 kB,
     expert extras 25.4 kB.
+- **Phase 7 - PR 7-L, WP10 documentation site (branch `phase-7/l-docs-site`, on 7-B;
+  `docs-writer`)** - docs, generators and CI only, no code of the app changed:
+  - Spike: MkDocs 1.6.1 + Material 9.8.2 + `mkdocs-static-i18n` 1.3.1 folder layout builds with
+    `--strict`, shares assets and switches languages; no fallback needed. One rule found: no
+    same-named Markdown file in the root of `docs/user` (plan section 8, 7-L).
+  - `mkdocs.yml` (`docs_dir: docs/user`, Material light/dark, search, Mermaid, mike version
+    provider), a `docs` dependency group (locked), screenshots moved to
+    `docs/user/assets/screenshots/`, links out of `docs/user` are absolute GitHub links.
+  - Generators write per language: `docs/user/<lang>/reference/parameters.md` and
+    `docs/user/<lang>/compatibility.md` (German now complete); stubs stay at
+    `docs/reference/parameters*.md`; `docs/user/compatibility.md` is gone.
+  - New pages en and de: index, concepts, FAQ, troubleshooting, translate, release notes and
+    upgrade, security, and a dashboard recipe **placeholder** (WP11 is still to do).
+  - CI: `mkdocs build --strict` in `docs-lint.yml`; `docs-deploy` (mike) in `build.yml` on stable
+    releases. Never run yet; GitHub Pages must be enabled (plan question 23).
+  - `UNVERIFIED`: the deploy job, the site on `github.io`, a followed test of the how-tos.
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable

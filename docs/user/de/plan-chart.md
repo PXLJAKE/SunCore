@@ -4,7 +4,7 @@ Die Ansicht **Plan** zeigt, was SunCore für die nächsten 24 oder 48 Stunden vo
 Phase 5 auch, wie das zu den Messwerten passt. Diese Seite beschreibt das Neue. Was der Planer
 tut, steht in [Planung und Akkusteuerung](planning-and-battery.md).
 
-![Planansicht auf einem Tablet](../../assets/screenshots/plan-tablet-light-de.png)
+![Planansicht auf einem Tablet](../assets/screenshots/plan-tablet-light-de.png)
 
 ## 1. Was du siehst
 

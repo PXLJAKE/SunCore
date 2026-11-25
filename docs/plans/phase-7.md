@@ -1073,6 +1073,42 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   devices and summary. Before: `docs/assets/screenshots/before-7g/` (7-F tip with only this spec
   change; the sub-pages did not exist), after: `docs/assets/screenshots/after-7g/`.
 
+### 7-L
+
+- **Spike result (`mkdocs build --strict`, MkDocs 1.6.1, Material 9.8.2, `mkdocs-static-i18n` 1.3.1,
+  `mike` 2.2.0, Python 3.13):** the folder layout (`en/` default, `de/`) works. Shared assets in
+  `docs/user/assets/` are found from both languages (relative `../assets/...`; the German pages
+  resolve to `/assets/...` at the site root), the language switcher is generated, German falls back
+  to English for missing pages, and `mike deploy` with `latest` and `x.y` aliases works with the
+  plugin in a throw-away repository. The ADR-0020 fallback (suffix structure) is **not** needed.
+- **One layout rule found:** the plugin refuses a Markdown file in the root of `docs/user` that has
+  the same name as a page in a language folder ("Conflicting files for the default language"), even
+  when `exclude_docs` hides it. Consequence: the redirect stub `docs/user/compatibility.md` could
+  not stay and was removed (the old path breaks for external links; README, both `DOCS.md` and
+  `templates/README.md` point at the new paths). The stubs `docs/reference/parameters.md` and
+  `parameters.de.md` stay (they are outside `docs_dir`).
+- Default heading slugs drop umlauts, which broke German links such as `#5-zurückgeben-und-not-aus`
+  (INFO only, but dead in the browser). `mkdocs.yml` uses `pymdownx.slugs.slugify(case: lower)`;
+  `validation.anchors: warn` makes `--strict` fail on them from now on.
+- `scripts/gen_compat.py` has no output argument any more and writes `docs/user/<lang>/
+  compatibility.md` with a German header, German table head and German template names; the tests
+  were adapted. `gen_params.py` writes `docs/user/<lang>/reference/parameters.md`.
+- New pages en/de: index, concepts, FAQ, troubleshooting, translate, dashboard recipe, release
+  notes and upgrade, security. The dashboard recipe is a **placeholder** (WP11 content does not
+  exist yet; it links ADR-0021). Troubleshooting says the diagnostics export (7-I) is not in this
+  base and marks its presence `UNVERIFIED`; "supported upgrade paths" is `UNVERIFIED` until the
+  upgrade test of WP13 exists. The stale "island, §14a and EV entities not yet" sentence in both
+  quick starts was corrected to the 6-O state.
+- CI: `docs-lint.yml` gets a `site` job (`mkdocs build --strict`, `uv sync --only-group docs
+  --frozen`) and more path triggers. The release trigger lives in `build.yml`, so the `docs-deploy`
+  job is there (`release: published`, not for pre-releases; `mike deploy --push --update-aliases
+  x.y latest`, then `mike set-default latest`). The job has never run: `UNVERIFIED` until the first
+  stable release; the deployed site cannot be opened from the session. Question 23 (§10).
+- Screenshots moved with `git mv` to `docs/user/assets/screenshots/`; the spec, the skill, README
+  and CONTRIBUTING use the new path. The final screenshot set stays with 7-P.
+- Not done: a followed test of the how-tos on a real Home Assistant (docs only), the dashboard
+  recipe content (WP11), the Weblate page content beyond the planned state (WP12).
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update
@@ -1162,3 +1198,13 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 22. **Doku-Sprachen per Pull Request.** Die deutsche Nutzer-Doku wird für 1.0 weiter von uns per
     PR gepflegt, nicht in Weblate. **Empfehlung:** so lassen; Weblate für die Doku nach 1.0 prüfen,
     wenn Übersetzer für weitere Sprachen kommen.
+23. **GitHub Pages einschalten (Schritt von Hand).** Der Job `docs-deploy` in `build.yml` läuft nur
+    bei einem veröffentlichten, nicht als Vorabversion markierten Release und legt dabei den Zweig
+    `gh-pages` an (`mike deploy`). Danach bitte unter *Settings → Pages* als Quelle den Zweig
+    `gh-pages` (Ordner `/ (root)`) wählen; die genaue Menüführung bei GitHub ist `UNVERIFIED`. Die
+    Adresse `https://pxljake.github.io/SunCore/` steht in `mkdocs.yml` (`site_url`) und in
+    `pyproject.toml`; bitte prüfen, ob sie stimmt (Groß-/Kleinschreibung des Repository-Namens).
+    Ob der Job beim ersten Release klappt, wurde nicht getestet; bitte die Seite danach öffnen
+    (aus der Sitzung ist `*.github.io` gesperrt). **Empfehlung:** so einrichten. Außerdem: Der alte
+    Pfad `docs/user/compatibility.md` ist ohne Weiterleitung entfallen (siehe §8, 7-L); wenn du
+    externe Links darauf kennst, melde es.

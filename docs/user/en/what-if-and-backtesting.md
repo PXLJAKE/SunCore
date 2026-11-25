@@ -8,7 +8,7 @@ and keeps your saved settings as they are.
 It is an expert feature: turn on [Expert mode](expert-mode.md) to get the **What-if** link in the
 header (`#/whatif`). With expert mode off, a deep link shows only a hint.
 
-![What-if view on a tablet](../../assets/screenshots/whatif-tablet-light-en.png)
+![What-if view on a tablet](../assets/screenshots/whatif-tablet-light-en.png)
 
 ## 1. Start a run
 

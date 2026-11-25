@@ -7,7 +7,7 @@ prices and your battery. It starts in **shadow mode**: nothing is switched and
 no limit or set-point is written until you switch a device or the battery to
 automatic (or assisted) yourself, see [Surplus control](surplus-control.md) and
 [Planning and battery control](planning-and-battery.md). The full app
-description is in [`addon/suncore/DOCS.md`](../../../addon/suncore/DOCS.md).
+description is in [`addon/suncore/DOCS.md`](https://github.com/pxljake/suncore/blob/main/addon/suncore/DOCS.md).
 
 ## 1. Install
 
@@ -47,7 +47,7 @@ Choose the **Region profile** (it sets the currency, the time zone and
 rules such as feed-in remuneration) and the **Language**. Take the generic
 profile if your country is not listed.
 
-![Step Region and language](../../assets/screenshots/wizard-region-tablet-light-en.png)
+![Step Region and language](../assets/screenshots/wizard-region-tablet-light-en.png)
 
 ### Energy dashboard
 
@@ -60,7 +60,7 @@ dashboard often has only energy counters (kWh), no power sensors; then
 SunCore says so and you pick the power sensor yourself. Not set up? Skip
 the step.
 
-![Step Energy dashboard](../../assets/screenshots/wizard-energy-tablet-light-en.png)
+![Step Energy dashboard](../assets/screenshots/wizard-energy-tablet-light-en.png)
 
 ### Grid connection
 
@@ -75,7 +75,7 @@ The **Check the sign** panel asks, for example, "The grid connection is importin
 … right now. Is that correct?" Answer **Yes, correct** or **No, invert the
 sign**. Idle at the moment? Check again when something clearly flows.
 
-![Step Grid connection](../../assets/screenshots/wizard-grid-tablet-light-en.png)
+![Step Grid connection](../assets/screenshots/wizard-grid-tablet-light-en.png)
 
 ### Solar
 
@@ -91,7 +91,7 @@ under **Load forecast inputs**: they improve the house load forecast. No
 forecast source at all is allowed; the plan then assumes no solar power. See
 [Forecasts](planning-and-battery.md#2-forecasts).
 
-![Step Solar](../../assets/screenshots/wizard-pv-tablet-light-en.png)
+![Step Solar](../assets/screenshots/wizard-pv-tablet-light-en.png)
 
 ### Battery
 
@@ -111,7 +111,7 @@ buffer** and **Bridge into the next day**. Everything is explained in
 [Planning and battery control](planning-and-battery.md#4-targets-and-strategies);
 the adapters in [Adapters](planning-and-battery.md#7-adapters).
 
-![Step Battery](../../assets/screenshots/wizard-battery-tablet-light-en.png)
+![Step Battery](../assets/screenshots/wizard-battery-tablet-light-en.png)
 
 ### Tariff
 
@@ -125,7 +125,7 @@ contains** and enter your **Price formula** (grid fee, levies, margin, VAT);
 without it the planner cannot optimise on prices. The planner uses these
 prices; see [Tariffs](planning-and-battery.md#3-tariffs).
 
-![Step Tariff](../../assets/screenshots/wizard-tariff-tablet-light-en.png)
+![Step Tariff](../assets/screenshots/wizard-tariff-tablet-light-en.png)
 
 ### Devices
 
@@ -148,11 +148,11 @@ device names in Home Assistant and only react to two *different* integrations
 with the same device name; if you renamed one of the devices in Home Assistant
 (its own name), the hint and the warning stay silent.
 
-![Hint in the device editor](../../assets/screenshots/device-duplicate-hint-tablet-light-en.png)
+![Hint in the device editor](../assets/screenshots/device-duplicate-hint-tablet-light-en.png)
 
-![System check warning](../../assets/screenshots/wizard-summary-duplicate-tablet-light-en.png)
+![System check warning](../assets/screenshots/wizard-summary-duplicate-tablet-light-en.png)
 
-![Step Devices](../../assets/screenshots/wizard-devices-tablet-light-en.png)
+![Step Devices](../assets/screenshots/wizard-devices-tablet-light-en.png)
 
 The gallery also has a wallbox ([EV charging](ev-charging.md)), an evcc loadpoint, a heat pump
 ([Heat pump](heat-pump.md)) and shiftable programs ([Programs](programs.md)). Devices of
@@ -161,7 +161,7 @@ their behaviour.
 
 Is your device missing? See
 [Contribute a device template](device-templates.md) and the generated
-[compatibility list](../compatibility.md).
+[compatibility list](compatibility.md).
 
 ### Priorities and goals
 
@@ -176,7 +176,7 @@ below a price level and inside a weekly schedule (off by default; see
 **Self-sufficiency weight per kWh** is a small tie-breaker for the planner
 ([explained here](planning-and-battery.md#the-self-sufficiency-weight)).
 
-![Step Priorities and goals](../../assets/screenshots/wizard-priorities-tablet-light-en.png)
+![Step Priorities and goals](../assets/screenshots/wizard-priorities-tablet-light-en.png)
 
 ### Operating mode
 
@@ -187,7 +187,7 @@ Each device has its own mode, which you change on the **Now** view, and a device
 acts only in the lower of the two, so automatic needs both. Leave it on shadow
 for now.
 
-![Step Operating mode](../../assets/screenshots/wizard-mode-tablet-light-en.png)
+![Step Operating mode](../assets/screenshots/wizard-mode-tablet-light-en.png)
 
 ### Summary and check
 
@@ -201,11 +201,11 @@ plan**: the expected solar energy, consumption, import and export of the next
 hours and the battery's lowest, highest and final charge. **Update the
 preview** recomputes it.
 
-![Step Summary and check](../../assets/screenshots/wizard-summary-tablet-light-en.png)
+![Step Summary and check](../assets/screenshots/wizard-summary-tablet-light-en.png)
 
 The panel follows the dark theme of your device as well:
 
-![Summary on a tablet, dark theme](../../assets/screenshots/wizard-summary-tablet-dark-en.png)
+![Summary on a tablet, dark theme](../assets/screenshots/wizard-summary-tablet-dark-en.png)
 
 ## 4. What shadow mode means
 
@@ -227,9 +227,9 @@ power, mode switch and **Why?**. The red **Emergency stop** button in the
 header hands every device and the battery back at once. The **Plan** page
 shows the 24 or 48 hour plan with the forecasts and their accuracy.
 
-![Now view on a tablet, light theme](../../assets/screenshots/now-tablet-light-en.png)
+![Now view on a tablet, light theme](../assets/screenshots/now-tablet-light-en.png)
 
-![Battery card and next planned actions](../../assets/screenshots/now-battery-tablet-light-en.png)
+![Battery card and next planned actions](../assets/screenshots/now-battery-tablet-light-en.png)
 
 The **Decision log** lists every decision with its reasons. How it all works,
 what happens when you change a device yourself and what SunCore does when
@@ -250,7 +250,7 @@ Open **Settings**. It lists every section of your setup (**Region**,
 (control and planning)**, **Devices**, **Goals**, **Operating mode**) with a short
 summary and an **Open** link to the matching step.
 
-![Settings overview](../../assets/screenshots/settings-tablet-light-en.png)
+![Settings overview](../assets/screenshots/settings-tablet-light-en.png)
 
 - **Run setup again** restarts the assistant with your current values.
 - **Earlier versions**: every save keeps the previous version. Use **Show
@@ -285,7 +285,7 @@ summary and an **Open** link to the matching step.
   [Contribute a device template](device-templates.md), or use a generic
   template (switch, climate, adjustable load).
 - More in the troubleshooting section of the
-  [app description](../../../addon/suncore/DOCS.md).
+  [app description](https://github.com/pxljake/suncore/blob/main/addon/suncore/DOCS.md).
 
 ## What SunCore cannot do yet
 
@@ -295,10 +295,10 @@ control, grid limits and entities in Home Assistant, but **none of it has ever r
 real hardware**: that is what your shadow-mode run is for. Every device starts in shadow
 mode. A Kostal Modbus battery is capped at assisted mode until the inverter's fallback timer
 has been measured, and the inverter limit stays off until it has been verified (the panel has no
-verification dialog yet). Kostal Plenticore cannot be told to charge from the grid. Island and
-section 14a events are shown in the panel but not pushed as notifications yet, the EV, program
-and heat pump entities are not announced in Home Assistant yet, and there is no companion
-integration, no Lovelace card and no documentation site (all planned for Phase 7).
+verification dialog yet). Kostal Plenticore cannot be told to charge from the grid. Home
+Assistant shows the EV, heat pump and
+program values read only (no commands for them yet), and there is no companion integration and no
+custom Lovelace card (a [dashboard recipe](dashboard-recipe.md) with built-in cards is planned).
 
 Compared with evcc (charge points, years of hardware experience), EMHASS and Predbat (battery
 optimisation), SunCore's planner and its wallbox control are new and unproven. Its strengths are
@@ -306,4 +306,4 @@ one app with a safety layer, shadow mode and a reason for every decision; it can
 together with evcc (see [EV charging](ev-charging.md#5-evcc-as-actor)). The list of open points
 is in [Known limitations](planning-and-battery.md#10-known-limitations-and-unverified)
 and in [Surplus control](surplus-control.md#known-limitations-and-unverified);
-the [roadmap](../../roadmap.md) shows when each part arrives.
+the [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md) shows when each part arrives.

@@ -112,7 +112,7 @@ needs **both**: the overall mode set to automatic (setup step *Operating mode*, 
 **Now** view. Every new device starts in shadow mode. The setup step only sets the overall
 mode; the modes of the devices are changed on the **Now** view.
 
-![Now view: surplus card and a card per device with the mode switch](../../assets/screenshots/now-tablet-light-en.png)
+![Now view: surplus card and a card per device with the mode switch](../assets/screenshots/now-tablet-light-en.png)
 
 - **Assisted proposals** appear under **Suggestions waiting for you**. **Confirm** carries
   the action out now (it still has to pass the safety checks and can be rejected with a
@@ -260,7 +260,7 @@ trip, after a connection loss and when a device is removed or re-mapped.
 
 The **Emergency stop** button is in the header of every view, one click and no confirmation:
 
-![Emergency stop active: banner, paused devices, "Back to normal" button](../../assets/screenshots/estop-tablet-light-en.png)
+![Emergency stop active: banner, paused devices, "Back to normal" button](../assets/screenshots/estop-tablet-light-en.png)
 
 - Every device under control is handed back within 10 seconds, and SunCore **writes nothing**
   until you end the stop.
@@ -291,7 +291,7 @@ Each device card has **Why?**, showing the latest reasons in plain language, suc
 for the minimum run time, 240 s left" or "Not switched on: 1200 W needed, only 800 W of safe
 surplus", and the **Last decision**. Reasons are given in your language.
 
-![Decision log with filters](../../assets/screenshots/decisions-tablet-light-en.png)
+![Decision log with filters](../assets/screenshots/decisions-tablet-light-en.png)
 
 The **Decision log** lists what SunCore decided, newest first (up to 200 entries, times in your
 time zone), and can be filtered by device and outcome: **Executed**, **Proposed**, **Would have
@@ -370,11 +370,11 @@ day with sun. The window of a few days is the point: you decide on evidence, not
   has years of hardware experience; SunCore's wallbox control is new and simulator-only. EMHASS and Predbat
   optimise the battery over time with years of field experience; SunCore's planner is new and
   unproven on hardware. What SunCore adds is one app with a safety layer, shadow mode and a reason
-  for every decision; see the [roadmap](../../roadmap.md).
+  for every decision; see the [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 See also: [Quick start](quick-start.md), [Planning and battery control](planning-and-battery.md),
 [Home Assistant entities](home-assistant-entities.md), [Notifications](notifications.md),
 [Grid limits](grid-limits.md), [EV charging](ev-charging.md), [Heat pump](heat-pump.md),
 [Programs](programs.md),
 [Contribute a device template](device-templates.md),
-[compatibility list](../compatibility.md).
+[compatibility list](compatibility.md).

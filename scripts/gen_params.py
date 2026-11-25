@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Generate the parameter reference ``docs/reference/parameters.md`` and ``parameters.de.md``.
+"""Generate the parameter reference ``docs/user/<lang>/reference/parameters.md`` (en, de).
 
 Reads the parameter registry (:mod:`suncore.core.params`, the same objects the expert API and
 the validation use) and the help texts from the frontend catalogues. The output is
@@ -21,8 +21,11 @@ from suncore.core.params import GROUPS, REGISTRY, ParamSpec, ParamValue, specs_o
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCALES = ROOT / "frontend" / "src" / "lib" / "i18n" / "locales"
-OUT_DIR = ROOT / "docs" / "reference"
-OUTPUTS = {"en": OUT_DIR / "parameters.md", "de": OUT_DIR / "parameters.de.md"}
+USER_DOCS = ROOT / "docs" / "user"
+OUTPUTS = {
+    "en": USER_DOCS / "en" / "reference" / "parameters.md",
+    "de": USER_DOCS / "de" / "reference" / "parameters.md",
+}
 
 DASH = "\N{EN DASH}"
 

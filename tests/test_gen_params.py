@@ -40,7 +40,7 @@ def test_every_parameter_is_listed_once_with_its_help(mod: ModuleType, lang: str
 
 
 def test_check_mode(mod: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    outputs = {"en": tmp_path / "parameters.md", "de": tmp_path / "parameters.de.md"}
+    outputs = {"en": tmp_path / "en" / "parameters.md", "de": tmp_path / "de" / "parameters.md"}
     monkeypatch.setattr(mod, "OUTPUTS", outputs)
     assert mod.main(["--check"]) == 1  # missing
     assert mod.main([]) == 0

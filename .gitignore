@@ -27,3 +27,4 @@ frontend/dist/
 .claude/settings.local.json
 frontend/playwright-report/
 frontend/test-results/
+site/

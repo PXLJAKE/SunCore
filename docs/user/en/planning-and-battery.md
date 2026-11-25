@@ -45,7 +45,7 @@ self-sufficiency keeps the plan sensible when prices are flat (see
   the controller behaves exactly as without a planner. Shadow, assisted and automatic apply to
   the plan's effects as before.
 
-![Plan view with chart, next planned actions and the forecast panel](../../assets/screenshots/plan-tablet-light-en.png)
+![Plan view with chart, next planned actions and the forecast panel](../assets/screenshots/plan-tablet-light-en.png)
 
 The **Plan** view shows a chart of the next 24 or 48 hours (solar with its P10 to P90 band,
 house load, battery power, grid import and export, the planned charge with the morning buffer
@@ -260,7 +260,7 @@ SunCore:** the plan shows it as "would charge", and nothing is written.
 
 The battery has its own **Battery** card on the **Now** view and its own mode, like a device:
 
-![Battery card and next planned actions on the Now view](../../assets/screenshots/now-battery-tablet-light-en.png)
+![Battery card and next planned actions on the Now view](../assets/screenshots/now-battery-tablet-light-en.png)
 
 | Mode | What SunCore does with the battery |
 |---|---|
@@ -356,7 +356,7 @@ In step 5, **Control**, choose the **Battery adapter**. The default is **Observe
 never writes)**: the battery is part of the plan, but you set it yourself. The battery card
 lists what the adapter **can set**.
 
-![Wizard step 5: battery sensors, model, adapter and strategy](../../assets/screenshots/wizard-battery-tablet-light-en.png)
+![Wizard step 5: battery sensors, model, adapter and strategy](../assets/screenshots/wizard-battery-tablet-light-en.png)
 
 ### Generic: Home Assistant entities
 
@@ -556,7 +556,7 @@ measurements.
   grid charging is planned and shown, but not executable.
 - **No accuracy figures.** They are computed each night; wait for the first night with data.
 - **More** in the troubleshooting section of the
-  [app description](../../../addon/suncore/DOCS.md) and in
+  [app description](https://github.com/pxljake/suncore/blob/main/addon/suncore/DOCS.md) and in
   [Surplus control](surplus-control.md).
 
 ## 10. Known limitations and UNVERIFIED
@@ -602,4 +602,4 @@ measurements.
   decision, set up through a wizard. evcc remains the better choice for charge points.
 
 See also: [Quick start](quick-start.md), [Surplus control](surplus-control.md),
-[Contribute a device template](device-templates.md), [compatibility list](../compatibility.md).
+[Contribute a device template](device-templates.md), [compatibility list](compatibility.md).

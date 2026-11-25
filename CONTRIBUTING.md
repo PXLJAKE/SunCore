@@ -54,7 +54,7 @@ Documentation screenshots come from the same setup – follow the
 `demo-screenshots` skill (`.claude/skills/demo-screenshots/SKILL.md`):
 
 ```bash
-cd frontend && SCREENSHOTS_DIR=../docs/assets/screenshots npx playwright test screenshots
+cd frontend && SCREENSHOTS_DIR=../docs/user/assets/screenshots npx playwright test screenshots
 ```
 
 Never edit screenshots by hand.
@@ -99,7 +99,7 @@ Templates live in `templates/<kind>/` and are validated against the JSON
 Schemas in `templates/schema/`. Every template needs a `source` (the
 documentation it was built from) and a simulator scenario. See
 [`docs/user/en/device-templates.md`](docs/user/en/device-templates.md).
-Run `uv run python scripts/gen_compat.py` to regenerate the compatibility list.
+Run `uv run python scripts/gen_compat.py` to regenerate the compatibility lists (en and de).
 
 ## Translations
 
@@ -109,7 +109,11 @@ JSON catalogues directly. UI strings are keys only: add each key to
 change, written as ICU MessageFormat. `uv run python scripts/check_reasons.py`
 verifies that backend reason and error keys exist in both catalogues.
 User documentation is English under `docs/user/en/` with the German
-translation at the same path under `docs/user/de/` (ADR-0008).
+translation at the same path under `docs/user/de/` (ADR-0020). The pages of
+the site are built with `uv run --group docs mkdocs build --strict` (CI runs
+it on pull requests); `parameters.md` and `compatibility.md` are generated
+per language by `scripts/gen_params.py` and `scripts/gen_compat.py`: fix the
+generator, not the page.
 
 ## Checks before you push
 
