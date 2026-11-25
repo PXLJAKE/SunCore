@@ -1,0 +1,9 @@
+{
+  "tag": "v0.2.0",
+  "commit": "430193670d6f4d8b11467b8beae4e555f993dfce",
+  "app_version": "0.2.0",
+  "suncore_db_schema": 1,
+  "migrations_sha256": {
+    "0001_initial.sql": "d3ae159fa1a3a928e2a4d888fbb7a2e467517c5f15141e539deb275222b5c4cd"
+  }
+}
