@@ -45,6 +45,9 @@ language when it is set to automatic). Automations that test an enumerated state
 | Operating mode | sensor | Shadow, assisted or automatic (overall mode) |
 | Available surplus | sensor | The safe surplus the controller sees, in W |
 | Healthy, Shadow mode, Emergency stop | binary sensors | For automations and dashboards |
+| Peak import this month | sensor | The month's highest 15-minute import, in W (when the grid chain measures it) |
+| Grid state | sensor | Normal, limited by the grid operator (§14a), island operation |
+| Grid operator limit (§14a) active, Island operation | binary sensors | Only with a signal or backup entity; unknown while that is unavailable |
 | Events | event | Device switched, proposal, error |
 | Automatic | switch | Overall mode: on = automatic, off = shadow |
 | Replan | button | Start a new plan |
@@ -54,6 +57,19 @@ language when it is set to automatic). Automations that test an enumerated state
 Per configured device: **Mode**, **Power** and **Last decision** (sensors), an **Automatic**
 switch, **Boost**, **Pause** and **Resume** buttons and a **Boost duration** number (minutes,
 default 60). These entities are not Energy dashboard entities and carry no energy counters.
+
+Read-only views, only where they apply:
+
+- **Wallbox:** charging mode, target charge, target energy and target time (when set), plugged in,
+  charging phases and the vehicle's charge (when the charger reports them).
+- **Heat pump (SG-Ready):** SG state (1 to 4) and the set-point lift in K.
+- **Program:** job state (idle, armed, running) and the planned start.
+- **Battery** (own HA device, when a battery adapter exists): action (idle, charge, hold) and who
+  holds the control. They show what SunCore holds, so they stay at idle and "own settings" in
+  shadow mode.
+
+These are sensors on purpose. Setting the EV mode and target, arming a program and the
+comfort band from Home Assistant are not offered yet (see the limits).
 
 ## 3. Commands and what is refused
 
@@ -83,11 +99,11 @@ Safeguards, all tested:
 
 ## 4. Known limits and UNVERIFIED
 
-- **Not announced yet:** costs, savings, autarky and forecast error, month peak, grid state,
-  §14a and island binary sensors, the battery strategy, reserve and evening target, battery
-  action and lease, the EV, program and heat pump entities (EV mode and target, arm, cancel,
-  finish by, job state, planned start, comfort band). They exist in the catalogue and follow
-  with the companion integration in Phase 7. Until then use the panel for these.
+- **Not announced yet:** costs, savings, autarky, forecast error and the next action (nothing
+  produces them), the battery strategy, reserve and evening target, and every EV, program and
+  comfort **control** (EV mode, target, arm, cancel, finish by, comfort band). The controls
+  need a command path that arms or sets things; that is open work (plan section 8, 6-O) and
+  comes with the companion integration in Phase 7. Until then use the panel for these.
   The event entity only fires for a switched device, a proposal and an error.
   Config changes from Home Assistant (so no "author `mqtt`" in the configuration history) are
   not offered.

@@ -3,20 +3,21 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M plus 6-N docs, translations, STATUS) ·
+**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps) ·
 **Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-6/n-docs` (stacked on `phase-6/m-frontend`)
+**Branch:** `phase-6/o-gaps` (stacked on `phase-6/n-docs`)
 
 ## Phase 6 at a glance
 
 What exists (all behind shadow mode, none of it has run on hardware):
 
 - **HA surface:** MQTT discovery with a command path (modes, emergency stop, overrides, replan;
-  raising refused by default) and notifications (persistent, push, confirm and reject buttons,
-  quiet hours, daily cap); backend ICU catalogue en/de.
+  raising refused by default), read-only views of grid, battery, EV, heat pump and programs, and
+  notifications (persistent, push, confirm and reject buttons, quiet hours, daily cap, island,
+  §14a and EV target at risk); backend ICU catalogue en/de.
 - **Grid:** one resolver for the import limit, export limit and §14a budget; peak shaving with a
   monthly peak and a shed order; §14a and island caps; export chain with an inverter limit (capped
   at assisted until `limit_verified`, which has no panel path yet).
@@ -32,6 +33,23 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
+  `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
+  - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable
+    source is "no information"), start at once, end after 120 s without the signal (flicker
+    gives one start and one end); "EV target at risk" from the newest plan's
+    `planner.ev.target_shortfall` (plan made after the target was set, held 10 min, once per
+    target). Quiet hours and the daily cap as before; safety ignores both.
+  - `notify.quiet_hint` (en, de) now says what the rules do: proposals, charging targets, cheap
+    windows, "finished" and "did not start" are dropped in quiet hours; errors, safety, "start
+    now" and the summary are not.
+  - HA entities, read only: month peak, grid state, §14a, island, battery action and lease, job
+    state, planned start, plus new sensors for the EV (mode, target, plug, phases, vehicle SoC)
+    and heat pump (SG state, lift). The table's EV, program and comfort *controls* are not
+    announced (no command path, plan section 8, 6-O).
+  - Tests: rules, service, limiter text, runtime sources, discovery payloads (golden files),
+    and simulator closed loops (`tests/sim/test_notify_scenarios.py`).
+  - Deviations, `UNVERIFIED` and questions: plan section 8 (6-O).
 - **Phase 6 - PR 6-N, WP14 docs, translations, STATUS (branch `phase-6/n-docs`, on 6-M;
   `docs-writer`)** - docs only, no code and no safety path changed:
   - User guides en and de: `home-assistant-entities.md`, `notifications.md`, `grid-limits.md`,
@@ -1140,20 +1158,17 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   §14a "not active", backup entity mapped or skipped), the simulated "car arrives late" and a
   washing-machine job in the demo, later a real wallbox, heat pump, evcc and inverter limit.
   The 16 questions of plan section 10 need answers or confirmation of the defaults.
-- **Wire what exists but is not fed:** island and §14a push notifications and "EV target at risk"
-  (rules and texts exist, the observation does not carry them); MQTT entities for the grid
-  (`grid_state`, `month_peak`, `para14a_active`, `island`), costs and savings, battery, EV,
-  program and heat pump (`SUPPORTED` in `suncore/app/ha_entities.py` lists what is announced);
-  the producers of the event types `island_*`, `para14a_*`, `program_*`, `cheap_window_*`,
-  `ev_target_at_risk`; HA commands for EV mode, target and program arming.
+- **Still not fed or offered (6-O closed the rest):** costs, savings, autarky, forecast error and
+  the next action as MQTT entities (nothing produces them); the event types `island_*`,
+  `para14a_*`, `program_*`, `cheap_window_*` and `ev_target_at_risk` of the MQTT events entity;
+  HA **commands** for EV mode, target, program arming, comfort band and the battery settings
+  (with the author `mqtt` in the config history; needs a `control-safety` review, plan section 8,
+  6-O); a push for a target the plan meets but the controller later misses.
 - **Panel gaps:** inverter verification test as an endpoint with a dialog (without it
   `limit_verified` stays false and no limit is ever written), per-device `para14a` flag,
   `shed_rank` and the island keep list, evcc `loadpoint_id` and `topic_prefix`, a manual MQTT
   broker, COP at the current weather on the heat pump card, bundle budget (first paint 123.5 of
   125 kB: move more wizard steps out).
-- **Wording:** the notification hint says programs are never held back during quiet hours, but
-  the code holds back "finished" and "missed" (only "start now" and safety are exempt); align the
-  catalogue text (`notify.quiet_hint`) or the rule.
 - **Behaviour decisions deferred:** hard target at any price for the EV (the late-car scenario
   stops at about 77 % of 80 %), grid pre-heating execution, `generic.heat_pump_select`, a
   `button.press` remote start, a plan clear for evcc, resetting evcc's mode at unplugging.

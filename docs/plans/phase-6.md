@@ -1680,6 +1680,96 @@ Adapter.
 4. **Bundle:** Der Erstaufbau liegt bei 123,5 von 125 kB. Soll das Budget auf 130 kB steigen
    oder sollen Wizard-Schritte weiter ausgelagert werden? **Empfehlung:** auslagern.
 
+### 6-O (Lücken der Phase 6 schließen, Backend)
+
+Aus der Doku-Prüfung von 6-N: Regeln und Texte gab es, die Verdrahtung fehlte.
+
+- **Benachrichtigungen angeschlossen** (`app/notifications.py`, `notify/rules.py`):
+  - Insel und §14a: `grid_flags(monitor)` bildet den Zustand des `GridMonitor` ab (`island`
+    = Zustand `ISLAND`; §14a = `ACTIVE`). `UNKNOWN` (Backup-Entität nicht lesbar, §14a-Signal
+    weg) und kein Monitor ergeben `None`: dann wird weder ein Beginn noch ein Ende gemeldet.
+    Der erste Wert ist die Basislinie (kein Alarm nach einem Neustart).
+  - Flackerschutz (neu in der Regel): Der Beginn wird sofort gemeldet, das Ende erst, wenn das
+    Signal `FLAG_END_STABLE_S` = 120 s ununterbrochen aus war; ein Wiedereinschalten davor ist
+    dasselbe Ereignis. Schlüssel `island:<n>`, `para14a:<n>`, Ende `..._end:<n>`; Kategorie
+    Sicherheit, also weder Ruhezeit noch Tageslimit (Regeln aus 6-E unverändert).
+  - „E-Auto-Ziel in Gefahr“: Beobachtung `EvTargetObs` je Wallbox im Modus `target` mit
+    Frist in der Zukunft. `shortfall` = der **neueste Plan, der nach dem Setzen des Ziels
+    entstand**, enthält den Grund `planner.ev.target_shortfall` für dieses Gerät (aus den
+    Intervallgründen des Plans, mit `need_kwh`/`planned_kwh`). Die Regel meldet erst, wenn das
+    `EV_RISK_HOLD_S` = 600 s lang durchgehend galt, und dann **einmal je Ziel** (Schlüssel
+    `ev_target:<gerät>:<frist>`; ein neues Ziel ist ein neuer Schlüssel). Kategorie `ev_target`:
+    Ruhezeit und Tageslimit gelten.
+  - Neue Texte `notify.ev_target.at_risk` (mit Plan-Energie) und `.at_risk_short`; das Etikett
+    der Kategorie heißt jetzt „Ladeziel in Gefahr“ (es gibt keine „erreicht“-Meldung).
+  - Bewusst nicht: Eine Meldung für ein Ziel, das der Plan erreicht und die Steuerung später
+    verfehlt (Spätes-Auto-Szenario endet bei etwa 77 %, Frage 6e). Der Planer meldet dort
+    keine Fehlmenge; die Entscheidung „hartes Ziel“ steht aus.
+  - Ruhezeittext `notify.quiet_hint` (en, de) beschreibt jetzt die Regel: Vorschläge, Ladeziele,
+    günstige Fenster sowie „Programm fertig“ und „nicht gestartet“ werden in der Ruhezeit
+    **nicht gesendet und nicht nachgeholt**; Fehler, Sicherheit, „Jetzt starten“ und die
+    Tageszusammenfassung nicht. Ein Test hält Text und Urteile des Limiters zusammen.
+- **HA-Entitäten, nur lesend** (`app/ha_entities.py`, `ha/mqtt/catalogue.py`): neu in
+  `SUPPORTED`: `month_peak`, `grid_state` (normal, begrenzt bei §14a aktiv, Insel),
+  `para14a_active`, `island`, `battery_action` (Ruhe; Laden bei Netzladung; Halten bei jeder
+  anderen gehaltenen Grenze), `battery_lease` (gehalten, wenn SunCore die Batterie übernommen
+  hat), `job_state`, `planned_start`. Unbekannte Quellen liefern keinen Wert (HA zeigt
+  „unbekannt“). Der Batterie-Eintrag erscheint, sobald es einen Batterie-Adapter gibt.
+- **Abweichung von der WP3-Tabelle (EV, Wärmepumpe):** Die Tabelle nennt für die Wallbox
+  `ev_mode` (select), `target_soc`/`target_energy` (number) und `target_time` (text) als
+  **Steuerungen**; Steckzustand, Phasen und Fahrzeug-SoC kommen dort nicht vor, die
+  Wärmepumpe hat keinen SG-Zustand. Ohne Befehlsweg (siehe unten) wäre ein Select ohne
+  Handler eine Bedienung, die nichts tut. Darum zusätzliche **Sensoren** statt der Steuerungen:
+  `ev_mode_state`, `ev_target_soc_state`, `ev_target_energy_state`, `ev_target_time_state`
+  (Zeitstempel), `ev_plugged` (binary_sensor, Klasse `plug`), `ev_phases`, `ev_vehicle_soc`
+  (Klasse `battery`) und `hp_sg_state`, `hp_lift` (K). Werte aus dem Laufzeitzustand
+  (`flex_state`) und dem gelesenen Gerätezustand; nichts davon schreibt.
+  Die Steuerungen aus der Tabelle bleiben im Katalog, sind aber nicht in `SUPPORTED`
+  (ein Test hält das fest).
+- **WP4, Konfigurationsänderungen aus HA, Urheber `mqtt`: nicht umgesetzt, offen.** Gründe:
+  (1) Der Urheber `mqtt` braucht eine Migration der Konfigurationshistorie (Frage 4: bisher
+  entschieden „nur Modi und Not-Aus aus HA“); (2) EV-Modus und -Ziel, Vormerken und Abbrechen
+  eines Programms berühren die Absicht-Gate-Semantik (ein Vormerken schaltet eine Steckdose
+  ab, ein Abbrechen schaltet sie **ein**; der EV-Modus `now` erlaubt Netzbezug), das ist mehr
+  als ein Tag und gehört mit einer `control-safety`-Prüfung in einen eigenen PR; (3) Batterie-
+  Strategie, -Reserve und Abendziel gehen durch die Konfigurationsvalidierung. Was ein Befehl
+  später tun muss: Befehl → `Services` (wie Panel und API) → Gate, mit der Freigabe zum
+  Anheben (`allow_mode_raise`); ein Befehl ruft nie `apply()` auf. Katalogeinträge und
+  Texte bleiben dafür stehen.
+- **Nicht angeschlossen, weil nichts sie erzeugt:** `plan_cost_today`, `savings_*`,
+  `autarky_today`, `pv_forecast_error`, `next_action`; die Ereignistypen `island_*`,
+  `para14a_*`, `program_*`, `cheap_window_*` und `ev_target_at_risk` des MQTT-Ereignis-
+  Entities (nur gerät geschaltet, Vorschlag und Fehler werden gefeuert).
+- **Tests:** `tests/notify/test_rules.py` (Flackerschutz, Basislinie, EV-Frist, Halten,
+  ein Mal je Ziel), `tests/notify/test_service.py` (Insel und §14a trotz Ruhezeit und Limit,
+  EV-Ziel gehalten bei Ruhezeit und Limit, Text), `tests/notify/test_ratelimit.py` (Text gegen
+  Regel), `tests/app/test_phase6_gaps_runtime.py` (Beobachtung und Entitätswerte aus der
+  Laufzeit), `tests/ha/mqtt/test_discovery.py` (Nutzlasten je Gerätetyp, golden files neu),
+  Simulator `tests/sim/test_notify_scenarios.py` (Szenarien `grid_outage_island` und
+  `para14a_dimming` im geschlossenen Kreis: je ein Beginn und ein Ende, nichts bei nicht
+  lesbarem Signal; echter Planer auf `ev_arrives_late`: erreichbar = still, unmöglich = eine
+  Meldung, flackernde Fehlmenge = still).
+- **Sicherheit:** kein Pfad in `safety/` oder `controller/` geändert; die Beobachtung liest
+  nur (Monitor, Plan, EV-Zustand), die Entitäten lesen nur, ein Gerät wird nicht
+  geschrieben. Kein `control-safety`-Review nötig; ein Review der neuen Regel-Zustände
+  (Flackerschutz) schadet nicht.
+
+#### UNVERIFIED (6-O)
+
+- Geräteklasse `plug` (binary_sensor), `battery` (sensor) und `timestamp` (sensor) sowie die
+  Einheit `K` ohne Geräteklasse: aus dem Gedächtnis der HA-Entwicklerdoku, nicht gegen den
+  Quelltext gelesen (die Entwicklerseiten waren nicht erreichbar). Der Wert eines
+  Zeitstempel-Sensors ist ISO 8601 mit Zeitzone.
+- Wie die Companion-App „Ladeziel in Gefahr“ in der Ruhezeit der Telefon-Einstellungen zeigt.
+
+#### Offene Fragen an den Maintainer (6-O)
+
+1. **Befehlsweg aus HA für EV, Programme, Komfort und Batterie-Einstellungen.** Soll er
+   kommen (eigener PR mit `control-safety`-Review), und darf ein Programm aus HA vorgemerkt
+   werden? **Empfehlung:** erst nach der Abnahme der Lesesicht auf deinem System.
+2. **Wirkt „Ladeziel in Gefahr“ so, wie du es willst** (10 min Haltezeit, einmal je Ziel)?
+   **Empfehlung:** so lassen.
+
 ## 9. Acceptance criteria: status and evidence (6-N, 2026-11-25)
 
 Status key: **met** (automated evidence), **partly** (what is missing is named), **UNVERIFIED
@@ -1689,10 +1779,10 @@ measured. Nothing below has run against real hardware.
 
 | # | Criterion (section 1) | Status | Evidence |
 |---|---|---|---|
-| 1a | MQTT discovery: site device, one device per configured device, entities, last will, birth | partly | `tests/ha/mqtt/test_discovery.py`, `test_client.py::test_last_will_is_published_when_the_connection_drops`, `test_service.py::test_birth_message_republishes_configs_and_states`. Announced today: status, mode, available surplus, healthy, shadow, emergency stop, events, and per device mode, power, last decision (`SUPPORTED`). Not announced: battery device, grid, costs, EV, program and heat pump entities (Phase 7). **UNVERIFIED (hardware)** against a real HA and Mosquitto |
-| 1b | HA commands act like the panel; raising refused unless enabled | met for modes, emergency stop, overrides, replan | `tests/ha/mqtt/test_commands.py`, `test_service_commands.py`, `test_boundary.py::test_commands_reach_the_system_only_through_the_command_port`; control-safety table S1-S11 (section 8, 6-D). The "config history author `mqtt`" part does not apply: no config change is offered from HA (question 17, decision: modes and emergency stop only) |
+| 1a | MQTT discovery: site device, one device per configured device, entities, last will, birth | met, with gaps | `tests/ha/mqtt/test_discovery.py` (`test_read_only_flex_views_are_announced_per_device_kind`), `tests/app/test_phase6_gaps_runtime.py`, `test_client.py::test_last_will_is_published_when_the_connection_drops`, `test_service.py::test_birth_message_republishes_configs_and_states`. Announced: status, mode, available surplus, healthy, shadow, emergency stop, events, the grid view (month peak, grid state, §14a, island), the battery device (action, lease) and per device mode, power, last decision plus read-only EV, heat pump and program views (`SUPPORTED`, 6-O). Not announced: costs, savings, autarky, forecast error, next action and the EV, program, comfort and battery-setting controls (plan 6-O, WP4 open). **UNVERIFIED (hardware)** against a real HA and Mosquitto |
+| 1b | HA commands act like the panel; raising refused unless enabled | met for modes, emergency stop, overrides, replan | `tests/ha/mqtt/test_commands.py`, `test_service_commands.py`, `test_boundary.py::test_commands_reach_the_system_only_through_the_command_port`; control-safety table S1-S11 (section 8, 6-D). The "config history author `mqtt`" part does not apply: no config change is offered from HA (question 17, decision: modes and emergency stop only); WP4 config, EV and program commands stay open (6-O) |
 | 1c | Without a broker SunCore works and the panel says why | met | `test_service.py::test_no_broker_status_and_retry_until_one_appears`, `test_broker.py::test_no_broker_app_gives_no_broker_with_reason`; Playwright `phase6.spec.ts` "Home Assistant entities: status, hint without a broker, mode-raise opt-in" |
-| 2 | Notifications: errors, safety, proposals, programs, cheap windows, summary; language, rate limit, quiet hours, per category and target | partly | `tests/notify/` (rules, rate limiter, action tokens, boundary, service), `tests/sim/test_fake_notify.py`; Playwright "Notifications: categories, a push target, quiet hours and the test message". **Not wired:** island and §14a pushes (the rule exists, `test_island_and_para14a_are_announced_on_the_edges_only_when_a_source_exists`, but the application passes no island or §14a state) and "EV target at risk" (no producer). The MQTT event per notification is only produced for a switched device, a proposal and an error. Buttons: **UNVERIFIED (hardware)** (Companion app, Supervisor token) |
+| 2 | Notifications: errors, safety, proposals, programs, cheap windows, summary; language, rate limit, quiet hours, per category and target | met, buttons and phone **UNVERIFIED (hardware)** | `tests/notify/` (rules, rate limiter, action tokens, boundary, service), `tests/sim/test_fake_notify.py`; Playwright "Notifications: categories, a push target, quiet hours and the test message". Island, §14a and "EV target at risk" are wired since 6-O (`tests/app/test_phase6_gaps_runtime.py`, `tests/sim/test_notify_scenarios.py`, `tests/notify/test_service.py`). The MQTT event per notification is only produced for a switched device, a proposal and an error. Buttons: **UNVERIFIED (hardware)** (Companion app, Supervisor token) |
 | 3a | Wallbox/EV: generic template, modes, 6 A floor, hysteresis, 1/3 phases, SoC, losses | met in the simulator | `tests/sim/test_ev_scenarios.py` (`test_pv_only_follows_the_surplus_and_never_imports_for_the_car`, `test_min_pv_holds_the_minimum_and_adds_surplus`, `test_phases_switch_only_paused_and_within_the_limit`, `test_the_house_battery_never_discharges_into_the_car`), `tests/controller/test_ev.py`, `tests/safety/test_ev_gate.py`, `test_flex.py` (E1-E9), `tests/scenarios/device/generic.wallbox.yaml`. "At least one integration template verified from source" is **not met**: only the generic template exists (the `wallbox` integration source could not be read). **UNVERIFIED (hardware)** |
 | 3b | "Car arrives late" meets its target at the planned cheapest windows | met, with a gap | `tests/sim/test_ev_scenarios.py::test_the_late_car_reaches_its_target_in_the_cheap_hours`; the target ends at about 77 % of 80 % (question 6e below). The demo mode has no EV |
 | 3c | evcc as actor sets mode, limit, max current, released when evcc goes silent | met on a fake evcc | `tests/sim/test_evcc_scenario.py` (`test_a_silent_evcc_is_never_written_and_the_release_is_retried_with_backoff`, `test_only_mode_max_current_and_limit_of_the_loadpoint_are_ever_sent`, `test_r1_flicker_near_the_threshold_switches_a_bounded_number_of_times`), `tests/safety/test_evcc_gate.py`, `test_evcc_invariants.py` (L1-L5). A vehicle plan is not written (clearing is unverified). **UNVERIFIED (hardware)**: a running evcc. Residual risks: `smart` reacts to the import limit after about a minute; liveness depends on evcc's publication interval |
@@ -1737,11 +1827,10 @@ nicht mehr aufgeführt.
    Einstellungen ein; die Liste der `notify`-Dienste liest SunCore nicht. (b) Buttons gibt es
    nur für Companion-App-Dienste, nicht für `notify`-Entitäten. (c) Vorschläge in der Ruhezeit
    (22-7 Uhr) werden verworfen, nicht am Morgen nachgereicht. (d) Das „Jetzt starten“ eines
-   Programms kommt auch im Schattenmodus. (e) **Neu (6-N):** Insel- und §14a-Pushes sowie
-   „E-Auto-Ziel in Gefahr“ sind noch nicht angeschlossen, und der Hinweistext zu den Ruhezeiten
-   sagt, Programme würden nie zurückgehalten, obwohl „fertig“ und „verpasst“ in der Ruhezeit
-   warten. **Empfehlung:** (a) bis (d) so lassen; (e) in Phase 7 anschließen und den Hinweistext
-   an die Regel angleichen. Welche Ziele und Kategorien willst du? Standard: Fehler und
+   Programms kommt auch im Schattenmodus. (e) **Erledigt (6-O):** Insel- und §14a-Pushes sowie
+   „E-Auto-Ziel in Gefahr“ sind angeschlossen, der Hinweistext zu den Ruhezeiten stimmt mit der
+   Regel überein. **Empfehlung:** (a) bis (d) so lassen. Welche Ziele und Kategorien willst du?
+   Standard: Fehler und
    Sicherheitsereignisse persistent, Push erst nach Zielwahl, günstige Fenster aus, Ruhezeit
    22-7 Uhr, höchstens 20 Push-Meldungen pro Tag.
 6. **Wallbox und E-Auto.** (a) Welche Wallbox (Hersteller/Integration, evcc ja/nein)? Eine

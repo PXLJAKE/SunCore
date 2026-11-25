@@ -28,17 +28,20 @@ assistierten Vorschlags, genau wie die Schaltfläche **Bestätigen** im Panel (s
 | Kategorie | Standard | Beispiele | Ruhezeiten |
 |---|---|---|---|
 | Fehler | an, dauerhaft | ein vom Watchdog ausgelöstes Gerät, drei Schreibfehler in Folge, der Planer liefert seit 1 h keinen Plan, MQTT 15 min weg | nicht zurückgehalten |
-| Sicherheit | an, dauerhaft | Not-Aus und sein Ende, ein abgelehntes Erhöhen aus Home Assistant | nicht zurückgehalten |
+| Sicherheit | an, dauerhaft | Not-Aus und sein Ende, Inselbetrieb und sein Ende, Begrenzung des Netzbetreibers (§14a) und ihr Ende, ein abgelehntes Erhöhen aus Home Assistant | nicht zurückgehalten |
 | Vorschläge | an | ein assistierter Vorschlag, wo möglich mit Schaltflächen | zurückgehalten |
-| Programme | an | „Waschmaschine jetzt starten“, fertig, verpasst | nur „jetzt starten“ nicht zurückgehalten |
-| Ladeziel | an | reserviert für „E-Auto-Ziel in Gefahr“ (siehe Grenzen) | zurückgehalten |
+| Programme | an | „Waschmaschine jetzt starten“, fertig, verpasst | nur „jetzt starten“ nicht zurückgehalten; „fertig“ und „verpasst“ entfallen |
+| Ladeziel | an | „E-Auto-Ziel in Gefahr“: der Plan erreicht das Ziel nicht bis zur Zielzeit (einmal pro Ziel, nachdem es 10 min lang galt) | zurückgehalten |
 | Günstiges Fenster | aus | der günstigste Block von mindestens einer Stunde unter dem 25. Perzentil der nächsten 24 h | zurückgehalten |
 | Tageszusammenfassung | aus | Modus und Zahl der Schaltvorgänge, um 20:00 Uhr | nicht zurückgehalten |
 
 Standards für den Rest: Ruhezeit 22:00 bis 07:00 Uhr, höchstens **20 Push-Nachrichten pro Tag**
 (0 schaltet Push aus). Dieselbe Nachricht kommt einmal pro Ursache (sie enthält den Vorschlag,
 den Auftrag, das Fenster oder das Datum), Fehler höchstens alle 30 Minuten. Sicherheitsereignisse
-warten nie auf die Ruhezeit und zählen nicht gegen das Tageslimit. Ein „jetzt starten“ eines
+warten nie auf die Ruhezeit und zählen nicht gegen das Tageslimit. Insel und §14a: der Beginn wird
+sofort gemeldet, das Ende erst, nachdem das
+Signal 2 Minuten lang aus war; ein flackerndes Signal gibt also einen Beginn und ein Ende. Ein
+„jetzt starten“ eines
 Programms wird nicht durch die Ruhezeit zurückgehalten, und „jetzt starten“ und „verpasst“
 ignorieren das Tageslimit: Bei einem reinen Benachrichtigungs-Programm ist diese Nachricht der
 einzige Weg, das Gerät zu starten.
@@ -66,10 +69,13 @@ Minuten). Bei einem Companion-App-Ziel hat die Benachrichtigung **Bestätigen** 
 
 ## 4. Bekannte Grenzen und UNVERIFIED
 
-- **Insel- und §14a-Pushes sind noch nicht angeschlossen.** Texte und Regeln gibt es, aber die
-  Anwendung füttert den Insel- und §14a-Zustand in dieser Version nicht in die
-  Benachrichtigungs-Engine. Die Badges im Panel und der Verlauf zeigen sie. Dasselbe gilt für
-  **E-Auto-Ziel in Gefahr**: Es gibt noch keinen Erzeuger. Alle drei folgen in Phase 7.
+- Insel- und §14a-Meldungen brauchen eine Quelle: eine Backup-Entität (Insel) oder ein
+  §14a-Signal im Netzabschnitt. Eine nicht verfügbare Quelle zählt als „keine Information“:
+  nichts wird gemeldet und nichts „beendet“. **E-Auto-Ziel in Gefahr** braucht eine Wallbox im
+  Modus **Ziel** und einen Plan, der nach dem Setzen des Ziels entstand; auslösen kann nur die
+  Fehlmenge des Plans selbst (ein Ziel, das der Plan erreicht, die Steuerung aber später
+  verfehlt, wird nicht gemeldet). Die Ruhezeit verwirft diese
+  Meldungen; sie werden nicht nachgeholt.
 - Vorschläge, die in der Ruhezeit entstehen, werden verworfen und nicht am Morgen nachgereicht
   (sie verfallen ohnehin nach Minuten).
 - Die Liste der `notify`-Dienste liest SunCore nicht aus Home Assistant; du tippst den Namen.

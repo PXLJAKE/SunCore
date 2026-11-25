@@ -26,17 +26,19 @@ Open **Settings → Notifications**.
 | Category | Default | Examples | Quiet hours |
 |---|---|---|---|
 | Errors | on, persistent | a device tripped by the watchdog, three failed writes in a row, the planner has produced no plan for 1 h, MQTT lost for 15 min | not held back |
-| Safety | on, persistent | emergency stop and its end, a Home Assistant raise that was refused | not held back |
+| Safety | on, persistent | emergency stop and its end, island operation and its end, grid operator limit (§14a) and its end, a Home Assistant raise that was refused | not held back |
 | Proposals | on | an assisted proposal, with buttons where possible | held back |
-| Programs | on | "start the washing machine now", finished, missed | only "start now" is not held back |
-| Charging target | on | reserved for "EV target at risk" (see limits) | held back |
+| Programs | on | "start the washing machine now", finished, missed | only "start now" is not held back; "finished" and "missed" are dropped |
+| Charging target | on | "EV target at risk": the plan cannot reach the target by its time (once per target, after it held for 10 min) | held back |
 | Cheap window | off | the cheapest block of at least one hour below the 25th percentile of the next 24 h | held back |
 | Daily summary | off | mode and number of switches, at 20:00 | not held back |
 
 Defaults for the rest: quiet hours 22:00 to 07:00, **20 push messages per day** at most (0
 switches push off). The same message is sent once per cause (it carries the proposal, the job,
 the window or the date), errors at most every 30 minutes. Safety events never wait for quiet
-hours or count against the daily limit. A program's "start now" is not held back by quiet
+hours or count against the daily limit. Island and §14a: the start is announced at once,
+the end only after the signal stayed off for 2 minutes, so a flickering signal gives one start
+and one end. A program's "start now" is not held back by quiet
 hours, and "start now" and "missed" ignore the daily limit: for a notify-only program that
 message is the only way to start the appliance.
 
@@ -60,10 +62,12 @@ With a Companion app target the notification has **Confirm** and **Reject**.
 
 ## 4. Known limits and UNVERIFIED
 
-- **Island and §14a pushes are not wired yet.** The texts and rules exist, but the application
-  does not feed the island and §14a state into the notification engine in this version. The
-  panel badges and the history show them. The same holds for **EV target at risk**: no producer
-  exists yet. All three follow in Phase 7.
+- Island and §14a messages need a source: a backup entity (island) or a §14a signal in the
+  grid section. A source that is unavailable counts as "no information": nothing is announced
+  and nothing is called "ended". **EV target at risk** needs a charger in mode **Target** and
+  a plan made after the target was set; the plan's own shortfall is the only trigger (a target
+  the plan meets but the controller later misses is not announced). Quiet hours drop these
+  messages; they are not delivered later.
 - Proposals that arrive during quiet hours are dropped, not delivered in the morning (they
   expire after minutes anyway).
 - The list of `notify` services is not read from Home Assistant; you type the name.

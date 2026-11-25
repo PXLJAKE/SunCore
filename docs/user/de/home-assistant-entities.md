@@ -47,6 +47,9 @@ prüfen, hängen deshalb an der Sprache. Nimm stattdessen die Binärsensoren und
 | Betriebsmodus | Sensor | Schatten, assistiert oder automatisch (Gesamtmodus) |
 | Verfügbarer Überschuss | Sensor | Der sichere Überschuss, den die Steuerung sieht, in W |
 | Gesund, Schattenmodus, Not-Aus | Binärsensoren | Für Automationen und Dashboards |
+| Monatsspitze | Sensor | Der höchste 15-Minuten-Bezug des Monats in W (wenn der Netzabschnitt ihn misst) |
+| Netzzustand | Sensor | Normal, vom Netzbetreiber begrenzt (§14a), Inselbetrieb |
+| Begrenzung des Netzbetreibers (§14a) aktiv, Inselbetrieb | Binärsensoren | Nur mit Signal oder Backup-Entität; unbekannt, solange diese nicht verfügbar ist |
 | Ereignisse | Event | Gerät geschaltet, Vorschlag, Fehler |
 | Automatisch | Schalter | Gesamtmodus: an = automatisch, aus = Schatten |
 | Neu planen | Taste | Startet eine neue Planung |
@@ -57,6 +60,19 @@ Pro konfiguriertem Gerät: **Modus**, **Leistung** und **Letzte Entscheidung** (
 Schalter **Automatisch**, die Tasten **Boost**, **Pause** und **Fortsetzen** und eine Zahl
 **Boost-Dauer** (Minuten, Standard 60). Das sind keine Entitäten für das Energie-Dashboard und
 sie enthalten keine Energiezähler.
+
+Reine Anzeigen, nur wo sie zutreffen:
+
+- **Wallbox:** Lademodus, Ziel-Ladestand, Zielenergie und Zielzeit (wenn gesetzt), angesteckt,
+  Ladephasen und der Ladestand des Fahrzeugs (wenn die Wallbox sie meldet).
+- **Wärmepumpe (SG-Ready):** SG-Zustand (1 bis 4) und die Sollwert-Anhebung in K.
+- **Programm:** Auftragszustand (bereit, scharf, läuft) und der geplante Start.
+- **Batterie** (eigenes HA-Gerät, wenn es einen Batterie-Adapter gibt): Aktion (Ruhe, Laden,
+  Halten) und wer die Steuerung hält. Sie zeigen, was SunCore hält, bleiben im Schattenmodus also
+  bei „Ruhe“ und „Eigene Einstellungen“.
+
+Das sind absichtlich Sensoren. EV-Modus und Ziel setzen, ein Programm vormerken und das
+Komfortband aus Home Assistant gibt es noch nicht (siehe Grenzen).
 
 ## 3. Befehle und was abgelehnt wird
 
@@ -86,12 +102,12 @@ Schutzmaßnahmen, alle getestet:
 
 ## 4. Bekannte Grenzen und UNVERIFIED
 
-- **Noch nicht angemeldet:** Kosten, Ersparnis, Autarkie und Prognosefehler, Monatsspitze,
-  Netzzustand, die Binärsensoren für §14a und Inselbetrieb, Batteriestrategie, -reserve und
-  Abendziel, Batterie-Aktion und -Lease sowie die Entitäten für E-Auto, Programme und
-  Wärmepumpe (EV-Modus und Ziel, Vormerken, Abbrechen, Fertig bis, Auftragszustand, geplanter
-  Start, Komfortband). Sie stehen im Katalog und folgen mit der Begleit-Integration in Phase 7.
-  Bis dahin nimmst du dafür das Panel. Das Event-Entity feuert nur für ein geschaltetes Gerät,
+- **Noch nicht angemeldet:** Kosten, Ersparnis, Autarkie, Prognosefehler und die nächste
+  Aktion (nichts erzeugt sie), Batteriestrategie, -reserve und Abendziel sowie jede
+  **Steuerung** für E-Auto, Programme und Komfort (EV-Modus, Ziel, Vormerken, Abbrechen, Fertig
+  bis, Komfortband). Die Steuerungen brauchen einen Befehlsweg, der etwas vormerkt oder setzt;
+  das ist offene Arbeit (Plan Abschnitt 8, 6-O) und kommt mit der Begleit-Integration in
+  Phase 7. Bis dahin nimmst du dafür das Panel. Das Event-Entity feuert nur für ein geschaltetes Gerät,
   einen Vorschlag und einen Fehler. Konfigurationsänderungen aus Home Assistant (und damit ein
   Urheber `mqtt` im Konfigurationsverlauf) gibt es nicht.
 - Einen manuellen Broker kannst du im Panel noch nicht eintragen; nimm den Abschnitt `mqtt`.
