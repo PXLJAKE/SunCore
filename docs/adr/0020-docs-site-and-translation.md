@@ -117,3 +117,16 @@ migration itself.
 
 Accept; please confirm that only the user docs are published and that you will create the Hosted
 Weblate project (UI and app options only).
+
+## Addendum 2026-11-25: hosting and versions (7-L)
+
+The maintainer hosts the site on his own web server (Plesk), not on GitHub Pages. Decision 3 changes
+as follows: no `mike`, no `gh-pages` branch and no version switcher. A stable release (not a
+pre-release) builds the site with `mkdocs build --strict` and attaches it as
+`suncore-docs-<version>.zip`; an optional job syncs it to the server with rsync over SSH when the
+repository secrets `DOCS_DEPLOY_HOST`, `_USER`, `_KEY`, `_PATH` and `_KNOWN_HOSTS` exist (host key
+checking is never disabled, `--delete` acts inside the target path only). `site_url` comes from the
+environment variable `SUNCORE_DOCS_URL` (for example `https://<domain>/docs/suncore/`, a subpath
+next to the maintainer's portfolio). The site shows the newest stable documentation; older
+versions are in the release ZIPs. The spike outcome: the folder layout works, the fallback is not
+needed; a Markdown file in the root of `docs/user` must not share a name with a language page.
