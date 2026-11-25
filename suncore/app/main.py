@@ -277,6 +277,8 @@ async def _amain(settings: Settings) -> int:
         port=settings.port,
         supervised=under_supervisor(),
     )
+    if settings.demo_mode and settings.demo_mqtt:
+        log.warning("app.demo_mqtt", note="CI only: the demo builds the MQTT entity service")
     runtime = await build_runtime(settings)
     clean = await serve(runtime)
     log.info("app.stopped")

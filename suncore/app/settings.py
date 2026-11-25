@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     """Demo only (env SUNCORE_DEMO_BATTERY_CONTROL): the simulated house gets a controllable
     inverter and the demo stores a ``generic.battery`` adapter, so the UI can show the battery
     card (used by the Playwright run and the screenshots). Off = the battery is observe only."""
+    demo_mqtt: bool = False
+    """Demo only, CI only (env SUNCORE_DEMO_MQTT): build the MQTT entity service in demo mode so
+    the loaded smoke test can exercise it against a manual broker (configured through the API
+    into the throw-away database). Off by default and logged at start. MQTT commands then act
+    on the demo runtime only; the demo never touches ``/data``. Not an app option."""
     demo_history_days: int = Field(default=90, ge=0, le=365)
     """Demo only (env SUNCORE_DEMO_HISTORY_DAYS): days of deterministic made-up history seeded
     into the demo's throw-away database (history view, plan chart, forecast skill); 0 = none."""
