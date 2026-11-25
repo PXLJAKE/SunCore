@@ -17,6 +17,8 @@ describe('gridBadges', () => {
     expect(gridBadges(null)).toEqual([]);
     expect(gridBadges(status())).toEqual([]);
     expect(gridBadges(status({ state: 'not_configured' }))).toEqual([]);
+    // §14a not configured (also right after startup): no badge at all
+    expect(gridBadges(status({ para14a: 'not_configured' }))).toEqual([]);
   });
 
   it('shows island and §14a', () => {

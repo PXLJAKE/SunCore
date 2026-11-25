@@ -7453,8 +7453,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Not an EV charger */
+            /** @description Not an EV charger or the target time is out of range */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The state could not be stored */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7590,8 +7599,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Not a program or the deadline is in the past */
+            /** @description Not a program or the deadline is out of range */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The job could not be stored */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7639,8 +7657,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorOut"];
                 };
             };
-            /** @description Not a program or the deadline is in the past */
+            /** @description Not a program or the deadline is out of range */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The job could not be stored */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

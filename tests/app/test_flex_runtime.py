@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from suncore.api.flex_types import NotAnEvError
+from suncore.api.flex_types import EvTargetError, FlexStoreError, NotAnEvError
 from suncore.app.grid import GridMonitor
 from suncore.app.programs import ProgramJobBook
 from suncore.app.runtime import Runtime
@@ -156,7 +156,7 @@ async def test_grid_status_without_a_stack_is_unknown() -> None:
         _timezone=lambda: UTC,
     )
     status = await Runtime.grid_status(rt)
-    assert (status.state, status.para14a, status.month) == ("unknown", "inactive", "2026-11")
+    assert (status.state, status.para14a, status.month) == ("unknown", "not_configured", "2026-11")
     assert status.month_peak_w is None
     assert status.peak_limit_w is None
 
@@ -179,3 +179,53 @@ async def test_grid_events_without_a_database_are_empty() -> None:
     view = await Runtime.grid_events(rt, 30)
     assert view.events == ()
     assert view.peaks == ()
+
+
+async def test_ev_target_time_is_bounded_to_the_next_seven_days() -> None:
+    rt = runtime()
+    for by, key in (
+        (NOW - timedelta(minutes=1), "api.error.ev_target_past"),
+        (NOW, "api.error.ev_target_past"),
+        (NOW + timedelta(days=7, seconds=1), "api.error.ev_target_far"),
+    ):
+        with pytest.raises(EvTargetError) as err:
+            await Runtime.set_ev_state(rt, "wallbox", EvMode.TARGET, EvTarget(soc_pct=80, by=by))
+        assert err.value.key == key
+    ok = EvTarget(soc_pct=80, by=NOW + timedelta(days=7))
+    await Runtime.set_ev_state(rt, "wallbox", EvMode.TARGET, ok)
+    assert rt.flex_store.saved[-1].target == ok
+
+
+async def test_a_store_failure_is_a_flex_store_error_and_changes_nothing() -> None:
+    rt = runtime()
+
+    async def boom(state: EvState) -> None:
+        raise OSError("disk full")
+
+    rt.flex_store.put_ev = boom
+    with pytest.raises(FlexStoreError):
+        await Runtime.set_ev_state(rt, "wallbox", EvMode.NOW, None)
+    assert "wallbox" not in rt._ev_states
+
+
+def _site(para14a: bool) -> SimpleNamespace:
+    return SimpleNamespace(grid=SimpleNamespace(para14a=para14a, peak_shaving=None))
+
+
+async def test_para14a_is_unknown_only_when_configured_without_a_reading() -> None:
+    def rt(site: object, monitor: object | None) -> SimpleNamespace:
+        return SimpleNamespace(
+            clock=lambda: NOW,
+            stack=None if monitor is None else SimpleNamespace(grid_monitor=monitor),
+            site=site,
+            _timezone=lambda: UTC,
+        )
+
+    # configured, no monitor or no reading yet: unknown
+    assert (await Runtime.grid_status(rt(_site(True), None))).para14a == "unknown"
+    assert (await Runtime.grid_status(rt(_site(True), GridMonitor(UTC)))).para14a == "unknown"
+    # not configured: a distinct state, never "unknown"
+    assert (await Runtime.grid_status(rt(_site(False), None))).para14a == "not_configured"
+    assert (await Runtime.grid_status(rt(_site(False), GridMonitor(UTC)))).para14a == (
+        "not_configured"
+    )

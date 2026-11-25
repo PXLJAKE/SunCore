@@ -2208,5 +2208,9 @@
   "capability.remote_start": "Fernstart",
   "capability.export_limit": "Einspeisebegrenzung",
   "capability.ac_limit": "AC-Ausgangsbegrenzung",
-  "capability.backup_state": "Ersatzstrom-Zustand"
+  "capability.backup_state": "Ersatzstrom-Zustand",
+  "api.error.flex_store_failed": "Die Änderung konnte nicht gespeichert werden. Versuchen Sie es gleich noch einmal.",
+  "api.error.program_deadline_far": "Die Fertigzeit muss innerhalb der nächsten 7 Tage liegen.",
+  "api.error.ev_target_past": "Die Zielzeit fürs Laden muss in der Zukunft liegen.",
+  "api.error.ev_target_far": "Die Zielzeit fürs Laden muss innerhalb der nächsten 7 Tage liegen."
 }
