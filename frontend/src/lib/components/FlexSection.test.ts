@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { controlApi, flexApi } from '../api/client';
+import { ApiError, controlApi, flexApi } from '../api/client';
 import type { DeviceConfig, FlexView, ProgramJob } from '../api/types';
 import { controlState, device } from '../control/fixtures';
 import { applyLanguage } from '../i18n/index.svelte';
 import { control } from '../stores/control.svelte';
 import { flex } from '../stores/flex.svelte';
+import { live } from '../stores/live.svelte';
 import DeviceCard from './DeviceCard.svelte';
 
 const NOW = new Date(2026, 5, 21, 9, 30);
@@ -123,6 +124,34 @@ describe('EV section', () => {
     await fireEvent.click(screen.getByTestId('ev-target-apply'));
     expect(screen.getByRole('alert').textContent).toContain('future');
     expect(put).not.toHaveBeenCalled();
+  });
+});
+
+describe('EV target and the server clock', () => {
+  const wb = () =>
+    device({ device_id: 'wb', name: 'Wallbox', kind: 'wallbox', state: { quality: 'ok' } });
+
+  it('defaults the target time from the server clock, not the browser clock', async () => {
+    live.control = controlState({ ts: '2031-03-10T09:30:00+01:00' });
+    vi.spyOn(flexApi, 'flex').mockResolvedValue(view('wb'));
+    const put = vi.spyOn(flexApi, 'setEv').mockResolvedValue({} as never);
+    render(DeviceCard, { props: { device: wb(), config: WALLBOX } });
+    await fireEvent.click(screen.getByTestId('ev-mode-target'));
+    expect((screen.getByTestId('ev-target-by') as HTMLInputElement).value).toBe('2031-03-11T07:00');
+    await fireEvent.click(screen.getByTestId('ev-target-apply'));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    live.control = null;
+  });
+
+  it('shows the reason when the server refuses the target', async () => {
+    vi.spyOn(flexApi, 'flex').mockResolvedValue(view('wb'));
+    vi.spyOn(flexApi, 'setEv').mockRejectedValue(new ApiError(422, 'api.error.ev_target_far'));
+    render(DeviceCard, { props: { device: wb(), config: WALLBOX, now: NOW } });
+    await fireEvent.click(screen.getByTestId('ev-mode-target'));
+    await fireEvent.click(screen.getByTestId('ev-target-apply'));
+    const err = await screen.findByTestId('flex-error');
+    expect(err.textContent).toBeTruthy();
+    expect(err.textContent).not.toBe('api.error.ev_target_far');
   });
 });
 
