@@ -67,7 +67,11 @@ from suncore.api.models import (
     template_list,
 )
 from suncore.api.params import PARAMS_MAX_BYTES, guard_expert_document, register_params
-from suncore.api.security import PeerCheckMiddleware, SecurityHeadersMiddleware
+from suncore.api.security import (
+    PeerCheckMiddleware,
+    RequireHeaderMiddleware,
+    SecurityHeadersMiddleware,
+)
 from suncore.api.services import (
     EnergyPrefsFailedError,
     EntityQuery,
@@ -193,6 +197,7 @@ def create_app(
         redoc_url=None,
     )
     app.add_middleware(BodyLimitMiddleware, rules=BODY_LIMITS)
+    app.add_middleware(RequireHeaderMiddleware)  # SEC-13: inside the peer check
     app.add_middleware(PeerCheckMiddleware, policy=services.peer_policy)
     app.add_middleware(SecurityHeadersMiddleware)  # outermost: the 403 carries them too
     app.add_exception_handler(RequestValidationError, validation_exception_handler)

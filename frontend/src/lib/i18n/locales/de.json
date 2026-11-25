@@ -39,6 +39,7 @@
   "api.error.network": "SunCore antwortet nicht. Bitte die Verbindung prüfen.",
   "api.error.not_found": "Nicht gefunden.",
   "api.error.preview_too_large": "Die Vorschau nennt zu viele Entitäten.",
+  "api.error.request_header_missing": "Die Anfrage wurde abgelehnt, weil ein nötiger Header fehlt. Lade die Seite neu. Passiert es weiter, prüfe, ob dein Proxy den Header X-SunCore-Request weiterleitet.",
   "api.error.role_required": "Für eine Vorlage ist eine Rolle erforderlich.",
   "api.error.tariff_not_configured": "Es ist noch kein Tarif eingerichtet. Wähle deinen Tarif in den Einstellungen.",
   "api.error.unknown": "Ein unerwarteter Fehler ist aufgetreten.",

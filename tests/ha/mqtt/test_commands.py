@@ -6,6 +6,9 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from structlog.testing import capture_logs
 
 from suncore.core.controlstate import OverrideCommand
 from suncore.core.decisions import OperatingMode
@@ -19,6 +22,12 @@ from suncore.ha.mqtt.commands import (
     TokenBucket,
 )
 from suncore.ha.mqtt.discovery import Topics
+from suncore.ha.mqtt.refusals import (
+    OVERFLOW_ENTITY,
+    SUMMARY_INTERVAL_S,
+    RefusalCount,
+    RefusalLogThrottle,
+)
 
 DEVICE = "heater"
 
@@ -33,6 +42,8 @@ class FakePort:
         self.fail = False
         self.settled = False
         self.block: asyncio.Event | None = None
+        self.stop_block: asyncio.Event | None = None
+        """Holds the stop *after* it is recorded (the gate sets its flag first, then releases)."""
 
     def stored_global_mode(self) -> OperatingMode:
         return self.global_mode
@@ -54,6 +65,8 @@ class FakePort:
 
     async def command_emergency_stop(self) -> None:
         self._record("stop")
+        if self.stop_block is not None:
+            await self.stop_block.wait()
 
     async def command_clear_stop(self) -> None:
         self._record("clear")
@@ -354,3 +367,108 @@ async def test_numbers_must_be_plain_decimals(payload: str) -> None:
     handler, _port, _clock, ids = make()
     result = await send(handler, ids["device_boost_minutes"], payload)
     assert result.reason.key == "mqtt.command.invalid_payload"
+
+
+# --- SEC-16: refused-command log throttle ---------------------------------------------------
+
+
+async def test_a_refusal_flood_logs_the_first_line_and_then_a_count() -> None:
+    handler, port, clock, ids = make()
+    with capture_logs() as logs:
+        for _ in range(200):
+            await send(handler, ids["replan"], "PRESS")
+        for _ in range(50):
+            await send(handler, ids["replan"], "garbage")
+        clock.now += SUMMARY_INTERVAL_S
+        handler.log_refusal_summary()
+    refused = [e for e in logs if e["event"] == "mqtt.command" and not e["accepted"]]
+    accepted = [e for e in logs if e["event"] == "mqtt.command" and e["accepted"]]
+    summaries = [e for e in logs if e["event"] == "mqtt.command_refused_summary"]
+    assert len(accepted) == ENTITY_BURST == len(port.calls)  # unchanged: accepted are all logged
+    assert [(e["entity"], e["reason"]) for e in refused] == [
+        (ids["replan"], "mqtt.command.rate_limited"),
+        (ids["replan"], "mqtt.command.invalid_payload"),
+    ]
+    assert len(summaries) == 1
+    assert summaries[0]["total"] == 200 - ENTITY_BURST - 1 + 50 - 1
+    assert summaries[0]["log_level"] == "warning"
+
+
+async def test_the_throttle_changes_no_verdict() -> None:
+    """Same messages, same clock: the results are identical with and without throttling."""
+    plain, _p1, c1, ids = make()
+    throttled, _p2, c2, _ = make()
+    plain._refusal_log = RefusalLogThrottle(c1, interval_s=0.0, max_keys=10_000)
+    for i in range(120):
+        c1.now = c2.now = 1000.0 + i * 0.25
+        key = ("replan", "auto", "emergency_stop_button", "device_pause")[i % 4]
+        payload = "garbage" if i % 7 == 0 else ("ON" if key == "auto" else "PRESS")
+        a = await send(plain, ids[key], payload)
+        b = await send(throttled, ids[key], payload)
+        assert a == b
+
+
+def test_throttle_logs_each_pair_once_per_busy_interval() -> None:
+    clock = Clock()
+    t = RefusalLogThrottle(clock, interval_s=60.0)
+    assert t.record("a", "r1") is True
+    assert t.record("a", "r1") is False
+    assert t.record("a", "r2") is True
+    assert t.record("b", "r1") is True
+    assert t.summary() is None  # interval not over
+    clock.now += 60.0
+    assert t.summary() == [RefusalCount("a", "r1", 1)]
+    # "a"/"r1" is still flooding: counted, not logged again.
+    assert t.record("a", "r1") is False
+    # "b"/"r1" was quiet for an interval: forgotten after the next summary.
+    clock.now += 60.0
+    assert t.summary() == [RefusalCount("a", "r1", 1)]
+    assert t.record("b", "r1") is True
+    clock.now += 60.0
+    assert t.summary() == []
+    clock.now += 60.0
+    assert t.summary() == []
+    assert t.record("a", "r1") is True  # quiet for a whole interval: in full again
+
+
+def test_throttle_bounds_invented_entities() -> None:
+    clock = Clock()
+    t = RefusalLogThrottle(clock, max_keys=4)
+    full = [t.record(f"x{i}", "mqtt.command.unknown_entity") for i in range(1000)]
+    assert sum(full) == 5  # four pairs plus the overflow pair
+    clock.now += SUMMARY_INTERVAL_S
+    assert t.summary() == [RefusalCount(OVERFLOW_ENTITY, "mqtt.command.unknown_entity", 995)]
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    st.lists(
+        st.tuples(
+            st.sampled_from(["a", "b", "c", "d", "e"]),
+            st.sampled_from(["r1", "r2"]),
+            st.floats(min_value=0.0, max_value=90.0),
+        ),
+        max_size=300,
+    )
+)
+def test_throttle_accounts_for_every_refusal(events: list[tuple[str, str, float]]) -> None:
+    """Property: every refusal is either logged in full or counted in exactly one summary,
+    and per interval at most one full line per pair (plus the overflow pair) is logged."""
+    clock = Clock()
+    max_keys = 4
+    t = RefusalLogThrottle(clock, interval_s=60.0, max_keys=max_keys)
+    full = counted = 0
+    full_this_interval = 0
+    for entity, reason, dt in events:
+        clock.now += dt
+        counts = t.summary()
+        if counts is not None:
+            counted += sum(c.suppressed for c in counts)
+            full_this_interval = 0
+        if t.record(entity, reason):
+            full += 1
+            full_this_interval += 1
+        assert full_this_interval <= max_keys + 2  # + one overflow pair per reason
+    clock.now += 60.0
+    counted += sum(c.suppressed for c in t.summary() or [])
+    assert full + counted == len(events)

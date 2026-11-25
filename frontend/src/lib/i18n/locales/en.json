@@ -39,6 +39,7 @@
   "api.error.network": "SunCore did not respond. Check the connection.",
   "api.error.not_found": "Not found.",
   "api.error.preview_too_large": "The preview names too many entities.",
+  "api.error.request_header_missing": "The request was refused because a required header is missing. Reload the page. If it keeps happening, check that your proxy forwards the X-SunCore-Request header.",
   "api.error.role_required": "A role is required for a template.",
   "api.error.tariff_not_configured": "No tariff is set up yet. Choose your tariff in the settings.",
   "api.error.unknown": "An unexpected error occurred.",

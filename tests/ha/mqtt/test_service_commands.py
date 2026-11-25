@@ -255,3 +255,101 @@ async def test_the_emergency_stop_passes_a_blocked_command(harness: Harness) -> 
     harness.command("emergency_stop_button", "PRESS")
     await harness.broker.wait_for(lambda: ("stop",) in harness.port.calls, seconds=1.0)
     harness.port.block.set()
+
+
+# --- SEC-15: one emergency-stop task, coalesced repeats ----------------------------------
+
+
+def _stop_tasks() -> list[asyncio.Task[Any]]:
+    return [
+        t
+        for t in asyncio.all_tasks()
+        if t.get_name() == "suncore-mqtt-emergency-stop" and not t.done()
+    ]
+
+
+async def test_a_stop_flood_runs_one_task_and_repeats_once(harness: Harness) -> None:
+    await harness.connected()
+    routed = 0
+    route = harness.service._route_command
+
+    def counting(*args: Any) -> None:
+        nonlocal routed
+        routed += 1
+        route(*args)
+
+    harness.service._route_command = counting  # type: ignore[method-assign]
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    # The first stop reaches the port at once, while the flood has not even started.
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    for _ in range(500):
+        harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: routed == 501, seconds=5.0)
+    assert len(_stop_tasks()) == 1
+    assert harness.port.calls == [("stop",)]
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",), ("stop",)]  # the flood collapsed into one repeat
+    # After the run a new stop starts a new task at once.
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 3, seconds=1.0)
+
+
+async def test_a_single_stop_is_not_repeated(harness: Harness) -> None:
+    await harness.connected()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls, seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",)]
+    assert not _stop_tasks()
+
+
+async def test_garbage_during_a_stop_never_replaces_a_pending_press(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    harness.command("emergency_stop_button", "PRESS")
+    for payload in ("garbage", "x" * 500, "press"):
+        harness.command("emergency_stop_button", payload)
+    await settle()
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 2, seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",), ("stop",)]
+
+
+async def test_a_stop_after_garbage_alone_still_repeats(harness: Harness) -> None:
+    """Garbage first marks the repeat; a later valid press replaces it and is not lost."""
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    harness.command("emergency_stop_button", "garbage")
+    harness.command("emergency_stop_button", "PRESS")
+    await settle()
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 2, seconds=1.0)
+
+
+async def test_a_failing_stop_does_not_wedge_the_next_one(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.fail = True
+    harness.command("emergency_stop_button", "PRESS")
+    await settle()
+    assert not _stop_tasks()
+    harness.port.fail = False
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+
+
+async def test_stopping_the_service_cancels_a_stop_in_flight(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    await harness.service.stop()
+    await asyncio.sleep(0)
+    assert not _stop_tasks()

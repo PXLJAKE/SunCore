@@ -115,7 +115,10 @@ class _Session:
     commands: CommandHandler | None = None
     allow_mode_raise: bool = False
     queue: asyncio.Queue[tuple[str, str, bytes, bool]] | None = None
-    priority_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    stop_task: asyncio.Task[None] | None = None
+    """The one emergency-stop task in flight (SEC-15)."""
+    stop_again: tuple[str, str, bytes] | None = None
+    """A stop message that arrived while ``stop_task`` ran: ``(topic, object_id, payload)``."""
 
 
 class HaEntityService:
@@ -280,11 +283,13 @@ class HaEntityService:
             await self._goodbye(session)
             for task in tasks:
                 task.cancel()
-            for task in session.priority_tasks:
-                task.cancel()
+            if session.stop_task is not None:
+                session.stop_task.cancel()
             for task in tasks:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
+            if session.commands is not None:
+                session.commands.log_refusal_summary()
             self._session = None
 
     async def _guard(self, config: MqttConfig, session: _Session) -> None:
@@ -345,17 +350,25 @@ class HaEntityService:
     ) -> None:
         """Never run a command inside the client's read loop: the emergency stop gets its own
         task at once, everything else goes through one worker queue (a slow service call must
-        not delay the read of a later emergency stop)."""
+        not delay the read of a later emergency stop).
+
+        At most one stop task exists (SEC-15). The first stop message starts it at once, never
+        delayed or dropped. A stop message that arrives while it runs only marks the stop to
+        run once more when the current run ends, so a flood costs one task and at most one
+        repeat per run. A valid press is never replaced by a later invalid payload."""
         handler = session.commands
         if handler is None:
             return
         if not retain and handler.is_priority(object_id):
-            task = asyncio.create_task(
-                self._command(session, topic, object_id, payload, retain),
+            if session.stop_task is not None and not session.stop_task.done():
+                if session.stop_again is None or handler.is_valid_payload(object_id, payload):
+                    session.stop_again = (topic, object_id, payload)
+                return
+            session.stop_again = None
+            session.stop_task = asyncio.create_task(
+                self._stop(session, topic, object_id, payload),
                 name="suncore-mqtt-emergency-stop",
             )
-            session.priority_tasks.add(task)
-            task.add_done_callback(session.priority_tasks.discard)
             return
         if session.queue is None:
             return
@@ -363,6 +376,18 @@ class HaEntityService:
             session.queue.put_nowait((topic, object_id, payload, retain))
         except asyncio.QueueFull:
             log.warning("mqtt.command_queue_full", entity=object_id)
+
+    async def _stop(self, session: _Session, topic: str, object_id: str, payload: bytes) -> None:
+        """Run the stop, then once more for each run during which another stop arrived."""
+        pending: tuple[str, str, bytes] | None = (topic, object_id, payload)
+        while pending is not None:
+            try:
+                await self._command(session, *pending, False)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("mqtt.emergency_stop_failed", entity=pending[1])
+            pending, session.stop_again = session.stop_again, None
 
     async def _command_worker(self, session: _Session) -> None:
         assert session.queue is not None
@@ -389,13 +414,17 @@ class HaEntityService:
             await session.client.publish(topic, "", 1, True)
         session.publisher.forget(object_id)
         self.refresh()  # the true state (also after a refusal) goes out at the next sync
-        if result.refused and not retain:
-            log.info("mqtt.command_refused", entity=object_id, reason=result.reason.key)
-            if self._on_refusal is not None and result.reason.key == REASON_RAISE_DISABLED:
-                try:
-                    self._on_refusal(object_id, result.reason)
-                except Exception:
-                    log.exception("mqtt.refusal_hook_failed")
+        # A refusal is logged by the handler, throttled (SEC-16).
+        if (
+            result.refused
+            and not retain
+            and self._on_refusal is not None
+            and result.reason.key == REASON_RAISE_DISABLED
+        ):
+            try:
+                self._on_refusal(object_id, result.reason)
+            except Exception:
+                log.exception("mqtt.refusal_hook_failed")
 
     async def _after_birth(self, session: _Session) -> None:
         await asyncio.sleep(self._rng(*self._birth_delay))
@@ -499,6 +528,8 @@ class HaEntityService:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._dirty.wait(), self._poll_s)
             self._dirty.clear()
+            if session.commands is not None:
+                session.commands.log_refusal_summary()
             if not session.client.connected:
                 continue
             try:

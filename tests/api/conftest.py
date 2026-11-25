@@ -599,9 +599,16 @@ def services() -> FakeServices:
     return FakeServices()
 
 
-def client_for(app: FastAPI, client: tuple[str, int] = ("127.0.0.1", 50000)) -> httpx.AsyncClient:
+def client_for(
+    app: FastAPI,
+    client: tuple[str, int] = ("127.0.0.1", 50000),
+    *,
+    request_header: bool = True,
+) -> httpx.AsyncClient:
+    """A client like the SPA: it sends ``X-SunCore-Request: 1`` unless told not to (SEC-13)."""
     transport = httpx.ASGITransport(app=app, client=client)
-    return httpx.AsyncClient(transport=transport, base_url="http://test")
+    headers = {"X-SunCore-Request": "1"} if request_header else {}
+    return httpx.AsyncClient(transport=transport, base_url="http://test", headers=headers)
 
 
 @contextlib.asynccontextmanager
