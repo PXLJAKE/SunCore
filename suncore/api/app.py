@@ -29,6 +29,7 @@ from pydantic_core import PydanticCustomError
 from starlette.websockets import WebSocketState
 
 from suncore.api.backtests import register_backtests
+from suncore.api.diagnostics import register_diagnostics
 from suncore.api.flex import register_flex
 from suncore.api.history import register_decisions, register_history
 from suncore.api.limits import BodyLimitMiddleware
@@ -195,6 +196,7 @@ def create_app(
     _register_notifications(app, services)
     register_history(app, services)
     register_flex(app, services)
+    register_diagnostics(app, services)
     register_params(app, services)
     register_backtests(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)

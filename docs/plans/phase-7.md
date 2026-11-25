@@ -1386,6 +1386,63 @@ Part 2 (community hygiene) is below; the final runs after 7-I and 7-J are still 
     reserve; frozen on an unknown signal, held after it ends; no claim about grid charging).
   - F7a: a warning when switching from a manual broker with a stored password to the Supervisor.
 - **UNVERIFIED:** nothing new; the §14a limit and signal convention stay as in 6-F.
+### 7-I (backend half; branch `phase-7/i-diagnostics-backend`, on 7-B)
+
+- The frontend half (the *Settings → Advanced → Diagnostics* panel, the heat pump card rows)
+  waits for the Settings redesign (7-G); this PR changes `frontend/` only by the regenerated
+  `openapi.json` and `schema.d.ts`.
+- `GET /api/v1/diagnostics` is `DiagnosticsOut` (`suncore/api/diagnostics_models.py`), built by
+  `suncore/app/diagnostics.py` from an allowlist. Where WP7 is loose, the choices are:
+  - **Configuration:** numbers, flags and `null` keep their value (not coordinates keys); a string
+    is kept only under an enum-like key (`kind`, `mode`, `template_id`, `adapter`, times, ...);
+    `entity_id`, `id`, `name` and `*entry_id` values become pseudonyms; every other string is
+    `<omitted>`. Keys that name a secret read `<masked>`, `host` and `username` read `<set>`.
+    `timezone` is `<omitted>` (coarse location; the UTC offset is not exported either).
+  - **Hidden is hidden everywhere:** every string the configuration allowlist drops or masks
+    (a Tibber token in `action_params`, the MQTT host) is registered with the text scrubber, so a
+    log line or a reason argument that repeats it is masked as well. The home location (HA
+    `get_config`) is only used to mask coordinates in text; it is never exported.
+  - **Pseudonyms:** HMAC-SHA-256 with a random per-export salt, 8 hex digits: `sensor.e_1a2b3c4d`
+    (the domain stays), `device_...` (the id and the name of a device share one), `area_...`,
+    `ha_device_...`. A configured device wins over an HA device of the same name. Text is scrubbed
+    in one pass: known literals (ids, names, areas), then anything shaped like an entity id of a
+    closed list of HA domains (a generic `a.b` pattern would also hit event names).
+  - **Logs:** a new in-memory ring (`app/logbuffer.py`, 500 records of WARNING and above) is
+    attached by `configure_logging`; it stores the event, the keyword fields and the last line of an
+    exception, nothing is written to disk. Fields under secret or coordinate keys are masked.
+  - **Decisions:** the newest 200 as an allowlisted projection (kind, mode, origin, asset, the
+    numeric fields of the action, reasons with scrubbed arguments, expiry); asset ids `battery`,
+    `inverter` and `site` stay literal.
+  - **Too-new `timeseries.db`:** `probe_timeseries_file` reads `PRAGMA user_version` read-only
+    (`ok`, `too_new`, `unreadable`, `absent`); the export reports `too_new` for the file this
+    process left untouched. No change to `open_timeseries_or_recover`.
+  - **Unavailable:** a source that cannot be read is `null` and its path is listed in
+    `unavailable`. The planner view carries no MIP gap or objective, so they are not exported
+    (`planner.solver.mip_gap` is named there, not invented).
+- **Heat pump:** `DeviceControlState.heat_pump` (`HeatPumpLive`, additive) carries the outdoor
+  temperature of the current hour, the COP from the device's curve (or the generic air/water curve)
+  with `cop_assumed`, and `model` (`fit_error` = the learner's `nrmse`, history days, fit time,
+  `used_by_planner` = `model_usable`). The outdoor value is the *forecast* of the current hour from
+  the weather entity (`LoadForecastService.outdoor_forecast`), not a measurement; `null` without a
+  weather entity. The values are added in `Runtime.control_state`, not in `ControlStack`, so
+  `safety/` and `controller/` are untouched.
+- No new reason or message keys, so no catalogue change. There is no troubleshooting page in
+  `docs/user` on this base, so no troubleshooting note was added; the panel's help text belongs
+  to the frontend half.
+
+### 7-I (frontend half; branch `phase-7/i-diagnostics-frontend`, on 7-G)
+
+- The panel sits in the slot 7-G left in *Settings > Advanced*, between expert mode and the
+  configuration history, and is a lazy chunk (the standard path grew 3.9 kB to 247.6 kB, budget 250).
+- The download saves the export that the preview loaded (one salt), so what a person read is what
+  they post; "Create again" fetches a new export with new pseudonyms. Sections are rendered only
+  while open (the log and decision lists are long).
+- Heat pump card: `device.heat_pump` is preferred; without an outdoor temperature (no weather
+  entity) the card keeps the 7-E curve range. The outdoor value is the forecast of the current hour
+  (backend note above), not a measurement; the card does not call it one.
+- No troubleshooting page exists in `docs/user` on this base, so no hint was added there.
+- E2E note: the demo's simulated clock drifts when one server runs for hours; `plan.spec` ("jumps
+  to a day") and `whatif.spec` (replay) then fail on the tablet project and pass on a fresh server.
 
 ## 9. Follow-ups per agent
 

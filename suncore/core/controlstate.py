@@ -68,6 +68,39 @@ class DeviceControlState(_Frozen):
     since: AwareDatetime | None
     last_decision: Decision | None
     """The newest decision the gate made for this device."""
+    heat_pump: HeatPumpLive | None = None
+    """Live COP and thermal-model quality of a device with a ``thermal`` section (PR 7-I,
+    additive); ``None`` for every other device."""
+
+
+class ThermalModelQuality(_Frozen):
+    """How good the learned RC model of a heat pump is and whether the planner uses it."""
+
+    fit_error: float = Field(ge=0, allow_inf_nan=False)
+    """Normalised RMSE of a 24 h replay of the learned model (``LearnedThermal.nrmse``)."""
+    history_days: int = Field(ge=0)
+    fitted_at: AwareDatetime
+    used_by_planner: bool
+    """``core.thermal.model_usable``: enough history and an error within the limit. If not, the
+    planner treats the device as energy-only."""
+
+
+class HeatPumpLive(_Frozen):
+    """Live thermal values of a heat pump or other thermal device (PR 7-I, additive).
+
+    ``None`` fields are unknown, never zero: no outdoor temperature source, no learned model.
+    """
+
+    outdoor_c: float | None = Field(default=None, allow_inf_nan=False)
+    """Outdoor temperature of the current hour from the weather entity's forecast
+    (``LoadForecastService.outdoor_forecast``); ``None`` without a weather entity."""
+    cop: float | None = Field(default=None, allow_inf_nan=False)
+    """The COP at ``outdoor_c`` from the device's COP curve (``CopCurve.cop_at``)."""
+    cop_assumed: bool = True
+    """The curve is the generic air/water assumption (the UI labels it "assumed"); ``False``
+    only for a curve from the template or the user."""
+    model: ThermalModelQuality | None = None
+    """``None`` = no model was learned yet."""
 
 
 class SiteControlState(_Frozen):
@@ -294,6 +327,7 @@ __all__ = [
     "DeviceControlState",
     "DeviceIdentityChangedError",
     "DeviceModeRequest",
+    "HeatPumpLive",
     "InverterControlState",
     "InverterModeRequest",
     "InverterNotControllableError",
@@ -303,6 +337,7 @@ __all__ = [
     "OverrideCommand",
     "OverrideUntilPastError",
     "SiteControlState",
+    "ThermalModelQuality",
     "UnknownDeviceError",
     "UnknownProposalError",
     "override_until_past",

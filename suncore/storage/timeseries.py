@@ -119,6 +119,43 @@ async def open_timeseries(path: Path | str) -> Database:
     return await Database.open(path, migrations=timeseries_migrations())
 
 
+TimeseriesFileState = Literal["absent", "ok", "too_new", "unreadable"]
+
+
+@dataclass(frozen=True, slots=True)
+class TimeseriesProbe:
+    """What a read-only look at ``timeseries.db`` found (diagnostics, never opens for writing)."""
+
+    state: TimeseriesFileState
+    file_version: int | None
+    """``PRAGMA user_version`` of the file; ``None`` when absent or unreadable."""
+    code_version: int
+    """The schema version this code produces."""
+
+
+def probe_timeseries_file(path: Path | str) -> TimeseriesProbe:
+    """Classify ``timeseries.db`` without migrating, creating or moving it.
+
+    ``too_new`` is the file :func:`open_timeseries_or_recover` leaves untouched (it was written by
+    a newer SunCore); the diagnostics export reports it. Blocking: call from a thread.
+    """
+    migrations = timeseries_migrations()
+    code_version = migrations[-1].version if migrations else 0
+    target = Path(path)
+    if not target.exists():
+        return TimeseriesProbe("absent", None, code_version)
+    try:
+        conn = sqlite3.connect(f"{target.resolve().as_uri()}?mode=ro", uri=True, timeout=1.0)
+        try:
+            row = conn.execute("PRAGMA user_version").fetchone()
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        return TimeseriesProbe("unreadable", None, code_version)
+    version = _int(row[0]) if row else 0
+    return TimeseriesProbe("too_new" if version > code_version else "ok", version, code_version)
+
+
 KEEP_CORRUPT_FILES: Final = 2
 """How many moved-aside corrupt databases are kept (older ones are deleted)."""
 
@@ -857,9 +894,12 @@ __all__ = [
     "MeasurementRow",
     "Resolution",
     "RetentionReport",
+    "TimeseriesFileState",
+    "TimeseriesProbe",
     "TimeseriesSize",
     "TimeseriesStore",
     "open_timeseries",
     "open_timeseries_or_recover",
+    "probe_timeseries_file",
     "timeseries_migrations",
 ]

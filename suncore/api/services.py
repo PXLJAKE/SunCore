@@ -16,6 +16,7 @@ from typing import Any, Final, Literal, Protocol
 
 from pydantic import BaseModel
 
+from suncore.api.diagnostics_models import DiagnosticsOut
 from suncore.api.flex_types import GridEvents, GridStatus
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BatteryModel
@@ -417,6 +418,11 @@ class Services(Protocol):
         ...
 
     async def export_config(self) -> dict[str, Any]: ...
+
+    async def diagnostics(self) -> DiagnosticsOut:
+        """The anonymised diagnostics document (BRIEF section 5, PR 7-I): built from an
+        allowlist, pseudonyms salted per call, secrets and coordinates never included."""
+        ...
 
     async def import_config(self, data: object) -> list[str]:
         """Validate and replace; raises ``ImportRejectedError`` on bad input."""

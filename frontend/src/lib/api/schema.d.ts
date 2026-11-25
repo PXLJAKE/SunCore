@@ -577,6 +577,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnostics
+         * @description Anonymised diagnostics for bug reports (BRIEF section 5).
+         *
+         *     Built from an allowlist: entity ids, device names and HA area names become pseudonyms
+         *     (a new salt per call, the same pseudonym for the same value inside one document),
+         *     secrets are masked, and coordinates, tokens, passwords and MQTT credentials are never
+         *     included. Contains the last 200 decisions and the last 500 warning lines.
+         */
+        get: operations["diagnostics_api_v1_diagnostics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities": {
         parameters: {
             query?: never;
@@ -2840,6 +2865,7 @@ export interface components {
             /** Expected Power W */
             expected_power_w: number | null;
             global_mode: components["schemas"]["OperatingMode"];
+            heat_pump?: components["schemas"]["HeatPumpLive"] | null;
             /** Held */
             held: boolean;
             /** Held Until */
@@ -3048,6 +3074,265 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+        };
+        /** DiagArchitecture */
+        DiagArchitecture: {
+            /** Cpu Count */
+            cpu_count: number | null;
+            /** Demo */
+            demo: boolean;
+            /** Machine */
+            machine: string;
+            /** Operating Mode */
+            operating_mode: string;
+            /** Supervised */
+            supervised: boolean;
+            /** System */
+            system: string;
+        };
+        /** DiagConnection */
+        DiagConnection: {
+            /** Db Ok */
+            db_ok: boolean;
+            /** Ha State */
+            ha_state: string;
+            /** Last Update Age S */
+            last_update_age_s: number | null;
+            /** Mqtt Reason Key */
+            mqtt_reason_key: string | null;
+            /** Mqtt State */
+            mqtt_state: string | null;
+            registry: components["schemas"]["DiagRegistryCounts"] | null;
+        };
+        /** DiagDecision */
+        DiagDecision: {
+            /** Action */
+            action: {
+                [key: string]: unknown;
+            };
+            /** Asset */
+            asset: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Held Until */
+            held_until: string | null;
+            /** Intent Reasons */
+            intent_reasons: components["schemas"]["DiagReason"][];
+            /** Kind */
+            kind: string;
+            /** Mode */
+            mode: string;
+            /** Observed */
+            observed: {
+                [key: string]: unknown;
+            } | null;
+            /** Origin */
+            origin: string;
+            /** Reasons */
+            reasons: components["schemas"]["DiagReason"][];
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+        };
+        /** DiagLogLine */
+        DiagLogLine: {
+            /** Event */
+            event: string;
+            /** Exception */
+            exception: string | null;
+            /** Fields */
+            fields: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** Level */
+            level: string;
+            /** Logger */
+            logger: string;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+        };
+        /** DiagMappedEntity */
+        DiagMappedEntity: {
+            /** Age S */
+            age_s: number | null;
+            /** Area */
+            area: string | null;
+            /** Device */
+            device: string | null;
+            /** Domain */
+            domain: string;
+            /** Entity */
+            entity: string;
+            /** Known */
+            known: boolean;
+            /** Stale */
+            stale: boolean | null;
+        };
+        /** DiagPlanRun */
+        DiagPlanRun: {
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Last Finished At */
+            last_finished_at: string | null;
+            /** Last Ok At */
+            last_ok_at: string | null;
+            /** Last Outcome */
+            last_outcome: string | null;
+            /** Last Started At */
+            last_started_at: string | null;
+            /** Last Trigger */
+            last_trigger: string | null;
+            /** Next Scheduled At */
+            next_scheduled_at: string | null;
+            /** Pending */
+            pending: string[];
+            reason: components["schemas"]["DiagReason"] | null;
+            /** Running */
+            running: boolean;
+        };
+        /** DiagPlanner */
+        DiagPlanner: {
+            run: components["schemas"]["DiagPlanRun"] | null;
+            solver: components["schemas"]["DiagSolver"] | null;
+        };
+        /** DiagReason */
+        DiagReason: {
+            /** Args */
+            args?: {
+                [key: string]: string | number | boolean;
+            };
+            /** Key */
+            key: string;
+        };
+        /** DiagRegistryCounts */
+        DiagRegistryCounts: {
+            /** Areas */
+            areas: number;
+            /** Devices */
+            devices: number;
+            /** Entities */
+            entities: number;
+        };
+        /** DiagSolver */
+        DiagSolver: {
+            /** Created At */
+            created_at: string | null;
+            /** In Use */
+            in_use: boolean;
+            /** Intervals */
+            intervals: number;
+            /** Last Duration S */
+            last_duration_s: number | null;
+            /** Reasons */
+            reasons: components["schemas"]["DiagReason"][];
+            /** Solve Time S */
+            solve_time_s: number | null;
+            /** Source */
+            source: string | null;
+            /** Stale */
+            stale: boolean;
+            /** Status */
+            status: string | null;
+        };
+        /** DiagTimeseries */
+        DiagTimeseries: {
+            /** Code Schema Version */
+            code_schema_version: number | null;
+            /** File Schema Version */
+            file_schema_version: number | null;
+            size: components["schemas"]["DiagTimeseriesSize"] | null;
+            /** State */
+            state: string;
+        };
+        /** DiagTimeseriesSize */
+        DiagTimeseriesSize: {
+            /** File Bytes */
+            file_bytes: number;
+            /** Free Bytes */
+            free_bytes: number;
+            /** Rows */
+            rows: {
+                [key: string]: number;
+            };
+            /** Total Bytes */
+            total_bytes: number;
+            /** Wal Bytes */
+            wal_bytes: number;
+        };
+        /** DiagVersions */
+        DiagVersions: {
+            /** App */
+            app: string;
+            /** Config Sections */
+            config_sections: {
+                [key: string]: number | null;
+            };
+            /** Ha Core */
+            ha_core: string | null;
+            /** Python */
+            python: string;
+            /** Schemas */
+            schemas: {
+                [key: string]: number | null;
+            };
+        };
+        /** DiagWatchdog */
+        DiagWatchdog: {
+            /** Connected */
+            connected: boolean | null;
+            /** Control Active */
+            control_active: boolean | null;
+            /** Emergency Stop */
+            emergency_stop: boolean | null;
+            /** Scopes */
+            scopes: components["schemas"]["DiagWatchdogScope"][];
+        };
+        /** DiagWatchdogScope */
+        DiagWatchdogScope: {
+            /** Faults */
+            faults: string[];
+            /** Scope */
+            scope: string;
+            /** State */
+            state: string;
+        };
+        /**
+         * DiagnosticsOut
+         * @description The whole export. Share it in a bug report; nothing in it names the installation.
+         */
+        DiagnosticsOut: {
+            architecture: components["schemas"]["DiagArchitecture"];
+            /** Configuration */
+            configuration: {
+                [key: string]: unknown;
+            };
+            connection: components["schemas"]["DiagConnection"];
+            /** Decisions */
+            decisions: components["schemas"]["DiagDecision"][];
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Logs */
+            logs: components["schemas"]["DiagLogLine"][];
+            /** Mapped Entities */
+            mapped_entities: components["schemas"]["DiagMappedEntity"][];
+            planner: components["schemas"]["DiagPlanner"];
+            /** Pseudonyms */
+            pseudonyms: string;
+            /** Schema Version */
+            schema_version: number;
+            timeseries: components["schemas"]["DiagTimeseries"];
+            /** Unavailable */
+            unavailable: string[];
+            versions: components["schemas"]["DiagVersions"];
+            watchdog: components["schemas"]["DiagWatchdog"];
         };
         /**
          * EmergencyStopOut
@@ -3806,6 +4091,24 @@ export interface components {
             ok: boolean;
             /** Version */
             version: string;
+        };
+        /**
+         * HeatPumpLive
+         * @description Live thermal values of a heat pump or other thermal device (PR 7-I, additive).
+         *
+         *     ``None`` fields are unknown, never zero: no outdoor temperature source, no learned model.
+         */
+        HeatPumpLive: {
+            /** Cop */
+            cop?: number | null;
+            /**
+             * Cop Assumed
+             * @default true
+             */
+            cop_assumed: boolean;
+            model?: components["schemas"]["ThermalModelQuality"] | null;
+            /** Outdoor C */
+            outdoor_c?: number | null;
         };
         /** HeatmapOut */
         HeatmapOut: {
@@ -6776,6 +7079,23 @@ export interface components {
             loss_w_per_k: number;
         };
         /**
+         * ThermalModelQuality
+         * @description How good the learned RC model of a heat pump is and whether the planner uses it.
+         */
+        ThermalModelQuality: {
+            /** Fit Error */
+            fit_error: number;
+            /**
+             * Fitted At
+             * Format: date-time
+             */
+            fitted_at: string;
+            /** History Days */
+            history_days: number;
+            /** Used By Planner */
+            used_by_planner: boolean;
+        };
+        /**
          * ThermalSpec
          * @description Heat-pump and thermal-store options (ADR-0017 decision 6; kinds with a comfort band).
          *
@@ -8576,6 +8896,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    diagnostics_api_v1_diagnostics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsOut"];
                 };
             };
         };

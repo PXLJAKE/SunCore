@@ -3,6 +3,7 @@
 // ingress base path (dynamic, unknown at build time) never matters. Never use `/api/...`.
 import type {
   CheckResult,
+  Diagnostics,
   ConfigHistoryEntry,
   ConfigSectionName,
   ControlState,
@@ -170,6 +171,8 @@ export const api = {
     request<HistoryRestore>(`${API_PREFIX}config/${section}/history/${id}/restore`, {
       method: 'POST',
     }),
+  /** The pseudonymised diagnostics export (`GET /api/v1/diagnostics`, Settings > Advanced). */
+  diagnostics: () => request<Diagnostics>(`${API_PREFIX}diagnostics`),
   /** URL of the configuration export (a plain download link, resolved against the document). */
   exportUrl: (): string => apiUrl(`${API_PREFIX}config/export`).toString(),
   /** Import an export file (raw JSON text, validated by the server). */

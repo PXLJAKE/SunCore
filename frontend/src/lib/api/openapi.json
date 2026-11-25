@@ -3503,6 +3503,16 @@
           "global_mode": {
             "$ref": "#/components/schemas/OperatingMode"
           },
+          "heat_pump": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HeatPumpLive"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "held": {
             "title": "Held",
             "type": "boolean"
@@ -4291,6 +4301,963 @@
           }
         },
         "title": "DevicesConfig",
+        "type": "object"
+      },
+      "DiagArchitecture": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Count"
+          },
+          "demo": {
+            "title": "Demo",
+            "type": "boolean"
+          },
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          },
+          "operating_mode": {
+            "title": "Operating Mode",
+            "type": "string"
+          },
+          "supervised": {
+            "title": "Supervised",
+            "type": "boolean"
+          },
+          "system": {
+            "title": "System",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine",
+          "system",
+          "cpu_count",
+          "supervised",
+          "demo",
+          "operating_mode"
+        ],
+        "title": "DiagArchitecture",
+        "type": "object"
+      },
+      "DiagConnection": {
+        "additionalProperties": false,
+        "properties": {
+          "db_ok": {
+            "title": "Db Ok",
+            "type": "boolean"
+          },
+          "ha_state": {
+            "title": "Ha State",
+            "type": "string"
+          },
+          "last_update_age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Update Age S"
+          },
+          "mqtt_reason_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mqtt Reason Key"
+          },
+          "mqtt_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mqtt State"
+          },
+          "registry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagRegistryCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ha_state",
+          "last_update_age_s",
+          "db_ok",
+          "registry",
+          "mqtt_state",
+          "mqtt_reason_key"
+        ],
+        "title": "DiagConnection",
+        "type": "object"
+      },
+      "DiagDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "additionalProperties": true,
+            "title": "Action",
+            "type": "object"
+          },
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "held_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held Until"
+          },
+          "intent_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/DiagReason"
+            },
+            "title": "Intent Reasons",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "observed": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/DiagReason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "ts": {
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "kind",
+          "mode",
+          "origin",
+          "asset",
+          "action",
+          "observed",
+          "reasons",
+          "intent_reasons",
+          "expires_at",
+          "held_until"
+        ],
+        "title": "DiagDecision",
+        "type": "object"
+      },
+      "DiagLogLine": {
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "exception": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception"
+          },
+          "fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "logger": {
+            "title": "Logger",
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "level",
+          "logger",
+          "event",
+          "fields",
+          "exception"
+        ],
+        "title": "DiagLogLine",
+        "type": "object"
+      },
+      "DiagMappedEntity": {
+        "additionalProperties": false,
+        "properties": {
+          "age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age S"
+          },
+          "area": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "entity": {
+            "title": "Entity",
+            "type": "string"
+          },
+          "known": {
+            "title": "Known",
+            "type": "boolean"
+          },
+          "stale": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale"
+          }
+        },
+        "required": [
+          "entity",
+          "domain",
+          "area",
+          "device",
+          "known",
+          "age_s",
+          "stale"
+        ],
+        "title": "DiagMappedEntity",
+        "type": "object"
+      },
+      "DiagPlanRun": {
+        "additionalProperties": false,
+        "properties": {
+          "consecutive_failures": {
+            "title": "Consecutive Failures",
+            "type": "integer"
+          },
+          "last_finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Finished At"
+          },
+          "last_ok_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok At"
+          },
+          "last_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome"
+          },
+          "last_started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Started At"
+          },
+          "last_trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trigger"
+          },
+          "next_scheduled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Scheduled At"
+          },
+          "pending": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pending",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "last_trigger",
+          "last_outcome",
+          "last_started_at",
+          "last_finished_at",
+          "last_ok_at",
+          "consecutive_failures",
+          "running",
+          "pending",
+          "next_scheduled_at",
+          "reason"
+        ],
+        "title": "DiagPlanRun",
+        "type": "object"
+      },
+      "DiagPlanner": {
+        "additionalProperties": false,
+        "properties": {
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagPlanRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "solver": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagSolver"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run",
+          "solver"
+        ],
+        "title": "DiagPlanner",
+        "type": "object"
+      },
+      "DiagReason": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Args",
+            "type": "object"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "DiagReason",
+        "type": "object"
+      },
+      "DiagRegistryCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "areas": {
+            "title": "Areas",
+            "type": "integer"
+          },
+          "devices": {
+            "title": "Devices",
+            "type": "integer"
+          },
+          "entities": {
+            "title": "Entities",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entities",
+          "devices",
+          "areas"
+        ],
+        "title": "DiagRegistryCounts",
+        "type": "object"
+      },
+      "DiagSolver": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "in_use": {
+            "title": "In Use",
+            "type": "boolean"
+          },
+          "intervals": {
+            "title": "Intervals",
+            "type": "integer"
+          },
+          "last_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Duration S"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/DiagReason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "solve_time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Solve Time S"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "source",
+          "status",
+          "solve_time_s",
+          "last_duration_s",
+          "intervals",
+          "stale",
+          "in_use",
+          "created_at",
+          "reasons"
+        ],
+        "title": "DiagSolver",
+        "type": "object"
+      },
+      "DiagTimeseries": {
+        "additionalProperties": false,
+        "properties": {
+          "code_schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code Schema Version"
+          },
+          "file_schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Schema Version"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagTimeseriesSize"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "file_schema_version",
+          "code_schema_version",
+          "size"
+        ],
+        "title": "DiagTimeseries",
+        "type": "object"
+      },
+      "DiagTimeseriesSize": {
+        "additionalProperties": false,
+        "properties": {
+          "file_bytes": {
+            "title": "File Bytes",
+            "type": "integer"
+          },
+          "free_bytes": {
+            "title": "Free Bytes",
+            "type": "integer"
+          },
+          "rows": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Rows",
+            "type": "object"
+          },
+          "total_bytes": {
+            "title": "Total Bytes",
+            "type": "integer"
+          },
+          "wal_bytes": {
+            "title": "Wal Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_bytes",
+          "wal_bytes",
+          "free_bytes",
+          "total_bytes",
+          "rows"
+        ],
+        "title": "DiagTimeseriesSize",
+        "type": "object"
+      },
+      "DiagVersions": {
+        "additionalProperties": false,
+        "properties": {
+          "app": {
+            "title": "App",
+            "type": "string"
+          },
+          "config_sections": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Config Sections",
+            "type": "object"
+          },
+          "ha_core": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ha Core"
+          },
+          "python": {
+            "title": "Python",
+            "type": "string"
+          },
+          "schemas": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Schemas",
+            "type": "object"
+          }
+        },
+        "required": [
+          "app",
+          "ha_core",
+          "python",
+          "schemas",
+          "config_sections"
+        ],
+        "title": "DiagVersions",
+        "type": "object"
+      },
+      "DiagWatchdog": {
+        "additionalProperties": false,
+        "properties": {
+          "connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected"
+          },
+          "control_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Control Active"
+          },
+          "emergency_stop": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emergency Stop"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/DiagWatchdogScope"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "connected",
+          "control_active",
+          "emergency_stop",
+          "scopes"
+        ],
+        "title": "DiagWatchdog",
+        "type": "object"
+      },
+      "DiagWatchdogScope": {
+        "additionalProperties": false,
+        "properties": {
+          "faults": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Faults",
+            "type": "array"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "state",
+          "faults"
+        ],
+        "title": "DiagWatchdogScope",
+        "type": "object"
+      },
+      "DiagnosticsOut": {
+        "additionalProperties": false,
+        "description": "The whole export. Share it in a bug report; nothing in it names the installation.",
+        "properties": {
+          "architecture": {
+            "$ref": "#/components/schemas/DiagArchitecture"
+          },
+          "configuration": {
+            "additionalProperties": true,
+            "title": "Configuration",
+            "type": "object"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/DiagConnection"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/DiagDecision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "$ref": "#/components/schemas/DiagLogLine"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
+          "mapped_entities": {
+            "items": {
+              "$ref": "#/components/schemas/DiagMappedEntity"
+            },
+            "title": "Mapped Entities",
+            "type": "array"
+          },
+          "planner": {
+            "$ref": "#/components/schemas/DiagPlanner"
+          },
+          "pseudonyms": {
+            "title": "Pseudonyms",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "timeseries": {
+            "$ref": "#/components/schemas/DiagTimeseries"
+          },
+          "unavailable": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unavailable",
+            "type": "array"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/DiagVersions"
+          },
+          "watchdog": {
+            "$ref": "#/components/schemas/DiagWatchdog"
+          }
+        },
+        "required": [
+          "schema_version",
+          "generated_at",
+          "versions",
+          "architecture",
+          "configuration",
+          "mapped_entities",
+          "connection",
+          "watchdog",
+          "planner",
+          "timeseries",
+          "decisions",
+          "logs",
+          "pseudonyms",
+          "unavailable"
+        ],
+        "title": "DiagnosticsOut",
         "type": "object"
       },
       "EmergencyStopOut": {
@@ -6238,6 +7205,51 @@
           "version"
         ],
         "title": "HealthOut",
+        "type": "object"
+      },
+      "HeatPumpLive": {
+        "additionalProperties": false,
+        "description": "Live thermal values of a heat pump or other thermal device (PR 7-I, additive).\n\n``None`` fields are unknown, never zero: no outdoor temperature source, no learned model.",
+        "properties": {
+          "cop": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cop"
+          },
+          "cop_assumed": {
+            "default": true,
+            "title": "Cop Assumed",
+            "type": "boolean"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ThermalModelQuality"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outdoor_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outdoor C"
+          }
+        },
+        "title": "HeatPumpLive",
         "type": "object"
       },
       "HeatmapOut": {
@@ -13537,6 +14549,39 @@
         "title": "ThermalModel",
         "type": "object"
       },
+      "ThermalModelQuality": {
+        "additionalProperties": false,
+        "description": "How good the learned RC model of a heat pump is and whether the planner uses it.",
+        "properties": {
+          "fit_error": {
+            "minimum": 0.0,
+            "title": "Fit Error",
+            "type": "number"
+          },
+          "fitted_at": {
+            "format": "date-time",
+            "title": "Fitted At",
+            "type": "string"
+          },
+          "history_days": {
+            "minimum": 0.0,
+            "title": "History Days",
+            "type": "integer"
+          },
+          "used_by_planner": {
+            "title": "Used By Planner",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "fit_error",
+          "history_days",
+          "fitted_at",
+          "used_by_planner"
+        ],
+        "title": "ThermalModelQuality",
+        "type": "object"
+      },
       "ThermalSpec": {
         "additionalProperties": false,
         "description": "Heat-pump and thermal-store options (ADR-0017 decision 6; kinds with a comfort band).\n\n``cop`` ``None`` = the generic air/water assumption (``core.thermal``); ``learned`` is the\nfitted RC model (written by the learner, PR 6-K). ``grid_preheat`` allows pre-heating\nwith cheap grid energy (default off, plan §0 decision 8); the lift band is the device's\ncomfort band.",
@@ -16097,6 +17142,25 @@
           }
         },
         "summary": "Cancel Program"
+      }
+    },
+    "/api/v1/diagnostics": {
+      "get": {
+        "description": "Anonymised diagnostics for bug reports (BRIEF section 5).\n\nBuilt from an allowlist: entity ids, device names and HA area names become pseudonyms\n(a new salt per call, the same pseudonym for the same value inside one document),\nsecrets are masked, and coordinates, tokens, passwords and MQTT credentials are never\nincluded. Contains the last 200 decisions and the last 500 warning lines.",
+        "operationId": "diagnostics_api_v1_diagnostics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Diagnostics"
       }
     },
     "/api/v1/entities": {
