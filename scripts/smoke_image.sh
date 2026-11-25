@@ -97,7 +97,7 @@ api() {
 method, path = sys.argv[1], sys.argv[2]
 body = sys.argv[3].encode() if len(sys.argv) > 3 else None
 req = u.Request("http://127.0.0.1:8099" + path, data=body, method=method,
-                headers={"Content-Type": "application/json"})
+                headers={"Content-Type": "application/json", "X-SunCore-Request": "1"})
 try:
     print(u.urlopen(req, timeout=10).read().decode())
 except e.HTTPError as err:
