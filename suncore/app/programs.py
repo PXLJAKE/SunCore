@@ -25,6 +25,7 @@ from suncore.core.decisions import Reason
 from suncore.core.devices import DeviceConfig
 from suncore.core.flex import (
     JOB_TRANSITIONS,
+    MAX_HORIZON,
     ArmedBy,
     JobState,
     JobTransitionError,
@@ -102,36 +103,67 @@ class ProgramJobBook:
         now: datetime,
         armed_by: ArmedBy = "user",
     ) -> ProgramJob:
-        """Arm one job ("finished by ``deadline``"); one open job per device (6-H)."""
+        """Arm one job ("finished by ``deadline``"); one open job per device (6-H).
+
+        Check, insert and persist happen under the lock (two arms never both pass the check);
+        a failed persist takes the job out again (``api.error.flex_store_failed``)."""
         if device.program is None:
             raise ProgramJobError("api.error.program_not_a_program")
-        if self.jobs_of(device.id):
-            raise ProgramJobError("api.error.program_job_open")
-        job_id = f"{device.id[:40]}-{now:%Y%m%d%H%M%S}"
-        suffix = 1
-        while job_id in self._jobs:
-            suffix += 1
-            job_id = f"{device.id[:40]}-{now:%Y%m%d%H%M%S}-{suffix}"
-        try:
-            job = ProgramJob(
-                id=job_id, device_id=device.id, deadline=deadline, armed_at=now, armed_by=armed_by
-            )
-        except ValueError as exc:
-            raise ProgramJobError("api.error.program_deadline_past") from exc
-        await self._put(job)
-        return job
+        if deadline <= now:
+            raise ProgramJobError("api.error.program_deadline_past")
+        if deadline > now + MAX_HORIZON:
+            raise ProgramJobError("api.error.program_deadline_far")
+        async with self._lock:
+            if self.jobs_of(device.id):
+                raise ProgramJobError("api.error.program_job_open")
+            job_id = f"{device.id[:40]}-{now:%Y%m%d%H%M%S}"
+            suffix = 1
+            while job_id in self._jobs:
+                suffix += 1
+                job_id = f"{device.id[:40]}-{now:%Y%m%d%H%M%S}-{suffix}"
+            try:
+                job = ProgramJob(
+                    id=job_id,
+                    device_id=device.id,
+                    deadline=deadline,
+                    armed_at=now,
+                    armed_by=armed_by,
+                )
+            except ValueError as exc:
+                raise ProgramJobError("api.error.program_deadline_past") from exc
+            self._jobs[job.id] = job
+            try:
+                await self._persist(job)
+            except Exception as exc:
+                log.exception("programs.arm_persist_failed", job_id=job.id)
+                self._jobs.pop(job.id, None)
+                raise ProgramJobError("api.error.flex_store_failed") from exc
+            return job
 
     async def cancel(self, device_id: str, *, now: datetime) -> ProgramJob:
-        """Cancel the device's waiting job; a running job cannot be cancelled (P2)."""
-        job = self.current(device_id)
-        if job is None:
-            raise ProgramJobError("api.error.program_no_job")
-        try:
-            cancelled = transition(job, JobState.CANCELLED, now)
-        except JobTransitionError as exc:
-            raise ProgramJobError("api.error.program_job_running") from exc
-        await self._put(cancelled)
-        return cancelled
+        """Cancel the device's waiting job; a running job cannot be cancelled (P2).
+
+        The state is read, checked and applied in memory without an ``await`` in between, so a
+        controller update (:meth:`update_jobs`, synchronous) cannot slip in; only then it is
+        persisted. A failed persist restores the job unless the controller moved it on."""
+        async with self._lock:
+            job = self.current(device_id)
+            if job is None:
+                raise ProgramJobError("api.error.program_no_job")
+            try:
+                cancelled = transition(job, JobState.CANCELLED, now)
+            except JobTransitionError as exc:
+                raise ProgramJobError("api.error.program_job_running") from exc
+            self._jobs[job.id] = cancelled
+            self._dirty.pop(job.id, None)
+            try:
+                await self._persist(cancelled)
+            except Exception as exc:
+                log.exception("programs.cancel_persist_failed", job_id=job.id)
+                if self._jobs.get(job.id) is cancelled:
+                    self._jobs[job.id] = job
+                raise ProgramJobError("api.error.flex_store_failed") from exc
+            return cancelled
 
     # --- controller updates ------------------------------------------------------------------
 
@@ -164,12 +196,10 @@ class ProgramJobBook:
                     log.exception("programs.persist_failed", job_id=job.id)
                     self._dirty.setdefault(job.id, job)
 
-    async def _put(self, job: ProgramJob) -> None:
-        async with self._lock:
-            if self._store is not None:
-                await self._store.put_job(job)
-            self._jobs[job.id] = job
-            self._dirty.pop(job.id, None)
+    async def _persist(self, job: ProgramJob) -> None:
+        """Write one job to the store (the caller holds the lock)."""
+        if self._store is not None:
+            await self._store.put_job(job)
 
 
 def program_notice(

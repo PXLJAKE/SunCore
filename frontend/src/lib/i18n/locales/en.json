@@ -2212,5 +2212,9 @@
   "capability.remote_start": "remote start",
   "capability.export_limit": "export limit",
   "capability.ac_limit": "AC output limit",
-  "capability.backup_state": "backup power state"
+  "capability.backup_state": "backup power state",
+  "api.error.flex_store_failed": "The change could not be saved. Try again in a moment.",
+  "api.error.program_deadline_far": "The finish time must be within the next 7 days.",
+  "api.error.ev_target_past": "The charging target time must be in the future.",
+  "api.error.ev_target_far": "The charging target time must be within the next 7 days."
 }

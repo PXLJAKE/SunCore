@@ -252,6 +252,10 @@ def proposed_deadline(now_local: datetime, runtime: timedelta) -> datetime:
     return (now_local.astimezone(UTC) + DEFAULT_FINISH_FALLBACK).astimezone(now_local.tzinfo)
 
 
+MAX_HORIZON: Final = timedelta(days=7)
+"""A program deadline and an EV target time lie within this horizon (PR 6-M review L1)."""
+
+
 class ProgramJobError(ValueError):
     """Arming or cancelling a program job is not possible (open job, running job, ...);
     ``key`` is the catalogue key of the reason."""
@@ -267,6 +271,7 @@ __all__ = [
     "EV_MODE_DEFAULT",
     "FINAL_JOB_STATES",
     "JOB_TRANSITIONS",
+    "MAX_HORIZON",
     "PROGRAM_ARM_WINDOW_S",
     "PROGRAM_DONE_IDLE_S",
     "PROGRAM_OFF_MARGIN_S",
