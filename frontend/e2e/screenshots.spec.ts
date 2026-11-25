@@ -3,7 +3,7 @@
 // started at 09:30 by playwright.config.ts). Nothing is mocked.
 // Run: SCREENSHOTS_DIR=../docs/assets/screenshots npx playwright test screenshots
 import { expect, test } from '@playwright/test';
-import { resetDemo, STEP_IDS } from './helpers';
+import { openCard, resetDemo, STEP_IDS } from './helpers';
 
 const dir = process.env.SCREENSHOTS_DIR;
 test.skip(!dir, 'set SCREENSHOTS_DIR to take screenshots');
@@ -43,6 +43,7 @@ for (const shot of shots) {
     }
     if (shot.view === 'plan') {
       await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
+      await openCard(page, 'fc-card');
       await expect(page.getByTestId('fc-accuracy')).toBeVisible();
     }
     if (shot.view === 'history') {

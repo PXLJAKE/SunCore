@@ -324,3 +324,28 @@ main section .kicker {
   background: var(--sc-warn-bg);
   color: var(--sc-warn);
 }
+
+/* --- data tables: the text alternatives of the charts and the lists of the analysis views --- */
+.data-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--sc-font-sm);
+  font-variant-numeric: tabular-nums;
+}
+.data-table th,
+.data-table td {
+  text-align: start;
+  vertical-align: top;
+  padding: var(--sc-space-2) var(--sc-space-3) var(--sc-space-2) 0;
+  border-top: 1px solid var(--sc-outline);
+}
+.data-table thead th {
+  border-top: 0;
+  color: var(--sc-text-muted);
+  font-size: var(--sc-font-xs);
+  font-weight: var(--sc-weight-strong);
+}
+.table-scroll {
+  overflow-x: auto;
+  min-width: 0;
+}

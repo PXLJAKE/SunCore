@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   emptyFilters,
+  filterCount,
   filterProblems,
   filtersFromParams,
   filtersToApi,
@@ -38,6 +39,19 @@ describe('log filters', () => {
     expect(f).toEqual({ ...emptyFilters(), kinds: ['shadow'] });
     expect(hasFilters(f)).toBe(true);
     expect(hasFilters(emptyFilters())).toBe(false);
+  });
+
+  it('counts the set filters, the outcomes once', () => {
+    expect(filterCount(emptyFilters())).toBe(0);
+    expect(
+      filterCount({
+        ...emptyFilters(),
+        device: 'ac',
+        kinds: ['shadow', 'held'],
+        q: '  ',
+        from: '2026-06-01',
+      }),
+    ).toBe(3);
   });
 
   it('accepts comma separated kinds', () => {

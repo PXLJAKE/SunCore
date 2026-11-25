@@ -15,7 +15,7 @@ const tester = new RuleTester({
 tester.run('no-hardcoded-text', rule, {
   valid: [
     {
-      code: '<Card kind="soc" class="x" data-testid="y" id="z" variant="primary" />',
+      code: '<Card kind="soc" class="x" data-testid="y" id="z" variant="primary" density="compact" />',
       filename: 'a.svelte',
     },
     { code: '<Card label={t("a.b")} count={3} on={true} />', filename: 'a.svelte' },

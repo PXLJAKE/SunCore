@@ -3,12 +3,18 @@
   import { onMount, untrack } from 'svelte';
   import { controlApi } from '../api/client';
   import DecisionTable from '../components/DecisionTable.svelte';
-  import { nameMap } from '../control/present';
+  import { nameMap, splitSharedReasons } from '../control/present';
+  import { tReason } from '../control/reasonText';
+  import Card from '../ui/Card.svelte';
+  import Chip from '../ui/Chip.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
+  import Icon from '../ui/Icon.svelte';
   import { t, tDynamic, tNumber, type MessageKey } from '../i18n/index.svelte';
   import {
     DECISION_KINDS,
     DECISION_LAYERS,
     emptyFilters,
+    filterCount,
     filterProblems,
     filtersFromParams,
     filtersToParams,
@@ -52,6 +58,18 @@
     to: log.offset + log.items.length,
   });
   const csv = $derived(controlApi.decisionsCsvUrl(log.exportParams()));
+  // A note every listed entry carries (shadow mode: nothing switched) is said once, above.
+  const split = $derived(splitSharedReasons(log.items));
+  const activeFilters = $derived(filterCount(draft));
+  // The filters fill a phone screen: there they start closed unless a link sets some.
+  const wide = (): boolean => {
+    try {
+      return window.matchMedia('(min-width: 600px)').matches;
+    } catch {
+      return true;
+    }
+  };
+  let filtersOpen = $state(wide() || hasFilters(filtersFromParams(router.query)));
 
   onMount(() => () => clearTimeout(timer));
 
@@ -121,134 +139,171 @@
 </script>
 
 <section aria-labelledby="{uid}-title" class="log" data-testid="decision-log">
-  <h2 id="{uid}-title">{t('log.title')}</h2>
-  <p class="hint">{t('log.intro')}</p>
+  <header class="head">
+    <h2 id="{uid}-title">{t('log.title')}</h2>
+    <p class="hint intro">{t('log.intro')}</p>
+  </header>
 
-  <form class="card filters" onsubmit={(e) => e.preventDefault()} data-testid="log-filters">
-    <div class="field">
-      <label for="{uid}-device">{t('log.device')}</label>
-      <select id="{uid}-device" class="input" bind:value={draft.device} data-testid="filter-device">
-        <option value="">{t('log.all_devices')}</option>
-        {#each devices as d (d.device_id)}
-          <option value={d.device_id}>{d.name}</option>
-        {/each}
-        {#if draft.device && !cards.has(draft.device)}
-          <option value={draft.device}>{names.get(draft.device) ?? draft.device}</option>
-        {/if}
-      </select>
-    </div>
-    <div class="field">
-      <label for="{uid}-layer">{t('log.layer')}</label>
-      <select id="{uid}-layer" class="input" bind:value={draft.layer} data-testid="filter-layer">
-        <option value="">{t('log.layer.all')}</option>
-        {#each DECISION_LAYERS as l (l)}
-          <option value={l}>{t(LAYER[l])}</option>
-        {/each}
-      </select>
-    </div>
-    <div class="field">
-      <label for="{uid}-from">{t('log.from')}</label>
-      <input
-        id="{uid}-from"
-        class="input"
-        type="date"
-        bind:value={draft.from}
-        data-testid="filter-from"
-      />
-    </div>
-    <div class="field">
-      <label for="{uid}-to">{t('log.to')}</label>
-      <input
-        id="{uid}-to"
-        class="input"
-        type="date"
-        bind:value={draft.to}
-        aria-invalid={problems.range}
-        aria-describedby={problems.range ? `${uid}-range-err` : undefined}
-        data-testid="filter-to"
-      />
-      {#if problems.range}
-        <p class="err" id="{uid}-range-err" role="alert">{t('log.range_invalid')}</p>
+  <Card
+    title={t('log.filters')}
+    icon="filter"
+    collapsible
+    bind:open={filtersOpen}
+    density="compact"
+    testid="log-filter-card"
+  >
+    {#snippet status()}
+      {#if activeFilters > 0}
+        <Chip tone="accent" testid="log-filter-count"
+          >{t('log.filters.active', { count: activeFilters })}</Chip
+        >
       {/if}
-    </div>
-    <div class="field">
-      <label for="{uid}-reason">{t('log.reason')}</label>
-      <input
-        id="{uid}-reason"
-        class="input"
-        type="text"
-        autocomplete="off"
-        spellcheck="false"
-        bind:value={draft.reason}
-        aria-invalid={problems.reason}
-        aria-describedby="{uid}-reason-hint"
-        data-testid="filter-reason"
-      />
-      <p class:err={problems.reason} class="hint" id="{uid}-reason-hint">
-        {problems.reason ? t('log.reason_invalid') : t('log.reason_hint')}
-      </p>
-    </div>
-    <div class="field">
-      <label for="{uid}-q">{t('log.search')}</label>
-      <input
-        id="{uid}-q"
-        class="input"
-        type="search"
-        maxlength="100"
-        autocomplete="off"
-        bind:value={draft.q}
-        aria-describedby="{uid}-q-hint"
-        data-testid="filter-q"
-      />
-      <p class="hint" id="{uid}-q-hint">{t('log.search_hint')}</p>
-    </div>
-    <fieldset>
-      <legend>{t('log.kind')}</legend>
-      <div class="kinds">
-        {#each DECISION_KINDS as k (k)}
-          <label class="check">
-            <input
-              type="checkbox"
-              checked={draft.kinds.includes(k)}
-              onchange={() => toggleDraftKind(k)}
-              data-testid="filter-kind-{k}"
-            />
-            {t(KIND[k])}
-          </label>
-        {/each}
+    {/snippet}
+    <form class="filters" onsubmit={(e) => e.preventDefault()} data-testid="log-filters">
+      <div class="field">
+        <label for="{uid}-device">{t('log.device')}</label>
+        <select
+          id="{uid}-device"
+          class="input"
+          bind:value={draft.device}
+          data-testid="filter-device"
+        >
+          <option value="">{t('log.all_devices')}</option>
+          {#each devices as d (d.device_id)}
+            <option value={d.device_id}>{d.name}</option>
+          {/each}
+          {#if draft.device && !cards.has(draft.device)}
+            <option value={draft.device}>{names.get(draft.device) ?? draft.device}</option>
+          {/if}
+        </select>
       </div>
-      <p class="hint">{t('log.kind_hint')}</p>
-    </fieldset>
-    <div class="actions">
-      <button
-        type="button"
-        class="btn secondary"
-        onclick={reset}
-        disabled={!hasFilters(draft)}
-        data-testid="filter-reset">{t('log.reset')}</button
-      >
-      <a class="btn secondary" href={csv} download data-testid="log-export">{t('log.export')}</a>
-    </div>
-  </form>
+      <div class="field">
+        <label for="{uid}-layer">{t('log.layer')}</label>
+        <select id="{uid}-layer" class="input" bind:value={draft.layer} data-testid="filter-layer">
+          <option value="">{t('log.layer.all')}</option>
+          {#each DECISION_LAYERS as l (l)}
+            <option value={l}>{t(LAYER[l])}</option>
+          {/each}
+        </select>
+      </div>
+      <div class="field">
+        <label for="{uid}-from">{t('log.from')}</label>
+        <input
+          id="{uid}-from"
+          class="input"
+          type="date"
+          bind:value={draft.from}
+          data-testid="filter-from"
+        />
+      </div>
+      <div class="field">
+        <label for="{uid}-to">{t('log.to')}</label>
+        <input
+          id="{uid}-to"
+          class="input"
+          type="date"
+          bind:value={draft.to}
+          aria-invalid={problems.range}
+          aria-describedby={problems.range ? `${uid}-range-err` : undefined}
+          data-testid="filter-to"
+        />
+        {#if problems.range}
+          <p class="err" id="{uid}-range-err" role="alert">{t('log.range_invalid')}</p>
+        {/if}
+      </div>
+      <div class="field">
+        <label for="{uid}-reason">{t('log.reason')}</label>
+        <input
+          id="{uid}-reason"
+          class="input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={draft.reason}
+          aria-invalid={problems.reason}
+          aria-describedby="{uid}-reason-hint"
+          data-testid="filter-reason"
+        />
+        <p class:err={problems.reason} class="hint" id="{uid}-reason-hint">
+          {problems.reason ? t('log.reason_invalid') : t('log.reason_hint')}
+        </p>
+      </div>
+      <div class="field">
+        <label for="{uid}-q">{t('log.search')}</label>
+        <input
+          id="{uid}-q"
+          class="input"
+          type="search"
+          maxlength="100"
+          autocomplete="off"
+          bind:value={draft.q}
+          aria-describedby="{uid}-q-hint"
+          data-testid="filter-q"
+        />
+        <p class="hint" id="{uid}-q-hint">{t('log.search_hint')}</p>
+      </div>
+      <fieldset>
+        <legend>{t('log.kind')}</legend>
+        <div class="kinds">
+          {#each DECISION_KINDS as k (k)}
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={draft.kinds.includes(k)}
+                onchange={() => toggleDraftKind(k)}
+                data-testid="filter-kind-{k}"
+              />
+              {t(KIND[k])}
+            </label>
+          {/each}
+        </div>
+        <p class="hint">{t('log.kind_hint')}</p>
+      </fieldset>
+      <div class="actions">
+        <button
+          type="button"
+          class="btn secondary small"
+          onclick={reset}
+          disabled={!hasFilters(draft)}
+          data-testid="filter-reset">{t('log.reset')}</button
+        >
+      </div>
+    </form>
+  </Card>
 
   {#if log.error}
     <p class="notice error" role="alert">{tDynamic(log.error, undefined, 'api.error.unknown')}</p>
   {/if}
 
-  <div class="card" aria-busy={log.loading} data-testid="log-list">
-    <p class="count" role="status" data-testid="log-count">
-      {#if log.total === 0}
-        {t('log.count', { count: 0 })}
-      {:else}
-        {t('log.range', { from: range.from, to: range.to, total: log.total })}
-      {/if}
-    </p>
+  <div class="card list" aria-busy={log.loading} data-testid="log-list">
+    <div class="list-head">
+      <p class="count" role="status" data-testid="log-count">
+        {#if log.total === 0}
+          {t('log.count', { count: 0 })}
+        {:else}
+          {t('log.range', { from: range.from, to: range.to, total: log.total })}
+        {/if}
+      </p>
+      <a class="btn secondary small" href={csv} download data-testid="log-export"
+        ><Icon name="download" size={16} />{t('log.export')}</a
+      >
+    </div>
     {#if log.items.length === 0}
-      <p class="empty">{t(hasFilters(log.filters) ? 'log.empty_filtered' : 'decisions.empty')}</p>
+      <EmptyState
+        icon="analysis"
+        title={t(hasFilters(log.filters) ? 'log.empty_filtered' : 'decisions.empty')}
+      />
     {:else}
+      {#if split.shared.length > 0}
+        <p class="shared" data-testid="log-shared">
+          <Icon name="info" size={16} />
+          <span>{split.shared.map((r) => tReason(r)).join(' ')}</span>
+        </p>
+      {/if}
       <DecisionTable
         decisions={log.items}
         ids={log.ids}
+        reasons={split.own}
         {names}
         explained={log.explained}
         {open}
@@ -284,12 +339,20 @@
 <style>
   .log {
     display: grid;
-    gap: var(--sc-gap);
+    gap: var(--sc-space-5);
+    min-width: 0;
+  }
+  .head {
+    display: grid;
+    gap: var(--sc-space-2);
+  }
+  .intro {
+    max-width: 48rem;
   }
   .filters {
     display: grid;
-    gap: 12px 24px;
-    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: var(--sc-space-3) var(--sc-space-5);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
     align-items: start;
   }
   fieldset {
@@ -300,43 +363,65 @@
     grid-column: 1 / -1;
   }
   legend {
-    font-weight: 600;
+    font-weight: var(--sc-weight-strong);
+    font-size: var(--sc-font-sm);
     padding: 0;
-    margin-bottom: 4px;
+    margin-bottom: var(--sc-space-1);
   }
   .kinds {
     display: flex;
     flex-wrap: wrap;
-    gap: 0 16px;
+    gap: 0 var(--sc-space-4);
   }
   .actions {
     grid-column: 1 / -1;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sc-space-2);
   }
-  .actions .btn {
-    text-decoration: none;
+  .list {
+    display: grid;
+    gap: var(--sc-space-3);
+    min-width: 0;
+  }
+  .list-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sc-space-2) var(--sc-space-3);
   }
   .count {
-    margin: 0 0 8px;
-    color: var(--secondary-text-color);
-    font-size: 0.875rem;
-  }
-  .empty {
     margin: 0;
-    color: var(--secondary-text-color);
+    color: var(--sc-text-muted);
+    font-size: var(--sc-font-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .shared {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sc-space-2);
+    margin: 0;
+    padding: var(--sc-space-2) var(--sc-space-3);
+    border-radius: var(--sc-radius-md);
+    background: var(--sc-info-bg);
+    font-size: var(--sc-font-sm);
+  }
+  .shared :global(.icon) {
+    flex: none;
+    margin-top: 2px;
+    color: var(--sc-info);
   }
   .err {
-    color: var(--error-color);
-    margin: 4px 0 0;
-    font-size: 0.875rem;
+    color: var(--sc-error);
+    margin: var(--sc-space-1) 0 0;
+    font-size: var(--sc-font-sm);
   }
   .pager {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-top: 12px;
+    gap: var(--sc-space-3);
+    font-variant-numeric: tabular-nums;
   }
 </style>

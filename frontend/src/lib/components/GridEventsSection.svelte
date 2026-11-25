@@ -7,9 +7,9 @@
   import type { GridEvents } from '../api/types';
   import { eventKey } from '../grid/present';
   import { t, tDateTime, tDynamic, tPower } from '../i18n/index.svelte';
+  import Card from '../ui/Card.svelte';
 
   const DAYS = 30;
-  const uid = $props.id();
 
   let data = $state.raw<GridEvents | null>(null);
   let error = $state<string | null>(null);
@@ -24,8 +24,7 @@
   const empty = $derived(data !== null && data.events.length === 0 && data.peaks.length === 0);
 </script>
 
-<section class="card stack" aria-labelledby="{uid}-t" data-testid="history-grid">
-  <h3 id="{uid}-t">{t('history.grid.title')}</h3>
+<Card title={t('history.grid.title')} testid="history-grid">
   <p class="hint">{t('history.grid.hint', { days: DAYS })}</p>
   {#if error}
     <p class="notice error" role="alert">{tDynamic(error, undefined, 'api.error.unknown')}</p>
@@ -34,8 +33,8 @@
   {:else if data}
     {#if data.peaks.length > 0}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-      <div class="scroll" role="region" tabindex="0" aria-label={t('history.grid.peaks')}>
-        <table data-testid="table-peaks">
+      <div class="table-scroll" role="region" tabindex="0" aria-label={t('history.grid.peaks')}>
+        <table class="data-table" data-testid="table-peaks">
           <caption class="sr-only">{t('history.grid.peaks')}</caption>
           <thead>
             <tr>
@@ -58,8 +57,8 @@
     {/if}
     {#if data.events.length > 0}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-      <div class="scroll" role="region" tabindex="0" aria-label={t('history.grid.events')}>
-        <table data-testid="table-grid-events">
+      <div class="table-scroll" role="region" tabindex="0" aria-label={t('history.grid.events')}>
+        <table class="data-table" data-testid="table-grid-events">
           <caption class="sr-only">{t('history.grid.events')}</caption>
           <thead>
             <tr>
@@ -82,4 +81,4 @@
       </div>
     {/if}
   {/if}
-</section>
+</Card>

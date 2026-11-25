@@ -26,6 +26,15 @@ export const ICONS = {
   warn: 'M12 3.5 2.5 20h19Z M12 10v4.5 M12 17.3h.01',
   error: `${CIRCLE} M12 7v6.5 M12 16.5h.01`,
   chevron: 'M6 9l6 6 6-6',
+  /** Step back and forward (periods, days). */
+  prev: 'M14.5 6l-6 6 6 6',
+  next: 'M9.5 6l6 6-6 6',
+  /** Replan: a circular arrow. */
+  refresh: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3 M19.5 4v4h-4',
+  /** Download (CSV, PNG). */
+  download: 'M12 4v11 M7.5 10.5 12 15l4.5-4.5 M4.5 19.5h15',
+  /** Filters: a funnel. */
+  filter: 'M4 5h16l-6 7.5V19l-4-2v-4.5Z',
   /** Energy nodes of the Now view. */
   house: 'M3.5 11 12 4l8.5 7 M6 9.5V20h12V9.5 M10 20v-5h4v5',
   battery: 'M3 7.5h15v9H3Z M18 10.5h2.5v3H18 M6.5 10.5v3 M10 10.5v3',

@@ -8,6 +8,8 @@
   import WhatIfRuns from '../components/WhatIfRuns.svelte';
   import { loadParamCatalogue, t, tDynamic } from '../i18n/index.svelte';
   import { expert } from '../stores/expert.svelte';
+  import Loading from '../ui/Loading.svelte';
+  import SectionHeader from '../ui/SectionHeader.svelte';
   import { WhatIfStore } from '../stores/whatif.svelte';
   import {
     buildRequest,
@@ -85,8 +87,8 @@
 <section class="whatif" aria-labelledby="{uid}-title" data-testid="whatif-view">
   <header class="head">
     <h2 id="{uid}-title">{t('whatif.title')}</h2>
+    <p class="hint intro">{t('whatif.intro')}</p>
   </header>
-  <p class="hint">{t('whatif.intro')}</p>
 
   {#if !expert.enabled}
     <p class="card notice info" data-testid="whatif-expert-off">{t('whatif.expert_off')}</p>
@@ -95,7 +97,7 @@
       {t('whatif.unavailable')}
     </p>
   {:else if !store.loaded || !form || !store.today}
-    <p class="hint" role="status">{t('whatif.loading')}</p>
+    <Loading label={t('whatif.loading')} />
     {#if store.error}
       <p class="notice error" role="alert">
         {tDynamic(store.error, undefined, 'api.error.unknown')}
@@ -105,7 +107,11 @@
     <p class="sr-only" role="status" data-testid="whatif-announce">{announce}</p>
 
     {#if running}
-      <section class="card stack" aria-labelledby="{uid}-progress" data-testid="whatif-progress">
+      <section
+        class="card stack progress-card"
+        aria-labelledby="{uid}-progress"
+        data-testid="whatif-progress"
+      >
         <h3 id="{uid}-progress">{t('whatif.progress.title')}</h3>
         <progress
           max="100"
@@ -154,8 +160,8 @@
       onremove={(id) => void store.remove(id)}
     />
 
-    <div id="{uid}-form">
-      <h3 class="form-title">{t('whatif.form.title')}</h3>
+    <div id="{uid}-form" class="form">
+      <SectionHeader title={t('whatif.form.title')} />
       {#if running}<p class="notice info" data-testid="whatif-busy">{t('whatif.busy')}</p>{/if}
       <WhatIfForm
         bind:form
@@ -172,15 +178,29 @@
 <style>
   .whatif {
     display: grid;
-    gap: var(--sc-gap);
+    gap: var(--sc-space-5);
     min-width: 0;
   }
-  .form-title {
-    margin: 0 0 8px;
+  .head {
+    display: grid;
+    gap: var(--sc-space-2);
+  }
+  .intro {
+    max-width: 48rem;
+  }
+  /* Long single-value fields read badly across a desktop: the form keeps a reading width. */
+  .form {
+    display: grid;
+    gap: var(--sc-space-3);
+    min-width: 0;
+    max-width: 56rem;
+  }
+  .progress-card {
+    border-color: var(--sc-accent);
   }
   progress {
     width: 100%;
-    height: 16px;
-    accent-color: var(--primary-color);
+    height: 12px;
+    accent-color: var(--sc-accent);
   }
 </style>

@@ -71,9 +71,9 @@
             aria-controls="{uid}-body"
             onclick={() => (open = !open)}
           >
+            <span class="chev" class:up={open}><Icon name="chevron" size={18} /></span>
             {#if icon}<Icon name={icon} />{/if}
             <span>{title}</span>
-            <span class="chev" class:up={open}><Icon name="chevron" size={18} /></span>
           </button>
         {:else}
           {#if icon}<Icon name={icon} />{/if}
@@ -147,13 +147,15 @@
     text-align: start;
     cursor: pointer;
   }
+  /* Like Disclosure: pointing right while closed, down while open. */
   .chev {
     display: inline-flex;
-    margin-inline-start: auto;
+    color: var(--sc-text-muted);
+    transform: rotate(-90deg);
     transition: transform var(--sc-motion-normal) ease;
   }
   .chev.up {
-    transform: rotate(180deg);
+    transform: none;
   }
   .status,
   .actions {

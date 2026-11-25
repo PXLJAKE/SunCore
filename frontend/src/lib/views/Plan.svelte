@@ -1,11 +1,18 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
-  import { tReason } from '../control/reasonText';
   import { onMount } from 'svelte';
   import { router } from '../router.svelte';
   import { parseTarget, targetHash, todayOf } from '../plan/target';
   import ForecastPanel from '../components/ForecastPanel.svelte';
   import PlannedActions from '../components/PlannedActions.svelte';
+  import ReasonList from '../components/ReasonList.svelte';
+  import Button from '../ui/Button.svelte';
+  import Card from '../ui/Card.svelte';
+  import Chip from '../ui/Chip.svelte';
+  import Disclosure from '../ui/Disclosure.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
+  import Loading from '../ui/Loading.svelte';
+  import ToggleGroup from '../ui/ToggleGroup.svelte';
   import { i18n, t, tDateTime, tDynamic, tTime, type MessageKey } from '../i18n/index.svelte';
   import { hasIntervals, plannedActions, windowIntervals, type HoursWindow } from '../plan/model';
   import { app } from '../stores/app.svelte';
@@ -36,6 +43,12 @@
   };
 
   let hours = $state<HoursWindow>(24);
+  type Range = '24' | '48' | 'day' | 'none';
+  const RANGES = $derived([
+    { value: '24' as Range, label: t('plan.range.24') },
+    { value: '48' as Range, label: t('plan.range.48') },
+    { value: 'day' as Range, label: t('plan.range.today') },
+  ]);
 
   onMount(() => {
     void plan.refresh();
@@ -66,36 +79,54 @@
     hours = h;
     if (!isLive) router.go('#/plan');
   }
+  /** The pressed range: none while the chart shows a past time or another day. */
+  const rangeValue = $derived<Range>(
+    isLive ? (hours === 24 ? '24' : '48') : dayIsToday ? 'day' : 'none',
+  );
+  function onRange(v: Range): void {
+    if (v === '24') pick(24);
+    else if (v === '48') pick(48);
+    else if (v === 'day') router.go(todayHash);
+  }
 </script>
 
 <section class="plan" aria-labelledby="plan-title" data-testid="plan-view">
   <header class="head">
-    <h2 id="plan-title">{t('plan.title')}</h2>
-    {#if view}
-      <ul class="badges" aria-label={t('plan.status.title')}>
-        <li class="chip-tag" data-testid="plan-source" data-source={source}>
-          {t(BADGE[source] ?? 'plan.badge.default')}
-        </li>
-        {#if view.stale || view.expired}
-          <li class="chip-tag warn" data-testid="plan-stale">{t('plan.badge.stale')}</li>
-        {/if}
-        <li class="chip-tag" class:warn={!view.in_use} data-testid="plan-in-use">
-          {t(view.in_use ? 'plan.badge.in_use' : 'plan.badge.not_in_use')}
-        </li>
-      </ul>
-    {/if}
+    <div class="title-row">
+      <h2 id="plan-title">{t('plan.title')}</h2>
+      {#if view}
+        <ul class="badges" aria-label={t('plan.status.title')}>
+          <li data-testid="plan-source" data-source={source}>
+            <Chip tone={source === 'solver' ? 'accent' : 'neutral'}
+              >{t(BADGE[source] ?? 'plan.badge.default')}</Chip
+            >
+          </li>
+          {#if view.stale || view.expired}
+            <li data-testid="plan-stale"><Chip tone="warn">{t('plan.badge.stale')}</Chip></li>
+          {/if}
+          <li data-testid="plan-in-use">
+            <Chip tone={view.in_use ? 'ok' : 'warn'}
+              >{t(view.in_use ? 'plan.badge.in_use' : 'plan.badge.not_in_use')}</Chip
+            >
+          </li>
+        </ul>
+      {/if}
+    </div>
+    <p class="hint intro">{t('plan.intro')}</p>
   </header>
-  <p class="hint">{t('plan.intro')}</p>
 
   {#if plan.unavailable}
-    <div class="card" data-testid="plan-unavailable">
-      <p>{t('plan.unavailable')}</p>
-      <a class="btn" href="#/setup">{t('plan.unavailable.open')}</a>
-    </div>
+    <Card testid="plan-unavailable">
+      <EmptyState icon="plan" title={t('plan.unavailable')}>
+        {#snippet actions()}
+          <Button href="#/setup">{t('plan.unavailable.open')}</Button>
+        {/snippet}
+      </EmptyState>
+    </Card>
   {:else if plan.error}
     <p class="notice error" role="alert">{t('plan.load_error')}</p>
   {:else if !plan.loaded}
-    <p class="hint" role="status">{t('wizard.loading')}</p>
+    <Loading />
   {:else}
     {#if view?.fallback}
       <p class="notice warn" data-testid="plan-fallback">
@@ -103,34 +134,26 @@
       </p>
     {/if}
 
-    <div class="card controls">
-      <div class="range" role="group" aria-label={t('plan.range.label')}>
-        {#each [24, 48] as const as h (h)}
-          <button
-            type="button"
-            class="seg-btn"
-            aria-pressed={isLive && hours === h}
-            data-testid="range-{h}"
-            onclick={() => pick(h)}>{t(h === 24 ? 'plan.range.24' : 'plan.range.48')}</button
-          >
-        {/each}
-        <button
-          type="button"
-          class="seg-btn"
-          aria-pressed={dayIsToday}
-          data-testid="range-day"
-          onclick={() => router.go(todayHash)}>{t('plan.range.today')}</button
+    <!-- One toolbar: the time range, the replan button and what the planner did last. -->
+    <Card density="compact" testid="plan-toolbar">
+      <div class="toolbar">
+        <ToggleGroup
+          label={t('plan.range.label')}
+          options={RANGES}
+          value={rangeValue}
+          testid="range"
+          onselect={onRange}
+        />
+        <Button
+          variant="secondary"
+          icon="refresh"
+          busy={plan.replanState === 'busy'}
+          testid="replan"
+          onclick={() => void plan.replan()}
         >
+          {plan.replanState === 'busy' ? t('plan.replan.busy') : t('plan.replan')}
+        </Button>
       </div>
-      <button
-        type="button"
-        class="btn"
-        disabled={plan.replanState === 'busy'}
-        data-testid="replan"
-        onclick={() => void plan.replan()}
-      >
-        {plan.replanState === 'busy' ? t('plan.replan.busy') : t('plan.replan')}
-      </button>
       <p class="feedback" role="status" aria-live="polite" data-testid="replan-feedback">
         {#if plan.replanState === 'accepted'}
           {t('plan.replan.accepted')}
@@ -140,80 +163,82 @@
           {t('plan.replan.error')}
         {/if}
       </p>
-    </div>
-
-    {#if status}
-      <div class="card status stack" data-testid="plan-status">
-        <h3>{t('plan.status.title')}</h3>
-        <ul class="facts">
-          {#if view?.plan.created_at}
-            <li>{t('plan.status.created', { time: tDateTime(new Date(view.plan.created_at)) })}</li>
+      {#if status}
+        <div class="status" data-testid="plan-status">
+          <h3 class="sr-only">{t('plan.status.title')}</h3>
+          <ul class="runinfo">
+            {#if view?.plan.created_at}
+              <li>
+                {t('plan.status.created', { time: tDateTime(new Date(view.plan.created_at)) })}
+              </li>
+            {/if}
+            {#if status.last_started_at && status.last_outcome}
+              <li data-testid="plan-last-run">
+                {t('plan.status.last_run', {
+                  time: tDateTime(new Date(status.last_started_at)),
+                  outcome: t(OUTCOME[status.last_outcome] ?? 'plan.outcome.ok'),
+                  seconds: status.last_duration_s ?? 0,
+                  trigger: status.last_trigger
+                    ? t(TRIGGER[status.last_trigger] ?? 'plan.trigger.manual')
+                    : '–',
+                })}
+              </li>
+            {:else}
+              <li>{t('plan.status.never')}</li>
+            {/if}
+            {#if status.running}<li>{t('plan.status.running')}</li>{/if}
+            {#if status.next_scheduled_at}
+              <li data-testid="plan-next-run">
+                {t('plan.status.next_run', { time: tDateTime(new Date(status.next_scheduled_at)) })}
+              </li>
+            {/if}
+            {#if status.consecutive_failures > 0}
+              <li class="bad">
+                {t('plan.status.failures', { count: status.consecutive_failures })}
+              </li>
+            {/if}
+          </ul>
+          {#if status.reason}
+            <p class="hint">{tDynamic(status.reason.key, status.reason.args)}</p>
           {/if}
-          {#if status.last_started_at && status.last_outcome}
-            <li data-testid="plan-last-run">
-              {t('plan.status.last_run', {
-                time: tDateTime(new Date(status.last_started_at)),
-                outcome: t(OUTCOME[status.last_outcome] ?? 'plan.outcome.ok'),
-                seconds: status.last_duration_s ?? 0,
-                trigger: status.last_trigger
-                  ? t(TRIGGER[status.last_trigger] ?? 'plan.trigger.manual')
-                  : '–',
-              })}
-            </li>
-          {:else}
-            <li>{t('plan.status.never')}</li>
+          {#if view && view.plan.reasons.length > 0}
+            <Disclosure summary={t('plan.status.why')}>
+              <ReasonList reasons={view.plan.reasons} />
+            </Disclosure>
           {/if}
-          {#if status.running}<li>{t('plan.status.running')}</li>{/if}
-          {#if status.next_scheduled_at}
-            <li data-testid="plan-next-run">
-              {t('plan.status.next_run', { time: tDateTime(new Date(status.next_scheduled_at)) })}
-            </li>
-          {/if}
-          {#if status.consecutive_failures > 0}
-            <li class="bad">{t('plan.status.failures', { count: status.consecutive_failures })}</li>
-          {/if}
-        </ul>
-        {#if status.reason}
-          <p class="hint">{tDynamic(status.reason.key, status.reason.args)}</p>
-        {/if}
-        {#if view && view.plan.reasons.length > 0}
-          <details>
-            <summary>{t('plan.next.why')}</summary>
-            <ul class="reasons">
-              {#each view.plan.reasons as r, i (i)}
-                <li>{tReason(r)}</li>
-              {/each}
-            </ul>
-          </details>
-        {/if}
-      </div>
-    {/if}
+        </div>
+      {/if}
+    </Card>
 
     {#if !hasIntervals(view)}
-      <p class="card hint" data-testid="plan-empty">{t('plan.empty')}</p>
+      <Card testid="plan-empty">
+        <EmptyState icon="plan" title={t('plan.empty')} />
+      </Card>
     {:else}
       {#await import('../components/PlanChartPanel.svelte')}
-        <p class="hint" role="status">{t('plan.chart.loading')}</p>
+        <Loading />
       {:then mod}
         {@const Panel = mod.default}
         <Panel {view} {target} nowMs={plan.nowMs} {currency} {hintId} />
       {:catch}
         <p class="notice error" role="alert">{t('plan.chart.error')}</p>
       {/await}
-
-      <div class="card stack" aria-labelledby="{uid}-next">
-        <h3 id="{uid}-next">{t('plan.next.title')}</h3>
-        <p class="hint">{t('plan.next.intro')}</p>
-        <PlannedActions {actions} />
-      </div>
     {/if}
 
-    <ForecastPanel
-      accuracy={plan.accuracy}
-      pv={plan.pv}
-      openMeteo={plan.usesOpenMeteo}
-      failed={plan.accuracy === null && plan.pv === null}
-    />
+    <div class="pair">
+      {#if hasIntervals(view)}
+        <Card title={t('plan.next.title')} testid="plan-next">
+          <p class="hint">{t('plan.next.intro')}</p>
+          <PlannedActions {actions} />
+        </Card>
+      {/if}
+      <ForecastPanel
+        accuracy={plan.accuracy}
+        pv={plan.pv}
+        openMeteo={plan.usesOpenMeteo}
+        failed={plan.accuracy === null && plan.pv === null}
+      />
+    </div>
   {/if}
 </section>
 
@@ -221,81 +246,72 @@
   .plan {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--sc-gap);
+    gap: var(--sc-space-5);
+    min-width: 0;
   }
   .head {
+    display: grid;
+    gap: var(--sc-space-2);
+  }
+  .title-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 16px;
+    gap: var(--sc-space-2) var(--sc-space-3);
+  }
+  .intro {
+    max-width: 48rem;
   }
   .badges {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--sc-space-2);
     list-style: none;
     margin: 0;
     padding: 0;
   }
-  .controls {
+  .toolbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px 16px;
-  }
-  .range {
-    display: flex;
-    border: 1px solid var(--primary-color);
-    border-radius: 22px;
-    overflow: hidden;
-  }
-  .seg-btn {
-    min-width: 72px;
-    min-height: 44px;
-    padding: 0 14px;
-    font: inherit;
-    border: 0;
-    border-inline-start: 1px solid var(--primary-color);
-    background: transparent;
-    color: var(--primary-color);
-    cursor: pointer;
-  }
-  .seg-btn:first-child {
-    border-inline-start: 0;
-  }
-  .seg-btn[aria-pressed='true'] {
-    background: var(--primary-color);
-    color: var(--text-primary-color);
-    font-weight: 700;
+    justify-content: space-between;
+    gap: var(--sc-space-3);
   }
   .feedback {
-    flex: 1 1 14rem;
     margin: 0;
-    min-height: 1.45em;
-    color: var(--secondary-text-color);
-    font-size: 0.875rem;
+    color: var(--sc-text-muted);
+    font-size: var(--sc-font-sm);
   }
-  .facts,
-  .reasons {
-    margin: 0;
-    padding-left: 20px;
+  .feedback:empty {
+    display: none;
   }
-  .facts {
-    padding-left: 0;
-    list-style: none;
+  .status {
     display: grid;
-    gap: 4px;
+    gap: var(--sc-space-1);
+    padding-top: var(--sc-space-3);
+    border-top: 1px solid var(--sc-outline);
+  }
+  .runinfo {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sc-space-1) var(--sc-space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--sc-font-sm);
+    color: var(--sc-text-muted);
   }
   .bad {
-    color: var(--error-color);
-    font-weight: 600;
+    color: var(--sc-error);
+    font-weight: var(--sc-weight-strong);
   }
-  summary {
-    cursor: pointer;
-    min-height: 32px;
-    display: flex;
-    align-items: center;
-    font-weight: 600;
-    color: var(--primary-color);
+  .status :global(.disclosure summary) {
+    font-size: var(--sc-font-sm);
+  }
+  .pair {
+    display: grid;
+    gap: var(--sc-space-4);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+    align-items: start;
   }
 </style>

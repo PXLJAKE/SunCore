@@ -4,6 +4,9 @@
   // table (the text alternative). The section decides nothing about the data.
   import type { Snippet } from 'svelte';
   import { tDynamic } from '../i18n/index.svelte';
+  import Card from '../ui/Card.svelte';
+  import Disclosure from '../ui/Disclosure.svelte';
+  import Icon from '../ui/Icon.svelte';
 
   interface Props {
     id: string;
@@ -34,65 +37,94 @@
     chart,
     table,
   }: Props = $props();
-  const uid = $props.id();
 </script>
 
-<section class="card stack" aria-labelledby="{uid}-t" data-testid="history-{id}">
-  <h3 id="{uid}-t">{title}</h3>
-  <p class="hint">{hint}</p>
-  {#if caption}<p class="hint" data-testid="history-{id}-caption">{caption}</p>{/if}
-  {#if error}
-    <p class="notice error" role="alert">{tDynamic(error, undefined, 'api.error.unknown')}</p>
-  {:else if empty}
-    <p class="hint" data-testid="history-{id}-empty">{empty}</p>
-  {:else}
-    <div class="chart">{@render chart()}</div>
-    <details class="data">
-      <summary>{tableSummary}</summary>
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-      <div class="scroll" role="region" tabindex="0" aria-label={title}>
-        {@render table()}
+<Card {title} testid="history-{id}">
+  <div class="layout">
+    <div class="text">
+      <p class="hint">{hint}</p>
+      {#if caption}<p class="hint caption" data-testid="history-{id}-caption">{caption}</p>{/if}
+    </div>
+    {#if error}
+      <p class="notice error state" role="alert">
+        {tDynamic(error, undefined, 'api.error.unknown')}
+      </p>
+    {:else if empty}
+      <p class="hint state" data-testid="history-{id}-empty">{empty}</p>
+    {:else}
+      <!-- The chart's own PNG button joins the CSV link in the last row (see the grid below). -->
+      <div class="plot">{@render chart()}</div>
+      <div class="data">
+        <Disclosure summary={tableSummary}>
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
+          <div class="table-scroll" role="region" tabindex="0" aria-label={title}>
+            {@render table()}
+          </div>
+        </Disclosure>
       </div>
-    </details>
-  {/if}
-  <a class="btn secondary small csv" href={csvHref} download data-testid="csv-{id}">{csvLabel}</a>
-</section>
+    {/if}
+    <a class="btn ghost small csv" href={csvHref} download data-testid="csv-{id}"
+      ><Icon name="download" size={16} />{csvLabel}</a
+    >
+  </div>
+</Card>
 
 <style>
-  .chart {
+  /*
+   * Text, chart, then one quiet row: the table disclosure on the left, PNG and CSV on the right.
+   * The chart wrapper is transparent to the grid, so the chart's PNG button can join that row.
+   */
+  .layout {
     display: grid;
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'text text text'
+      'chart chart chart'
+      'data png csv';
+    gap: var(--sc-space-2) var(--sc-space-2);
+    align-items: start;
     min-width: 0;
   }
-  summary {
-    cursor: pointer;
-    min-height: 32px;
-    display: flex;
-    align-items: center;
-    font-weight: 600;
-    color: var(--primary-color);
+  .text {
+    grid-area: text;
+    display: grid;
+    gap: var(--sc-space-1);
   }
-  .scroll {
-    overflow-x: auto;
-    margin-top: 8px;
-  }
-  .csv {
-    justify-self: start;
-  }
-  .data :global(table) {
-    border-collapse: collapse;
-    width: 100%;
-    min-width: 28rem;
-    font-size: 0.9375rem;
+  .caption {
     font-variant-numeric: tabular-nums;
   }
-  .data :global(th),
-  .data :global(td) {
-    text-align: left;
-    padding: 5px 10px 5px 0;
-    border-top: 1px solid var(--divider-color);
+  .state {
+    grid-area: chart;
   }
-  .data :global(thead th) {
-    border-top: 0;
+  .plot {
+    display: contents;
+  }
+  .plot > :global(*) {
+    grid-area: chart;
+    min-width: 0;
+  }
+  .plot > :global(.png) {
+    grid-area: png;
+  }
+  .csv {
+    grid-area: csv;
+  }
+  .data {
+    grid-area: data;
+    min-width: 0;
+  }
+  .data :global(.data-table) {
+    min-width: 28rem;
+  }
+  /* Phone: the disclosure gets the full width, the two downloads go below it. */
+  @media (max-width: 599px) {
+    .layout {
+      grid-template-columns: auto auto minmax(0, 1fr);
+      grid-template-areas:
+        'text text text'
+        'chart chart chart'
+        'data data data'
+        'png csv .';
+    }
   }
 </style>

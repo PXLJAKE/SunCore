@@ -16,6 +16,7 @@
   import { CanvasRenderer } from 'echarts/renderers';
   import { onMount } from 'svelte';
   import { t } from '../i18n/index.svelte';
+  import Icon from '../ui/Icon.svelte';
   import type { HistoryColors } from '../history/chartOptions';
   import { historyColors, readChartTheme, withChartTheme } from '../charts/theme';
 
@@ -113,8 +114,8 @@
   aria-describedby={describedby}
   data-testid={testid}
 ></div>
-<button type="button" class="btn secondary small png" data-testid="{testid}-png" onclick={download}>
-  {t('history.export.png')}
+<button type="button" class="btn ghost small png" data-testid="{testid}-png" onclick={download}>
+  <Icon name="download" size={16} />{t('history.export.png')}
 </button>
 
 <style>

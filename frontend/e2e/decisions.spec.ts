@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { expect, test, type Page } from '@playwright/test';
-import { expectNoAxeViolations, resetDemo } from './helpers';
+import { expectNoAxeViolations, openCard, resetDemo } from './helpers';
 
 const NAMES: Record<string, string> = {
   living_room_ac: 'Living room AC',
@@ -39,6 +39,8 @@ test.describe('decision log', () => {
   }) => {
     await page.goto('/#/decisions');
     await firstRow(page);
+    // On a phone the filters start collapsed.
+    await openCard(page, 'log-filter-card');
     const all = (await (await request.get('/api/v1/decisions?limit=200')).json()) as Row[];
     // a device with a card (the log also holds the battery's and the inverter's decisions)
     const id = all.map((d) => d.intent.asset_id).find((a) => a in NAMES)!;
@@ -87,6 +89,7 @@ test.describe('decision log', () => {
 
   test('rejects a reversed date range before asking the server', async ({ page }) => {
     await page.goto('/#/decisions');
+    await openCard(page, 'log-filter-card');
     await page.getByTestId('filter-from').fill('2026-06-10');
     await page.getByTestId('filter-to').fill('2026-06-01');
     await expect(

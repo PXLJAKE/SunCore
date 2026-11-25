@@ -31,6 +31,9 @@
   import { PlanChartStore, type ChartRequest } from '../stores/planChart.svelte';
   import { plan } from '../stores/plan.svelte';
   import { router } from '../router.svelte';
+  import Card from '../ui/Card.svelte';
+  import Disclosure from '../ui/Disclosure.svelte';
+  import Icon from '../ui/Icon.svelte';
   import PlanChart from './PlanChart.svelte';
 
   interface Props {
@@ -121,6 +124,13 @@
       timeZone: zone,
     }).format(new Date(zonedMs(day, '12:00', zone)));
 
+  const chartTitle = $derived(
+    target.kind === 'at'
+      ? t('plan.at.title', { time: tDateTime(new Date(target.atMs)) })
+      : target.kind === 'day'
+        ? t('plan.day.title', { day: dayText(target.day) })
+        : t('plan.chart.title'),
+  );
   const chartLabel = $derived(
     t('plan.chart.label', {
       from: tDateTime(new Date(win.fromMs)),
@@ -209,12 +219,13 @@
   const hasPast = $derived(win.fromMs < nowMs);
 </script>
 
-<details
-  class="card lookback"
+<Card
+  title={t('plan.lookback.title')}
+  collapsible
   open={target.kind !== 'live' || compareMs !== null}
-  data-testid="plan-lookback"
+  density="compact"
+  testid="plan-lookback"
 >
-  <summary>{t('plan.lookback.title')}</summary>
   <p class="hint">{t('plan.lookback.hint')}</p>
   <div class="fields">
     <div class="field">
@@ -222,13 +233,14 @@
       <div class="row">
         <button
           type="button"
-          class="btn secondary small"
+          class="btn secondary small icon-btn"
           aria-label={t('plan.lookback.day_prev')}
           data-testid="day-prev"
-          onclick={() => stepDay(-1)}>‹</button
+          onclick={() => stepDay(-1)}><Icon name="prev" size={18} /></button
         >
         <input
           id="{uid}-day"
+          class="input"
           type="date"
           max={today}
           value={dayInput}
@@ -237,18 +249,24 @@
         />
         <button
           type="button"
-          class="btn secondary small"
+          class="btn secondary small icon-btn"
           aria-label={t('plan.lookback.day_next')}
           data-testid="day-next"
           disabled={target.kind !== 'day' || target.day >= today}
-          onclick={() => stepDay(1)}>›</button
+          onclick={() => stepDay(1)}><Icon name="next" size={18} /></button
         >
       </div>
     </div>
     <div class="field">
       <label for="{uid}-at">{t('plan.lookback.at')}</label>
       <div class="row">
-        <input id="{uid}-at" type="datetime-local" bind:value={atInput} data-testid="at-input" />
+        <input
+          id="{uid}-at"
+          class="input"
+          type="datetime-local"
+          bind:value={atInput}
+          data-testid="at-input"
+        />
         <button type="button" class="btn secondary small" data-testid="at-show" onclick={showAt}
           >{t('plan.lookback.at_show')}</button
         >
@@ -259,6 +277,7 @@
       <div class="row">
         <input
           id="{uid}-cmp"
+          class="input"
           type="datetime-local"
           bind:value={compareInput}
           data-testid="compare-input"
@@ -272,7 +291,7 @@
         {#if compareMs !== null}
           <button
             type="button"
-            class="btn secondary small"
+            class="btn ghost small"
             data-testid="compare-clear"
             onclick={() => router.go(targetHash(target))}>{t('plan.lookback.compare_clear')}</button
           >
@@ -280,22 +299,19 @@
       </div>
     </div>
   </div>
-  {#if target.kind !== 'live'}
-    <p>
+</Card>
+
+<Card title={chartTitle} testid="plan-chart-card">
+  {#snippet actions()}
+    {#if target.kind !== 'live'}
       <button type="button" class="btn small" data-testid="back-to-live" onclick={live}
         >{t('plan.lookback.live')}</button
       >
-    </p>
-  {/if}
-</details>
-
-<div class="card chart-card" data-testid="plan-chart-card">
-  <h3 id="{uid}-chart">
-    {#if target.kind === 'at'}{t('plan.at.title', { time: tDateTime(new Date(target.atMs)) })}
-    {:else if target.kind === 'day'}{t('plan.day.title', { day: dayText(target.day) })}
-    {:else}{t('plan.chart.title')}{/if}
-  </h3>
-  <p class="hint" id={hintId}>{t('plan.chart.hint')}</p>
+    {/if}
+  {/snippet}
+  <Disclosure summary={t('plan.chart.help')}>
+    <p class="hint" id={hintId}>{t('plan.chart.hint')}</p>
+  </Disclosure>
 
   {#if store.snapshot && (target.kind === 'at' || store.snapshot.plan.intervals.length > 0)}
     <p class="hint" data-testid="plan-snapshot">
@@ -348,218 +364,186 @@
     {deviceName}
     {filename}
   />
-  <p class="exports">
-    <a class="btn secondary small" href={planCsv} download data-testid="csv-plan"
-      >{t('plan.export.plan_csv')}</a
-    >
-    {#if hasPast}
-      <a class="btn secondary small" href={actualCsv} download data-testid="csv-actual"
-        >{t('plan.export.actual_csv')}</a
-      >
-    {/if}
-    {#if compareCsv}
-      <a class="btn secondary small" href={compareCsv} download data-testid="csv-compare"
-        >{t('plan.export.compare_csv')}</a
-      >
-    {/if}
-  </p>
-</div>
 
-<details class="card table" data-testid="plan-table">
-  <summary>{t('plan.table.summary')}</summary>
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-  <div class="scroll" role="region" tabindex="0" aria-label={t('plan.table.caption')}>
-    <table>
-      <caption class="sr-only">{t('plan.table.caption')}</caption>
-      <thead>
-        <tr>
-          <th scope="col">{t('plan.table.time')}</th>
-          <th scope="col">{t('plan.table.pv')}</th>
-          <th scope="col">{t('plan.table.load')}</th>
-          <th scope="col">{t('plan.table.devices')}</th>
-          <th scope="col">{t('plan.table.battery')}</th>
-          <th scope="col">{t('plan.table.grid')}</th>
-          <th scope="col">{t('plan.table.soc')}</th>
-          <th scope="col">{t('plan.table.price')}</th>
-          {#if store.actual}
-            <th scope="col">{t('plan.table.m_pv')}</th>
-            <th scope="col">{t('plan.table.m_house')}</th>
-            <th scope="col">{t('plan.table.m_grid')}</th>
-            <th scope="col">{t('plan.table.m_battery')}</th>
-            <th scope="col">{t('plan.table.m_soc')}</th>
-          {/if}
-        </tr>
-      </thead>
-      <tbody>
-        {#each hourly as i (i.start)}
-          {@const e = i.expected!}
-          {@const m = measuredAt(Date.parse(i.start))}
-          <tr>
-            <th scope="row">{tDateTime(new Date(i.start))}</th>
-            <td>{tPower(e.pv_p50_w)}</td>
-            <td>{tPower(e.load_w)}</td>
-            <td>{tPower(e.devices_w ?? 0)}</td>
-            <td>{signed(e.battery_w ?? 0)}</td>
-            <td>{signed(e.import_w - e.export_w)}</td>
-            <td>{e.soc_pct == null ? '–' : tPercent(e.soc_pct)}</td>
-            <td>{price(i.prices?.import_price)}</td>
-            {#if store.actual}
-              <td>{m ? dash(m.a.pvW[m.i], tPower) : '–'}</td>
-              <td>{m ? dash(m.a.houseW[m.i], tPower) : '–'}</td>
-              <td>{m ? dash(m.a.gridW[m.i], (w) => signed(w)) : '–'}</td>
-              <td>{m ? dash(m.a.batteryW[m.i], (w) => signed(w)) : '–'}</td>
-              <td>{m ? dash(m.a.socPct[m.i], tPercent) : '–'}</td>
-            {/if}
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-  </div>
-</details>
-
-{#if lanes.length > 0}
-  <details class="card table" data-testid="plan-schedule">
-    <summary>{t('plan.sched.summary')}</summary>
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-    <div class="scroll" role="region" tabindex="0" aria-label={t('plan.sched.caption')}>
-      <table>
-        <caption class="sr-only">{t('plan.sched.caption')}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t('plan.sched.device')}</th>
-            <th scope="col">{t('plan.sched.planned')}</th>
-            <th scope="col">{t('plan.sched.measured')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each lanes as lane (lane.id)}
-            <tr data-testid="schedule-row">
-              <th scope="row">{laneName(lane)}</th>
-              <td>{spanText(lane.planned)}</td>
-              <td>{store.actual ? spanText(lane.actual) : '–'}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
-  </details>
-{/if}
-
-{#if store.compare}
-  <details class="card table" open data-testid="plan-compare-table">
-    <summary>{t('plan.compare.table')}</summary>
-    {#if rows.filter(hasDelta).length === 0}
-      <p class="hint" data-testid="plan-compare-none">{t('plan.compare.none')}</p>
-    {:else}
+  <div class="alternatives">
+    <Disclosure summary={t('plan.table.summary')} testid="plan-table">
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-      <div class="scroll" role="region" tabindex="0" aria-label={t('plan.compare.table')}>
-        <table>
-          <caption class="sr-only">{t('plan.compare.table')}</caption>
+      <div class="table-scroll" role="region" tabindex="0" aria-label={t('plan.table.caption')}>
+        <table class="data-table">
+          <caption class="sr-only">{t('plan.table.caption')}</caption>
           <thead>
             <tr>
               <th scope="col">{t('plan.table.time')}</th>
-              <th scope="col">{t('plan.compare.col.battery')}</th>
-              <th scope="col">{t('plan.compare.col.soc')}</th>
-              <th scope="col">{t('plan.compare.col.import')}</th>
-              <th scope="col">{t('plan.compare.col.export')}</th>
-              <th scope="col">{t('plan.compare.col.devices')}</th>
-              <th scope="col">{t('plan.compare.col.price')}</th>
-              <th scope="col">{t('plan.compare.col.changed')}</th>
+              <th scope="col">{t('plan.table.pv')}</th>
+              <th scope="col">{t('plan.table.load')}</th>
+              <th scope="col">{t('plan.table.devices')}</th>
+              <th scope="col">{t('plan.table.battery')}</th>
+              <th scope="col">{t('plan.table.grid')}</th>
+              <th scope="col">{t('plan.table.soc')}</th>
+              <th scope="col">{t('plan.table.price')}</th>
+              {#if store.actual}
+                <th scope="col">{t('plan.table.m_pv')}</th>
+                <th scope="col">{t('plan.table.m_house')}</th>
+                <th scope="col">{t('plan.table.m_grid')}</th>
+                <th scope="col">{t('plan.table.m_battery')}</th>
+                <th scope="col">{t('plan.table.m_soc')}</th>
+              {/if}
             </tr>
           </thead>
           <tbody>
-            {#each rows.filter(hasDelta) as d (d.start)}
-              <tr data-testid="compare-row">
-                <th scope="row">{tDateTime(new Date(d.start))}</th>
-                {#if d.only_in}
-                  <td colspan="7"
-                    >{t(d.only_in === 'a' ? 'plan.compare.only_a' : 'plan.compare.only_b')}</td
-                  >
-                {:else}
-                  <td>{dash(d.battery_w_delta, signed)}</td>
-                  <td>{dash(d.soc_pct_delta, (v) => (v > 0 ? '+' : '') + tPercent(v))}</td>
-                  <td>{dash(d.import_w_delta, signed)}</td>
-                  <td>{dash(d.export_w_delta, signed)}</td>
-                  <td>{dash(d.devices_w_delta, signed)}</td>
-                  <td>{dash(d.import_price_delta, (v) => (v > 0 ? '+' : '') + price(v))}</td>
-                  <td>{d.devices_changed.map(deviceName).join(', ') || '–'}</td>
+            {#each hourly as i (i.start)}
+              {@const e = i.expected!}
+              {@const m = measuredAt(Date.parse(i.start))}
+              <tr>
+                <th scope="row">{tDateTime(new Date(i.start))}</th>
+                <td>{tPower(e.pv_p50_w)}</td>
+                <td>{tPower(e.load_w)}</td>
+                <td>{tPower(e.devices_w ?? 0)}</td>
+                <td>{signed(e.battery_w ?? 0)}</td>
+                <td>{signed(e.import_w - e.export_w)}</td>
+                <td>{e.soc_pct == null ? '–' : tPercent(e.soc_pct)}</td>
+                <td>{price(i.prices?.import_price)}</td>
+                {#if store.actual}
+                  <td>{m ? dash(m.a.pvW[m.i], tPower) : '–'}</td>
+                  <td>{m ? dash(m.a.houseW[m.i], tPower) : '–'}</td>
+                  <td>{m ? dash(m.a.gridW[m.i], (w) => signed(w)) : '–'}</td>
+                  <td>{m ? dash(m.a.batteryW[m.i], (w) => signed(w)) : '–'}</td>
+                  <td>{m ? dash(m.a.socPct[m.i], tPercent) : '–'}</td>
                 {/if}
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
+    </Disclosure>
+
+    {#if lanes.length > 0}
+      <Disclosure summary={t('plan.sched.summary')} testid="plan-schedule">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
+        <div class="table-scroll" role="region" tabindex="0" aria-label={t('plan.sched.caption')}>
+          <table class="data-table">
+            <caption class="sr-only">{t('plan.sched.caption')}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('plan.sched.device')}</th>
+                <th scope="col">{t('plan.sched.planned')}</th>
+                <th scope="col">{t('plan.sched.measured')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each lanes as lane (lane.id)}
+                <tr data-testid="schedule-row">
+                  <th scope="row">{laneName(lane)}</th>
+                  <td>{spanText(lane.planned)}</td>
+                  <td>{store.actual ? spanText(lane.actual) : '–'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </Disclosure>
     {/if}
-  </details>
-{/if}
+
+    {#if store.compare}
+      <Disclosure summary={t('plan.compare.table')} open testid="plan-compare-table">
+        {#if rows.filter(hasDelta).length === 0}
+          <p class="hint" data-testid="plan-compare-none">{t('plan.compare.none')}</p>
+        {:else}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
+          <div class="table-scroll" role="region" tabindex="0" aria-label={t('plan.compare.table')}>
+            <table class="data-table">
+              <caption class="sr-only">{t('plan.compare.table')}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">{t('plan.table.time')}</th>
+                  <th scope="col">{t('plan.compare.col.battery')}</th>
+                  <th scope="col">{t('plan.compare.col.soc')}</th>
+                  <th scope="col">{t('plan.compare.col.import')}</th>
+                  <th scope="col">{t('plan.compare.col.export')}</th>
+                  <th scope="col">{t('plan.compare.col.devices')}</th>
+                  <th scope="col">{t('plan.compare.col.price')}</th>
+                  <th scope="col">{t('plan.compare.col.changed')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each rows.filter(hasDelta) as d (d.start)}
+                  <tr data-testid="compare-row">
+                    <th scope="row">{tDateTime(new Date(d.start))}</th>
+                    {#if d.only_in}
+                      <td colspan="7"
+                        >{t(d.only_in === 'a' ? 'plan.compare.only_a' : 'plan.compare.only_b')}</td
+                      >
+                    {:else}
+                      <td>{dash(d.battery_w_delta, signed)}</td>
+                      <td>{dash(d.soc_pct_delta, (v) => (v > 0 ? '+' : '') + tPercent(v))}</td>
+                      <td>{dash(d.import_w_delta, signed)}</td>
+                      <td>{dash(d.export_w_delta, signed)}</td>
+                      <td>{dash(d.devices_w_delta, signed)}</td>
+                      <td>{dash(d.import_price_delta, (v) => (v > 0 ? '+' : '') + price(v))}</td>
+                      <td>{d.devices_changed.map(deviceName).join(', ') || '–'}</td>
+                    {/if}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </Disclosure>
+    {/if}
+  </div>
+  {#snippet footer()}
+    <a class="btn secondary small" href={planCsv} download data-testid="csv-plan"
+      ><Icon name="download" size={16} />{t('plan.export.plan_csv')}</a
+    >
+    {#if hasPast}
+      <a class="btn secondary small" href={actualCsv} download data-testid="csv-actual"
+        ><Icon name="download" size={16} />{t('plan.export.actual_csv')}</a
+      >
+    {/if}
+    {#if compareCsv}
+      <a class="btn secondary small" href={compareCsv} download data-testid="csv-compare"
+        ><Icon name="download" size={16} />{t('plan.export.compare_csv')}</a
+      >
+    {/if}
+  {/snippet}
+</Card>
 
 <style>
-  .chart-card {
-    display: grid;
-    gap: 8px;
-    min-width: 0;
-  }
-  .lookback .fields {
+  .fields {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px 24px;
+    gap: var(--sc-space-3) var(--sc-space-5);
   }
   .field {
     display: grid;
-    gap: 4px;
+    gap: var(--sc-space-1);
+    min-width: 0;
   }
   .row {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sc-space-2);
     align-items: center;
   }
   label {
-    font-weight: 600;
-    font-size: 0.875rem;
+    font-weight: var(--sc-weight-strong);
+    font-size: var(--sc-font-sm);
   }
-  input[type='date'],
-  input[type='datetime-local'] {
-    min-height: 44px;
-    padding: 0 8px;
-    font: inherit;
-    color: var(--primary-text-color);
-    background: var(--card-background-color);
-    border: 1px solid var(--divider-color);
-    border-radius: 6px;
+  .input {
+    width: auto;
+    min-width: 0;
   }
-  .exports {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 0;
+  .icon-btn {
+    min-width: var(--sc-target);
+    padding: 0;
+    justify-content: center;
   }
-  summary {
-    cursor: pointer;
-    min-height: 32px;
-    display: flex;
-    align-items: center;
-    font-weight: 600;
-    color: var(--primary-color);
+  .alternatives {
+    display: grid;
+    border-top: 1px solid var(--sc-outline);
+    padding-top: var(--sc-space-2);
   }
-  .scroll {
-    overflow-x: auto;
-    margin-top: 8px;
-  }
-  table {
-    border-collapse: collapse;
-    width: 100%;
+  .alternatives :global(.data-table) {
     min-width: 36rem;
-    font-size: 0.9375rem;
-    font-variant-numeric: tabular-nums;
-  }
-  th,
-  td {
-    text-align: left;
-    padding: 5px 10px 5px 0;
-    border-top: 1px solid var(--divider-color);
-  }
-  thead th {
-    border-top: 0;
   }
 </style>

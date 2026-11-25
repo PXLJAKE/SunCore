@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { expect, test } from '@playwright/test';
-import { expectNoAxeViolations } from './helpers';
+import { expectNoAxeViolations, openCard } from './helpers';
 
 test.describe('Plan view', () => {
   test('renders the plan with chart, badges, status and reasons', async ({ page }) => {
@@ -66,6 +66,9 @@ test.describe('Plan view', () => {
     await page.goto('/#/plan');
     const panel = page.getByTestId('forecast-panel');
     await expect(panel).toBeVisible();
+    // Both cards start collapsed; the credit stays visible below them.
+    await openCard(page, 'fc-card');
+    await openCard(page, 'fc-ml-card');
     await expect(panel.getByTestId('fc-accuracy')).toBeVisible();
     await expect(panel.getByTestId('fc-weights')).toContainText('equal');
     await expect(panel.getByTestId('fc-calibration')).toContainText('No history yet');
@@ -182,6 +185,8 @@ test.describe('Plan view', () => {
       const page = await ctx.newPage();
       await page.goto('/#/plan');
       await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
+      await openCard(page, 'fc-card');
+      await openCard(page, 'fc-ml-card');
       await expect(page.getByTestId('fc-accuracy')).toBeVisible();
       await expectNoAxeViolations(page);
       await ctx.close();

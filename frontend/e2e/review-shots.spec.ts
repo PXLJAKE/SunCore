@@ -19,7 +19,10 @@ const SIZES = [
 const VIEWS = [
   { view: 'now', path: '/' },
   { view: 'plan', path: '/#/plan?day=2026-06-20' },
+  { view: 'plan-live', path: '/#/plan' },
   { view: 'analysis', path: '/#/history?period=month' },
+  { view: 'decisions', path: '/#/decisions' },
+  { view: 'whatif', path: '/#/whatif' },
   { view: 'settings', path: '/#/settings' },
   { view: 'wizard-pv', path: '/#/setup/pv' },
 ] as const;
@@ -27,9 +30,11 @@ const VIEWS = [
 async function ready(page: Page, view: (typeof VIEWS)[number]['view']): Promise<void> {
   await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
   if (view === 'now') await expect(page.getByTestId('device-cards')).toBeVisible();
-  if (view === 'plan') {
+  if (view === 'plan' || view === 'plan-live') {
     await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
   }
+  if (view === 'decisions') await expect(page.getByTestId('log-list')).toBeVisible();
+  if (view === 'whatif') await expect(page.getByTestId('whatif-form')).toBeVisible();
   if (view === 'analysis') {
     await expect(page.getByTestId('chart-energy').locator('canvas').first()).toBeVisible();
   }
@@ -54,6 +59,10 @@ for (const s of SIZES) {
         });
         try {
           const page = await ctx.newPage();
+          // The what-if view belongs to expert mode (a per-browser switch).
+          if (v.view === 'whatif') {
+            await page.addInitScript(() => localStorage.setItem('suncore.expert', '1'));
+          }
           await page.goto(v.path);
           await ready(page, v.view);
           // Sticky and fixed bars would freeze mid-page in a full-page capture: the wizard's action

@@ -44,6 +44,12 @@
   } from '../i18n/index.svelte';
   import { router } from '../router.svelte';
   import { HistoryStore } from '../stores/history.svelte';
+  import Card from '../ui/Card.svelte';
+  import Chip from '../ui/Chip.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
+  import Icon from '../ui/Icon.svelte';
+  import Stat, { type EnergyTone } from '../ui/Stat.svelte';
+  import ToggleGroup from '../ui/ToggleGroup.svelte';
 
   const uid = $props.id();
   const store = new HistoryStore();
@@ -57,6 +63,7 @@
     month: 'history.period.month',
     year: 'history.period.year',
   };
+  const periodOptions = $derived(PERIODS.map((p) => ({ value: p, label: t(PERIOD_LABEL[p]) })));
   const HORIZON: Record<string, MessageKey> = {
     '0_6h': 'fc.horizon.0_6h',
     '6_24h': 'fc.horizon.6_24h',
@@ -160,6 +167,7 @@
     key: string;
     label: MessageKey;
     value: string;
+    tone?: EnergyTone;
   }
   const tiles = $derived.by<Tile[]>(() => {
     const s = summary;
@@ -172,10 +180,15 @@
         label: 'history.tile.self_consumption',
         value: ratio(s.kpis.self_consumption),
       },
-      { key: 'pv', label: 'history.s.pv', value: kwh(s.energy.pv_wh) },
-      { key: 'house', label: 'history.s.house', value: kwh(s.energy.house_wh) },
-      { key: 'import', label: 'history.s.import', value: kwh(s.energy.import_wh) },
-      { key: 'export', label: 'history.s.export', value: kwh(s.energy.export_wh) },
+      { key: 'pv', label: 'history.s.pv', value: kwh(s.energy.pv_wh), tone: 'pv' },
+      { key: 'house', label: 'history.s.house', value: kwh(s.energy.house_wh), tone: 'house' },
+      { key: 'import', label: 'history.s.import', value: kwh(s.energy.import_wh), tone: 'grid-in' },
+      {
+        key: 'export',
+        label: 'history.s.export',
+        value: kwh(s.energy.export_wh),
+        tone: 'grid-out',
+      },
       { key: 'cost', label: 'history.tile.cost', value: money(c.cost_net, c.currency) },
       {
         key: 'savings_no_pv',
@@ -194,6 +207,11 @@
       },
     ];
   });
+
+  const pick = (keys: readonly string[]): Tile[] => tiles.filter((x) => keys.includes(x.key));
+  const energyTiles = $derived(pick(['pv', 'house', 'import', 'export']));
+  const selfTiles = $derived(pick(['autarky', 'self_consumption', 'cycles']));
+  const moneyTiles = $derived(pick(['cost', 'savings_no_pv', 'savings_pv_only']));
 
   const hasCost = $derived(summary?.cost.cost_net != null);
   const dayBuckets = $derived(summary?.buckets.some((b) => b.key.length === 10) ?? false);
@@ -227,56 +245,56 @@
 <section class="history" aria-labelledby="{uid}-title" data-testid="history-view">
   <header class="head">
     <h2 id="{uid}-title">{t('history.title')}</h2>
+    <p class="hint intro">{t('history.intro')}</p>
   </header>
-  <p class="hint">{t('history.intro')}</p>
 
-  <div class="card controls">
-    <div class="range" role="group" aria-label={t('plan.range.label')}>
-      {#each PERIODS as p (p)}
+  <Card density="compact" testid="history-toolbar">
+    <div class="controls">
+      <ToggleGroup
+        label={t('history.period.label')}
+        options={periodOptions}
+        value={store.period}
+        testid="period"
+        onselect={(p) => store.setPeriod(p)}
+      />
+      <div class="nav" role="group" aria-label={t('history.nav.label')}>
         <button
           type="button"
-          class="seg-btn"
-          aria-pressed={store.period === p}
-          data-testid="period-{p}"
-          onclick={() => store.setPeriod(p)}>{t(PERIOD_LABEL[p])}</button
+          class="btn secondary icon-btn"
+          aria-label={t('history.nav.prev')}
+          disabled={!summary}
+          data-testid="period-prev"
+          onclick={() => store.step(-1)}><Icon name="prev" /></button
         >
-      {/each}
+        <button
+          type="button"
+          class="btn secondary"
+          disabled={store.date === null}
+          data-testid="period-today"
+          onclick={() => store.today()}>{t('history.nav.today')}</button
+        >
+        <button
+          type="button"
+          class="btn secondary icon-btn"
+          aria-label={t('history.nav.next')}
+          disabled={!summary || summary.in_progress}
+          data-testid="period-next"
+          onclick={() => store.step(1)}><Icon name="next" /></button
+        >
+      </div>
+      <div class="field jump">
+        <label for="{uid}-date">{t('history.nav.date')}</label>
+        <input
+          id="{uid}-date"
+          type="date"
+          class="input"
+          value={store.date ?? (summary ? dayOf(summary.start) : '')}
+          data-testid="period-date"
+          onchange={onDate}
+        />
+      </div>
     </div>
-    <div class="nav" role="group" aria-label={t('history.nav.label')}>
-      <button
-        type="button"
-        class="btn secondary"
-        disabled={!summary}
-        data-testid="period-prev"
-        onclick={() => store.step(-1)}>{t('history.nav.prev')}</button
-      >
-      <button
-        type="button"
-        class="btn secondary"
-        disabled={!summary || summary.in_progress}
-        data-testid="period-next"
-        onclick={() => store.step(1)}>{t('history.nav.next')}</button
-      >
-      <button
-        type="button"
-        class="btn secondary"
-        disabled={store.date === null}
-        data-testid="period-today"
-        onclick={() => store.today()}>{t('history.nav.today')}</button
-      >
-    </div>
-    <div class="field jump">
-      <label for="{uid}-date">{t('history.nav.date')}</label>
-      <input
-        id="{uid}-date"
-        type="date"
-        class="input"
-        value={store.date ?? (summary ? dayOf(summary.start) : '')}
-        data-testid="period-date"
-        onchange={onDate}
-      />
-    </div>
-  </div>
+  </Card>
 
   {#if store.unavailable}
     <p class="card notice error" role="alert" data-testid="history-unavailable">
@@ -293,35 +311,40 @@
       <h3 aria-live="polite">{periodTitle(summary)}</h3>
       <ul class="badges" aria-label={t('history.status.label')}>
         {#if summary.in_progress}
-          <li class="chip-tag" data-testid="badge-in-progress">{t('history.badge.in_progress')}</li>
+          <li data-testid="badge-in-progress">
+            <Chip tone="info">{t('history.badge.in_progress')}</Chip>
+          </li>
         {/if}
         {#if incompleteDays(summary) > 0}
-          <li class="chip-tag warn" data-testid="badge-incomplete">
-            {t('history.badge.incomplete', { count: incompleteDays(summary) })}
+          <li data-testid="badge-incomplete">
+            <Chip tone="warn"
+              >{t('history.badge.incomplete', { count: incompleteDays(summary) })}</Chip
+            >
           </li>
         {/if}
         {#if summary.derived_share != null && summary.derived_share > 0}
-          <li class="chip-tag" data-testid="badge-derived">
-            {t('history.badge.derived', { share: tPercent(summary.derived_share * 100) })}
-          </li>
-        {/if}
-        {#if summary.period === 'day'}
-          <li>
-            <a
-              class="chip-tag link"
-              href={planDayHash(dayOf(summary.start))}
-              data-testid="plan-link">{t('history.plan_link')}</a
+          <li data-testid="badge-derived">
+            <Chip
+              >{t('history.badge.derived', { share: tPercent(summary.derived_share * 100) })}</Chip
             >
           </li>
         {/if}
       </ul>
+      {#if summary.period === 'day'}
+        <a class="plan-link" href={planDayHash(dayOf(summary.start))} data-testid="plan-link"
+          ><Icon name="plan" size={18} />{t('history.plan_link')}</a
+        >
+      {/if}
     </div>
 
     {#if empty}
-      <div class="card stack" data-testid="history-empty">
-        <h3>{t('history.empty.title')}</h3>
-        <p>{t('history.empty.body')}</p>
-      </div>
+      <Card testid="history-empty">
+        <EmptyState
+          icon="analysis"
+          title={t('history.empty.title')}
+          text={t('history.empty.body')}
+        />
+      </Card>
     {:else}
       {#if incompleteDays(summary) > 0}
         <p class="notice warn" data-testid="history-incomplete-note">
@@ -329,32 +352,52 @@
         </p>
       {/if}
 
-      <dl class="tiles" data-testid="history-tiles">
-        {#each tiles as tile (tile.key)}
-          <div class="tile" data-testid="tile-{tile.key}">
-            <dt>{t(tile.label)}</dt>
-            <dd>{tile.value}</dd>
+      <div class="tiles" data-testid="history-tiles">
+        <Card title={t('history.group.energy')} level={4}>
+          <div class="stats">
+            {#each energyTiles as tile (tile.key)}
+              <Stat
+                label={t(tile.label)}
+                value={tile.value}
+                tone={tile.tone}
+                testid="tile-{tile.key}"
+              />
+            {/each}
           </div>
-        {/each}
-      </dl>
-
-      <div class="card stack" data-testid="history-attribution">
-        <h3>{t('history.attr.title')}</h3>
-        {#if hasCost}
-          <p>
-            {t('history.attr.body', {
-              total: money(summary.cost.savings_vs_no_pv, currency),
-              plant: money(summary.cost.pv_contribution, currency),
-              suncore: money(summary.cost.savings_vs_pv_only, currency),
-            })}
-          </p>
-          <p class="hint">
-            {t('history.attr.priced', { priced: summary.cost.priced_days, days: summary.days })}
-          </p>
-        {:else}
-          <p class="hint">{t('history.attr.no_prices')}</p>
-        {/if}
-        <p class="hint">{t('history.attr.limits')}</p>
+        </Card>
+        <Card title={t('history.group.self')} level={4}>
+          <div class="stats">
+            {#each selfTiles as tile (tile.key)}
+              <Stat label={t(tile.label)} value={tile.value} testid="tile-{tile.key}" />
+            {/each}
+          </div>
+        </Card>
+        <Card title={t('history.group.money')} level={4}>
+          <div class="stats">
+            {#each moneyTiles as tile (tile.key)}
+              <Stat label={t(tile.label)} value={tile.value} testid="tile-{tile.key}" />
+            {/each}
+          </div>
+          <div class="attribution" data-testid="history-attribution">
+            <h5 class="kicker">{t('history.attr.title')}</h5>
+            {#if hasCost}
+              <p>
+                {t('history.attr.body', {
+                  total: money(summary.cost.savings_vs_no_pv, currency),
+                  plant: money(summary.cost.pv_contribution, currency),
+                  suncore: money(summary.cost.savings_vs_pv_only, currency),
+                })}
+              </p>
+              <p class="hint">
+                {t('history.attr.priced', { priced: summary.cost.priced_days, days: summary.days })}
+                {t('history.attr.limits')}
+              </p>
+            {:else}
+              <p class="hint">{t('history.attr.no_prices')}</p>
+              <p class="hint">{t('history.attr.limits')}</p>
+            {/if}
+          </div>
+        </Card>
       </div>
 
       <HistorySection
@@ -381,7 +424,7 @@
           {/await}
         {/snippet}
         {#snippet table()}
-          <table data-testid="table-energy">
+          <table class="data-table" data-testid="table-energy">
             <caption class="sr-only">{t('history.energy.title')}</caption>
             <thead>
               <tr>
@@ -445,7 +488,7 @@
           {/await}
         {/snippet}
         {#snippet table()}
-          <table data-testid="table-cost">
+          <table class="data-table" data-testid="table-cost">
             <caption class="sr-only">{t('history.cost.title')}</caption>
             <thead>
               <tr>
@@ -496,7 +539,7 @@
         {/snippet}
         {#snippet table()}
           {#if store.sankey}
-            <table data-testid="table-sankey">
+            <table class="data-table" data-testid="table-sankey">
               <caption class="sr-only">{t('history.sankey.title')}</caption>
               <thead>
                 <tr>
@@ -548,8 +591,13 @@
         {#snippet table()}
           {#if store.heatmap}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-            <div class="scroll" role="region" tabindex="0" aria-label={t('history.heatmap.title')}>
-              <table data-testid="table-heatmap">
+            <div
+              class="table-scroll"
+              role="region"
+              tabindex="0"
+              aria-label={t('history.heatmap.title')}
+            >
+              <table class="data-table" data-testid="table-heatmap">
                 <caption class="sr-only">{t('history.heatmap.title')}</caption>
                 <thead>
                   <tr>
@@ -605,8 +653,13 @@
         {#snippet table()}
           {#if store.cycles}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-            <div class="scroll" role="region" tabindex="0" aria-label={t('history.cycles.title')}>
-              <table data-testid="table-cycles">
+            <div
+              class="table-scroll"
+              role="region"
+              tabindex="0"
+              aria-label={t('history.cycles.title')}
+            >
+              <table class="data-table" data-testid="table-cycles">
                 <caption class="sr-only">{t('history.cycles.title')}</caption>
                 <thead>
                   <tr>
@@ -667,7 +720,7 @@
           {/if}
         {/snippet}
         {#snippet table()}
-          <table data-testid="table-skill">
+          <table class="data-table" data-testid="table-skill">
             <caption class="sr-only">{t('history.skill.title')}</caption>
             <thead>
               <tr>
@@ -691,8 +744,7 @@
         {/snippet}
       </HistorySection>
 
-      <section class="card stack" aria-labelledby="{uid}-devices" data-testid="history-devices">
-        <h3 id="{uid}-devices">{t('history.devices.title')}</h3>
+      <Card title={t('history.devices.title')} testid="history-devices">
         <p class="hint">{t('history.devices.hint')}</p>
         {#if sectionError('devices')}
           <p class="notice error" role="alert">
@@ -702,8 +754,13 @@
           <p class="hint">{t('history.none')}</p>
         {:else if store.devices}
           <!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to a scrollable table) -->
-          <div class="scroll" role="region" tabindex="0" aria-label={t('history.devices.title')}>
-            <table data-testid="table-devices">
+          <div
+            class="table-scroll"
+            role="region"
+            tabindex="0"
+            aria-label={t('history.devices.title')}
+          >
+            <table class="data-table" data-testid="table-devices">
               <caption class="sr-only">{t('history.devices.title')}</caption>
               <thead>
                 <tr>
@@ -731,10 +788,12 @@
             </table>
           </div>
         {/if}
-        <a class="btn secondary small csv" href={csv('devices')} download data-testid="csv-devices"
-          >{t('history.export.csv')}</a
-        >
-      </section>
+        {#snippet footer()}
+          <a class="btn secondary small" href={csv('devices')} download data-testid="csv-devices"
+            ><Icon name="download" size={16} />{t('history.export.csv')}</a
+          >
+        {/snippet}
+      </Card>
 
       <GridEventsSection />
     {/if}
@@ -744,44 +803,30 @@
 <style>
   .history {
     display: grid;
-    gap: var(--sc-gap);
+    gap: var(--sc-space-5);
     min-width: 0;
+  }
+  .head {
+    display: grid;
+    gap: var(--sc-space-2);
+  }
+  .intro {
+    max-width: 48rem;
   }
   .controls {
     display: flex;
     flex-wrap: wrap;
     align-items: end;
-    gap: 12px 16px;
-  }
-  .range {
-    display: flex;
-    border: 1px solid var(--primary-color);
-    border-radius: 22px;
-    overflow: hidden;
-  }
-  .seg-btn {
-    min-width: 64px;
-    min-height: 44px;
-    padding: 0 14px;
-    font: inherit;
-    border: 0;
-    border-inline-start: 1px solid var(--primary-color);
-    background: transparent;
-    color: var(--primary-color);
-    cursor: pointer;
-  }
-  .seg-btn:first-child {
-    border-inline-start: 0;
-  }
-  .seg-btn[aria-pressed='true'] {
-    background: var(--primary-color);
-    color: var(--text-primary-color);
-    font-weight: 700;
+    gap: var(--sc-space-3) var(--sc-space-4);
   }
   .nav {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sc-space-2);
+  }
+  .icon-btn {
+    min-width: var(--sc-target);
+    padding: 0;
+    justify-content: center;
   }
   .jump {
     min-width: 10rem;
@@ -790,88 +835,70 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 16px;
+    gap: var(--sc-space-2) var(--sc-space-3);
   }
   .period h3 {
-    font-size: 1.25rem;
+    font-size: var(--sc-font-xl);
   }
   .badges {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--sc-space-2);
     list-style: none;
     margin: 0;
     padding: 0;
   }
-  .chip-tag.link {
-    color: var(--primary-color);
-    border-color: var(--primary-color);
-    text-decoration: none;
-    min-height: 32px;
-    padding: 0 12px;
+  .plan-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sc-space-1);
+    min-height: var(--sc-target);
+    font-weight: var(--sc-weight-strong);
+    font-size: var(--sc-font-sm);
   }
   .tiles {
     display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
-    margin: 0;
+    gap: var(--sc-space-4);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+    align-items: start;
   }
-  .tile {
+  .tiles :global(.title) {
+    font-size: var(--sc-font-sm);
+    color: var(--sc-text-muted);
+    font-weight: var(--sc-weight-strong);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .stats {
     display: grid;
-    align-content: start;
-    gap: 4px;
-    padding: 12px 14px;
-    background: var(--card-background-color);
-    border: 1px solid var(--divider-color);
-    border-radius: var(--sc-radius);
-    min-width: 0;
+    gap: var(--sc-space-3) var(--sc-space-4);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .tile dt {
-    color: var(--secondary-text-color);
-    font-size: 0.875rem;
+  .stats :global(dd.value) {
+    font-size: var(--sc-font-xl);
   }
-  .tile dd {
+  .attribution {
+    display: grid;
+    gap: var(--sc-space-1);
+    padding-top: var(--sc-space-3);
+    border-top: 1px solid var(--sc-outline);
+  }
+  .attribution p {
     margin: 0;
-  }
-  .tile dd:not(.hint) {
-    font-size: 1.5rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-  }
-  .scroll {
-    overflow-x: auto;
-  }
-  table {
-    border-collapse: collapse;
-    width: 100%;
-    font-size: 0.9375rem;
-    font-variant-numeric: tabular-nums;
-  }
-  th,
-  td {
-    text-align: left;
-    padding: 5px 10px 5px 0;
-    border-top: 1px solid var(--divider-color);
-  }
-  thead th {
-    border-top: 0;
   }
   .bar {
     display: inline-block;
     width: 6rem;
-    height: 10px;
-    margin-inline-end: 8px;
-    border-radius: 5px;
-    background: var(--secondary-background-color);
+    height: 8px;
+    margin-inline-end: var(--sc-space-2);
+    border-radius: var(--sc-radius-pill);
+    background: var(--sc-surface-sunken);
     vertical-align: middle;
     overflow: hidden;
   }
   .bar span {
     display: block;
     height: 100%;
-    background: var(--primary-color);
-  }
-  .csv {
-    justify-self: start;
+    background: var(--sc-accent);
   }
 </style>

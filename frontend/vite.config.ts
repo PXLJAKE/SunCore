@@ -27,6 +27,10 @@ export default defineConfig({
           // One chunk per main catalogue: English is eager, the others load on demand.
           const main = /\/src\/lib\/i18n\/locales\/(en|de)\.json$/.exec(id);
           if (main) return `catalogue-${main[1]}`;
+          // The design-system components (lib/ui) are used by the Now view (first paint) and by
+          // the lazy views: one shared chunk instead of a dozen tiny ones, each with its own gzip
+          // and request overhead.
+          if (id.includes('/src/lib/ui/')) return 'ui';
           // ECharts and its canvas layer load on demand with the plan and history views only: one
           // shared core, and per view the parts only that view registers (plan decision 6).
           if (id.includes('/node_modules/echarts') || id.includes('/node_modules/zrender')) {

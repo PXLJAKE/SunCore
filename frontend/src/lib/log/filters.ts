@@ -122,6 +122,11 @@ export function filtersToApi(
 /** Whether any filter is set. */
 export const hasFilters = (f: LogFilters): boolean => filtersToParams(f).toString() !== '';
 
+/** How many filters are set (the outcomes count once), for the collapsed filter card. */
+export const filterCount = (f: LogFilters): number =>
+  [f.device, f.layer, f.reason.trim(), f.q.trim(), f.from, f.to].filter((v) => v !== '').length +
+  (f.kinds.length > 0 ? 1 : 0);
+
 /** The hash of the log with these filters, e.g. `#/decisions?device=ac&kind=shadow`. */
 export function logHash(f: Partial<LogFilters>): string {
   const text = filtersToParams({ ...emptyFilters(), ...f }).toString();

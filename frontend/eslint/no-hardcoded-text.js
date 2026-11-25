@@ -46,6 +46,8 @@ const NON_TEXT_COMPONENT_PROPS = new Set([
   'kind',
   'size',
   'tone',
+  'density', // Card density (regular, compact)
+  'layout', // Loading layout (block, inline)
   'mode',
   'color',
   'icon',

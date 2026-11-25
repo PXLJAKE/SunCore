@@ -42,6 +42,7 @@
   import { indexAt, type ChartData, type TargetLines } from '../plan/model';
   import type { TimeWindow } from '../plan/target';
   import { FULL, applyZoom, isZoomed, visibleSpan, zoomKey, type ZoomAction } from '../plan/zoom';
+  import Icon from '../ui/Icon.svelte';
   import ReasonList from './ReasonList.svelte';
 
   use([
@@ -380,7 +381,7 @@
     class="btn secondary small"
     data-testid="zoom-left"
     aria-label={t('plan.zoom.left')}
-    onclick={() => act('left')}>‹</button
+    onclick={() => act('left')}><Icon name="prev" size={18} /></button
   >
   <button
     type="button"
@@ -401,7 +402,7 @@
     class="btn secondary small"
     data-testid="zoom-right"
     aria-label={t('plan.zoom.right')}
-    onclick={() => act('right')}>›</button
+    onclick={() => act('right')}><Icon name="next" size={18} /></button
   >
   <button
     type="button"
@@ -414,7 +415,7 @@
     type="button"
     class="btn secondary small png"
     data-testid="plan-chart-png"
-    onclick={download}>{t('history.export.png')}</button
+    onclick={download}><Icon name="download" size={16} />{t('history.export.png')}</button
   >
 </div>
 <p class="zoom-status hint" role="status" aria-live="polite" data-testid="zoom-status">

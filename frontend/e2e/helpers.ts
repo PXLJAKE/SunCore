@@ -54,6 +54,13 @@ export const STEP_IDS = [
   'summary',
 ] as const;
 
+/** Opens a collapsible card (`Card collapsible`) by its test id, if it is closed. */
+export async function openCard(page: Page, testid: string): Promise<void> {
+  const toggle = page.getByTestId(testid).locator('button[aria-expanded]').first();
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+}
+
 export async function expectNoAxeViolations(page: Page): Promise<void> {
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
