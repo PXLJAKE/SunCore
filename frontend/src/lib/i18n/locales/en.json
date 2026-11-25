@@ -199,6 +199,7 @@
   "api.validation.sg_contacts_unique": "The two SG-Ready contacts must be different entities.",
   "api.validation.sg_forced_missing": "Allowing the forced state (SG state 4) needs its contact combination.",
   "api.validation.sg_states_distinct": "Two SG-Ready states use the same contact combination.",
+  "app.loading": "Loading …",
   "app.load_error": "Some data could not be loaded.",
   "app.title": "SunCore",
   "battery.capacity": "Usable capacity",

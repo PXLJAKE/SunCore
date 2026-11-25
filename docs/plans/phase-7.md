@@ -821,9 +821,15 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   controller, planner, tariff and forecast groups; none of the Phase 6 settings (EV, heat pump,
   programs, grid limits, notifications, inverter) is a registry parameter yet (they are device or
   site configuration), so WP2 added none ("no new behaviour").
-- Merged bundle (one language): first paint 128.3 kB against 125 kB and total without ECharts
-  254.1 kB against 250 kB, both over budget (R4). The budgets stay unchanged here; 7-G reduces
-  them with lazy wizard steps and settings sub-pages.
+- Merged bundle, first count (one language, parameter catalogue not counted): first paint 128.3 kB
+  against 125 kB, total 254.1 kB against 250 kB (R4). Follow-up in the same PR: `Setup` and
+  `Settings` became lazy routes (dynamic `import()` with the `app.loading` state), which brings the
+  first paint to 113.2 kB. `bundle-size.mjs` now counts what one user downloads: the larger main
+  catalogue (`catalogue-en|de`) plus `catalogue-params` in full (one chunk with both languages,
+  loaded by the expert area, and English is the fallback so both are needed). The total is 262.3 kB
+  against 250 kB: lazy loading does not shrink a total that sums all chunks, so the 12.3 kB are
+  content (what-if 12.7, expert 6.4, parameter catalogue 5.4, about 180 keys). Budgets unchanged;
+  open for the maintainer (see report).
 
 ## 9. Follow-ups per agent
 

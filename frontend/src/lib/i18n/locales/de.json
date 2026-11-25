@@ -199,6 +199,7 @@
   "api.validation.sg_contacts_unique": "Die beiden SG-Ready-Kontakte müssen verschiedene Entities sein.",
   "api.validation.sg_forced_missing": "Der Zwangsbetrieb (SG-Zustand 4) braucht seine Kontaktkombination.",
   "api.validation.sg_states_distinct": "Zwei SG-Ready-Zustände nutzen dieselbe Kontaktkombination.",
+  "app.loading": "Lädt …",
   "app.load_error": "Einige Daten konnten nicht geladen werden.",
   "app.title": "SunCore",
   "battery.capacity": "Nutzbare Kapazität",

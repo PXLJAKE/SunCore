@@ -11,8 +11,6 @@
   import EmergencyBanner from './lib/components/EmergencyBanner.svelte';
   import EmergencyStop from './lib/components/EmergencyStop.svelte';
   import Now from './lib/views/Now.svelte';
-  import Settings from './lib/views/Settings.svelte';
-  import Setup from './lib/views/Setup.svelte';
 
   let main: HTMLElement | undefined = $state();
   let firstRoute = true;
@@ -140,9 +138,17 @@
 
 <main id="main" tabindex="-1" bind:this={main}>
   {#if router.route === 'setup'}
-    <Setup />
+    {#await import('./lib/views/Setup.svelte')}
+      <p class="loading" role="status">{t('app.loading')}</p>
+    {:then view}
+      <view.default />
+    {/await}
   {:else if router.route === 'settings'}
-    <Settings />
+    {#await import('./lib/views/Settings.svelte')}
+      <p class="loading" role="status">{t('app.loading')}</p>
+    {:then view}
+      <view.default />
+    {/await}
   {:else if router.route === 'plan'}
     {#await import('./lib/views/Plan.svelte') then view}
       <view.default />
@@ -165,6 +171,11 @@
 </main>
 
 <style>
+  .loading {
+    margin: 16px;
+    color: var(--secondary-text-color);
+  }
+
   .skip {
     position: absolute;
     left: 8px;
