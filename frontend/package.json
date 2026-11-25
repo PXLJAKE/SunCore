@@ -24,8 +24,8 @@
     "verify": "npm run gen:api:check && npm run check:tokens && npm run lint && npm run format:check && npm run check && npm run test && npm run build && npm run size"
   },
   "dependencies": {
-    "echarts": "5.6.0",
-    "intl-messageformat": "12.1.2"
+    "echarts": "6.1.0",
+    "intl-messageformat": "12.2.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
