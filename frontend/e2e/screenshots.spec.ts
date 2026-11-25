@@ -190,10 +190,7 @@ for (const { step, scheme, locale } of wizardShots) {
     await page.addStyleTag({ content: '.actions { position: static !important; }' });
     await page.waitForTimeout(1500);
     const name = `wizard-${step}-${info.project.name}-${scheme}-${locale.slice(0, 2)}`;
-    // The plan view is shown as its chart card (the page also holds long lists).
-    await (shot.view === 'plan'
-      ? page.getByTestId('plan-chart-card').screenshot({ path: `${dir}/${name}.png` })
-      : page.screenshot({ path: `${dir}/${name}.png`, fullPage: true }));
+    await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
     await ctx.close();
   });
 }
