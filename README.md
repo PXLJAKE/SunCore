@@ -1,5 +1,10 @@
 # SunCore
 
+<!-- Weblate badge: enable once the Hosted Weblate project exists (plan phase 7, question 24;
+     check the project slug first).
+[![Translation status](https://hosted.weblate.org/widget/suncore/svg-badge.svg)](https://hosted.weblate.org/engage/suncore/)
+-->
+
 **Energy management for Home Assistant: forecasts, a cost-optimising
 planner and a real-time surplus controller in one app – explainable, safe
 by default, set up in minutes.**

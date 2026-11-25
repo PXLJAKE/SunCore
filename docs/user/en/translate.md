@@ -18,9 +18,34 @@ Weblate is used for the panel and the app options, not for this documentation (f
 
 ## Weblate
 
-A Hosted Weblate project is planned. Its address and the date are not published yet. The
-Weblate project is not set up, so for now use a pull request. This page will name the project
-once it exists.
+A Hosted Weblate project is planned but **not set up yet**, so for now use a pull request. This
+page will name the project once it exists.
+
+How it will work:
+
+- Three components: `frontend` (the panel, `frontend/src/lib/i18n/locales/*.json`, source
+  `en.json`), `frontend-params` (the parameter names and help texts, `params.*.json`) and
+  `app-options` (the options of the app, `addon/suncore/translations/*.yaml`). The values of every
+  setting are in
+  [docs/i18n-weblate.md](https://github.com/pxljake/suncore/blob/main/docs/i18n-weblate.md).
+- Weblate checks that your translation keeps the placeholders and the ICU plural structure of
+  the English text.
+- Weblate pushes to the branch `weblate` and opens a pull request. A workflow then regenerates
+  the backend texts (`suncore/i18n/catalogue/`) and the beta app's option translations and
+  commits them to that pull request. A message that uses ICU syntax the backend does not support
+  fails there with the list of keys; fix it in Weblate.
+- A new language is added by a maintainer, because the panel needs code for it too. Ask in an
+  issue.
+
+### For the maintainer: set up the project
+
+The steps are in German in the plan
+([question 24](https://github.com/pxljake/suncore/blob/main/docs/plans/phase-7.md)) and on the
+German page. In short: create the project on Hosted Weblate, connect GitHub with
+version control `GitHub` and push branch `weblate`, create the three components with the values
+from `docs/i18n-weblate.md`, optionally add the secret `WEBLATE_SYNC_TOKEN`, then make a test
+change and check the pull request (`Weblate sync`, `CI`, `App lint`). Finally enable the badge in
+the README and replace the "not set up yet" sentence above with the project link.
 
 ## By pull request
 
@@ -29,7 +54,10 @@ once it exists.
 2. **Panel texts:** add every key to `en.json` (the source) and to your language file in the same
    change. Messages use ICU MessageFormat: keep placeholders such as `{count}` and plural
    structures unchanged.
-3. Run `uv run python scripts/check_reasons.py`. It checks that the backend keys exist in both
+3. **App options:** edit `addon/suncore/translations/<language>.yaml`, then run
+   `uv run python scripts/sync_beta_translations.py` (copies the files to the beta app) and
+   `uv run python scripts/gen_backend_catalogue.py` after panel text changes. Run
+   `uv run python scripts/check_reasons.py`: it checks that the backend keys exist in both
    catalogues.
 4. **Documentation:** the English pages are in `docs/user/en/`. Put your translation at the same
    path under `docs/user/<language>/` and keep the structure identical, so the language switcher

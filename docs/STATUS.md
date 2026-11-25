@@ -44,6 +44,25 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-M, WP12 Weblate onboarding, repository side (branch `phase-7/m-weblate`, on
+  7-G with 7-L merged; `i18n-sync`)** - no app code changed; the Hosted Weblate project is the
+  maintainer's (plan section 10, question 24, in German):
+  - `docs/i18n-weblate.md`: component values with sources. Verified against the Weblate source:
+    format ids `json` (flat keys) and `yaml` (not `ruby-yaml`), ICU flag `icu-message-format`,
+    `json_indent` 2 and no YAML line wrapping needed, a third component `frontend-params`
+    (the default language filter skips `params.en.json`), VCS `GitHub` + push branch `weblate`.
+  - `scripts/sync_beta_translations.py` (+ test, `--check` in `check.sh` and `ci.yml`): the beta
+    app's option translations are a byte copy of the stable app's while the option sets are equal.
+  - `.github/workflows/weblate-sync.yml`: on pull requests from `weblate` (same repository
+    only), empty workflow permissions and `contents: write` for the one job, actions pinned by
+    SHA like 7-O; regenerates the backend catalogue (a message outside the ICU subset fails with
+    the key list), syncs the beta translations, pushes the result, runs `check_reasons.py`.
+  - CONTRIBUTING, en/de "Translate" pages, README badge (commented placeholder), the
+    sync-translations skill, ADR-0020 decision 4 updated. Merge of 7-L: STATUS and plan section 8
+    merged from both sides, review shots stay in `docs/assets/screenshots/`.
+  - `UNVERIFIED` until the first Weblate pull request: the workflow itself (never run), JSON
+    umlauts unescaped, key order of new strings, that Weblate's `yaml` keeps Home Assistant's
+    layout (`App lint`), the free Libre plan, the exact menus. `WEBLATE_SYNC_TOKEN` is optional.
 - **Phase 7 - PR 7-G, Settings and wizard (frontend; branch `phase-7/g-settings`, on 7-F;
   `frontend-engineer`)** - review stop 2; stores, API calls, validation and step ids unchanged:
   - Settings: an index of five groups (Your system, Devices, Goals and operating mode, Home

@@ -103,17 +103,29 @@ Run `uv run python scripts/gen_compat.py` to regenerate the compatibility lists 
 
 ## Translations
 
-Translations are managed on Weblate (from Phase 7). Until then, edit the
-JSON catalogues directly. UI strings are keys only: add each key to
-`frontend/src/lib/i18n/locales/en.json` (source) and `de.json` in the same
-change, written as ICU MessageFormat. `uv run python scripts/check_reasons.py`
-verifies that backend reason and error keys exist in both catalogues.
-User documentation is English under `docs/user/en/` with the German
-translation at the same path under `docs/user/de/` (ADR-0020). The pages of
-the site are built with `uv run --group docs mkdocs build --strict` (CI runs
-it on pull requests); `parameters.md` and `compatibility.md` are generated
-per language by `scripts/gen_params.py` and `scripts/gen_compat.py`: fix the
-generator, not the page.
+UI and app-option texts are translated on Hosted Weblate once the project exists (WP12; until
+then by pull request, see `docs/user/en/translate.md`). The component settings and the pull
+request round trip are in [`docs/i18n-weblate.md`](docs/i18n-weblate.md).
+
+- **Panel texts:** keys only, never English text. Add each key to
+  `frontend/src/lib/i18n/locales/en.json` (source) and `de.json` in the same change, written as
+  ICU MessageFormat. `uv run python scripts/check_reasons.py` verifies that backend reason and
+  error keys exist in both catalogues. Keys with the prefixes `mqtt.`, `notify.`, `safety.`,
+  `controller.`, `planner.`, `device.` and `grid.` are also rendered by the backend, which
+  supports only a subset of ICU (literal text, `{arg}`, `number`, `plural`, `select`; see
+  `suncore/i18n/renderer.py`). After changing them run
+  `uv run python scripts/gen_backend_catalogue.py`; a message outside the subset fails there.
+- **App options:** `addon/suncore/translations/{en,de}.yaml` must cover every option of
+  `config.yaml`. The beta app's copies are generated: run
+  `uv run python scripts/sync_beta_translations.py` (CI checks it).
+- **Weblate pull requests:** they come from the branch `weblate`. The workflow
+  `weblate-sync.yml` regenerates the backend catalogue and the beta translations on that branch
+  and runs `check_reasons.py`. Do not edit generated files by hand.
+- **Documentation:** English under `docs/user/en/` with the German translation at the same path
+  under `docs/user/de/` (ADR-0020; by pull request, not Weblate). The pages of the site are
+  built with `uv run --group docs mkdocs build --strict` (CI runs it on pull requests);
+  `parameters.md` and `compatibility.md` are generated per language by `scripts/gen_params.py`
+  and `scripts/gen_compat.py`: fix the generator, not the page.
 
 ## Checks before you push
 

@@ -19,9 +19,50 @@ Die Entscheidung steht in
 
 ## Weblate
 
-Ein Hosted-Weblate-Projekt ist geplant. Adresse und Termin sind noch nicht veröffentlicht. Das
-Weblate-Projekt ist nicht eingerichtet, also nutze vorerst einen Pull Request. Diese Seite nennt
-das Projekt, sobald es existiert.
+Ein Hosted-Weblate-Projekt ist geplant, aber **noch nicht eingerichtet**. Nutze vorerst einen
+Pull Request. Diese Seite nennt das Projekt, sobald es existiert.
+
+So wird es funktionieren:
+
+- Drei Komponenten: `frontend` (das Panel, `frontend/src/lib/i18n/locales/*.json`, Quelle
+  `en.json`), `frontend-params` (Namen und Hilfetexte der Parameter, `params.*.json`) und
+  `app-options` (die Optionen der App, `addon/suncore/translations/*.yaml`). Die Werte jeder
+  Einstellung stehen in
+  [docs/i18n-weblate.md](https://github.com/pxljake/suncore/blob/main/docs/i18n-weblate.md)
+  (englisch).
+- Weblate prüft, dass deine Übersetzung die Platzhalter und die ICU-Plural-Struktur des
+  englischen Textes behält.
+- Weblate schiebt auf den Zweig `weblate` und öffnet einen Pull Request. Ein Workflow erzeugt
+  danach die Backend-Texte (`suncore/i18n/catalogue/`) und die Optionsübersetzungen der Beta-App
+  neu und committet sie in diesen Pull Request. Ein Text mit ICU-Syntax, die das Backend nicht
+  kann, scheitert dort mit der Liste der Schlüssel; korrigiere ihn in Weblate.
+- Eine neue Sprache nimmt ein Maintainer auf, weil das Panel dafür auch Code braucht. Frage in
+  einem Issue.
+
+### Für den Maintainer: Projekt einrichten
+
+1. Auf `hosted.weblate.org` ein Projekt `suncore` anlegen und Libre-Hosting beantragen (ob der
+   Libre-Plan kostenlos ist, ist `UNVERIFIED`; bitte auf `weblate.org` bestätigen).
+2. GitHub verbinden (*Connect GitHub account*, Hosted-Weblate-App für das Repository). Als
+   Versionsverwaltung **GitHub** und als *Push branch* `weblate` einstellen.
+3. Drei Komponenten anlegen, Werte siehe
+   [docs/i18n-weblate.md](https://github.com/pxljake/suncore/blob/main/docs/i18n-weblate.md):
+   - `frontend`: Dateiformat *JSON file*, Maske `frontend/src/lib/i18n/locales/*.json`, Quelle
+     `en.json`, Flag `icu-message-format`, Einrückung 2.
+   - `frontend-params`: wie `frontend`, Maske `frontend/src/lib/i18n/locales/params.*.json`,
+     Quelle `params.en.json`, Repository `weblate://<Projekt>/frontend`.
+   - `app-options`: Dateiformat *YAML file*, Maske `addon/suncore/translations/*.yaml`, Quelle
+     `en.yaml`, Einrückung 2, keine Zeilenumbrüche.
+4. Der Zweig `weblate` darf nicht geschützt sein, `main` bleibt geschützt. Optional ein Token
+   (nur dieses Repository, *Contents: write*) als Secret `WEBLATE_SYNC_TOKEN`, damit CI auch auf
+   dem Commit des Workflows läuft.
+5. Probe: einen deutschen Text in Weblate ändern und den Pull Request prüfen (`Weblate sync`,
+   `CI`, `App lint` grün; Einrückung, Umlaute und Schlüsselreihenfolge unverändert).
+6. Im README den auskommentierten Hinweis einschalten und den Satz „noch nicht eingerichtet“ oben
+   durch den Link auf das Projekt ersetzen.
+
+Die ausführliche Fassung steht im
+[Plan, Frage 24](https://github.com/pxljake/suncore/blob/main/docs/plans/phase-7.md).
 
 ## Per Pull Request
 
@@ -30,8 +71,11 @@ das Projekt, sobald es existiert.
 2. **Panel-Texte:** Füge jeden Schlüssel in derselben Änderung zu `en.json` (der Quelle) und zu
    deiner Sprachdatei hinzu. Die Texte nutzen ICU MessageFormat: Lass Platzhalter wie `{count}`
    und Plural-Strukturen unverändert.
-3. Führe `uv run python scripts/check_reasons.py` aus. Es prüft, dass die Backend-Schlüssel in
-   beiden Katalogen vorhanden sind.
+3. **App-Optionen:** Bearbeite `addon/suncore/translations/<Sprache>.yaml` und führe dann
+   `uv run python scripts/sync_beta_translations.py` aus (kopiert die Dateien in die Beta-App),
+   nach Änderungen an Panel-Texten außerdem `uv run python scripts/gen_backend_catalogue.py`.
+   `uv run python scripts/check_reasons.py` prüft, dass die Backend-Schlüssel in beiden Katalogen
+   vorhanden sind.
 4. **Dokumentation:** Die englischen Seiten liegen in `docs/user/en/`. Lege deine Übersetzung unter
    demselben Pfad in `docs/user/<Sprache>/` ab und halte die Struktur identisch, damit der
    Sprachumschalter die Seite findet. Fehlt eine Seite in deiner Sprache, erscheint die englische.

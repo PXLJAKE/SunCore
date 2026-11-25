@@ -1109,6 +1109,59 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - Not done: a followed test of the how-tos on a real Home Assistant (docs only), the dashboard
   recipe content (WP11), the Weblate page content beyond the planned state (WP12).
 
+### 7-M
+
+- Built as planned: the repository side of WP12; the Hosted Weblate project is the maintainer's
+  (question 24 has the steps in German). Component values with their sources are in
+  `docs/i18n-weblate.md`.
+- **Verified against the Weblate source** (`WeblateOrg/weblate`, `main`, 2026-11-25):
+  - Format ids: `json` ("JSON file") and `json-nested` (`weblate/formats/ttkit.py`). Our
+    catalogues are flat with dotted keys, so `json`; the docs say the two differ only in how a
+    new string is inserted. The YAML formats are `yaml` ("YAML file", nested keys) and
+    `ruby-yaml` (language code as root key, which Home Assistant's layout does not have), so
+    `yaml`. This settles the two `UNVERIFIED` items of ADR-0020 decision 4 and the plan text.
+  - ICU check: flag `icu-message-format` (check `icu_message_format`, `weblate/checks/icu.py`;
+    the flag is the dashed check id; the check exists since Weblate 4.9). The built-in `formatjs`
+    format sets it by default; ours is not that layout, so the flag is set on the component.
+  - Format parameters (`weblate/trans/file_format_params.py`): `json_indent` defaults to 4 (the
+    catalogues use 2), `yaml_line_wrap` defaults to 80 (choice 65535 = no wrapping; the option
+    descriptions are single long lines).
+  - The default language filter `^[^.]+$` leaves `params.en.json` out of the `frontend`
+    component, so the parameter catalogue is a third component `frontend-params`
+    (not in the original plan: 7-B added those files after it was written).
+  - Pull requests: VCS `GitHub` with `Push branch` set pushes to that branch of the upstream
+    repository and opens the pull request (`docs/admin/code-hosting.rst`); without it Weblate
+    forks. Webhook path `hooks/github/` exists in `weblate/urls.py`.
+- `scripts/sync_beta_translations.py` copies `addon/suncore/translations/*.yaml` byte for byte to
+  the beta app when the option sets (`options` and `schema` keys) of both `config.yaml` are
+  equal; differing sets fail with a message that names the second Weblate component. `--check`
+  runs in `check.sh` and in `ci.yml`. `tests/test_app_packaging.py` already demanded identical
+  files; the script is what makes that satisfiable after a Weblate pull request.
+- `.github/workflows/weblate-sync.yml`: `pull_request` (not `pull_request_target`), only when
+  the head branch is `weblate` and in this repository. Workflow permissions are empty, the one
+  job has `contents: write`. Actions pinned by SHA with the pins of 7-O (`actions/checkout`
+  `fbc6f399...` v5.1.0, `astral-sh/setup-uv` `d0cc045d...` v6.8.0). Order: regenerate backend
+  catalogue (a message outside the ICU subset fails with the key list and an error annotation),
+  sync the beta translations, commit and push if changed (the head ref goes through an
+  environment variable, never into the script text), then `check_reasons.py`. The pushed commit
+  does not start other workflows with the default token; the optional secret
+  `WEBLATE_SYNC_TOKEN` is used when present (documented, question 24). The workflow runs the
+  scripts of the pull request branch with a write token; the branch is writable only by people
+  and the Weblate account that can push to the repository anyway. Never run yet: `UNVERIFIED`
+  until the first Weblate pull request. `actionlint` is clean.
+- README: the Weblate badge is a commented placeholder (the project does not exist). The
+  sync-translations skill describes the Weblate round trip and corrects the catalogue paths
+  (`frontend/src/lib/i18n/locales`, `suncore/i18n/catalogue`; `scripts/i18n_extract.py` does not
+  exist, `check_reasons.py` is the check).
+- Not done / `UNVERIFIED`: that Weblate writes the JSON catalogues without `\uXXXX` escapes and
+  in file order for new keys; that its `yaml` round trip keeps Home Assistant's layout and passes
+  `App lint`; the free Libre plan; the menu names on the live site. All are covered by the test
+  pull request in question 24, step 5.
+- Merge note: 7-M is built on `phase-7/g-settings` with `phase-7/l-docs-site` merged. The review
+  screenshots of 7-E/F/G stay under `docs/assets/screenshots/{before,after}-*` (the review pages
+  link them); 7-L's moved set is `docs/user/assets/screenshots/`. STATUS and plan section 8
+  were merged from both sides.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update
@@ -1208,3 +1261,36 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
     (aus der Sitzung ist `*.github.io` gesperrt). **Empfehlung:** so einrichten. Außerdem: Der alte
     Pfad `docs/user/compatibility.md` ist ohne Weiterleitung entfallen (siehe §8, 7-L); wenn du
     externe Links darauf kennst, melde es.
+24. **Weblate-Projekt anlegen (Schritte von Hand, nur du kannst das).** Der Repository-Teil ist
+    fertig (7-M); die Werte jeder Komponente stehen mit Begründung in
+    [`docs/i18n-weblate.md`](../i18n-weblate.md). Bis zu deiner Antwort bleibt Weblate aus und
+    Übersetzungen kommen per Pull Request. Reihenfolge:
+    1. Auf `hosted.weblate.org` anmelden und ein Projekt anlegen (Name SunCore, Kurzname
+       `suncore`) und Libre-Hosting beantragen. Ob der Libre-Plan kostenlos ist, ist
+       `UNVERIFIED`; bitte auf `weblate.org` bestätigen. Weicht der Kurzname ab, die Adressen in
+       README und den Translate-Seiten anpassen.
+    2. GitHub verbinden: bei Hosted Weblate über *Connect GitHub account* die Hosted-Weblate-App
+       für `pxljake/suncore` installieren (so beschreibt es `docs/vcs.rst` von Weblate). Danach
+       als Versionsverwaltung **GitHub** (Pull Requests) und als *Push branch* `weblate` wählen;
+       Weblate schiebt dann auf den Zweig `weblate` im Repository und öffnet den Pull Request. Die
+       genauen Menüs sind `UNVERIFIED`.
+    3. Drei Komponenten anlegen, jeweils mit den Werten aus `docs/i18n-weblate.md`:
+       `frontend` (Dateiformat *JSON file*, Maske `frontend/src/lib/i18n/locales/*.json`, Quelle
+       `en.json`, Flag `icu-message-format`, Einrückung 2), `frontend-params` (Maske
+       `frontend/src/lib/i18n/locales/params.*.json`, Quelle `params.en.json`, Repository
+       `weblate://<Projekt>/frontend`) und `app-options` (Dateiformat *YAML file*, Maske
+       `addon/suncore/translations/*.yaml`, Quelle `en.yaml`, Einrückung 2, keine
+       Zeilenumbrüche). Bei allen: neue Sprachen nur auf Anfrage („Contact maintainers").
+    4. GitHub-Einstellungen: der Zweig `weblate` darf nicht geschützt sein, `main` bleibt
+       geschützt. Optional ein fein abgestuftes Token (nur dieses Repository, *Contents:
+       write*) als Secret `WEBLATE_SYNC_TOKEN` hinterlegen, damit CI auch auf dem Commit läuft,
+       den der Workflow `weblate-sync` nachschiebt; ohne Secret den Pull Request nach dem
+       Sync-Commit schließen und wieder öffnen.
+    5. Probe: in Weblate einen deutschen Text ändern, den Pull Request abwarten und prüfen, dass
+       `Weblate sync`, `CI` und `App lint` grün sind und die Dateien nur die gewollte Änderung
+       enthalten (Einrückung, Umlaute, Reihenfolge der Schlüssel, Aufbau von `de.yaml`). Das ist
+       der Test der drei `UNVERIFIED`-Punkte (Umlaute in JSON, YAML-Aufbau von Home Assistant,
+       Reihenfolge neuer Schlüssel).
+    6. Im README den auskommentierten Weblate-Hinweis (Badge) einschalten und in den beiden
+       Translate-Seiten den Satz „Das Projekt ist noch nicht eingerichtet" durch den Link ersetzen.
+    **Empfehlung:** so einrichten; die Doku-Übersetzung bleibt vorerst per Pull Request (Frage 22).
