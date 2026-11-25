@@ -240,6 +240,8 @@ def _component(  # noqa: PLR0912 - one branch per platform key
         if spec.step is not None:
             payload["step"] = spec.step
         payload["mode"] = "box"
+    if spec.platform is Platform.BINARY_SENSOR and spec.device_class is not None:
+        payload["dev_cla"] = spec.device_class
     if spec.platform is Platform.SENSOR:
         if spec.device_class is not None:
             payload["dev_cla"] = spec.device_class

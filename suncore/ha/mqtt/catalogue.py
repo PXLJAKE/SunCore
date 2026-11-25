@@ -81,6 +81,7 @@ class EntitySpec:
 
 STATUS_VALUES: Final = ("starting", "running", "emergency_stop", "ha_unavailable")
 MODE_VALUES: Final = ("shadow", "assisted", "automatic")
+EV_MODE_VALUES: Final = ("off", "now", "min_pv", "pv", "target")
 DECISION_VALUES: Final = ("none", "accepted", "rejected", "shadow", "proposed", "held", "failed")
 
 EVENT_TYPES: Final = (
@@ -261,6 +262,88 @@ DEVICE_ENTITIES: Final[tuple[EntitySpec, ...]] = (
     _device("target_time", Platform.TEXT, "target_time", {DeviceKind.WALLBOX}, command=True),
     _device("comfort_min", Platform.NUMBER, "comfort_min", _THERMAL, unit="°C", command=True),
     _device("comfort_max", Platform.NUMBER, "comfort_max", _THERMAL, unit="°C", command=True),
+    # Read-only views (PR 6-O). The plan's controls (select/number/text for mode and target)
+    # need the command path of WP4 and stay command entities above; until that exists these
+    # sensors show the same values without offering a control that would do nothing.
+    _device(
+        "ev_mode_state",
+        Platform.SENSOR,
+        "ev_mode_state",
+        {DeviceKind.WALLBOX},
+        device_class="enum",
+        enum_group="ev_mode",
+        enum_values=EV_MODE_VALUES,
+    ),
+    _device(
+        "ev_target_soc_state",
+        Platform.SENSOR,
+        "ev_target_soc_state",
+        {DeviceKind.WALLBOX},
+        unit="%",
+        state_class="measurement",
+        precision=0,
+    ),
+    _device(
+        "ev_target_energy_state",
+        Platform.SENSOR,
+        "ev_target_energy_state",
+        {DeviceKind.WALLBOX},
+        unit="kWh",
+        state_class="measurement",
+        precision=1,
+    ),
+    _device(
+        "ev_target_time_state",
+        Platform.SENSOR,
+        "ev_target_time_state",
+        {DeviceKind.WALLBOX},
+        device_class="timestamp",
+    ),
+    _device(
+        "ev_plugged",
+        Platform.BINARY_SENSOR,
+        "ev_plugged",
+        {DeviceKind.WALLBOX},
+        device_class="plug",
+    ),
+    _device(
+        "ev_phases",
+        Platform.SENSOR,
+        "ev_phases",
+        {DeviceKind.WALLBOX},
+        state_class="measurement",
+        precision=0,
+    ),
+    _device(
+        "ev_vehicle_soc",
+        Platform.SENSOR,
+        "ev_vehicle_soc",
+        {DeviceKind.WALLBOX},
+        device_class="battery",
+        unit="%",
+        state_class="measurement",
+        deadband_abs=1.0,
+        precision=0,
+    ),
+    _device(
+        "hp_sg_state",
+        Platform.SENSOR,
+        "hp_sg_state",
+        {DeviceKind.HEAT_PUMP},
+        device_class="enum",
+        enum_group="sg_state",
+        enum_values=("1", "2", "3", "4"),
+    ),
+    _device(
+        "hp_lift",
+        Platform.SENSOR,
+        "hp_lift",
+        {DeviceKind.HEAT_PUMP},
+        unit="K",
+        state_class="measurement",
+        deadband_abs=0.1,
+        precision=1,
+    ),
     _device("arm", Platform.BUTTON, "arm", {DeviceKind.PROGRAM}, command=True),
     _device("cancel", Platform.BUTTON, "cancel", {DeviceKind.PROGRAM}, command=True),
     _device("finish_by", Platform.TEXT, "finish_by", {DeviceKind.PROGRAM}, command=True),

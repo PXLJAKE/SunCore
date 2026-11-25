@@ -168,3 +168,46 @@ def test_render_state() -> None:
 
 def test_encode_is_compact_and_stable() -> None:
     assert encode({"b": 1, "a": "ä"}) == '{"a":"ä","b":1}'
+
+
+def test_read_only_flex_views_are_announced_per_device_kind() -> None:
+    """PR 6-O: EV, heat pump and program views; no control without a command handler."""
+    devices = (
+        DeviceInfo("car", "Car charger", DeviceKind.WALLBOX),
+        DeviceInfo("hp", "Heat pump", DeviceKind.HEAT_PUMP),
+        DeviceInfo("washer", "Washer", DeviceKind.PROGRAM),
+    )
+    payloads = _payloads("en", devices=devices)
+    car = payloads[f"suncore_{IID}_car"]["cmps"]
+    wanted = {"car_ev_mode_state", "car_ev_plugged", "car_ev_phases", "car_ev_vehicle_soc"}
+    assert wanted <= set(car)
+    assert car["car_ev_plugged"]["p"] == "binary_sensor"
+    assert car["car_ev_plugged"]["dev_cla"] == "plug"
+    assert car["car_ev_vehicle_soc"]["dev_cla"] == "battery"
+    assert car["car_ev_target_time_state"]["dev_cla"] == "timestamp"
+    assert car["car_ev_mode_state"]["ops"] == ["Off", "Now", "Min + PV", "PV only", "Target"]
+    hp = payloads[f"suncore_{IID}_hp"]["cmps"]
+    assert set(hp) >= {"hp_hp_sg_state", "hp_hp_lift"}
+    assert hp["hp_hp_sg_state"]["ops"][1] == "2: normal"
+    assert hp["hp_hp_lift"]["unit_of_meas"] == "K"
+    washer = payloads[f"suncore_{IID}_washer"]["cmps"]
+    assert {"washer_job_state", "washer_planned_start"} <= set(washer)
+    for cmps in (car, hp, washer):
+        assert not [c for c in cmps.values() if "cmd_t" in c]  # nothing writable
+    site = payloads[f"suncore_{IID}"]["cmps"]
+    assert {"month_peak", "grid_state", "para14a_active", "island"} <= set(site)
+    battery = payloads[f"suncore_{IID}_battery"]["cmps"]
+    assert set(battery) == {"battery_action", "battery_lease"}
+
+
+def test_flex_state_payloads_are_rendered_text() -> None:
+    render = load_catalogue("de").render
+    sg = spec_by_key("hp_sg_state")
+    mode = spec_by_key("ev_mode_state")
+    plug = spec_by_key("ev_plugged")
+    assert sg is not None
+    assert mode is not None
+    assert plug is not None
+    assert render_state(sg, 3, render) == "3: Erhöht"
+    assert render_state(mode, "min_pv", render) == "Min + PV"
+    assert render_state(plug, True, render) == "ON"

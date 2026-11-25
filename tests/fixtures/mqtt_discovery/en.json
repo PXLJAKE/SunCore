@@ -311,6 +311,77 @@
  "suncore_a1b2c3d4_car": {
   "avty_t": "suncore/a1b2c3d4/status",
   "cmps": {
+   "car_ev_mode_state": {
+    "def_ent_id": "sensor.suncore_car_ev_mode_state",
+    "dev_cla": "enum",
+    "name": "Charging mode",
+    "ops": [
+     "Off",
+     "Now",
+     "Min + PV",
+     "PV only",
+     "Target"
+    ],
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/car_ev_mode_state/state",
+    "uniq_id": "suncore_a1b2c3d4_car_ev_mode_state"
+   },
+   "car_ev_phases": {
+    "def_ent_id": "sensor.suncore_car_ev_phases",
+    "name": "Charging phases",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/car_ev_phases/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_car_ev_phases"
+   },
+   "car_ev_plugged": {
+    "def_ent_id": "binary_sensor.suncore_car_ev_plugged",
+    "dev_cla": "plug",
+    "name": "Plugged in",
+    "p": "binary_sensor",
+    "stat_t": "suncore/a1b2c3d4/car_ev_plugged/state",
+    "uniq_id": "suncore_a1b2c3d4_car_ev_plugged"
+   },
+   "car_ev_target_energy_state": {
+    "def_ent_id": "sensor.suncore_car_ev_target_energy_state",
+    "name": "Target energy",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/car_ev_target_energy_state/state",
+    "sug_dsp_prc": 1,
+    "uniq_id": "suncore_a1b2c3d4_car_ev_target_energy_state",
+    "unit_of_meas": "kWh"
+   },
+   "car_ev_target_soc_state": {
+    "def_ent_id": "sensor.suncore_car_ev_target_soc_state",
+    "name": "Target charge",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/car_ev_target_soc_state/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_car_ev_target_soc_state",
+    "unit_of_meas": "%"
+   },
+   "car_ev_target_time_state": {
+    "def_ent_id": "sensor.suncore_car_ev_target_time_state",
+    "dev_cla": "timestamp",
+    "name": "Target time",
+    "p": "sensor",
+    "stat_t": "suncore/a1b2c3d4/car_ev_target_time_state/state",
+    "uniq_id": "suncore_a1b2c3d4_car_ev_target_time_state"
+   },
+   "car_ev_vehicle_soc": {
+    "def_ent_id": "sensor.suncore_car_ev_vehicle_soc",
+    "dev_cla": "battery",
+    "name": "Vehicle charge",
+    "p": "sensor",
+    "stat_cla": "measurement",
+    "stat_t": "suncore/a1b2c3d4/car_ev_vehicle_soc/state",
+    "sug_dsp_prc": 0,
+    "uniq_id": "suncore_a1b2c3d4_car_ev_vehicle_soc",
+    "unit_of_meas": "%"
+   },
    "car_last_decision": {
     "def_ent_id": "sensor.suncore_car_last_decision",
     "dev_cla": "enum",

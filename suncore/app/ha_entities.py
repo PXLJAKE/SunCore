@@ -15,9 +15,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Final
 
 from suncore import __version__
+from suncore.app.notifications import grid_flags
 from suncore.core.config import MqttConfig
-from suncore.core.controlstate import OverrideCommand
-from suncore.core.decisions import DecisionKind, OperatingMode, Reason
+from suncore.core.controlstate import BatteryControlState, DeviceControlState, OverrideCommand
+from suncore.core.decisions import BatteryAction, DecisionKind, OperatingMode, Reason
+from suncore.core.devices import DeviceKind
+from suncore.core.flex import EvMode, EvState, JobState
 from suncore.ha.connection import ConnectionState
 from suncore.ha.mqtt import (
     DeviceInfo,
@@ -35,6 +38,13 @@ if TYPE_CHECKING:
     from suncore.app.runtime import Runtime
 
 NAMESPACE: Final = "ha_entities"
+_JOB_STATE: Final = {
+    JobState.ARMED: "armed",
+    JobState.SCHEDULED: "armed",
+    JobState.RUNNING: "running",
+    JobState.DONE: "done",
+    JobState.CANCELLED: "cancelled",
+}
 KEY_INSTALL: Final = "install"
 
 SUPPORTED: Final = frozenset(
@@ -49,6 +59,24 @@ SUPPORTED: Final = frozenset(
         "device_mode",
         "device_power",
         "device_last_decision",
+        # read-only views of the grid, battery, EV, heat pump and program state (PR 6-O)
+        "month_peak",
+        "grid_state",
+        "para14a_active",
+        "island",
+        "battery_action",
+        "battery_lease",
+        "ev_mode_state",
+        "ev_target_soc_state",
+        "ev_target_energy_state",
+        "ev_target_time_state",
+        "ev_plugged",
+        "ev_phases",
+        "ev_vehicle_soc",
+        "hp_sg_state",
+        "hp_lift",
+        "job_state",
+        "planned_start",
         # command entities (PR 6-D); announced only with a command port
         "auto",
         "replan",
@@ -61,10 +89,11 @@ SUPPORTED: Final = frozenset(
         "device_boost_minutes",
     }
 )
-"""Catalogue keys SunCore can fill today. The others (costs, savings, autarky, forecast error,
-month peak, grid state, §14a, island, battery action and lease, EV and program entities, the
-battery strategy, reserve and evening target) follow with the PRs that produce their values or
-their config path (6-F onwards) and are not announced before."""
+"""Catalogue keys SunCore can fill today. Not announced yet: costs, savings, autarky, forecast
+error and the next action (no producer), the battery strategy, reserve and evening target (the
+config path from HA, plan WP4, is open) and every EV, program and comfort *control* (``ev_mode``,
+``target_*``, ``arm``, ``cancel``, ``finish_by``, ``comfort_*``: they need commands that arm or
+set things; see plan section 8, 6-O)."""
 
 
 class SqliteInstallStore:
@@ -156,7 +185,7 @@ class RuntimeEntitySource:
         )
         return Topology(
             devices=devices,
-            has_battery=False,  # battery entities follow in a later PR (see SUPPORTED)
+            has_battery=rt.control_state().battery is not None,
             supported=SUPPORTED,
             currency=rt.region.currency if rt.region is not None else None,
             version=__version__,
@@ -190,13 +219,111 @@ class RuntimeEntitySource:
         }
         if state.site is not None and state.site.available_w is not None:
             out["available_surplus"] = state.site.available_w
+        out.update(self._grid_values())
+        out.update(self._battery_values(state.battery))
         for device in state.devices:
+            out.update(self._flex_values(device))
             out[f"{device.device_id}_mode"] = device.effective_mode.value
             out[f"{device.device_id}_auto"] = device.device_mode is OperatingMode.AUTOMATIC
             if device.estimate is not None:
                 out[f"{device.device_id}_power"] = device.estimate.value_w
             last = device.last_decision
             out[f"{device.device_id}_last_decision"] = "none" if last is None else last.kind.value
+        return out
+
+    def _grid_values(self) -> dict[str, object]:
+        """Island, section 14a and the month's peak from the grid monitor (read only)."""
+        rt = self._rt
+        monitor = None if rt.stack is None else rt.stack.grid_monitor
+        if monitor is None:
+            return {}
+        out: dict[str, object] = {}
+        island, limited = grid_flags(monitor)
+        if island is not None:
+            out["island"] = island
+        if limited is not None:
+            out["para14a_active"] = limited
+        if island:
+            out["grid_state"] = "island"
+        elif limited:
+            out["grid_state"] = "limited"
+        elif island is not None:
+            out["grid_state"] = "normal"
+        peak = monitor.month_peak_w(rt.clock())
+        if peak is not None:
+            out["month_peak"] = peak
+        return out
+
+    @staticmethod
+    def _battery_values(battery: BatteryControlState | None) -> dict[str, object]:
+        """What SunCore holds on the battery: its own settings (``none``/``idle``) unless a
+        takeover is active; forced grid charging is ``charge``, any other held limit ``hold``."""
+        if battery is None:
+            return {}
+        held = battery.held if battery.under_control else None
+        if held is None:
+            action = "idle"
+        elif isinstance(held, BatteryAction) and (held.grid_charge_w or 0.0) > 0.0:
+            action = "charge"
+        else:
+            action = "hold"
+        return {
+            "battery_action": action,
+            "battery_lease": "held" if battery.under_control else "none",
+        }
+
+    def _flex_values(self, device: DeviceControlState) -> dict[str, object]:
+        """EV, heat pump and program views of one device (stored runtime state only)."""
+        if device.kind is DeviceKind.WALLBOX:
+            return self._ev_values(device)
+        if device.kind is DeviceKind.HEAT_PUMP:
+            return self._heat_pump_values(device)
+        if device.kind is DeviceKind.PROGRAM:
+            return self._program_values(device)
+        return {}
+
+    def _ev_values(self, device: DeviceControlState) -> dict[str, object]:
+        prefix = device.device_id
+        ev: EvState | None = self._rt.ev_state_snapshot().get(prefix)
+        out: dict[str, object] = {
+            f"{prefix}_ev_mode_state": (EvMode.OFF if ev is None else ev.mode).value
+        }
+        target = None if ev is None else ev.target
+        if target is not None:
+            if target.soc_pct is not None:
+                out[f"{prefix}_ev_target_soc_state"] = target.soc_pct
+            if target.energy_wh is not None:
+                out[f"{prefix}_ev_target_energy_state"] = target.energy_wh / 1000.0
+            out[f"{prefix}_ev_target_time_state"] = target.by.isoformat()
+        live = device.state
+        if live is not None:
+            if live.connected is not None:
+                out[f"{prefix}_ev_plugged"] = live.connected
+            if live.phases is not None:
+                out[f"{prefix}_ev_phases"] = live.phases
+            if live.soc_pct is not None:
+                out[f"{prefix}_ev_vehicle_soc"] = live.soc_pct
+        return out
+
+    @staticmethod
+    def _heat_pump_values(device: DeviceControlState) -> dict[str, object]:
+        prefix = device.device_id
+        live = device.state
+        out: dict[str, object] = {}
+        if live is not None and live.step in (1, 2, 3, 4):
+            out[f"{prefix}_hp_sg_state"] = live.step
+        if live is not None and live.setpoint_c is not None and device.base_setpoint_c is not None:
+            out[f"{prefix}_hp_lift"] = round(live.setpoint_c - device.base_setpoint_c, 1)
+        return out
+
+    def _program_values(self, device: DeviceControlState) -> dict[str, object]:
+        prefix = device.device_id
+        job = self._rt.program_jobs.current(prefix)
+        out: dict[str, object] = {
+            f"{prefix}_job_state": "idle" if job is None else _JOB_STATE[job.state]
+        }
+        if job is not None and job.planned_start is not None:
+            out[f"{prefix}_planned_start"] = job.planned_start.isoformat()
         return out
 
     def drain_events(self) -> list[SiteEvent]:
