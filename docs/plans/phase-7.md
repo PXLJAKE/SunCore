@@ -1160,6 +1160,17 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   chunk and 1.0 kB in the German catalogue; it cannot go into a lazy chunk because the standard
   path counts every chunk. Options for the maintainer: raise the standard budget by 5 kB, or
   free 2.4 kB elsewhere. The budget script is unchanged in this PR.
+- **Safety review conditions (F1-F5, F7a):**
+  - F1: one lock (`settings/mqttSave.svelte.ts`) for the broker save and the `allow_mode_raise`
+    save; each `PUT` is built from a fresh `GET` of the section, so a broker save never writes an
+    old `allow_mode_raise` back.
+  - F2: the `shed_rank` help and the user pages now state what `shed_key` does (continuous, then
+    ranked, then unranked in reverse priority; island sheds all but the keep list at once).
+  - F3: `wizard.saveDevices` prunes the keep list (ids not in the device list before and after
+    the change), and the keep card lists unknown ids with a remove button.
+  - F4, F5: keep-list and `para14a` texts say what the controller does (held level, battery
+    reserve; frozen on an unknown signal, held after it ends; no claim about grid charging).
+  - F7a: a warning when switching from a manual broker with a stored password to the Supervisor.
 - **UNVERIFIED:** nothing new; the §14a limit and signal convention stay as in 6-F.
 
 ## 9. Follow-ups per agent

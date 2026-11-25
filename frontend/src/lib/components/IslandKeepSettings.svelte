@@ -25,6 +25,8 @@
       stored !== null &&
       (edit.length !== stored.length || edit.some((x) => !stored.includes(x))),
   );
+  /** Stored ids without a device (the delete flow prunes new ones; old data may have some). */
+  const orphans = $derived(keep.filter((id) => !devices.some((d) => d.id === id)));
   const fieldIssues = $derived(issuesAt(failed?.issues ?? [], 'grid', 'backup', 'keep_devices'));
 
   function toggle(id: string, on: boolean): void {
@@ -73,6 +75,17 @@
             {d.name}
           </label>
         {/each}
+        {#each orphans as id (id)}
+          <p class="orphan" data-testid="keep-orphan-{id}">
+            {t('p6.island.unknown_device', { id })}
+            <Button
+              size="small"
+              variant="secondary"
+              testid="keep-orphan-remove-{id}"
+              onclick={() => toggle(id, false)}>{t('p6.island.remove_unknown')}</Button
+            >
+          </p>
+        {/each}
       </fieldset>
       <p class="hint">{t('p6.island.hint')}</p>
       {#if failed}
@@ -100,6 +113,13 @@
 {/if}
 
 <style>
+  .orphan {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sc-space-2);
+    margin: 0;
+  }
   .keep {
     display: grid;
     gap: var(--sc-space-1);

@@ -39,6 +39,7 @@ import {
 import { dirtySections, type DirtySection } from '../wizard/dirty';
 import { regionFormFromConfig, regionFromForm, type RegionForm } from '../wizard/regionForm';
 import { emptySiteForm, siteFormFromSite, siteFromForm, type SiteForm } from '../wizard/siteForm';
+import { pruneKeep } from '../settings/phase6';
 import { STEP_IDS, withCompleted, type StepId } from '../wizard/steps';
 import {
   isTariffComplete,
@@ -263,12 +264,29 @@ export class WizardStore {
   }
 
   async saveDevices(devices: DeviceConfig[]): Promise<void> {
+    const before = (this.saved.devices?.devices ?? []).map((d) => d.id);
     const saved = await api.putSection<DevicesConfig>('devices', {
       schema_version: 1,
       devices,
     });
     this.saved = { ...this.saved, devices: saved };
     this.devices = saved.devices ?? [];
+    // A deleted device leaves the island keep list: a new device with the same id must not
+    // inherit "kept in island operation" (safety review of 7-Q, F3).
+    const site = pruneKeep(
+      this.saved.site,
+      before,
+      (saved.devices ?? []).map((d) => d.id),
+    );
+    if (site) {
+      this.saved = { ...this.saved, site: await api.putSite(site) };
+      // Only the kept ids change in the form; unsaved edits of the grid step stay.
+      this.site = {
+        ...this.site,
+        gridKept: { backupKeepDevices: site.grid.backup?.keep_devices ?? [] },
+      };
+      await app.reloadSite();
+    }
     // Devices that left must not linger in the stored operating modes.
     this.operation = {
       ...this.operation,

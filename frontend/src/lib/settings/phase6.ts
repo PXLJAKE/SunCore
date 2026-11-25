@@ -65,6 +65,22 @@ export function siteWithKeep(site: SiteConfig, keep: readonly string[]): SiteCon
   return { ...site, grid: { ...site.grid, backup: { ...backup, keep_devices: [...keep] } } };
 }
 
+/**
+ * The site with the keep list reduced to devices that exist before and after a change of the
+ * device list, or `null` when nothing changes. A kept id that is gone (or was already stale) is
+ * dropped, so a later device with the same id never inherits "kept in island operation".
+ */
+export function pruneKeep(
+  site: SiteConfig | null,
+  before: readonly string[],
+  after: readonly string[],
+): SiteConfig | null {
+  const keep = keepDevices(site);
+  if (!site || keep === null) return null;
+  const next = keep.filter((id) => before.includes(id) && after.includes(id));
+  return next.length === keep.length ? null : siteWithKeep(site, next);
+}
+
 // --- manual MQTT broker -----------------------------------------------------------------
 
 export interface MqttBrokerForm {

@@ -49,7 +49,12 @@ wird nur das Erhöhen.
 
 Die Reihenfolge stellst du je Gerät unter **Einstellungen → Geräte → Netzschutz je Gerät** im
 Feld **Abschaltreihenfolge (Shed-Rang)** ein: eine ganze Zahl von 0 bis 10.000, die niedrigste
-Zahl geht zuerst. Leer lassen gilt die umgekehrte Priorität. Ein falscher Wert (zum Beispiel über
+Zahl geht zuerst. Über der Importgrenze oder der Monatsspitze gilt: zuerst stufenlose Lasten, dann
+Geräte mit Rang
+(niedrigste Zahl zuerst), dann Geräte ohne Rang in umgekehrter Priorität, sie gehen also zuletzt.
+Im Notstrombetrieb spielt der Rang keine Rolle: Jedes Gerät, das nicht auf der Behalte-Liste
+steht, wird sofort abgeschaltet. Leer lassen gilt die umgekehrte Priorität. Ein falscher Wert (zum
+Beispiel über
 10.000) wird mit einer Meldung am Feld abgelehnt, es wird nichts gespeichert.
 
 ### §14a EnWG (Deutschland)
@@ -62,7 +67,9 @@ Badge **§14a-Begrenzung aktiv** und hält die markierten Geräte unter dem Budg
 
 - Ein Gerät nimmt nur teil, wenn es markiert ist: **Einstellungen → Geräte → Netzschutz je
   Gerät**, **Steuerbare Verbrauchseinrichtung nach §14a EnWG** aktivieren (Wallbox, Wärmepumpe
-  oder Klimaanlage über 4,2 kW, die dein Netzbetreiber dimmen darf).
+  oder Klimaanlage über 4,2 kW, die dein Netzbetreiber dimmen darf). Bei unbekanntem Signal werden
+  markierte Geräte
+  eingefroren und nach dem Ende des Signals noch eine Weile gehalten.
 - **Unbekanntes Signal** (die Entität ist nicht verfügbar): markierte Geräte werden eingefroren,
   nichts wird erhöht. **Keine Signal-Entität** zählt als „nicht aktiv“, mit Hinweis.
 - Nach dem Ende der Begrenzung gibt es eine Abklingzeit (120 s), bevor wieder etwas erhöht wird.
@@ -87,9 +94,10 @@ sie meldet. `unavailable` und `unknown` werden abgelehnt.
   unbekannt“.
 - Die Behalte-Liste steht unter **Einstellungen → Geräte → Geräte im Notstrombetrieb
   behalten**. Sie braucht die Entität für den Notstromzustand von oben; ohne sie weist die Seite
-  darauf hin. Behalte nur, was bei einem Stromausfall wirklich Strom braucht: SunCore schaltet
-  ein Gerät auf der Liste im Inselbetrieb nie ab, Batterie und Wechselrichter müssen es tragen
-  können.
+  darauf hin. Behaltene Geräte schaltet SunCore nicht ab und hält sie
+  auf ihrem aktuellen Stand; sie können die Batterie unter die Reserve entladen. Behalte nur,
+  was bei einem Stromausfall wirklich Strom braucht. Beim Löschen eines Geräts verschwindet es
+  auch aus dieser Liste.
 - `UNVERIFIED`: welche Entität und welche Zustände ein Kostal BackUp Switch G3 zeigt. Der
   Simulator nutzt `island` und `on_grid`.
 

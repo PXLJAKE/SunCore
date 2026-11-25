@@ -57,6 +57,9 @@ Carried to Phase 7: see "Open - Phase 7".
   - Validation errors of the backend (422) show at the field; strings in `p6.*` (en, de).
   - Bundle: standard path 247.5 -> 252.4 kB, **over the 250 kB budget by 2.4 kB** (see plan
     section 8, 7-Q); first paint 122.7 -> 123.8 kB, expert extras unchanged.
+  - Review fixes: shared lock and fresh read for the two MQTT saves, keep list pruned when a
+    device is deleted (and unknown ids removable), corrected shed and §14a texts (plan section 8,
+    7-Q).
   - Screenshots `docs/assets/screenshots/7q/`; user pages `grid-limits.md` and
     `home-assistant-entities.md` (en, de) updated.
 - **Phase 7 - PR 7-J, inverter limit verification (WP8, ADR-0018 addendum; branch

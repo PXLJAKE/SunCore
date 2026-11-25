@@ -31,7 +31,9 @@ du unter **Einstellungen → Home Assistant → MQTT-Broker** ein: **Eigener Bro
 Port (1 bis 65.535), TLS, Benutzername und Passwort eintragen. Ein manueller Broker braucht einen
 Host, ein Passwort braucht einen Benutzernamen; sonst zeigt die Seite die Ablehnung und speichert
 nichts. Das Passwort ist nur beschreibbar: die Seite zeigt es nie an. Feld leer lassen behält das
-gespeicherte, eine Eingabe ersetzt es, **Gespeichertes Passwort entfernen** löscht es. Es wird als
+gespeicherte, eine Eingabe ersetzt es, **Gespeichertes Passwort entfernen** löscht es. Der Wechsel
+zurück zum automatischen Broker
+löscht das gespeicherte Passwort. Es wird als
 Geheimnis gespeichert und in der API, in Exporten und im Konfigurationsverlauf maskiert. Die
 Schaltfläche **Erneut veröffentlichen** meldet alle Entitäten noch einmal an.
 
@@ -110,7 +112,8 @@ Schutzmaßnahmen, alle getestet:
   **Steuerung** für E-Auto, Programme und Komfort (EV-Modus, Ziel, Vormerken, Abbrechen, Fertig
   bis, Komfortband). Die Steuerungen brauchen einen Befehlsweg, der etwas vormerkt oder setzt;
   das ist offene Arbeit (Plan Abschnitt 8, 6-O) und kommt mit der Begleit-Integration in
-  Phase 7. Bis dahin nimmst du dafür das Panel. Das Event-Entity feuert nur für ein geschaltetes Gerät,
+  Phase 7. Bis dahin nimmst du dafür das Panel. Das Event-Entity feuert nur für ein geschaltetes
+  Gerät,
   einen Vorschlag und einen Fehler. Konfigurationsänderungen aus Home Assistant (und damit ein
   Urheber `mqtt` im Konfigurationsverlauf) gibt es nicht.
 - Ein Erhöhen eines Geräts aus Home Assistant trägt die aktuelle Identitätsmarke des Geräts, der

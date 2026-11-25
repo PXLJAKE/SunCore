@@ -45,7 +45,10 @@ and air conditioners are never cut this way. A running shiftable program is neve
 
 Set the order per device under **Settings → Devices → Grid protection per device**, field
 **Switch-off order (shed rank)**: a whole number from 0 to 10,000, the lowest number goes first.
-Leave it empty for the reverse priority. A wrong value (for example above 10,000) is refused with
+Above the import limit or the monthly peak the order is: continuous loads first, then devices
+with a rank (lowest number first), then devices without a rank in reverse priority, so they go
+last. In island operation the rank does not matter: every device that is not on the keep list is
+switched off at once. A wrong value (for example above 10,000) is refused with
 a message at the field and nothing is saved.
 
 ### Section 14a EnWG (Germany)
@@ -58,7 +61,8 @@ badge and keeps the flagged devices below the budget.
 
 - A device takes part only when it is flagged: **Settings → Devices → Grid protection per
   device**, tick **Controllable consumer under §14a EnWG** (wallbox, heat pump or air conditioner
-  above 4.2 kW that your grid operator may dim).
+  above 4.2 kW that your grid operator may dim). With an unknown signal flagged devices are
+  frozen, and they stay held for a while after the signal ends.
 - **Unknown signal** (the entity is unavailable): flagged devices are frozen, nothing is
   raised. **No signal entity** counts as "not active" with a note.
 - After the reduction ends there is a cool-down (120 s) before anything is raised again.
@@ -80,9 +84,10 @@ island operation** exactly as the entity reports them. `unavailable` and `unknow
   cool-down.
 - An unavailable entity counts as **grid connected** and the panel shows "Grid state unknown".
 - The keep list is under **Settings → Devices → Devices kept during backup power**. It needs
-  the backup state entity above; without it the page says so. Only keep what really needs power
-  in a blackout: SunCore never switches a listed device off in island operation, so the battery
-  and inverter must be able to carry it.
+  the backup state entity above; without it the page says so. Kept devices are not switched off by
+  SunCore and are held at their current level; they can drain the battery below the reserve.
+  Only keep what really needs power in a blackout. Deleting a device also removes it from this
+  list.
 - `UNVERIFIED`: which entity and states a Kostal BackUp Switch G3 shows. The simulator uses
   `island` and `on_grid`.
 

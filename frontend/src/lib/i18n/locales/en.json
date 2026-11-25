@@ -2528,15 +2528,15 @@
   "p6.devices.title": "Grid protection per device",
   "p6.devices.intro": "How each device behaves when the grid connection is limited.",
   "p6.para14a.label": "Controllable consumer under §14a EnWG",
-  "p6.para14a.hint": "For a wallbox, heat pump or air conditioner above 4.2 kW that your grid operator may dim. While the operator asks for a reduction, SunCore keeps this device within the §14a limit and does not charge the battery from the grid. Set up the signal in the grid step.",
+  "p6.para14a.hint": "For a wallbox, heat pump or air conditioner above 4.2 kW that your grid operator may dim. While the operator asks for a reduction, SunCore keeps this device within the §14a limit. If the signal is unknown the device is frozen, and it stays held for a while after the signal ends. Set up the signal in the grid step.",
   "p6.shed_rank.label": "Switch-off order (shed rank)",
-  "p6.shed_rank.hint": "A whole number from {min, number} to {max, number}. When the import limit, the monthly peak or backup power requires it, the lowest number is switched off first. Empty: the least important device goes first.",
+  "p6.shed_rank.hint": "A whole number from {min, number} to {max, number}. When the import limit or the monthly peak requires it, continuous loads (such as EV charging current) are turned down first, then devices with a rank, lowest number first, then devices without a rank in reverse priority (least important first). In backup power every device that is not on the keep list is switched off at once; the rank does not matter there.",
   "p6.save": "Save",
   "p6.saved": "Saved. The new values apply from the next control cycle.",
   "p6.island.title": "Devices kept during backup power",
   "p6.island.intro": "When the grid fails, SunCore switches off controlled devices to protect the battery. Devices on this list stay as they are.",
   "p6.island.legend": "Devices that keep running on backup power",
-  "p6.island.hint": "Keep only what really needs power in a blackout: SunCore never switches these off in island operation, so battery and inverter must carry them.",
+  "p6.island.hint": "Kept devices are not switched off by SunCore and are held at their current level; they can drain the battery below the reserve. Keep only what really needs power in a blackout.",
   "p6.island.no_backup": "Backup power is not set up. Choose the backup state entity in the grid step first.",
   "p6.mqtt.title": "MQTT broker",
   "p6.mqtt.intro": "SunCore shows its entities through an MQTT broker. The Mosquitto app is found automatically; enter your own broker only if you use another one.",
@@ -2550,5 +2550,8 @@
   "p6.mqtt.username": "User name",
   "p6.mqtt.password": "Password",
   "p6.mqtt.password_stored": "A password is stored and never shown. Leave the field empty to keep it, or type a new one.",
-  "p6.mqtt.password_clear": "Remove the stored password"
+  "p6.mqtt.password_clear": "Remove the stored password",
+  "p6.island.unknown_device": "Unknown device “{id}” (no longer configured)",
+  "p6.island.remove_unknown": "Remove",
+  "p6.mqtt.password_delete_warn": "Switching to the automatic broker deletes the stored password."
 }

@@ -29,7 +29,8 @@ A broker that is not the Mosquitto app (or one outside Home Assistant OS) is set
 (1 to 65,535), TLS, user name and password. A manual broker needs a host, and a password needs
 a user name; otherwise the page shows the refusal and nothing is saved. The password is write-only:
 the page never shows it. Leave the field empty to keep the stored one, type a new one to replace
-it, or tick **Remove the stored password**. It is stored as a secret and is masked in the API, in
+it, or tick **Remove the stored password**. Switching back to the automatic broker deletes the
+stored password. It is stored as a secret and is masked in the API, in
 exports and in the configuration history.
 The **Publish again** button announces all entities again.
 

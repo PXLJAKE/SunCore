@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
-  import { api } from '../api/client';
+  import { mqttLock } from '../settings/mqttSave.svelte';
   import { describeError, type FailedRequest } from '../api/errors';
   import type { MqttConfig } from '../api/types';
   import { t, tDynamic } from '../i18n/index.svelte';
@@ -30,7 +30,6 @@
   // Edits start from the stored section and are not reset by a reload of the same values.
   // svelte-ignore state_referenced_locally
   let form = $state<MqttBrokerForm>(mqttFormFromConfig(config));
-  let busy = $state(false);
   let failed = $state.raw<FailedRequest | null>(null);
   let saved = $state(false);
 
@@ -56,21 +55,19 @@
   }
 
   async function save(): Promise<void> {
-    busy = true;
     failed = null;
     saved = false;
     try {
-      const result = await api.putSection<MqttConfig>(
-        'mqtt',
-        mqttFromForm(form, config, hadPassword),
+      // Built from the server's latest copy: only the broker fields come from the form.
+      const result = await mqttLock.save((latest) =>
+        mqttFromForm(form, latest, hasStoredPassword(latest)),
       );
+      if (!result) return;
       form = mqttFormFromConfig(result);
       onsaved(result);
       saved = true;
     } catch (e) {
       failed = describeError(e);
-    } finally {
-      busy = false;
     }
   }
 </script>
@@ -103,6 +100,12 @@
       {t('p6.mqtt.manual')}
     </label>
   </div>
+
+  {#if !manual && config.broker === 'manual' && hadPassword}
+    <p class="notice warn" data-testid="mqtt-password-delete-warn">
+      {t('p6.mqtt.password_delete_warn')}
+    </p>
+  {/if}
 
   {#if manual}
     <FormRow label={t('p6.mqtt.host')} hint={t('p6.mqtt.host_hint')} error={errorOf('host')}>
@@ -217,7 +220,7 @@
     <p class="notice ok" role="status" data-testid="mqtt-saved">{t('p6.saved')}</p>
   {/if}
   <div class="row">
-    <Button disabled={!dirty} {busy} testid="mqtt-save" onclick={() => void save()}>
+    <Button disabled={!dirty} busy={mqttLock.busy} testid="mqtt-save" onclick={() => void save()}>
       {t('p6.save')}
     </Button>
   </div>

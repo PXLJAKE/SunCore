@@ -154,6 +154,10 @@ test.describe('Phase 6 fields in Settings', () => {
     expect(kept.host).toBe('broker2.example');
     expect(kept.password).toBe(cfg.password);
 
+    // Switching to the automatic broker warns that the password is deleted.
+    await box.getByTestId('mqtt-broker-supervisor').check();
+    await expect(box.getByTestId('mqtt-password-delete-warn')).toBeVisible();
+    await box.getByTestId('mqtt-broker-manual').check();
     // Removing the password, then back to the automatic broker.
     await box.getByTestId('mqtt-clear-password').check();
     await box.getByTestId('mqtt-save').click();

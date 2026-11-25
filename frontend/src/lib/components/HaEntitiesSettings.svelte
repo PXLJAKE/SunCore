@@ -5,6 +5,7 @@
   import { describeError } from '../api/errors';
   import type { HaEntitiesStatus, MqttConfig } from '../api/types';
   import { t, tDynamic, type MessageKey } from '../i18n/index.svelte';
+  import { MQTT_DEFAULTS, mqttLock } from '../settings/mqttSave.svelte';
   import MqttBrokerSettings from './MqttBrokerSettings.svelte';
 
   const uid = $props.id();
@@ -23,17 +24,6 @@
   let message = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
   let busy = $state(false);
 
-  /** The stored section, or the defaults while nothing is stored (broker from the Supervisor). */
-  const DEFAULTS: MqttConfig = {
-    schema_version: 1,
-    enabled: true,
-    broker: 'supervisor',
-    port: 1883,
-    tls: false,
-    discovery_prefix: 'homeassistant',
-    allow_mode_raise: false,
-  };
-
   async function load(): Promise<void> {
     try {
       const [s, c] = await Promise.all([
@@ -41,7 +31,7 @@
         api.getSection<MqttConfig>('mqtt'),
       ]);
       status = s;
-      config = c ?? DEFAULTS;
+      config = c ?? MQTT_DEFAULTS;
       raise = config.allow_mode_raise;
       loadError = null;
     } catch (e) {
@@ -80,20 +70,21 @@
 
   async function saveRaise(): Promise<void> {
     if (!config) return;
-    busy = true;
     message = null;
     try {
-      config = await api.putSection<MqttConfig>('mqtt', { ...config, allow_mode_raise: raise });
+      // From the server's latest copy, so no broker field of an old copy is written back.
+      const result = await mqttLock.save((latest) => ({ ...latest, allow_mode_raise: raise }));
+      if (result) {
+        config = result;
+        message = { kind: 'ok', text: t('ha.raise_saved') };
+      }
       raise = config.allow_mode_raise;
-      message = { kind: 'ok', text: t('ha.raise_saved') };
     } catch (e) {
       raise = config.allow_mode_raise;
       message = {
         kind: 'error',
         text: tDynamic(describeError(e).key, undefined, 'api.error.unknown'),
       };
-    } finally {
-      busy = false;
     }
   }
 </script>
@@ -143,7 +134,7 @@
     <input
       type="checkbox"
       bind:checked={raise}
-      disabled={busy || config === null}
+      disabled={busy || mqttLock.busy || config === null}
       data-testid="ha-allow-raise"
       onchange={() => void saveRaise()}
     />
