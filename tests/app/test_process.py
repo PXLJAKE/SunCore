@@ -124,6 +124,16 @@ def test_sigterm_exits_zero(tmp_path: Path) -> None:
     assert all("timestamp" in line and "level" in line for line in lines)
 
 
+def test_disabled_peer_check_is_logged_as_a_warning(tmp_path: Path) -> None:
+    """Security review 1.0, SEC-04: ``SUNCORE_ALLOW_ANY_PEER`` never goes unnoticed."""
+    from suncore.app.main import warn_if_peer_check_disabled  # noqa: PLC0415
+
+    with structlog.testing.capture_logs() as logs:
+        assert warn_if_peer_check_disabled(demo_settings(tmp_path)) is False
+        assert warn_if_peer_check_disabled(demo_settings(tmp_path, allow_any_peer=True)) is True
+    assert [(e["event"], e["log_level"]) for e in logs] == [("app.peer_check_disabled", "warning")]
+
+
 def test_logging_is_json_and_redacts_secrets() -> None:
     stream = io.StringIO()
     register_secret("super-secret-token-123")

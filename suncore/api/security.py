@@ -66,3 +66,34 @@ class PeerCheckMiddleware:
             }
         )
         await send({"type": "http.response.body", "body": _DENIED_BODY})
+
+
+SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"same-origin"),
+)
+"""Added to every HTTP response (security review 1.0, SEC-12). ``same-origin`` keeps the
+ingress path, which carries the app's ingress token, out of the ``Referer`` of other origins.
+The Supervisor ingress proxy passes response headers through (it filters only the transfer,
+length, type and encoding headers; ``supervisor/api/ingress.py``, read 2026-11-25). A content
+security policy is not set yet: it needs a check of the SPA and ECharts in a browser."""
+
+
+class SecurityHeadersMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        async def with_headers(message: MutableMapping[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {name.lower() for name, _ in headers}
+                headers.extend(h for h in SECURITY_HEADERS if h[0] not in present)
+                message["headers"] = headers
+            await send(message)
+
+        await self._app(scope, receive, with_headers)

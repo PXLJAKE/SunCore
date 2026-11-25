@@ -229,6 +229,9 @@ def make_server(runtime: Runtime) -> uvicorn.Server:
         log_config=None,  # our logging setup stays in charge
         access_log=False,
         server_header=False,
+        # The peer check reads the TCP peer; X-Forwarded-For must never replace it (uvicorn
+        # trusts it from loopback by default). Security review 1.0, SEC-05.
+        proxy_headers=False,
         lifespan="off",
     )
     return _Server(config)
@@ -269,6 +272,19 @@ async def serve(
     return clean
 
 
+def warn_if_peer_check_disabled(settings: Settings) -> bool:
+    """Log loudly when ``SUNCORE_ALLOW_ANY_PEER`` is set (development only; the app options
+    cannot set it). Security review 1.0, SEC-04."""
+    if not settings.allow_any_peer:
+        return False
+    log.warning(
+        "app.peer_check_disabled",
+        detail="SUNCORE_ALLOW_ANY_PEER is set: every peer can reach the API and the UI",
+        supervised=under_supervisor(),
+    )
+    return True
+
+
 async def _amain(settings: Settings) -> int:
     log.info(
         "app.starting",
@@ -277,6 +293,7 @@ async def _amain(settings: Settings) -> int:
         port=settings.port,
         supervised=under_supervisor(),
     )
+    warn_if_peer_check_disabled(settings)
     runtime = await build_runtime(settings)
     clean = await serve(runtime)
     log.info("app.stopped")
