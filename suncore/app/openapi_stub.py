@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from suncore import __version__
+from suncore.api.diagnostics_models import DiagnosticsOut
 from suncore.api.flex_types import GridEvents, GridStatus
 from suncore.api.services import (
     BacktestService,
@@ -20,6 +21,7 @@ from suncore.api.services import (
     PeerPolicy,
     TariffNotConfiguredError,
 )
+from suncore.app.diagnostics import DiagnosticsInputs, build_diagnostics
 from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BatterySettings
@@ -243,6 +245,18 @@ class StubServices:
 
     async def export_config(self) -> dict[str, Any]:
         return {}
+
+    async def diagnostics(self) -> DiagnosticsOut:
+        inputs = DiagnosticsInputs(
+            now=datetime.now(UTC),
+            app_version=__version__,
+            ha_core=None,
+            supervised=False,
+            demo=False,
+            operating_mode="shadow",
+            config_export={},
+        )
+        return build_diagnostics(inputs)
 
     async def import_config(self, data: object) -> list[str]:  # noqa: ARG002
         return []

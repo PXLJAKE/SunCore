@@ -27,6 +27,7 @@ from suncore.api import (
     UnknownRoleError,
     UnknownTemplateError,
 )
+from suncore.api.diagnostics_models import DiagnosticsOut
 from suncore.api.flex_types import (
     GridEventRow,
     GridEvents,
@@ -35,6 +36,7 @@ from suncore.api.flex_types import (
     NotAnEvError,
 )
 from suncore.api.services import BacktestService
+from suncore.app.diagnostics import DiagnosticsInputs, build_diagnostics
 from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import Flow, FlowSnapshot
 from suncore.core.battery import BatterySettings
@@ -544,6 +546,20 @@ class FakeServices:
 
     async def export_config(self) -> dict[str, Any]:
         return {"suncore_export": 1, "sections": {}}
+
+    async def diagnostics(self) -> DiagnosticsOut:
+        self.calls.append(("diagnostics", None))
+        return build_diagnostics(
+            DiagnosticsInputs(
+                now=NOW,
+                app_version=self.version,
+                ha_core="2026.11.0",
+                supervised=False,
+                demo=False,
+                operating_mode=self.mode,
+                config_export={"db_schema_version": 6, "sections": {}},
+            )
+        )
 
     async def import_config(self, data: object) -> list[str]:
         if not isinstance(data, dict) or data.get("suncore_export") != 1:

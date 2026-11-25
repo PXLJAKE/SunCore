@@ -17,6 +17,7 @@ import structlog
 from pydantic import BaseModel
 
 from suncore import __version__
+from suncore.api.diagnostics_models import DiagnosticsOut
 from suncore.api.flex_types import (
     EvTargetError,
     FlexStoreError,
@@ -46,6 +47,7 @@ from suncore.app.adapters import (
 from suncore.app.backtests import BacktestJobs
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import BatteryWiring, ControlStack, InverterWiring, probe_temperature_c
+from suncore.app.diagnostics_collect import collect_diagnostics
 from suncore.app.evcc_link import EvccLink
 from suncore.app.grid import GridMonitor
 from suncore.app.ha_entities import build_ha_entities
@@ -70,6 +72,7 @@ from suncore.app.summaries import (
     record_accuracy_days,
     tariff_fingerprint,
 )
+from suncore.app.thermal_live import heat_pump_live, outdoor_now
 from suncore.controller.programs import ProgramEvent
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.battery import BatterySettings, effective_reserve_pct
@@ -320,6 +323,8 @@ class Runtime:
     _tz_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _ha_location: tuple[float, float] | None = None
     """Home Assistant's ``latitude``/``longitude`` (``get_config``), for the PV clear-sky model."""
+    ha_core_version: str | None = None
+    """Home Assistant's core version (``get_config`` key ``version``); diagnostics only."""
     ha_language: str | None = None
     """Home Assistant's UI language (``get_config``, key ``language``: ``UNVERIFIED``), used for
     the entity names while ``region.language`` is ``auto``."""
@@ -336,6 +341,11 @@ class Runtime:
             msg = "the control stack is not built yet"
             raise RuntimeError(msg)
         return self.stack.gate
+
+    @property
+    def ha_location(self) -> tuple[float, float] | None:
+        """Home Assistant's latitude and longitude; only the diagnostics export masks them."""
+        return self._ha_location
 
     # --- lifecycle ------------------------------------------------------------
 
@@ -1259,6 +1269,17 @@ class Runtime:
         arrays = [] if self.site is None else self.site.pv
         return BlendContext(tz=tz, plant=plant_geometry(lat, lon, arrays))
 
+    def _remember_ha_version(self, config: Mapping[str, Any]) -> None:
+        """``version`` of ``get_config`` (``Config.as_dict``, see ``ha-websocket-api.md``); the
+        connection's ``auth_ok`` ``ha_version`` is the fallback."""
+        version = config.get("version")
+        if isinstance(version, str) and version:
+            self.ha_core_version = version
+            return
+        fallback = getattr(self.connection, "ha_version", None)
+        if self.ha_core_version is None and isinstance(fallback, str) and fallback:
+            self.ha_core_version = fallback
+
     async def _learn_ha_location(self) -> None:
         """Home Assistant's ``latitude``/``longitude`` from ``get_config`` (verified in
         ``homeassistant/core_config.py`` ``Config.as_dict``); a failure keeps the fallback."""
@@ -1267,6 +1288,7 @@ class Runtime:
         except (HAError, TimeoutError) as exc:
             log.warning("ha.get_config_failed", error=str(exc))
             return
+        self._remember_ha_version(config)
         language = config.get("language")
         if isinstance(language, str) and language:
             self.ha_language = language
@@ -1507,6 +1529,7 @@ class Runtime:
         except (HAError, TimeoutError) as exc:
             log.warning("ha.get_config_failed", error=str(exc))
             return
+        self._remember_ha_version(config)
         name = config.get("time_zone")
         if isinstance(name, str) and name and name != self._ha_timezone:
             self._ha_timezone = name
@@ -2033,7 +2056,26 @@ class Runtime:
                 devices=[],
                 proposals=[],
             )
-        return self.stack.control_state()
+        return self._with_heat_pumps(self.stack.control_state())
+
+    def _with_heat_pumps(self, state: ControlState) -> ControlState:
+        """Add the live COP and thermal-model quality to the devices with a ``thermal`` section
+        (PR 7-I). Read only: the stack's own state is not touched."""
+        thermal = [d for d in (self.devices.devices if self.devices else []) if d.thermal]
+        if not thermal:
+            return state
+        by_id = {d.id: d for d in thermal}
+        now = self.clock()
+        outdoor = None
+        if self.load_service is not None:
+            outdoor = outdoor_now(self.load_service.outdoor_forecast(now), now)
+        learned = {} if self.thermal is None else self.thermal.models
+        devices = []
+        for entry in state.devices:
+            config = by_id.get(entry.device_id)
+            live = None if config is None else heat_pump_live(config, learned, outdoor)
+            devices.append(entry if live is None else entry.model_copy(update={"heat_pump": live}))
+        return state.model_copy(update={"devices": devices})
 
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         self._control_listeners.append(listener)
@@ -2254,6 +2296,9 @@ class Runtime:
 
     async def export_config(self) -> dict[str, Any]:
         return await self.config.export_json()
+
+    async def diagnostics(self) -> DiagnosticsOut:
+        return await collect_diagnostics(self)
 
     async def import_config(self, data: object) -> list[str]:
         sections = await self.config.import_json(data)

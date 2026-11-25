@@ -36,6 +36,29 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-I, diagnostics export and heat pump live values (backend half; branch
+  `phase-7/i-diagnostics-backend`, on 7-B; `backend-engineer`)** - nothing in `safety/` or
+  `controller/` changed; `frontend/` only by the regenerated OpenAPI types:
+  - `GET /api/v1/diagnostics` (BRIEF section 5, plan WP7): versions (app, HA core, schemas,
+    config sections), architecture, the configuration through a field allowlist, mapped entities,
+    connection, watchdog and planner state, solver status and times, `timeseries.db` state and
+    `size_report`, the newest 200 decisions and the newest 500 warning-and-error log lines.
+    Entity ids, device names and HA area names are salted per-export pseudonyms (the same one in
+    configuration, decisions and logs); secrets are masked; coordinates, tokens, passwords and
+    MQTT credentials never appear. Missing sources are `null` and listed in `unavailable`.
+  - New: `app/diagnostics.py` (builder), `app/pseudonyms.py`, `app/logbuffer.py` (in-memory
+    warning ring attached by `configure_logging`), `app/diagnostics_collect.py` (reads the
+    runtime), `storage.timeseries.probe_timeseries_file` (the too-new state, read only; closes the
+    4-B / 4-H follow-up on the backend side).
+  - Control state, additive: `DeviceControlState.heat_pump` with the COP at the current outdoor
+    temperature (`cop_assumed` while the curve is the generic one) and the thermal model quality
+    (fit error, history days, `used_by_planner`).
+  - Tests: allowlist and pseudonym unit tests, a demo-runtime export seeded with an MQTT password,
+    a Tibber token, a config entry id, a home name and coordinates that asserts none of them and
+    no real entity id, device id or name, or HA area name appears, consistent pseudonyms across
+    config, decisions and logs, the ring, the probe, the API route, and the heat pump values.
+  - Open for the frontend half (needs 7-G): the Diagnostics panel with download and preview, the
+    COP and model rows on the heat pump card. Deviations and `UNVERIFIED`: plan section 8, 7-I.
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable
@@ -1320,8 +1343,8 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
 - **Panel gaps:** inverter verification test as an endpoint with a dialog (without it
   `limit_verified` stays false and no limit is ever written), per-device `para14a` flag,
   `shed_rank` and the island keep list, evcc `loadpoint_id` and `topic_prefix`, a manual MQTT
-  broker, COP at the current weather on the heat pump card, bundle budget (first paint 123.5 of
-  125 kB: move more wizard steps out).
+  broker, the COP and model rows on the heat pump card (backend done in 7-I, card pending),
+  bundle budget (first paint 123.5 of 125 kB: move more wizard steps out).
 - **Behaviour decisions deferred:** hard target at any price for the EV (the late-car scenario
   stops at about 77 % of 80 %), grid pre-heating execution, `generic.heat_pump_select`, a
   `button.press` remote start, a plan clear for evcc, resetting evcc's mode at unplugging.
@@ -1631,6 +1654,9 @@ Each was built with the proposed default; the answer may change that default.
 
 | Item | Where | Needed to resolve |
 |---|---|---|
+| 7-I diagnostics: the HA core version is read from the `version` key of `get_config` (documented in `docs/research/ha-websocket-api.md`, verified there against `Config.as_dict`) with `auth_ok` `ha_version` as the fallback; the simulator's `get_config` has neither, so the demo shows `null` until a test sets it | `suncore/app/runtime.py` `_remember_ha_version` | Look at the export on a real Home Assistant |
+| 7-I diagnostics: free-text fields of config and logs are scrubbed by known values and a closed list of entity domains; an entity id of a domain not in `ENTITY_DOMAINS` (a custom integration domain) that is not mapped in the configuration is not recognised in a log line, and a log field that holds a secret under an innocent key name is only masked if that exact value was seen in the configuration | `suncore/app/pseudonyms.py` | Read one real export before attaching it to a public issue; extend the domain list from reports |
+| 7-I heat pump card: the outdoor temperature is the weather entity's forecast of the current hour, not a sensor reading | `suncore/app/thermal_live.py` | Decide whether a measured outdoor sensor role is worth adding |
 | Phase 6 residual risk (6-J): for evcc `smart` the import limit (G1) is checked reactively; evcc may import by its own plan until the controller saw the import and the cut was echoed, about 1 min (60-90 s with noisy import, scenario `evcc_plan`: 20 s over the limit); the gate only sees what evcc *may* do. Accepted, the fuse and the operator's limit stay the user's own protection | `suncore/controller/evcc.py`, `suncore/safety/evcc.py`, `docs/user/*/ev-charging.md` | a running evcc with a smart-cost limit or plan |
 | Phase 6 residual risk (6-J): evcc liveness is `<prefix>/updated` younger than 120 s; a quiet evcc that publishes less often trips falsely, and an evcc clock running ahead makes an old retained timestamp look fresh | `suncore/app/evcc_link.py`, `templates/device/evcc.loadpoint.yaml` | measure the publication interval of the user's evcc |
 | Phase 6 residual risk (6-L): the safe state of a program's plug is ON (a failed power sensor, a crash, "back to normal", a missed job release it and the machine starts early); if SunCore does not run while the plug is off nobody switches it on, so the guides recommend an HA automation "plug off longer than X h -> on" (SunCore does not create it) | `suncore/safety/programs.py`, `docs/user/*/programs.md`, `docs/user/*/surplus-control.md` | maintainer decides whether SunCore should create the automation (plan section 10) |
