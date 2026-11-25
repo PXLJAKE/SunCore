@@ -72,7 +72,17 @@ from suncore.controller.battery import (
 from suncore.controller.ev import battery_holds_lock
 from suncore.controller.evcc import INTENT_PREFIX as EVCC_INTENT_PREFIX
 from suncore.controller.evcc import EvccIntents, LoadpointTick, LoadpointView
+from suncore.controller.export import (
+    DeviceHeadroom,
+    ExportChain,
+    ExportControlInputs,
+    ExportControlSettings,
+    ExportView,
+    absorb_headroom_w,
+    export_over_limit,
+)
 from suncore.controller.grid import GridHolds, GridInputs, situation_reasons
+from suncore.controller.hysteresis import Phase
 from suncore.controller.levels import ConfigQuantiser, Quantiser
 from suncore.controller.programs import (
     INTENT_PREFIX as PROGRAM_INTENT_PREFIX,
@@ -133,6 +143,9 @@ class ControllerInputs:
     battery: BatteryControlInputs | None = None
     """The battery adapter's capabilities, ranges and what the gate holds (``None`` = no battery
     adapter: the battery is only observed, no battery intents; Phase 4 WP10)."""
+    inverter: ExportControlInputs | None = None
+    """PR 6-G: the inverter limit adapter (``None`` = none configured: no inverter intents,
+    the export limit stays the inverter's own)."""
     grid: GridInputs | None = None
     """PR 6-F: effective import limit (fuse and peak), §14a, island
     (``controller.grid.resolve_grid_inputs``); ``None`` = only ``import_limit_w`` (Phase 3)."""
@@ -182,6 +195,8 @@ class TickResult:
     """PR 6-L: program starts, ends and "start now" requests (notifications)."""
     loadpoints: Mapping[str, LoadpointView] = field(default_factory=dict)
     """PR 6-J: what the controller wants of each evcc loadpoint this tick."""
+    export: ExportView | None = None
+    """The export-chain decision of the tick (``None`` without an inverter adapter)."""
 
 
 class Controller:
@@ -195,9 +210,11 @@ class Controller:
         tz: tzinfo = UTC,
         quantiser: Quantiser | None = None,
         battery: BatteryControlSettings | None = None,
+        export: ExportControlSettings | None = None,
     ) -> None:
         self._settings = settings if settings is not None else ControlSettings()
         self._battery = BatteryIntents(battery)
+        self._export = ExportChain(export)
         self._tz = tz
         devices = list(devices)
         if quantiser is None:
@@ -322,6 +339,7 @@ class Controller:
             deficit_w=_house_deficit_w(inputs.flows),
             reserve_w=self._settings.reserve_w,
             ev_lock=(outcome.ev_lock or self._evcc.lock_wanted) and inputs.battery_present,
+            export_over_limit=export_over_limit(inputs.flows, grid),
         )
         grid_flow = None if inputs.flows is None else inputs.flows.grid_w
         programs = self._programs.step(
@@ -340,9 +358,14 @@ class Controller:
                 island=grid.grid_state is GridState.ISLAND,
             ),
         )
-        intents = (*outcome.intents, *programs.intents, *loadpoint_intents)
-        if battery_intent:
-            intents = (*intents, battery_intent)
+        headroom = _headroom_w(outcome.views, inputs)
+        export_intent = self._export.step(now, inputs.inverter, inputs.flows, grid, headroom)
+        intents = (
+            *outcome.intents,
+            *programs.intents,
+            *loadpoint_intents,
+            *(i for i in (battery_intent, export_intent) if i is not None),
+        )
         views = dict(outcome.views)
         for device_id, why in programs.reasons.items():
             view = views.get(device_id)
@@ -362,6 +385,7 @@ class Controller:
             fuse_limit_w=grid.fuse_limit_w,
             para14a_devices=self._para14a_ids,
             battery_present=inputs.battery_present,
+            export_headroom_w=headroom,
         )
         return TickResult(
             ts=now,
@@ -379,6 +403,7 @@ class Controller:
             program_jobs=programs.jobs,
             program_events=programs.events,
             loadpoints=MappingProxyType(dict(self._evcc.views)),
+            export=self._export.view,
         )
 
     def _loadpoint_ticks(
@@ -422,6 +447,8 @@ class Controller:
             return True
         if self._evcc.report(decision):
             return True
+        if self._export.report(decision):
+            return True
         return self._allocator.report(decision)
 
     @property
@@ -431,6 +458,40 @@ class Controller:
     @property
     def evcc(self) -> EvccIntents:
         return self._evcc
+
+    @property
+    def export(self) -> ExportChain:
+        return self._export
+
+
+def _headroom_w(views: Mapping[str, DeviceView], inputs: ControllerInputs) -> float:
+    """``GateInputs.export_headroom_w``: chain steps 1 and 2 not yet exhausted (X3)."""
+    devices = [
+        DeviceHeadroom(
+            v.device_id,
+            rising=v.phase is Phase.PENDING_UP
+            or (
+                v.phase is Phase.IN_FLIGHT
+                and v.pending_level is not None
+                and v.pending_level > v.level
+            ),
+            step_w=0.0,
+        )
+        for v in views.values()
+    ]
+    battery = inputs.battery
+    flow = None if inputs.flows is None else inputs.flows.battery_w
+    battery_w = flow.value if flow is not None and flow.quality is Quality.OK else None
+    high = None
+    if battery is not None and battery.ranges.max_charge_w is not None:
+        high = battery.ranges.max_charge_w.high
+    return absorb_headroom_w(
+        devices,
+        None if battery is None else battery.held,
+        battery_w,
+        battery_blocked=battery is None or battery.blocked is not None,
+        battery_high_w=high,
+    )
 
 
 def _house_deficit_w(flows: FlowSnapshot | None) -> float | None:
@@ -508,6 +569,8 @@ class ControllerLoop:
                 self._controller.programs.reset_pending(intent)
             elif intent.id.startswith(EVCC_INTENT_PREFIX):
                 self._controller.evcc.reset_pending()
+            elif intent.id.startswith("inverter:"):
+                self._controller.export.reset_pending()
             return
         self._controller.report(decision)
 

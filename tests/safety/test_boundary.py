@@ -75,6 +75,8 @@ ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
 BATTERY_DRIVERS = "suncore.devices.battery"
+INVERTER_DRIVERS = "suncore.devices.inverter"
+"""PR 6-G: the inverter limit adapters follow the battery adapters' rule."""
 EVCC_DRIVER = "suncore.devices.evcc"
 SIM = "suncore.sim"
 DRIVER_IMPORTERS = (SAFETY, "suncore.app", SIM)
@@ -238,6 +240,7 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
     if (
         in_package(module, DRIVERS)
         or in_package(module, BATTERY_DRIVERS)
+        or in_package(module, INVERTER_DRIVERS)
         or in_package(module, EVCC_DRIVER)
         or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS)
     ):
@@ -249,6 +252,7 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
             for line, imported in imported_modules(path, parse(path))
             if in_package(imported, DRIVERS)
             or in_package(imported, BATTERY_DRIVERS)
+            or in_package(imported, INVERTER_DRIVERS)
             or in_package(imported, EVCC_DRIVER)
         ),
     )

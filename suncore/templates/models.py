@@ -64,19 +64,21 @@ from suncore.core.devices import (
     ThermalSpec,
     control_roles,
 )
+from suncore.core.inverter import InverterAdapterSpec, InverterDriverKind, LimitCapability
 from suncore.core.units import Unit, parse_unit
 
 SCHEMA_VERSION: Final = 1
 VERSION_PATTERN: Final = r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$"
 """PEP 440 subset accepted for ``min_app_version`` (no epochs, no local versions)."""
 
-TemplateKind = Literal["device", "tariff", "forecast", "region", "battery"]
+TemplateKind = Literal["device", "tariff", "forecast", "region", "battery", "inverter"]
 TEMPLATE_KINDS: Final[tuple[TemplateKind, ...]] = (
     "device",
     "tariff",
     "forecast",
     "region",
     "battery",
+    "inverter",
 )
 
 Slug = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$", max_length=48)]
@@ -1066,15 +1068,125 @@ class BatteryTemplate(TemplateHeader):
         )
 
 
+INVERTER_LIMIT_ROLE: Final = "limit"
+"""The one role of an ``inverter`` template: the entity that shows (and, for a number, takes)
+the limit."""
+
+
+class InverterTemplate(TemplateHeader):
+    """Inverter limit adapter template (PR 6-G, ADR-0018 decision 3; kind ``inverter``).
+
+    Exactly one role, ``limit``: a ``number`` for ``generic_number`` and ``kostal_rest`` (it is
+    written with ``number.set_value`` and read back), a ``modbus`` ``sensor`` for
+    ``kostal_modbus`` (read-back of the register that ``modbus.write_register`` writes).
+    ``limit_capability`` ``None`` = the configuration chooses (generic: W or %). ``min``/``max``
+    bound the writable value in the capability's unit; ``volatile``: the value is lost on an
+    inverter reset and is re-written while SunCore holds a limit. Writes go through the safety
+    gate only (X1-X6, ``safety.inverter``).
+    """
+
+    kind: Literal["inverter"]
+    roles: dict[RoleName, RoleSpec]
+    driver: InverterDriverKind
+    limit_capability: LimitCapability | None = None
+    min: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.0
+    max: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None
+    settle_s: Annotated[int, Field(ge=0, le=600)] = 10
+    volatile: bool = False
+    modbus_register: Annotated[int, Field(ge=0, le=65535)] | None = None
+    default_pct: Annotated[float, Field(ge=1, le=100)] = 100.0
+
+    @model_validator(mode="after")
+    def _inverter(self) -> Self:
+        if "." not in self.id:
+            msg = "id: must be `<vendor>.<model>`"
+            raise ValueError(msg)
+        _check_roles(self.roles)
+        if set(self.roles) != {INVERTER_LIMIT_ROLE}:
+            msg = f"roles: exactly one role, `{INVERTER_LIMIT_ROLE}`"
+            raise ValueError(msg)
+        matcher = self.roles[INVERTER_LIMIT_ROLE].matcher
+        modbus = self.driver == "kostal_modbus"
+        domain = "sensor" if modbus else "number"
+        if matcher.domain != domain:
+            msg = f"roles.{INVERTER_LIMIT_ROLE}: driver `{self.driver}` needs a `{domain}` entity"
+            raise ValueError(msg)
+        if modbus:
+            if (
+                self.limit_capability != "ac_limit"
+                or self.modbus_register is None
+                or not self.volatile
+            ):
+                msg = (
+                    "driver `kostal_modbus` needs `limit_capability: ac_limit`, "
+                    "`modbus_register` and `volatile: true`"
+                )
+                raise ValueError(msg)
+            if matcher.platforms != ["modbus"]:
+                msg = f"roles.{INVERTER_LIMIT_ROLE}: driver `kostal_modbus` reads a modbus sensor"
+                raise ValueError(msg)
+        elif self.modbus_register is not None:
+            msg = "`modbus_register` belongs to driver `kostal_modbus` only"
+            raise ValueError(msg)
+        if self.driver == "kostal_rest" and self.limit_capability is None:
+            msg = "driver `kostal_rest`: set `limit_capability`"
+            raise ValueError(msg)
+        if self.limit_capability == "ac_limit" and self.max is not None and self.max > 100:
+            msg = "max: an AC limit is at most 100 %"
+            raise ValueError(msg)
+        if self.max is not None and self.max < self.min:
+            msg = "max: below min"
+            raise ValueError(msg)
+        caps = set(self.capabilities)
+        offered = (
+            {Capability.EXPORT_LIMIT, Capability.AC_LIMIT}
+            if self.limit_capability is None
+            else {Capability(self.limit_capability)}
+        )
+        if caps != offered:
+            names = ", ".join(sorted(c.value for c in offered))
+            msg = f"capabilities: the driver provides exactly {names}"
+            raise ValueError(msg)
+        return self
+
+    def message_keys(self) -> list[str]:
+        return [self.name, *(r.description for r in self.roles.values())]
+
+    def adapter_spec(self) -> InverterAdapterSpec:
+        """The template as the inverter adapters see it (``suncore.devices`` imports no
+        template model)."""
+        return InverterAdapterSpec(
+            template_id=self.id,
+            driver=self.driver,
+            capability=self.limit_capability,
+            min=self.min,
+            max=self.max,
+            settle_s=float(self.settle_s),
+            volatile=self.volatile,
+            register=self.modbus_register,
+            default_pct=self.default_pct,
+        )
+
+
 Template = Annotated[
-    DeviceTemplate | TariffTemplate | ForecastTemplate | RegionTemplate | BatteryTemplate,
+    DeviceTemplate
+    | TariffTemplate
+    | ForecastTemplate
+    | RegionTemplate
+    | BatteryTemplate
+    | InverterTemplate,
     Field(discriminator="kind"),
 ]
 """Discriminated union on ``kind``."""
 
 TEMPLATE_ADAPTER: Final[
     TypeAdapter[
-        DeviceTemplate | TariffTemplate | ForecastTemplate | RegionTemplate | BatteryTemplate
+        DeviceTemplate
+        | TariffTemplate
+        | ForecastTemplate
+        | RegionTemplate
+        | BatteryTemplate
+        | InverterTemplate
     ]
 ] = TypeAdapter(Template)
 
@@ -1084,9 +1196,11 @@ KIND_MODELS: Final[dict[str, type[BaseModel]]] = {
     "forecast": ForecastTemplate,
     "region": RegionTemplate,
     "battery": BatteryTemplate,
+    "inverter": InverterTemplate,
 }
 
 __all__ = [
+    "INVERTER_LIMIT_ROLE",
     "KIND_MODELS",
     "KOSTAL_MODBUS_ROLES",
     "PRICE_ENERGY_FACTORS",
@@ -1112,6 +1226,7 @@ __all__ = [
     "ForceChargeSwitchControl",
     "ForecastSeriesSource",
     "ForecastTemplate",
+    "InverterTemplate",
     "ModbusRegisterMap",
     "ModeSelectControl",
     "NegativePriceRule",

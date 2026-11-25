@@ -303,7 +303,7 @@ class TemplateSummaryOut(_Model):
     """Gallery entry of a template."""
 
     id: str
-    kind: Literal["device", "tariff", "forecast", "region", "battery"]
+    kind: Literal["device", "tariff", "forecast", "region", "battery", "inverter"]
     name: str
     """i18n key (``template.<id>.name``)."""
     origin: Literal["builtin", "user"]

@@ -109,7 +109,29 @@ HP_STATE_UNKNOWN: Final = "controller.heat_pump.state_unknown"
 HP_NO_PROBE: Final = "controller.heat_pump.no_probe"
 HP_RESTART_WAIT: Final = "controller.heat_pump.restart_wait"
 
+# Phase 6 PR 6-G: the export chain (``controller.export``).
+EXPORT_LIMIT: Final = "controller.export.limit"
+EXPORT_AC_LIMIT: Final = "controller.export.ac_limit"
+EXPORT_NOT_NEEDED: Final = "controller.export.not_needed"
+EXPORT_ABSORBING: Final = "controller.export.absorbing"
+EXPORT_WAITING: Final = "controller.export.waiting"
+EXPORT_INPUTS_UNKNOWN: Final = "controller.export.inputs_unknown"
+EXPORT_ISLAND: Final = "controller.export.island"
+EXPORT_BLOCKED: Final = "controller.export.blocked"
+EXPORT_RELEASE: Final = "controller.export.release"
+EXPORT_BATTERY_CAP_LIFTED: Final = "controller.export.battery_cap_lifted"
+
 ALL_KEYS: Final[tuple[str, ...]] = (
+    EXPORT_LIMIT,
+    EXPORT_AC_LIMIT,
+    EXPORT_NOT_NEEDED,
+    EXPORT_ABSORBING,
+    EXPORT_WAITING,
+    EXPORT_INPUTS_UNKNOWN,
+    EXPORT_ISLAND,
+    EXPORT_BLOCKED,
+    EXPORT_RELEASE,
+    EXPORT_BATTERY_CAP_LIFTED,
     HP_FAILSAFE,
     HP_DWELL_WAIT,
     HP_STATE_UNKNOWN,

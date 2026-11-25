@@ -35,7 +35,7 @@ from suncore.app.adapters import (
     build_tariff_service,
 )
 from suncore.app.cadence import device_cadences, merge_cadences
-from suncore.app.control import BatteryWiring, ControlStack, probe_temperature_c
+from suncore.app.control import BatteryWiring, ControlStack, InverterWiring, probe_temperature_c
 from suncore.app.evcc_link import EvccLink
 from suncore.app.grid import GridMonitor
 from suncore.app.ha_entities import build_ha_entities
@@ -67,6 +67,7 @@ from suncore.core.config import (
     DevicesConfig,
     ForecastConfig,
     GoalsConfig,
+    InverterConfig,
     MqttConfig,
     OperationConfig,
     RegionConfig,
@@ -79,6 +80,7 @@ from suncore.core.controlstate import (
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
+    InverterNotControllableError,
     ModeRaiseRejectedError,
     OverrideCommand,
     OverrideUntilPastError,
@@ -166,12 +168,18 @@ from suncore.storage.summaries import DaySummaryRow
 from suncore.storage.timeseries import META_HISTORY_BACKFILLED, META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
-from suncore.templates import BatteryTemplate, TariffTemplate, TemplateCatalog
+from suncore.templates import BatteryTemplate, InverterTemplate, TariffTemplate, TemplateCatalog
 
 PLANNING_SECTIONS = frozenset(
     {"site", "region", "tariff", "forecast", "battery", "goals", "devices"}
 )
 """Configuration sections whose change asks for a new plan."""
+DEFAULT_INVERTER_TEMPLATES: dict[str, str] = {
+    "generic_number": "generic.inverter_limit",
+    "kostal_rest": "kostal.plenticore_power_limit",
+    "kostal_modbus": "kostal.plenticore_g3_modbus_limit",
+}
+"""The built-in ``inverter`` template of each adapter when ``inverter.template_id`` is unset."""
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
 
 log = structlog.get_logger(__name__)
@@ -230,6 +238,8 @@ class Runtime:
     tariff_config: TariffConfig | None = None
     battery_config: BatterySettings | None = None
     """The ``battery`` section (adapter, model, policy); ``None`` = never stored."""
+    inverter_config: InverterConfig | None = None
+    """The ``inverter`` section (limit adapter, PR 6-G); ``None`` = never stored."""
     tariff: TariffService | None = None
     """Keeps the prices fresh (``None``: no tariff, no region or an unusable template)."""
     timeseries_db: Database | None = None
@@ -436,6 +446,9 @@ class Runtime:
         battery = await self.config.get("battery")
         assert battery is None or isinstance(battery, BatterySettings)
         self.battery_config = battery
+        inverter = await self.config.get("inverter")
+        assert inverter is None or isinstance(inverter, InverterConfig)
+        self.inverter_config = inverter
         await self._load_modes()
 
     async def _load_modes(self) -> None:
@@ -691,6 +704,7 @@ class Runtime:
             programs=self.program_jobs,
             on_program_event=self._program_event,
             evcc=self._evcc_bus(devices),
+            inverter=self._inverter_wiring(),
         )
         stack.add_listener(self._notify_control)
         return stack
@@ -836,6 +850,40 @@ class Runtime:
             reserve_pct=self._reserve_soc_pct(),
             policy=effective_grid_charge_policy(goals, settings),
             import_price=self._live_import_price,
+        )
+
+    def _live_export_price(self, now: datetime) -> float | None:
+        """The current quarter hour's export price (``None`` = unknown: no dynamic 0 W)."""
+        tariff = self.tariff
+        if tariff is None:
+            return None
+        try:
+            series = tariff.prices(0.25, now).export_price
+        except Exception:
+            log.exception("inverter.price_failed")
+            return None
+        values = None if series is None else series.values
+        return values[0] if values else None
+
+    def _inverter_wiring(self) -> InverterWiring | None:
+        """The inverter limit as a controlled asset, or ``None`` (none or an unusable template).
+
+        Without ``template_id`` the adapter's built-in template is used
+        (:data:`DEFAULT_INVERTER_TEMPLATES`)."""
+        config = self.inverter_config
+        if config is None or config.adapter == "none":
+            return None
+        identity = config.identity_token()
+        template_id = config.template_id or DEFAULT_INVERTER_TEMPLATES.get(config.adapter)
+        template = None if template_id is None else self.template_catalog.get(template_id)
+        if identity is None or not isinstance(template, InverterTemplate):
+            log.warning("inverter.adapter_template_missing", template=template_id)
+            return None
+        return InverterWiring(
+            config=config,
+            spec=template.adapter_spec(),
+            identity=identity,
+            export_price=self._live_export_price,
         )
 
     async def _rebuild_stack(self) -> None:
@@ -1515,6 +1563,8 @@ class Runtime:
             refs.extend(self.tariff_config.entity_refs())
         if self.battery_config is not None:
             refs.extend(self.battery_config.entity_refs())
+        if self.inverter_config is not None and self.inverter_config.limit_entity is not None:
+            refs.append(self.inverter_config.limit_entity)
         ids = list(dict.fromkeys(r.entity_id for r in refs))
         try:
             await self.connection.subscribe_entities(ids)
@@ -1592,7 +1642,7 @@ class Runtime:
           identity token, so a stale document cannot grant a mode to a device that was re-mapped
           meanwhile (``ModeRaiseRejectedError``). Lowered devices are released.
         """
-        if name in ("operation", "devices", "battery", "site"):
+        if name in ("operation", "devices", "battery", "site", "inverter"):
             # Serialised with the mode changes: the raise check and the identity rule of a
             # devices put judge the modes that are stored when they run.
             async with self._operation_lock:
@@ -1656,13 +1706,17 @@ class Runtime:
             assert isinstance(stored, BatterySettings)
             self.battery_config = stored
             await self._load_modes()  # the identity rule may have dropped the battery mode
+        elif name == "inverter":
+            assert isinstance(stored, InverterConfig)
+            self.inverter_config = stored
+            await self._load_modes()  # a changed adapter dropped the inverter mode
         else:
             self._store_planning_input(name, stored)
         if name == "site":
             await self._load_modes()  # the site's battery entities are battery identity
-        if name in ("site", "devices", "forecast", "tariff", "battery"):
+        if name in ("site", "devices", "forecast", "tariff", "battery", "inverter"):
             await self._resubscribe()
-        if name == "battery" or (name == "goals" and self._battery_policy_changed()):
+        if name in ("battery", "inverter") or (name == "goals" and self._battery_policy_changed()):
             await self._rebuild_stack()  # adapter, reserve or grid-charge policy changed
         if name == "tariff" or (self.site, self.region) != before[::2]:
             await self._rebuild_tariff()
@@ -1686,6 +1740,8 @@ class Runtime:
                 raise ModeRaiseRejectedError(device_id)
         if new.battery_mode.rank > current.battery_mode.rank:
             raise ModeRaiseRejectedError("battery")
+        if new.inverter_mode.rank > current.inverter_mode.rank:
+            raise ModeRaiseRejectedError("inverter")
 
     async def _sync_modes(self) -> None:
         if self.stack is not None:
@@ -1745,6 +1801,26 @@ class Runtime:
             current = self.modes.operation
             stored = await self.config.put(
                 "operation", current.model_copy(update={"battery_mode": mode})
+            )
+            assert isinstance(stored, OperationConfig)
+            await self._apply_operation(stored)
+        self._notify()
+        return stored
+
+    async def set_inverter_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        """The inverter limit's mode (PR 6-G): raising it needs the adapter's identity token;
+        until ``inverter.limit_verified`` the gate runs it at most assisted (X6)."""
+        async with self._operation_lock:
+            config = self.inverter_config
+            token = None if config is None else config.identity_token()
+            if mode is not OperatingMode.SHADOW:
+                if token is None:
+                    raise InverterNotControllableError("inverter")
+                if identity != token:
+                    raise DeviceIdentityChangedError("inverter")
+            current = self.modes.operation
+            stored = await self.config.put(
+                "operation", current.model_copy(update={"inverter_mode": mode})
             )
             assert isinstance(stored, OperationConfig)
             await self._apply_operation(stored)

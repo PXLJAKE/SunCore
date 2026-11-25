@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../schema/inverter.schema.json
+# KOSTAL PLENTICORE through the Home Assistant core integration `kostal_plenticore` (REST API):
+# the "Active Power Limitation" number (`devices:local` / `Inverter:ActivePowerLimitation`, W).
+# The number entity is DISABLED BY DEFAULT in Home Assistant: enable it on the inverter's device
+# page first. Its live min/max come from the inverter. What exactly it limits (the export at the
+# grid point or the AC output) is not documented: until the verification test SunCore treats
+# it like an AC limit and runs it at most assisted.
+id: kostal.plenticore_power_limit
+kind: inverter
+schema_version: 1
+name: template.kostal.plenticore_power_limit.name
+source:
+  - title: "home-assistant/core 5cfe9aad kostal_plenticore/number.py (Inverter:ActivePowerLimitation, W, 0-10000 overwritten by the inverter's min/max, disabled by default)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/kostal_plenticore/number.py"
+    date: 2026-10-16
+  - title: "home-assistant/core dev kostal_plenticore/number.py (unchanged: active_power_limitation, W)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/kostal_plenticore/number.py"
+    date: 2026-11-24
+  - title: "home-assistant/core 5cfe9aad kostal_plenticore/coordinator.py (a failed write is silent; settings poll 30 s)"
+    url: "https://github.com/home-assistant/core/blob/5cfe9aad7cb428c2c2ebb449719ae81976780de1/homeassistant/components/kostal_plenticore/coordinator.py"
+    date: 2026-10-16
+tested_with: []
+capabilities: [export_limit]
+unverified:
+  - "The semantics of Inverter:ActivePowerLimitation (export at the grid point or AC output, with or without battery discharge) are not documented; to be settled by the verification test."
+  - "Whether the setting survives an inverter restart."
+  - "The number has no translation key; it is matched by platform, domain and unit only."
+  - "A failed REST write is silent: SunCore believes a write only when the entity shows the value after settle_s (35 s, one settings poll plus margin)."
+driver: kostal_rest
+limit_capability: export_limit
+settle_s: 35
+roles:
+  limit:
+    matcher:
+      domain: number
+      platforms: [kostal_plenticore]
+      units: [W]
+    description: template.kostal.plenticore_power_limit.role.limit

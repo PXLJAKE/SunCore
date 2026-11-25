@@ -146,6 +146,11 @@ class GateInputs:
     battery_present: bool = True
     """The site has a home battery that could discharge into an EV (``False`` = none
     configured). The conservative default assumes one."""
+    # PR 6-G (additive): the export chain (ADR-0018 decision 3, invariant X3).
+    export_headroom_w: float | None = None
+    """What the controlled devices and the battery could still absorb this tick (W): devices
+    still rising and SunCore's own battery charge cap. ``None`` = unknown; the gate then never
+    lets an inverter limit go below the current export (X3)."""
 
 
 # --- settings -----------------------------------------------------------------

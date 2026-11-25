@@ -128,12 +128,13 @@ class ActionKind(StrEnum):
     INVERTER_LIMIT = "inverter_limit"
 
 
-NOT_YET_SUPPORTED_KINDS: Final[frozenset[ActionKind]] = frozenset({ActionKind.INVERTER_LIMIT})
+NOT_YET_SUPPORTED_KINDS: Final[frozenset[ActionKind]] = frozenset()
 """Action kinds that are in the contract but not judged by any invariant yet (ADR-0011
 addendum): the safety gate rejects each with ``safety.<kind>_not_supported`` before mode
 handling. A kind leaves this set only in the PR that adds its invariants, scenarios and the
-``control-safety`` sign-off (6-G inverter limit). ``charge`` left it in 6-I (invariants E1-E9,
-``safety.flex``), ``loadpoint`` in 6-J (invariants L1-L5, ``safety.evcc``)."""
+``control-safety`` sign-off. Empty since Phase 6: ``charge`` left in 6-I (E1-E9,
+``safety.flex``), ``loadpoint`` in 6-J (L1-L5, ``safety.evcc``), ``inverter_limit`` in 6-G
+(X1-X6, ``safety.inverter``)."""
 
 
 class SwitchAction(_FrozenModel):

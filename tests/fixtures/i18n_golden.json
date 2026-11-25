@@ -353,6 +353,86 @@
  },
  {
   "lang": "en",
+  "key": "controller.export.absorbing",
+  "args": {},
+  "expected": "Devices or the battery can still take the surplus: the inverter is not limited yet."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.ac_limit",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "Export above the limit of abc W: the inverter's AC output is limited."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.ac_limit",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "Export above the limit of 42 W: the inverter's AC output is limited."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.battery_cap_lifted",
+  "args": {},
+  "expected": "Export above the limit: SunCore lifts its own charge cap so the battery takes the surplus first."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.blocked",
+  "args": {},
+  "expected": "The inverter limit is on hold right now."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.inputs_unknown",
+  "args": {},
+  "expected": "Grid or house readings are stale or missing: the inverter gets its own limit back."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.island",
+  "args": {},
+  "expected": "Island operation: the inverter gets its own limit back."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.limit",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "Export above the limit of abc W: the inverter's export is limited."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.limit",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "Export above the limit of 42 W: the inverter's export is limited."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.not_needed",
+  "args": {},
+  "expected": "No export limit below the inverter's own is needed now."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.release",
+  "args": {},
+  "expected": "SunCore no longer needs an inverter limit: the inverter's own limit applies again."
+ },
+ {
+  "lang": "en",
+  "key": "controller.export.waiting",
+  "args": {},
+  "expected": "Export above the limit: waiting a moment before limiting the inverter."
+ },
+ {
+  "lang": "en",
   "key": "controller.grid.backup_unknown",
   "args": {},
   "expected": "The backup power state is unknown: treated as connected to the grid."
@@ -6868,9 +6948,227 @@
  },
  {
   "lang": "en",
+  "key": "safety.inverter_above_baseline",
+  "args": {},
+  "expected": "SunCore never allows more export than the inverter's own limit."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_above_static",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "SunCore never allows more export than the configured limit of abc W."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_above_static",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "SunCore never allows more export than the configured limit of 42 W."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_baseline_below_static",
+  "args": {
+   "value_w": "abc",
+   "static_w": "abc"
+  },
+  "expected": "The inverter's limit is abc W, below the configured export limit of abc W. SunCore takes over only from your normal value; check the entity or set the limit back first."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_baseline_below_static",
+  "args": {
+   "value_w": 42,
+   "static_w": 42
+  },
+  "expected": "The inverter's limit is 42 W, below the configured export limit of 42 W. SunCore takes over only from your normal value; check the entity or set the limit back first."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_baseline_not_default",
+  "args": {
+   "value": "abc",
+   "default": "abc"
+  },
+  "expected": "The limit register shows abc % instead of the inverter's default abc %. SunCore takes over only from the default, because a release writes the default back. Check the read-back sensor (address, scaling) and whether another program writes the register."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_baseline_not_default",
+  "args": {
+   "value": 42,
+   "default": 42
+  },
+  "expected": "The limit register shows 42 % instead of the inverter's default 42 %. SunCore takes over only from the default, because a release writes the default back. Check the read-back sensor (address, scaling) and whether another program writes the register."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_baseline_unknown",
+  "args": {},
+  "expected": "The inverter's own limit could not be read: SunCore does not take the inverter over."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_capability_mismatch",
+  "args": {
+   "capability": "abc"
+  },
+  "expected": "The inverter adapter takes abc; this limit was not written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_capability_mismatch",
+  "args": {
+   "capability": 42
+  },
+  "expected": "The inverter adapter takes 42; this limit was not written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_chain_not_exhausted",
+  "args": {
+   "headroom_w": "abc"
+  },
+  "expected": "Devices or the battery can still take abc W: the inverter is not limited further."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_chain_not_exhausted",
+  "args": {
+   "headroom_w": 42
+  },
+  "expected": "Devices or the battery can still take 42 W: the inverter is not limited further."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_headroom_unknown",
+  "args": {},
+  "expected": "It is unknown whether devices or the battery can still take the surplus: the inverter is not limited further."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_inputs_unknown",
+  "args": {},
+  "expected": "Grid or house readings are stale or missing: no inverter limit is written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_island",
+  "args": {},
+  "expected": "Island operation: no inverter limit is written."
+ },
+ {
+  "lang": "en",
   "key": "safety.inverter_limit_not_supported",
   "args": {},
-  "expected": "Writing an inverter limit is not available yet in this version; nothing was written."
+  "expected": "No inverter adapter is configured for this limit; nothing was written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_limit_out_of_range",
+  "args": {
+   "value": "abc",
+   "min": "abc",
+   "max": "abc"
+  },
+  "expected": "The limit abc is outside what the inverter accepts (abc to abc)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_limit_out_of_range",
+  "args": {
+   "value": 42,
+   "min": 42,
+   "max": 42
+  },
+  "expected": "The limit 42 is outside what the inverter accepts (42 to 42)."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_limit_reset",
+  "args": {},
+  "expected": "The inverter lost SunCore's limit (for example after a restart): it is written again."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_may_cause_import",
+  "args": {
+   "limit_w": "abc",
+   "needed_w": "abc"
+  },
+  "expected": "An AC limit of abc W could cause grid import (needed: abc W); not written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_may_cause_import",
+  "args": {
+   "limit_w": 42,
+   "needed_w": 42
+  },
+  "expected": "An AC limit of 42 W could cause grid import (needed: 42 W); not written."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_nominal_implausible",
+  "args": {
+   "nominal_w": "abc",
+   "kwp": "abc"
+  },
+  "expected": "The inverter's nominal AC power of abc W does not fit the installed abc kWp. A limit in percent needs the right nominal power; check it in the inverter settings."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_nominal_implausible",
+  "args": {
+   "nominal_w": 42,
+   "kwp": 42
+  },
+  "expected": "The inverter's nominal AC power of 42 W does not fit the installed 42 kWp. A limit in percent needs the right nominal power; check it in the inverter settings."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_nominal_unknown",
+  "args": {},
+  "expected": "A limit in percent needs the inverter's nominal AC power."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_override",
+  "args": {},
+  "expected": "The inverter limit was changed outside SunCore: SunCore leaves it alone for now."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_readback_lost",
+  "args": {},
+  "expected": "The inverter limit cannot be read back: SunCore gives the inverter its own limit back."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_release_check",
+  "args": {},
+  "expected": "Checking that the inverter shows its own limit again."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_release_confirmed",
+  "args": {},
+  "expected": "The inverter shows its own limit again: SunCore has let go of it."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_release_unconfirmed",
+  "args": {},
+  "expected": "The inverter does not show its own limit again yet: SunCore retries and writes nothing else until it does. Please check the inverter."
+ },
+ {
+  "lang": "en",
+  "key": "safety.inverter_write_no_change",
+  "args": {},
+  "expected": "The inverter already shows this limit; nothing was written."
  },
  {
   "lang": "en",
@@ -7799,6 +8097,86 @@
   "key": "controller.evcc.smart",
   "args": {},
   "expected": "evcc folgt dem PV-Überschuss (Modus smart)."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.absorbing",
+  "args": {},
+  "expected": "Geräte oder der Akku können den Überschuss noch aufnehmen: der Wechselrichter wird noch nicht begrenzt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.ac_limit",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "Einspeisung über dem Limit von abc W: die AC-Leistung des Wechselrichters wird begrenzt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.ac_limit",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "Einspeisung über dem Limit von 42 W: die AC-Leistung des Wechselrichters wird begrenzt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.battery_cap_lifted",
+  "args": {},
+  "expected": "Einspeisung über dem Limit: SunCore hebt seine eigene Ladebegrenzung auf, damit zuerst der Akku den Überschuss aufnimmt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.blocked",
+  "args": {},
+  "expected": "Das Wechselrichter-Limit ist gerade angehalten."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.inputs_unknown",
+  "args": {},
+  "expected": "Netz- oder Hauswerte sind veraltet oder fehlen: der Wechselrichter bekommt sein eigenes Limit zurück."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.island",
+  "args": {},
+  "expected": "Inselbetrieb: der Wechselrichter bekommt sein eigenes Limit zurück."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.limit",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "Einspeisung über dem Limit von abc W: die Einspeisung des Wechselrichters wird begrenzt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.limit",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "Einspeisung über dem Limit von 42 W: die Einspeisung des Wechselrichters wird begrenzt."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.not_needed",
+  "args": {},
+  "expected": "Gerade ist kein Einspeiselimit unter dem eigenen des Wechselrichters nötig."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.release",
+  "args": {},
+  "expected": "SunCore braucht kein Wechselrichter-Limit mehr: es gilt wieder das eigene Limit des Wechselrichters."
+ },
+ {
+  "lang": "de",
+  "key": "controller.export.waiting",
+  "args": {},
+  "expected": "Einspeisung über dem Limit: kurze Wartezeit, bevor der Wechselrichter begrenzt wird."
  },
  {
   "lang": "de",
@@ -14317,9 +14695,227 @@
  },
  {
   "lang": "de",
+  "key": "safety.inverter_above_baseline",
+  "args": {},
+  "expected": "SunCore erlaubt nie mehr Einspeisung als das eigene Limit des Wechselrichters."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_above_static",
+  "args": {
+   "limit_w": "abc"
+  },
+  "expected": "SunCore erlaubt nie mehr Einspeisung als das eingestellte Limit von abc W."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_above_static",
+  "args": {
+   "limit_w": 42
+  },
+  "expected": "SunCore erlaubt nie mehr Einspeisung als das eingestellte Limit von 42 W."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_baseline_below_static",
+  "args": {
+   "value_w": "abc",
+   "static_w": "abc"
+  },
+  "expected": "Das Limit des Wechselrichters ist abc W und liegt unter dem eingestellten Einspeiselimit von abc W. SunCore übernimmt nur von deinem normalen Wert; prüfe die Entity oder stelle das Limit zuerst zurück."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_baseline_below_static",
+  "args": {
+   "value_w": 42,
+   "static_w": 42
+  },
+  "expected": "Das Limit des Wechselrichters ist 42 W und liegt unter dem eingestellten Einspeiselimit von 42 W. SunCore übernimmt nur von deinem normalen Wert; prüfe die Entity oder stelle das Limit zuerst zurück."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_baseline_not_default",
+  "args": {
+   "value": "abc",
+   "default": "abc"
+  },
+  "expected": "Das Limit-Register zeigt abc % statt des Standardwerts abc % des Wechselrichters. SunCore übernimmt nur vom Standardwert, weil eine Freigabe den Standardwert zurückschreibt. Prüfe den Rücklese-Sensor (Adresse, Skalierung) und ob ein anderes Programm das Register schreibt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_baseline_not_default",
+  "args": {
+   "value": 42,
+   "default": 42
+  },
+  "expected": "Das Limit-Register zeigt 42 % statt des Standardwerts 42 % des Wechselrichters. SunCore übernimmt nur vom Standardwert, weil eine Freigabe den Standardwert zurückschreibt. Prüfe den Rücklese-Sensor (Adresse, Skalierung) und ob ein anderes Programm das Register schreibt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_baseline_unknown",
+  "args": {},
+  "expected": "Das eigene Limit des Wechselrichters ließ sich nicht lesen: SunCore übernimmt den Wechselrichter nicht."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_capability_mismatch",
+  "args": {
+   "capability": "abc"
+  },
+  "expected": "Der Wechselrichter-Adapter nimmt abc; dieses Limit wurde nicht geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_capability_mismatch",
+  "args": {
+   "capability": 42
+  },
+  "expected": "Der Wechselrichter-Adapter nimmt 42; dieses Limit wurde nicht geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_chain_not_exhausted",
+  "args": {
+   "headroom_w": "abc"
+  },
+  "expected": "Geräte oder der Akku können noch abc W aufnehmen: der Wechselrichter wird nicht weiter begrenzt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_chain_not_exhausted",
+  "args": {
+   "headroom_w": 42
+  },
+  "expected": "Geräte oder der Akku können noch 42 W aufnehmen: der Wechselrichter wird nicht weiter begrenzt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_headroom_unknown",
+  "args": {},
+  "expected": "Unbekannt, ob Geräte oder der Akku den Überschuss noch aufnehmen können: der Wechselrichter wird nicht weiter begrenzt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_inputs_unknown",
+  "args": {},
+  "expected": "Netz- oder Hauswerte sind veraltet oder fehlen: es wird kein Wechselrichter-Limit geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_island",
+  "args": {},
+  "expected": "Inselbetrieb: es wird kein Wechselrichter-Limit geschrieben."
+ },
+ {
+  "lang": "de",
   "key": "safety.inverter_limit_not_supported",
   "args": {},
-  "expected": "Das Schreiben einer Wechselrichter-Begrenzung ist in dieser Version noch nicht verfügbar; nichts geschrieben."
+  "expected": "Für dieses Limit ist kein Wechselrichter-Adapter eingerichtet; nichts geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_limit_out_of_range",
+  "args": {
+   "value": "abc",
+   "min": "abc",
+   "max": "abc"
+  },
+  "expected": "Das Limit abc liegt außerhalb dessen, was der Wechselrichter annimmt (abc bis abc)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_limit_out_of_range",
+  "args": {
+   "value": 42,
+   "min": 42,
+   "max": 42
+  },
+  "expected": "Das Limit 42 liegt außerhalb dessen, was der Wechselrichter annimmt (42 bis 42)."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_limit_reset",
+  "args": {},
+  "expected": "Der Wechselrichter hat SunCores Limit verloren (z. B. nach einem Neustart): es wird erneut geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_may_cause_import",
+  "args": {
+   "limit_w": "abc",
+   "needed_w": "abc"
+  },
+  "expected": "Ein AC-Limit von abc W könnte Netzbezug verursachen (nötig: abc W); nicht geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_may_cause_import",
+  "args": {
+   "limit_w": 42,
+   "needed_w": 42
+  },
+  "expected": "Ein AC-Limit von 42 W könnte Netzbezug verursachen (nötig: 42 W); nicht geschrieben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_nominal_implausible",
+  "args": {
+   "nominal_w": "abc",
+   "kwp": "abc"
+  },
+  "expected": "Die AC-Nennleistung des Wechselrichters von abc W passt nicht zu den installierten abc kWp. Ein Limit in Prozent braucht die richtige Nennleistung; prüfe sie in den Wechselrichter-Einstellungen."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_nominal_implausible",
+  "args": {
+   "nominal_w": 42,
+   "kwp": 42
+  },
+  "expected": "Die AC-Nennleistung des Wechselrichters von 42 W passt nicht zu den installierten 42 kWp. Ein Limit in Prozent braucht die richtige Nennleistung; prüfe sie in den Wechselrichter-Einstellungen."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_nominal_unknown",
+  "args": {},
+  "expected": "Ein Limit in Prozent braucht die AC-Nennleistung des Wechselrichters."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_override",
+  "args": {},
+  "expected": "Das Wechselrichter-Limit wurde außerhalb von SunCore geändert: SunCore lässt es vorerst in Ruhe."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_readback_lost",
+  "args": {},
+  "expected": "Das Wechselrichter-Limit lässt sich nicht zurücklesen: SunCore gibt dem Wechselrichter sein eigenes Limit zurück."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_release_check",
+  "args": {},
+  "expected": "Prüfe, ob der Wechselrichter wieder sein eigenes Limit zeigt."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_release_confirmed",
+  "args": {},
+  "expected": "Der Wechselrichter zeigt wieder sein eigenes Limit: SunCore hat ihn freigegeben."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_release_unconfirmed",
+  "args": {},
+  "expected": "Der Wechselrichter zeigt sein eigenes Limit noch nicht wieder: SunCore versucht es erneut und schreibt bis dahin nichts anderes. Bitte den Wechselrichter prüfen."
+ },
+ {
+  "lang": "de",
+  "key": "safety.inverter_write_no_change",
+  "args": {},
+  "expected": "Der Wechselrichter zeigt dieses Limit bereits; nichts geschrieben."
  },
  {
   "lang": "de",

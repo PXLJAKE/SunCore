@@ -283,6 +283,12 @@ class Services(Protocol):
         :class:`BatteryNotControllableError` (no adapter), :class:`DeviceIdentityChangedError`."""
         ...
 
+    async def set_inverter_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        """Set the inverter limit's mode (PR 6-G). Raising it above shadow needs the adapter's
+        current identity token (``InverterControlState.identity``): raises
+        :class:`InverterNotControllableError` (no adapter), :class:`DeviceIdentityChangedError`."""
+        ...
+
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Call ``listener`` whenever the control state may have changed (tick, decision, mode)."""
         ...

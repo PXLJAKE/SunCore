@@ -872,6 +872,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operation/inverter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Inverter Mode
+         * @description Set the inverter limit's mode (PR 6-G, ADR-0018 decision 3). Anything above shadow
+         *     needs the adapter's ``identity`` token from the control state; shadow never does. An
+         *     adapter whose limit is not verified (``inverter.limit_verified``) runs at most assisted
+         *     whatever is stored.
+         */
+        put: operations["set_inverter_mode_api_v1_operation_inverter_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operation/mode": {
         parameters: {
             query?: never;
@@ -2023,6 +2046,7 @@ export interface components {
             /** Emergency Stop */
             emergency_stop: boolean;
             global_mode: components["schemas"]["OperatingMode"];
+            inverter?: components["schemas"]["InverterControlState"] | null;
             /** Proposals */
             proposals: components["schemas"]["Decision"][];
             site: components["schemas"]["SiteControlState"] | null;
@@ -3423,12 +3447,19 @@ export interface components {
         };
         /**
          * InverterConfig
-         * @description The inverter limit adapter (ADR-0018 decision 3; writes arrive with PR 6-G).
+         * @description The inverter limit adapter (ADR-0018 decision 3; writes since PR 6-G).
          *
          *     ``limit_verified`` is set only after the documented verification test; until then the
-         *     inverter asset runs at most assisted (X6). ``nominal_ac_w`` is needed for ``ac_limit``
-         *     (the percent base, invariant X2). ``limit_entity`` is the number entity of the generic
-         *     adapter (W for ``export_limit``, % for ``ac_limit``).
+         *     inverter asset runs at most assisted (X6) and the dynamic 0 W limit at negative prices stays
+         *     off. A change of the adapter's identity (:meth:`identity_token`) resets it and drops
+         *     ``operation.inverter_mode`` to shadow (storage). ``nominal_ac_w`` is needed for ``ac_limit``
+         *     (the percent base, invariant X2). ``limit_entity`` is the entity that shows the limit: the
+         *     number entity of the generic adapter (W for ``export_limit``, % for ``ac_limit``) and of
+         *     ``kostal_rest`` (``Inverter:ActivePowerLimitation``), the modbus sensor that reads register
+         *     533 back for ``kostal_modbus``; without it the adapter cannot read back and is not built.
+         *     ``enforce_static``: ``False`` (default) = the static export limit is enforced by the
+         *     inverter's own setting (the maintainer's 13.5 kW, plan §6 question 6) and SunCore writes a
+         *     limit only below it (dynamic or zero export); ``True`` = SunCore enforces it too.
          */
         InverterConfig: {
             /**
@@ -3439,12 +3470,18 @@ export interface components {
             adapter: "none" | "generic_number" | "kostal_rest" | "kostal_modbus";
             /** Capability */
             capability?: ("export_limit" | "ac_limit") | null;
+            /**
+             * Enforce Static
+             * @default false
+             */
+            enforce_static: boolean;
             limit_entity?: components["schemas"]["EntityRef"] | null;
             /**
              * Limit Verified
              * @default false
              */
             limit_verified: boolean;
+            modbus?: components["schemas"]["InverterModbusLink"] | null;
             /** Nominal Ac W */
             nominal_ac_w?: number | null;
             /**
@@ -3452,6 +3489,39 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /** Template Id */
+            template_id?: string | null;
+        };
+        /**
+         * InverterControlState
+         * @description The inverter limit as a controlled asset (PR 6-G, ADR-0018 decision 3).
+         */
+        InverterControlState: {
+            /** Adapter */
+            adapter: string;
+            /** Adapter Template Id */
+            adapter_template_id: string;
+            baseline: components["schemas"]["InverterLimitAction"] | null;
+            /** Capability */
+            capability: string;
+            effective_mode: components["schemas"]["OperatingMode"];
+            global_mode: components["schemas"]["OperatingMode"];
+            held: components["schemas"]["InverterLimitAction"] | null;
+            /** Identity */
+            identity: string;
+            inverter_mode: components["schemas"]["OperatingMode"];
+            last_decision: components["schemas"]["Decision"] | null;
+            limit: components["schemas"]["InverterLimitAction"] | null;
+            /** Mode Capped */
+            mode_capped: boolean;
+            paused: components["schemas"]["Reason"] | null;
+            /** Reasons */
+            reasons: components["schemas"]["Reason"][];
+            /** Under Control */
+            under_control: boolean;
+            /** Verified */
+            verified: boolean;
+            wanted: components["schemas"]["InverterLimitAction"] | null;
         };
         /**
          * InverterLimitAction
@@ -3471,6 +3541,116 @@ export interface components {
             max_ac_pct?: number | null;
             /** Max Export W */
             max_export_w?: number | null;
+        };
+        /**
+         * InverterModbusLink
+         * @description How the ``kostal_modbus`` inverter adapter writes register 533 (``modbus.write_register``).
+         *
+         *     ``hub`` is the ``name`` of the user's ``modbus:`` YAML hub, ``slave`` the inverter's unit id
+         *     (Kostal default 71; mandatory because the action defaults to 1). Register 533 is volatile
+         *     (lost on an inverter reset, Kostal §3.3): ``heartbeat_s`` is the re-write period while
+         *     SunCore holds a limit. Verified 2026-11-24 against ``home-assistant/core`` ``dev``
+         *     ``components/modbus/services.py``: an ``int`` value is written with function code 0x06
+         *     (write single register), which is what Kostal lists for 533.
+         */
+        InverterModbusLink: {
+            /**
+             * Heartbeat S
+             * @default 60
+             */
+            heartbeat_s: number;
+            /**
+             * Hub
+             * @default modbus_hub
+             */
+            hub: string;
+            /** Slave */
+            slave: number;
+        };
+        /**
+         * InverterModeRequest
+         * @description ``PUT /api/v1/operation/inverter``: the inverter limit's operating mode (PR 6-G).
+         *
+         *     Raising it above shadow needs ``identity`` (``inverter.identity`` of the control state); a
+         *     changed adapter answers 409. Until ``inverter.limit_verified`` it runs at most assisted.
+         */
+        InverterModeRequest: {
+            /** Identity */
+            identity?: string | null;
+            mode: components["schemas"]["OperatingMode"];
+        };
+        /**
+         * InverterTemplate
+         * @description Inverter limit adapter template (PR 6-G, ADR-0018 decision 3; kind ``inverter``).
+         *
+         *     Exactly one role, ``limit``: a ``number`` for ``generic_number`` and ``kostal_rest`` (it is
+         *     written with ``number.set_value`` and read back), a ``modbus`` ``sensor`` for
+         *     ``kostal_modbus`` (read-back of the register that ``modbus.write_register`` writes).
+         *     ``limit_capability`` ``None`` = the configuration chooses (generic: W or %). ``min``/``max``
+         *     bound the writable value in the capability's unit; ``volatile``: the value is lost on an
+         *     inverter reset and is re-written while SunCore holds a limit. Writes go through the safety
+         *     gate only (X1-X6, ``safety.inverter``).
+         */
+        InverterTemplate: {
+            /** Capabilities */
+            capabilities: components["schemas"]["Capability"][];
+            /**
+             * Default Pct
+             * @default 100
+             */
+            default_pct: number;
+            /**
+             * Driver
+             * @enum {string}
+             */
+            driver: "generic_number" | "kostal_rest" | "kostal_modbus";
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "inverter";
+            /** Limit Capability */
+            limit_capability?: ("export_limit" | "ac_limit") | null;
+            /** Max */
+            max?: number | null;
+            /**
+             * Min
+             * @default 0
+             */
+            min: number;
+            /** Min App Version */
+            min_app_version?: string | null;
+            /** Modbus Register */
+            modbus_register?: number | null;
+            /** Name */
+            name: string;
+            /** Roles */
+            roles: {
+                [key: string]: components["schemas"]["RoleSpec"];
+            };
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Settle S
+             * @default 10
+             */
+            settle_s: number;
+            /** Source */
+            source: components["schemas"]["SourceRef"][];
+            /** Tested With */
+            tested_with: components["schemas"]["TestedWith"][];
+            /** Unverified */
+            unverified?: string[];
+            /**
+             * Volatile
+             * @default false
+             */
+            volatile: boolean;
         };
         /** KpiOut */
         KpiOut: {
@@ -4189,6 +4369,8 @@ export interface components {
             device_modes?: {
                 [key: string]: components["schemas"]["OperatingMode"];
             };
+            /** @default shadow */
+            inverter_mode: components["schemas"]["OperatingMode"];
             /** @default shadow */
             mode: components["schemas"]["OperatingMode"];
             /**
@@ -5655,7 +5837,7 @@ export interface components {
              */
             origin: "builtin" | "user";
             /** Template */
-            template: components["schemas"]["DeviceTemplate"] | components["schemas"]["TariffTemplate"] | components["schemas"]["ForecastTemplate"] | components["schemas"]["RegionTemplate"] | components["schemas"]["BatteryTemplate"];
+            template: components["schemas"]["DeviceTemplate"] | components["schemas"]["TariffTemplate"] | components["schemas"]["ForecastTemplate"] | components["schemas"]["RegionTemplate"] | components["schemas"]["BatteryTemplate"] | components["schemas"]["InverterTemplate"];
         };
         /**
          * TemplateErrorOut
@@ -5689,7 +5871,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "device" | "tariff" | "forecast" | "region" | "battery";
+            kind: "device" | "tariff" | "forecast" | "region" | "battery" | "inverter";
             /** Name */
             name: string;
             /**
@@ -7754,6 +7936,57 @@ export interface operations {
             };
         };
     };
+    set_inverter_mode_api_v1_operation_inverter_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InverterModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description No inverter limit adapter */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The inverter adapter changed since its identity was read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
     set_global_mode_api_v1_operation_mode_put: {
         parameters: {
             query?: never;
@@ -8175,7 +8408,7 @@ export interface operations {
     templates_api_v1_templates_get: {
         parameters: {
             query?: {
-                kind?: ("device" | "tariff" | "forecast" | "region" | "battery") | null;
+                kind?: ("device" | "tariff" | "forecast" | "region" | "battery" | "inverter") | null;
             };
             header?: never;
             path?: never;

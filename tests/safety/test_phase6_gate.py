@@ -168,15 +168,22 @@ def test_every_action_kind_is_handled_or_rejected() -> None:
         ActionKind.BATTERY,  # safety.battery (B1-B9), not_supported without an adapter
         ActionKind.CHARGE,  # safety.flex (E1-E9), PR 6-I
         ActionKind.LOADPOINT,  # safety.evcc (L1-L5), PR 6-J
+        ActionKind.INVERTER_LIMIT,  # safety.inverter (X1-X6, PR 6-G), not_supported without one
     }
     assert judged | NOT_YET_SUPPORTED_KINDS == set(ActionKind)
     assert judged.isdisjoint(NOT_YET_SUPPORTED_KINDS)
     assert set(REASON_NOT_SUPPORTED) == NOT_YET_SUPPORTED_KINDS
     for kind, reason in REASON_NOT_SUPPORTED.items():
         assert reason.key == f"safety.{kind.value}_not_supported"
-    assert {a.kind for a in NEW_ACTIONS} == NOT_YET_SUPPORTED_KINDS
+    assert {a.kind for a in NEW_ACTIONS} == {ActionKind.INVERTER_LIMIT}
     assert ActionKind.CHARGE not in REASON_NOT_SUPPORTED
     assert ActionKind.LOADPOINT not in REASON_NOT_SUPPORTED
+
+
+def rejection_of(kind: ActionKind) -> str:
+    """The rejection key of a new kind without its adapter (inverter: PR 6-G; charge and
+    loadpoint are judged by the device rules, see below)."""
+    return "safety.inverter_limit_not_supported"
 
 
 @pytest.mark.parametrize("action", CHARGE_ACTIONS)
@@ -271,8 +278,8 @@ def test_new_action_kinds_are_always_rejected_without_side_effects(  # noqa: PLR
     decision, releases = asyncio.run(scenario())
     assert decision.kind is DecisionKind.REJECTED
     assert not decision.wrote_hardware
-    expected = REASON_EMERGENCY_STOP if stopped else REASON_NOT_SUPPORTED[action.kind]
-    assert decision.reasons == (expected,)
+    expected = REASON_EMERGENCY_STOP.key if stopped else rejection_of(action.kind)
+    assert keys(decision) == [expected]
     assert h.apply_calls == 0
     assert h.release_calls == releases
     assert h.gate.proposals() == ()
@@ -302,8 +309,8 @@ def test_a_loadpoint_rejects_every_action_but_loadpoint_and_release(
     decision = asyncio.run(h.gate.submit(make_intent(action, asset_id="evcc_lp", origin=origin)))
     assert decision.kind is DecisionKind.REJECTED
     expected = (
-        REASON_NOT_SUPPORTED[action.kind].key
-        if action.kind in NOT_YET_SUPPORTED_KINDS
+        "safety.inverter_limit_not_supported"  # no inverter adapter for this asset (PR 6-G)
+        if action.kind is ActionKind.INVERTER_LIMIT
         else "safety.charge_not_charger"
         if isinstance(action, ChargeAction)
         else "safety.loadpoint_needs_loadpoint"

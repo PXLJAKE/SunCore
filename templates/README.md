@@ -2,7 +2,7 @@
 
 Declarative device, tariff, forecast and region templates (ADR-0006, ADR-0012, schema v1).
 Layout: `templates/<kind>/<id>.yaml` with `kind` in `device`, `tariff`, `forecast`,
-`region`, `battery`; user templates in `/data/templates/<kind>/` override built-in ones by
+`region`, `battery`, `inverter`; user templates in `/data/templates/<kind>/` override built-in ones by
 `id`. A `*.yaml` file in any other sub directory is reported as an error.
 The JSON Schemas in `schema/` are generated from the Pydantic
 models in `suncore/templates/models.py` and `suncore/core/devices.py` – never edit them by
@@ -43,6 +43,9 @@ drift).
 | battery | `generic.battery` | battery limits through number entities (min SoC, charge/discharge caps, grid-charge power), driver `generic` | generic, simulator only (`UNVERIFIED`: no hardware) |
 | battery | `kostal.plenticore` | KOSTAL PLENTICORE through the core integration: min SoC only (reserve floor, discharge lock), driver `kostal_plenticore` | from integration source; no write made on hardware yet |
 | battery | `kostal.plenticore_g3_modbus` | KOSTAL PLENTICORE G3 §3.5 limits through `modbus.write_register` with the inverter's fallback timer, driver `kostal_modbus` | from the vendor document; simulator only, capped at assisted until the fallback is measured |
+| inverter | `generic.inverter_limit` | any `number` entity with the export limit (W/kW) or the AC output limit (%), driver `generic_number` | generic, simulator only (`UNVERIFIED`: no hardware) |
+| inverter | `kostal.plenticore_power_limit` | KOSTAL PLENTICORE "Active Power Limitation" number through the core integration (W), driver `kostal_rest` | from integration source; semantics `UNVERIFIED`, capped at assisted until verified |
+| inverter | `kostal.plenticore_g3_modbus_limit` | KOSTAL PLENTICORE G3 register 533 (active power set-point, %, volatile) through `modbus.write_register`, driver `kostal_modbus` | from the vendor document; simulator only, read-back of 533 `UNVERIFIED` |
 | region | `de` | Germany: EUR, `Europe/Berlin`, no remuneration at negative prices for new PV | law text `UNVERIFIED` here |
 | region | `generic` | neutral international profile | – |
 
@@ -119,6 +122,14 @@ unverified: []                     # facts you could not verify; required if tes
   `external_control`, `charge_limit`, `discharge_limit`, `fallback_charge_limit`,
   `fallback_discharge_limit`, `fallback_timeout`, `own_charge_limit`, `own_discharge_limit`).
   Every write goes through the safety gate; a battery starts in shadow mode like every device.
+- Inverter limit templates (`kind: inverter`, PR 6-G) have exactly one role, `limit`: a
+  `number` for the drivers `generic_number` and `kostal_rest`, a `modbus` `sensor` (the
+  read-back) for `kostal_modbus`. `limit_capability` (`export_limit` in W or `ac_limit` in %;
+  absent = the configuration chooses) must match `capabilities`; `min`/`max` bound the value in
+  that unit; `settle_s` is the read-back delay; `volatile`, `modbus_register` and `default_pct`
+  belong to `kostal_modbus` (a register lost on an inverter reset, re-written while SunCore
+  holds a limit; `default_pct` is the release value when nothing was read at takeover). The
+  inverter limit starts in shadow mode and runs at most assisted until `inverter.limit_verified`.
 - Do not invent attributes, services or registers. Cite the integration source or vendor
   document in `source`, otherwise list the fact under `unverified`.
 - Every template needs a simulator conformance scenario under
@@ -166,3 +177,4 @@ Every addition is recorded below with the SunCore version that introduced it.
 | 0.5.0 (unreleased, Phase 4, PV forecasts) | Forecast templates: `series.source: energy_solar_forecast` (new union member, `fields` holds only `value_unit`, optional `missing_is_zero`) for the Energy dashboard's `energy/solar_forecast`; optional `fallback_series` (an `action` series) used when the attribute yields nothing. New templates `forecast_solar.pv`, `open_meteo_solar_forecast.pv`, `generic.pv_forecast`; `solcast.pv` gained the optional roles `forecast_d3`, `forecast_d4` and the fallback action `query_forecast_data`. |
 | 0.7.0 (unreleased, Phase 6, PR 6-B) | Device templates (all additive, ADR-0017): new `defaults.control` kinds `charger` (roles `role` current in A, optional `enable_role`, `phases_role` with `phase_option_1`/`phase_option_3`, `min_current_a` 6, `max_current_a`, `phases`, `phase_switching`, `voltage_v`, `phase_switch_pause_s` 120, `max_phase_switches_per_hour` 4; device kind `wallbox`), `sg_ready` (`contact_a`, `contact_b`, contact pairs `normal`, `intensified`, optional `forced` with `allow_forced`, `min_dwell_s` ≥ 600; state 1 has no step; device kind `heat_pump`) and `loadpoint` (evcc `loadpoint_id`, `vehicle`, `topic_prefix` `evcc`; no entity role; device kind `wallbox`); optional `defaults.ev`, `defaults.program` and `defaults.thermal` (COP curve with the template's `source`). New capabilities `ev_charging`, `phase_switching`, `sg_ready`, `remote_start` (device templates) and `export_limit`, `ac_limit`, `backup_state` (reserved for the inverter roles of battery templates, PR 6-G; rejected on device templates). Devices of the new controls run at most assisted until the user confirms the behaviour (`DeviceConfig.behaviour_confirmed`). |
 | 0.7.0 (unreleased, Phase 6, PR 6-L) | Device templates (additive): new `defaults.control` kind `notify` (no role; only with `defaults.program.start_method: notify`). `program.resume_confirmed` is checked on the device, not on the template, so a template can default to `start_method: plug`. |
+| 0.7.0 (unreleased, Phase 6, PR 6-G) | New template kind `inverter` (`inverter.schema.json`, additive): one role `limit`, `driver` (`generic_number`, `kostal_rest`, `kostal_modbus`), optional `limit_capability`, `min`, `max`, `settle_s` (default 10), `volatile`, `modbus_register`, `default_pct`. The capabilities `export_limit` and `ac_limit` are used by inverter templates (not by battery templates as reserved in 6-B). |

@@ -101,6 +101,7 @@ from suncore.sim.devices import (
 )
 from suncore.sim.house import House, HouseState
 from suncore.sim.inverter import SimInverter
+from suncore.sim.limiter import SimExportLimiter
 from suncore.sim.recorder import SimRecorder
 from suncore.sim.scenario import ManualEvent, Scenario, SimSignal
 
@@ -756,6 +757,16 @@ class FakeHAConnection:
             )
             msg = f"fake HA is {self._state.value}"
             raise NotConnectedError(msg)
+        limiter = self._house.limiter if self._house is not None else None
+        if limiter is not None and self._limiter_call(
+            limiter, now, domain, service, entity_ids, fields
+        ):
+            context = self._new_context(user_id=SUPERVISOR_USER_ID)
+            self._record(
+                CallRecord(now, domain, service, entity_ids, fields, context.id, entity_ids)
+            )
+            self._publish_limiter(emit=True, context=context)
+            return {"context": {"id": context.id, "parent_id": None, "user_id": context.user_id}}
         inverter = self._house.inverter if self._house is not None else None
         if inverter is not None and self._inverter_call(
             inverter, now, domain, service, entity_ids, fields
@@ -845,6 +856,47 @@ class FakeHAConnection:
                     inverter.set_number(now, entity_id, float(value))
             return True
         return False
+
+    def _limiter_call(  # noqa: PLR0917
+        self,
+        limiter: SimExportLimiter,
+        now: datetime,
+        domain: str,
+        service: str,
+        entity_ids: tuple[str, ...],
+        fields: Mapping[str, Any],
+    ) -> bool:
+        """The inverter limit's services (PR 6-G): its number or ``modbus.write_register`` 533.
+
+        Like the battery inverter: ``modbus.write_register`` fails silently; a number write to
+        an unavailable entity is skipped silently."""
+        if domain == "modbus" and service == "write_register":
+            return limiter.write_register(now, dict(fields))
+        if (
+            domain == "number"
+            and service == "set_value"
+            and entity_ids
+            and all(limiter.handles(e) for e in entity_ids)
+        ):
+            value = fields.get("value")
+            if not isinstance(value, int | float) or isinstance(value, bool):
+                raise CommandError("invalid_format", "expected float for dictionary value")
+            for entity_id in entity_ids:
+                if entity_id not in self._unavailable:
+                    limiter.set_number(now, entity_id, float(value))
+            return True
+        return False
+
+    def _publish_limiter(self, *, emit: bool, context: StateContext | None = None) -> None:
+        limiter = self._house.limiter if self._house is not None else None
+        if limiter is None:
+            return
+        self._commit(
+            limiter.states(self._sim_now()),
+            context=context,
+            emit=emit,
+            only_changes=False,
+        )
 
     def _publish_inverter(self, *, emit: bool, context: StateContext | None = None) -> None:
         inverter = self._house.inverter if self._house is not None else None
@@ -1152,6 +1204,17 @@ class FakeHAConnection:
             changed.update(
                 self._commit(
                     inverter.states(house_state.time),
+                    context=None,
+                    emit=False,
+                    faults=faults,
+                    only_changes=False,
+                )
+            )
+        limiter = self._house.limiter
+        if limiter is not None:  # the inverter limit's number or modbus sensor (PR 6-G)
+            changed.update(
+                self._commit(
+                    limiter.states(house_state.time),
                     context=None,
                     emit=False,
                     faults=faults,

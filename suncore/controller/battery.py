@@ -33,6 +33,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from suncore.controller.export import lift_battery_charge_cap
 from suncore.controller.grid import GridHolds, GridInputs
 from suncore.controller.reasons import (
     BATTERY_BLOCKED,
@@ -43,6 +44,7 @@ from suncore.controller.reasons import (
     BATTERY_GRID_CHARGE_UNSUPPORTED,
     BATTERY_NO_PLAN,
     BATTERY_RELEASE,
+    EXPORT_BATTERY_CAP_LIFTED,
     GRID_BATTERY_ISLAND,
     GRID_BATTERY_NO_GRID_CHARGE,
     GRID_BATTERY_SUPPORT,
@@ -263,8 +265,14 @@ class BatteryIntents:
         deficit_w: float | None = None,
         reserve_w: float = 0.0,
         ev_lock: bool = False,
+        export_over_limit: bool = False,
     ) -> Intent | None:
-        """The battery intent of this tick (``None`` = nothing to submit)."""
+        """The battery intent of this tick (``None`` = nothing to submit).
+
+        ``export_over_limit`` (PR 6-G, export chain step 2): the site exports more than the
+        effective export limit - SunCore's own charge cap is lifted so the battery absorbs
+        before the inverter is curtailed (``controller.export.lift_battery_charge_cap``).
+        """
         if inputs is None:
             self.view = None
             return None
@@ -281,6 +289,9 @@ class BatteryIntents:
         wanted, reasons, urgent = self.grid_override(
             wanted, reasons, grid, holds or GridHolds(), deficit_w, reserve_w
         )
+        wanted, lifted = lift_battery_charge_cap(wanted, over_limit=export_over_limit)
+        if lifted:
+            reasons = (Reason(key=EXPORT_BATTERY_CAP_LIFTED), *reasons)
         action: BatteryAction | ReleaseAction | None = wanted
         if wanted is None:
             action = ReleaseAction() if inputs.under_control else None

@@ -1,0 +1,10 @@
+template: generic.inverter_limit
+sim_scenario: export_limit_zero_export
+# Any number entity can hold the limit: every number of the demo house ties, the user picks.
+extra_entities:
+  - { entity_id: number.inverter_export_limit, platform: acme_inverter, unit: W, state: "13500" }
+roles:
+  limit:
+    tied: [number.inverter_export_limit, number.sim_heating_rod_limit]
+    pick: number.inverter_export_limit
+capabilities: [export_limit, ac_limit]

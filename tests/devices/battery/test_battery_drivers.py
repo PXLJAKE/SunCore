@@ -524,7 +524,8 @@ def test_uint32_words_round_trip(value: int, order: ModbusByteOrder) -> None:
 
 def test_write_register_is_a_write_of_the_modbus_adapter_only() -> None:
     """``modbus.write_register`` is never a read-only action and only the ``kostal_modbus``
-    adapter (and the simulator, which is the fake Home Assistant) names it."""
+    adapters - battery and, from PR 6-G, the inverter limit register 533 - (and the simulator,
+    which is the fake Home Assistant) name it."""
     assert not any(a.startswith("modbus.") for a in READ_ONLY_ACTIONS)
     users = []
     for path in sorted((ROOT / "suncore").rglob("*.py")):
@@ -532,7 +533,8 @@ def test_write_register_is_a_write_of_the_modbus_adapter_only() -> None:
         if any(isinstance(n, ast.Constant) and n.value == "write_register" for n in ast.walk(tree)):
             users.append(path.relative_to(ROOT).as_posix())
     assert [u for u in users if not u.startswith("suncore/sim/")] == [
-        "suncore/devices/battery/kostal_modbus.py"
+        "suncore/devices/battery/kostal_modbus.py",
+        "suncore/devices/inverter/drivers.py",
     ]
 
 

@@ -90,6 +90,8 @@ from suncore.core.controlstate import (
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
+    InverterModeRequest,
+    InverterNotControllableError,
     ModeRaiseRejectedError,
     OverrideCommand,
     OverrideUntilPastError,
@@ -147,6 +149,7 @@ ERR_MODE_RAISE_REJECTED: Final = "api.error.mode_raise_rejected"
 ERR_TARIFF_NOT_CONFIGURED: Final = "api.error.tariff_not_configured"
 ERR_PLANNING_UNAVAILABLE: Final = "api.error.planning_unavailable"
 ERR_BATTERY_NOT_CONTROLLABLE: Final = "api.error.battery_not_controllable"
+ERR_INVERTER_NOT_CONTROLLABLE: Final = "api.error.inverter_not_controllable"
 BODY_MAX_BYTES: Final = 64 * 1024
 """Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
 SECTION_MAX_BYTES: Final = 256 * 1024
@@ -203,6 +206,7 @@ def _register_http(app: FastAPI, services: Services) -> None:
     _register_sections(app, services)
     _register_history(app, services)
     _register_control(app, services)
+    _register_inverter_mode(app, services)
     _register_forecast(app, services)
     register_decisions(app, services)
 
@@ -601,6 +605,33 @@ def _register_control(app: FastAPI, services: Services) -> None:
             return await services.set_battery_mode(body.mode, body.identity)
         except BatteryNotControllableError as exc:
             raise HTTPException(status_code=404, detail=ERR_BATTERY_NOT_CONTROLLABLE) from exc
+        except DeviceIdentityChangedError as exc:
+            raise HTTPException(status_code=409, detail=ERR_DEVICE_IDENTITY_CHANGED) from exc
+
+
+def _register_inverter_mode(app: FastAPI, services: Services) -> None:
+    """``PUT /api/v1/operation/inverter`` (PR 6-G)."""
+
+    @app.put(
+        f"{API_PREFIX}/operation/inverter",
+        response_model=OperationConfig,
+        responses={
+            404: {"model": ErrorOut, "description": "No inverter limit adapter"},
+            409: {
+                "model": ErrorOut,
+                "description": "The inverter adapter changed since its identity was read",
+            },
+        },
+    )
+    async def set_inverter_mode(body: InverterModeRequest) -> OperationConfig:
+        """Set the inverter limit's mode (PR 6-G, ADR-0018 decision 3). Anything above shadow
+        needs the adapter's ``identity`` token from the control state; shadow never does. An
+        adapter whose limit is not verified (``inverter.limit_verified``) runs at most assisted
+        whatever is stored."""
+        try:
+            return await services.set_inverter_mode(body.mode, body.identity)
+        except InverterNotControllableError as exc:
+            raise HTTPException(status_code=404, detail=ERR_INVERTER_NOT_CONTROLLABLE) from exc
         except DeviceIdentityChangedError as exc:
             raise HTTPException(status_code=409, detail=ERR_DEVICE_IDENTITY_CHANGED) from exc
 

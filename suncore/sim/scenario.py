@@ -220,6 +220,19 @@ class SimBatteryControl(BaseModel):
     fallback_timeout_s: int = Field(default=60, ge=30, le=10_800)
 
 
+class SimInverterControl(BaseModel):
+    """The inverter limit as SunCore controls it in a scenario (PR 6-G; the limiter is
+    ``house.export_limiter``). Mapped onto ``InverterConfig`` by the runner."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mode: OperatingMode = OperatingMode.SHADOW
+    verified: bool = False
+    """``inverter.limit_verified`` (until then at most assisted, X6)."""
+    enforce_static: bool = False
+    heartbeat_s: float = Field(default=60.0, ge=10, le=3600)
+
+
 class SimWindow(BaseModel):
     """A time window ``[from_s, to_s)`` after the scenario start."""
 
@@ -262,6 +275,11 @@ class SimGrid(BaseModel):
     backup: bool = False
     keep_devices: tuple[str, ...] = ()
     outages: tuple[SimWindow, ...] = ()
+    export_limit_w: float | None = Field(default=None, ge=0)
+    """PR 6-G: the static export limit of the site's ``GridConfig``."""
+    zero_export: bool = False
+    export_dynamic: bool = False
+    """0 W at a negative export price (only with a verified inverter adapter)."""
 
     def island_at(self, offset_s: float) -> bool:
         return any(w.covers(offset_s) for w in self.outages)
@@ -292,6 +310,8 @@ class Scenario(BaseModel):
     """WP10: SunCore controls the battery through ``house.inverter`` (``None`` = observe)."""
     grid: SimGrid | None = None
     """PR 6-F: peak shaving, §14a signal and grid outages (``None`` = a plain connection)."""
+    inverter: SimInverterControl | None = None
+    """PR 6-G: SunCore controls the inverter limit through ``house.export_limiter``."""
 
     @model_validator(mode="after")
     def _check(self) -> Scenario:
@@ -321,6 +341,9 @@ class Scenario(BaseModel):
     def _battery(self) -> Scenario:
         if self.battery is not None and self.house.inverter is None:
             msg = "battery control needs house.inverter"
+            raise ValueError(msg)
+        if self.inverter is not None and self.house.export_limiter is None:
+            msg = "inverter control needs house.export_limiter"
             raise ValueError(msg)
         return self
 

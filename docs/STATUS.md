@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-F import side, 6-H planner flex, 6-I EV,
+**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-F import side, 6-G export chain, 6-H planner flex, 6-I EV,
 6-J evcc, 6-K heat pump, 6-L programs, 6-M frontend) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
@@ -129,6 +129,33 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
     safety self-review: plan section 8 (6-K).
   - Review conditions A1-A5 (PR #60): release never lifts a foreign SG lock, the lift is
     capped at assisted until confirmed, H4 checks against the user's baseline set-point.
+- **Phase 6 - PR 6-G, WP7 export chain and inverter limit (branch `phase-6/g-export`, on 6-F;
+  `control-safety`)** - shadow stays the default (`operation.inverter_mode`), every write
+  passes the gate:
+  - `safety/inverter.py`: invariants X1-X6 as pure functions (never above the baseline or the
+    static limit; an AC limit, or a not yet verified export limit, leaves house + battery
+    charging + 500 W; below the current export only with an exhausted chain; heartbeat and
+    read-back; island/stale inputs never write and end the lease; at most assisted until
+    `limit_verified`). `safety/gate.py` is still the only caller of `apply()`/`release()`; the
+    inverter has a lease, a heartbeat for volatile limits, reset detection, release to the
+    user's own value, crash recovery and an orphan release after an adapter change.
+  - `controller/export.py`: the chain surplus -> devices -> battery (SunCore's own charge cap
+    lifted, `controller.export.battery_cap_lifted`) -> inverter limit, with a curtail delay
+    (120 s), no tightening while devices can still rise, loosening at once, pacing and a 3 %
+    AC hysteresis (no oscillation under cloud flicker).
+  - Drivers `generic_number`, `kostal_rest` (`Inverter:ActivePowerLimitation`) and
+    `kostal_modbus` (register 533 via `modbus.write_register`, int, volatile); template kind
+    `inverter` with the role `limit` and three templates; `PUT /operation/inverter` with the
+    adapter's identity; a changed adapter resets `limit_verified` and the inverter mode.
+  - Simulator: inverter limiter (static limit, the three adapters, register resets); scenarios
+    `export_limit_zero_export`, `negative_price_curtail`, `inverter_limit_heartbeat_lost`
+    (reset, lost read-back, crash and restart in the test).
+    Deviations, safety self-review and questions: plan section 8 (6-G).
+  - Review conditions (PR #58): the lease checks every limit that may be in force and the
+    heartbeat re-writes only the confirmed one; takeover only from the register default or an
+    export limit not below the static limit (modbus release = 100 %); `nominal_ac_w`
+    plausibility; no write in an unknown unit. Residual risk: an AC limit (533) stays after a
+    crash or connection loss (no documented timeout) - plan question 6.
 
 - **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
@@ -1323,6 +1350,8 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (`power_update_s` is in the device editor since WP10) |
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
 | §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed; 0 W cannot be a legal dimming value given the 4.2 kW minimum, a positive value is used as min(value, limit)) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018, plan section 8 (6-F) | a grid operator's control box / documentation |
+| Kostal register 533: readable back (Kostal lists only FC 0x06), whether it includes battery discharge, the reset behaviour (volatile per rev 2.9, re-written every heartbeat); `Inverter:ActivePowerLimitation` semantics (export or AC limit), whether the REST value survives an inverter restart, out-of-range handling | `suncore/devices/inverter/drivers.py`, `templates/inverter/`, `research/kostal-plenticore-modbus.md` | maintainer's inverter: the verification test before `limit_verified` |
+| Export chain tuning (curtail delay 120 s, AC hysteresis 3 %, lease at half the 500 W margin, device headroom >= 100 W) and the simulator's 0-8 W regulation jitter below an AC limit (keeps the watchdog's frozen-PV check quiet) | `suncore/controller/export.py`, `suncore/safety/inverter.py`, `suncore/sim/limiter.py` | shadow run on the maintainer's system with surplus |
 | Backup-switch island state names (simulator: `island`/`on_grid`; Kostal BackUp Switch G3 entity and states unknown) | `suncore/core/grid.py` `BackupConfig`, `suncore/sim/fake_ha.py` | maintainer maps the entity (question 10) |
 | Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
 | SG-Ready contact mapping per vendor; charger phase-switch pause | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-K) |

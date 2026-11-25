@@ -1566,3 +1566,106 @@ A1, B1, B2 and C1-C3 are confirmed fixed; A2 is partly fixed. Two new items, bot
    ohne Modell (nur Energie). Reicht das vorerst?
 6. **Sollwert-Anhebung bei unbekannter Temperatur:** kein Fail-safe, weil der Sollwert selbst
    begrenzt (Komfortband, Entitätsbereich). Einverstanden?
+### 6-G (export chain, inverter limit)
+
+- **Separate template kind `inverter`** (not roles on the battery template): one role `limit`,
+  drivers `generic_number`, `kostal_rest`, `kostal_modbus`; the modbus template needs a modbus
+  sensor that reads register 533 back - without a readable sensor the adapter is not built
+  (SunCore never writes what it cannot read back).
+- **`enforce_static`** (default `false`): the 13.5 kW static limit stays in the inverter (plan
+  §6 question 6); SunCore writes a limit only below it (dynamic or zero export). `true` lets
+  SunCore enforce it too.
+- **X2 also for unverified export limits:** until the verification test the REST number is
+  judged like an AC limit in W (its semantics are `UNVERIFIED`), so a wrong guess can never
+  cause import.
+- **Lease at half the margin:** a held limit ends (X2 lease) only below house + charging +
+  250 W; a new write needs the full 500 W. Otherwise house-load noise would make the lease and
+  the controller fight.
+- **X3 headroom:** devices that are rising (pending up, or in flight to a higher level, >= 100 W
+  each) plus SunCore's own battery charge cap while the battery charges at it; above 1 W of
+  headroom no limit below the current export is written.
+- **`operation.inverter_mode`** (own mode, default shadow, raised only with the adapter's
+  identity, `PUT /operation/inverter`); X6 caps it at assisted until `limit_verified`. A
+  changed adapter identity, an import and a restore of the operation section drop it to shadow.
+- **Connection loss or a crash keeps the limit** (corrected after review A3): while HA is
+  unreachable nothing can be written; the heartbeat stops and a volatile limit falls back only
+  on the next inverter reset. For an **export limit** this is the safe side (it only lowers
+  export). For an **AC limit** (register 533) it is **not**: 533 has no documented timeout, so
+  a held limit stays while the house load may rise above it, and the difference is imported.
+  Residual risk, see the self-review and open question 6; `connection_restored` and the next
+  start release. A floor from the maximum load of the last 15 minutes (review A3, optional)
+  was not built: the controller would have to mirror it, otherwise the gate rejects the
+  controller's limits in a loop; it is a follow-up together with the answer to question 6.
+- **Frozen-PV interaction:** a curtailed PV value that is exactly constant for 900 s at
+  >= 200 W trips the watchdog (inverter hang). A real inverter regulates around its limit; the
+  simulator adds 0-8 W jitter. Open question 3.
+- **Simulator export price** = the spot price of the scenario's profile (no separate feed-in
+  tariff in the simulator).
+- **Verification test** (described here; the user guide follows with the cards in 6-M): with
+  a known house load set a limit
+  below the current export, check that export (or AC output) follows within `settle_s`, then
+  release and check the user's own value is back; only then set `limit_verified`. For an AC
+  limit the test also checks the percent base: the AC output at the limit must match
+  `pct * nominal_ac_w` (the gate refuses a `nominal_ac_w` outside 0.3-2.0 kW per installed kWp,
+  `safety.inverter_nominal_implausible`).
+- **Review conditions (control-safety, PR #58):**
+  - A1 (done): the lease checks every limit that may be in force (the confirmed one, an
+    unconfirmed attempt that may land late, SunCore's own earlier value the inverter shows);
+    `keep_alive(limit)` gets the confirmed, lease-checked limit from the gate (no longer the
+    driver's last attempt); no heartbeat while a write is open; after its settle time an open
+    write is either confirmed late or dropped.
+  - A2 (done): takeover only from a baseline a release can restore - a volatile register only
+    at its default (`safety.inverter_baseline_not_default`), an export limit never below the
+    static limit (`safety.inverter_baseline_below_static`); the modbus release always writes
+    `default_pct` (100 %).
+  - A3 (done): text corrected (above), residual risk in the self-review, question 6.
+  - A4 (done): `nominal_ac_w` plausibility against the installed kWp (`check_nominal`).
+  - A5 (done): the number driver keeps the unit of its last good read and refuses to write in
+    an unknown unit (also on release).
+
+#### Safety self-review 6-G (control-safety)
+
+| Invariant | Ergebnis | Nachweis |
+|---|---|---|
+| X1 nie über Baseline oder statischer Grenze | bestanden | `check_bounds`; `test_x1_a_written_limit_is_never_looser_than_baseline_or_static`, `test_x1_never_above_the_baseline_or_the_static_limit`; Szenario: 13,5 kW nie geschrieben |
+| X2 kein Netzbezug durch das Limit (AC- und unverifiziertes Export-Limit >= Haus + Ladung + 500 W, Lease >= halbe Marge) | bestanden | `check_no_import`, `_lease_no_import`; `test_x2_an_ac_or_unverified_limit_never_cuts_below_house_and_charging`, `test_x2_a_held_ac_limit_keeps_at_least_half_the_margin`; alle drei Szenarien: kein Bezug während Abregelung (`assert_no_import_while_curtailing`) |
+| X3 Abregeln erst nach Geräten und Batterie | bestanden | `check_chain`, `absorb_headroom_w`; `test_x3_curtailing_below_the_export_needs_an_exhausted_chain`; `test_zero_export_curtails_only_after_devices_and_battery` (Pool an, Batterie auf Maximum, dann 0 W) |
+| X4 Schreiben nur bei Änderung, Rate-Limit, Read-back, Heartbeat | bestanden | Gate-Pfad; `test_inverter_gate.py` (Heartbeat, Reset, unbestätigter Release mit Back-off); Szenario: Lücken <= 70 s, Reset nach < 30 s neu geschrieben |
+| X5 veraltete/fehlende Eingaben, Insel: kein Schreiben, Lease endet, Default zurück | bestanden | `check_inputs`, `lease_violations`; `test_x5_*`, `test_the_lease_ends_whenever_inputs_or_bounds_fail`; Szenario: Read-back weg -> nur 100 % geschrieben |
+| X6 höchstens assistiert bis `limit_verified`; Adapterwechsel setzt zurück | bestanden | `modes_of`, `inverter_mode_capped`; `test_an_unverified_adapter_is_capped_at_assisted`, `test_a_new_inverter_adapter_is_unverified_and_back_in_shadow`; dynamisches 0-W-Limit ohne Verifikation nie geschrieben |
+| Shadow / assistiert / automatisch | bestanden | Default shadow; `test_zero_export_in_shadow_never_writes` (nur `shadow`-Entscheidungen, keine Schreibvorgänge) |
+| Keine Oszillation | bestanden | `test_export.py` Flicker-Zählung (<= 1 Schreibvorgang), Hypothesis-Schranke Schreibvorgänge/h; Szenarien mit Wolkenflackern: <= 2 Limit-Schreibvorgänge |
+| Fail-safe: Shutdown, Crash, Verbindungsverlust, Update | bestanden mit Restrisiko | Gate-Tests Shutdown/Not-Aus/Crash-Recovery/Verbindung wieder da; Szenario: Crash stoppt Heartbeat, Neustart schreibt 100 %. Restrisiko: Bei Crash oder Verbindungsverlust bleibt ein AC-Limit (533) ohne dokumentierten Timeout stehen; steigt die Hauslast darüber, wird die Differenz bezogen (Frage 6) |
+| Lease prüft jedes wirksame Limit (Review A1) | bestanden | `_inverter_in_force`; `test_a1_a_pending_stricter_limit_ends_the_lease_when_the_house_load_rises`, `test_a1_no_heartbeat_while_a_write_is_open_and_only_the_confirmed_limit`, `test_a1_a_late_landing_stricter_limit_is_judged_and_then_held` |
+| Übernahme nur von wiederherstellbarer Baseline (Review A2) | bestanden | `check_takeover_baseline`; `test_a2_*` (Gate und Property) |
+| Not-Aus "zurück auf normal" aus jedem Zustand | bestanden | `ReleaseAction` nie durch X1-X6 geprüft; `test_inverter_gate.py` Emergency-Stop |
+| Batterie-Reserve, Komfortgrenzen, Min-Lauf/Pause | bestanden | unverändert; Kappen-Aufhebung betrifft nur SunCores eigene Ladegrenze |
+| Nur `safety/` ruft `apply()` | bestanden | `tests/safety/test_boundary.py` inkl. `suncore.devices.inverter` |
+
+Zusammenfassung: Alle Invarianten X1-X6 und die BRIEF-§5-Punkte sind mit Property-, Gate- und
+Szenario-Tests belegt. Nicht auf echter Hardware geprüft: Register 533 und die REST-Zahl laufen
+nur im Simulator; bis zum Verifikationstest bleibt der Wechselrichter höchstens assistiert.
+Restrisiko: Ein gehaltenes AC-Limit über Register 533 übersteht einen Crash oder
+Verbindungsverlust ohne Rückfall; bis Frage 6 geklärt ist, ist das Export-Limit der sicherere
+Adapter.
+
+#### Offene Fragen an den Maintainer (6-G)
+
+1. **Verifikationstest:** Darf ich die Schritte (Limit unter den aktuellen Export setzen,
+   Export folgt, Freigabe stellt deinen Wert wieder her) auf deinem Plenticore im Assistiert-
+   Modus mit dir durchgehen, bevor `limit_verified` gesetzt wird?
+2. **Register 533 lesbar?** Kostal nennt nur FC 0x06. Ohne lesbaren Modbus-Sensor baut SunCore
+   den Modbus-Adapter nicht. Kannst du einen Sensor auf 533 anlegen und prüfen, ob er den
+   geschriebenen Wert zeigt?
+3. **Eingefrorene PV:** Hält dein Wechselrichter die abgeregelte PV-Leistung exakt konstant?
+   Dann löst die Watchdog-Prüfung „PV eingefroren“ (900 s, >= 200 W) aus. **Empfehlung:** erst
+   im Shadow-Lauf beobachten, ggf. die Prüfung während eines gehaltenen Limits aussetzen.
+4. **`Inverter:ActivePowerLimitation`:** Begrenzt der Wert die Einspeisung oder die AC-Leistung,
+   und bleibt er nach einem Neustart des Wechselrichters erhalten?
+5. **Statische Grenze:** Die 13,5 kW bleiben im Wechselrichter (`enforce_static` aus).
+   **Empfehlung:** so lassen. Einverstanden?
+6. **Rückfall von Register 533:** Kostal dokumentiert für 533 keinen Timeout. Fällt SunCore
+   aus, bleibt ein AC-Limit stehen, bis der Wechselrichter neu startet; steigt die Hauslast
+   darüber, wird Netzstrom bezogen. Gibt es in deinem Wechselrichter einen Fallback (z. B. eine
+   Kommunikations-Timeout-Einstellung)? **Empfehlung:** bis dahin das Export-Limit
+   (REST-Zahl) statt 533 verwenden.

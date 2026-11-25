@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from suncore.app.control import BatteryWiring, PlanProvider
+from suncore.app.control import BatteryWiring, InverterWiring, PlanProvider
 from suncore.app.programs import ProgramJobBook
 from suncore.core.battery import (
     BATTERY_ASSET_ID,
@@ -46,7 +46,7 @@ from suncore.core.battery import (
     ModbusLink,
     effective_reserve_pct,
 )
-from suncore.core.config import GoalsConfig
+from suncore.core.config import GoalsConfig, InverterConfig, InverterModbusLink
 from suncore.core.control import ControlSettings
 from suncore.core.decisions import (
     Action,
@@ -61,7 +61,8 @@ from suncore.core.decisions import (
 from suncore.core.devices import DeviceConfig, step_power_w
 from suncore.core.flex import EvState
 from suncore.core.identity import battery_identity_token
-from suncore.core.site import SiteConfig
+from suncore.core.inverter import INVERTER_ASSET_ID
+from suncore.core.site import EntityRef, SiteConfig
 from suncore.ha.connection import RateLimiter
 from suncore.safety.modes import StaticModes
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
@@ -76,9 +77,10 @@ from suncore.sim.fake_ha import (
     demo_site_config,
 )
 from suncore.sim.inverter import MODBUS_HUB, MODBUS_SLAVE, SimInverter
+from suncore.sim.limiter import SimExportLimiter
 from suncore.sim.scenario import Scenario, SimDeviceSpec
 from suncore.sim.stack import ControlStack
-from suncore.templates import BatteryTemplate, DeviceTemplate, TemplateCatalog
+from suncore.templates import BatteryTemplate, DeviceTemplate, InverterTemplate, TemplateCatalog
 
 SETTLE_ROUNDS: Final = 6
 """Event-loop rounds that let woken tasks run until they block again."""
@@ -244,6 +246,8 @@ class StepLog:
     """The battery's true SoC (BMS drift; ``None`` without the inverter model)."""
     island: bool = False
     unserved_w: float = 0.0
+    curtailed_w: float = 0.0
+    """PV the inverter's limit curtailed (PR 6-G)."""
 
 
 @dataclass(slots=True)
@@ -401,12 +405,17 @@ class ScenarioRunner:
         configs: Sequence[DeviceConfig] | None = None,
         plan_provider: PlanProvider | None = None,
         import_price: Callable[[datetime], float | None] | None = None,
+        export_price: Callable[[datetime], float | None] | None = None,
     ) -> None:
         self.scenario = scenario
         self.catalog = catalog
         self.plan_provider = plan_provider
         profile = scenario.prices.profile
         self.import_price: Callable[[datetime], float | None] = import_price or (
+            lambda now: sim_price(now, profile)
+        )
+        # The sim's export price is the spot price (direct marketing: negative when it is).
+        self.export_price: Callable[[datetime], float | None] = export_price or (
             lambda now: sim_price(now, profile)
         )
         self.vt = VirtualTime(scenario.start)
@@ -440,7 +449,12 @@ class ScenarioRunner:
         battery_mode = (
             scenario.battery.mode if scenario.battery is not None else OperatingMode.SHADOW
         )
-        self.modes = StaticModes(global_mode, device_mode_map, battery=battery_mode)
+        inverter_mode = (
+            scenario.inverter.mode if scenario.inverter is not None else OperatingMode.SHADOW
+        )
+        self.modes = StaticModes(
+            global_mode, device_mode_map, battery=battery_mode, inverter=inverter_mode
+        )
         self.decisions: list[Decision] = []
         self.stack: ControlStack | None = None
         self.configs: dict[str, DeviceConfig] = {}
@@ -504,6 +518,7 @@ class ScenarioRunner:
             programs=self.programs,
             on_program_event=self.program_events.append,
             evcc=self.evcc if self.loadpoints() else None,
+            inverter=self.inverter_wiring(),
         )
 
     def site_config(self) -> SiteConfig:
@@ -525,6 +540,10 @@ class ScenarioRunner:
                 para14a_signal_kind=grid.para14a_signal_kind,
                 para14a_limit_w=grid.para14a_limit_w,
             )
+        if grid.export_limit_w is not None:
+            body["export_limit_w"] = grid.export_limit_w
+        body["zero_export"] = grid.zero_export
+        body["export_dynamic"] = grid.export_dynamic
         if grid.backup:
             body["backup"] = {
                 "entity_id": BACKUP_ID,
@@ -596,6 +615,55 @@ class ScenarioRunner:
             import_price=self.import_price,
         )
 
+    @property
+    def export_limiter(self) -> SimExportLimiter | None:
+        house = self.conn._house
+        return None if house is None else house.limiter
+
+    def inverter_config(self) -> InverterConfig | None:
+        """What the wizard would store for the scenario's inverter limit (``None`` = none)."""
+        control, params = self.scenario.inverter, self.scenario.house.export_limiter
+        if control is None or params is None:
+            return None
+        limiter = self.export_limiter
+        assert limiter is not None
+        return InverterConfig(
+            adapter=params.adapter,
+            capability=limiter.capability,
+            limit_entity=EntityRef(entity_id=limiter.limit_entity),
+            nominal_ac_w=params.nominal_ac_w,
+            limit_verified=control.verified,
+            enforce_static=control.enforce_static,
+            modbus=InverterModbusLink(
+                hub=MODBUS_HUB, slave=MODBUS_SLAVE, heartbeat_s=control.heartbeat_s
+            )
+            if params.adapter == "kostal_modbus"
+            else None,
+        )
+
+    def inverter_wiring(self) -> InverterWiring | None:
+        config = self.inverter_config()
+        if config is None:
+            return None
+        template_id = {
+            "generic_number": "generic.inverter_limit",
+            "kostal_rest": "kostal.plenticore_power_limit",
+            "kostal_modbus": "kostal.plenticore_g3_modbus_limit",
+        }[config.adapter]
+        template = self.catalog.get(template_id)
+        assert isinstance(template, InverterTemplate)
+        identity = config.identity_token()
+        assert identity is not None
+        return InverterWiring(
+            config=config,
+            spec=template.adapter_spec(),
+            identity=identity,
+            export_price=self.export_price,
+        )
+
+    def inverter_decisions(self) -> list[Decision]:
+        return [d for d in self.decisions if d.intent.asset_id == INVERTER_ASSET_ID]
+
     def battery_decisions(self) -> list[Decision]:
         return [d for d in self.decisions if d.intent.asset_id == BATTERY_ASSET_ID]
 
@@ -663,6 +731,7 @@ class ScenarioRunner:
                 house.true_soc_pct,
                 house.island,
                 house.unserved_w,
+                house.curtailed_w,
             )
         )
         for device_id, device in self.sim_devices.items():

@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+name: inverter_limit_heartbeat_lost
+description: Zero export through the Kostal register 533 (AC output limit in %, volatile) written with modbus.write_register and re-written every 60 s. At 11:30 the inverter restarts and 533 is back at 100 % (re-written at once); from 11:50 to 11:55 the modbus sensor of 533 is unavailable (the read-back is lost - SunCore gives the inverter its 100 % back). The test crashes the stack at 12:20 (the heartbeat stops) and restarts it at 12:30, which must restore 100 %.
+start: "2026-06-21T11:00:00+02:00"
+duration_s: 7200
+step_s: 10
+house:
+  seed: 3
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 0}
+  export_limiter:
+    adapter: kostal_modbus
+    nominal_ac_w: 10000
+    hardware_export_limit_w: 13500
+    resets_at_s: [1800]
+outdoor: {mean_c: 25.0, amplitude_c: 5.0}
+faults:
+  - {kind: unavailable, target: sensor.sim_modbus_533, from_s: 3000, to_s: 3300}
+grid:
+  export_limit_w: 13500
+  zero_export: true
+inverter:
+  mode: automatic
+  verified: true
+  heartbeat_s: 60

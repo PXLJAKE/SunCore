@@ -36,5 +36,8 @@ class ConfigModes:
     def battery_mode(self) -> OperatingMode:
         return self._operation.battery_mode
 
+    def inverter_mode(self) -> OperatingMode:
+        return self._operation.inverter_mode
+
 
 __all__ = ["ConfigModes"]

@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+name: negative_price_curtail
+description: A sunny summer weekend; the export (spot) price is negative from about 11:30 to 14:30. With the dynamic export limit and a verified Kostal REST adapter SunCore limits the "Active Power Limitation" number to 0 W while the price is negative (after the battery charges at its maximum) and gives the user's 13.5 kW back when the price turns positive. Two cloud-flicker episodes must not make the limit oscillate.
+start: "2026-06-21T10:00:00+02:00"
+duration_s: 21600
+step_s: 10
+house:
+  seed: 9
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 10000, max_charge_w: 2500, max_discharge_w: 3000, initial_soc_pct: 40}
+  export_limiter:
+    adapter: kostal_rest
+    hardware_export_limit_w: 13500
+    initial_export_limit_w: 13500
+    rest_refresh_s: 5
+outdoor: {mean_c: 27.0, amplitude_c: 6.0}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 7200, factor: 0.25}
+  - {at_s: 7220, factor: 0.9}
+  - {at_s: 7250, factor: 0.25}
+  - {at_s: 7270, factor: 0.9}
+  - {at_s: 7300, factor: 0.25}
+  - {at_s: 7340, factor: 0.9}
+  - {at_s: 7360, factor: 0.25}
+  - {at_s: 7380, factor: 0.9}
+  - {at_s: 7420, factor: 0.25}
+  - {at_s: 7440, factor: 1.0}
+  - {at_s: 10800, factor: 0.25}
+  - {at_s: 10830, factor: 0.9}
+  - {at_s: 10850, factor: 0.25}
+  - {at_s: 10880, factor: 0.9}
+  - {at_s: 10900, factor: 0.25}
+  - {at_s: 10930, factor: 1.0}
+prices:
+  profile: negative_midday
+grid:
+  export_limit_w: 13500
+  export_dynamic: true
+inverter:
+  mode: automatic
+  verified: true
