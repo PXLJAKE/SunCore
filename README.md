@@ -5,33 +5,36 @@
 [![Translation status](https://hosted.weblate.org/widget/suncore/svg-badge.svg)](https://hosted.weblate.org/engage/suncore/)
 -->
 
+[![CI](https://github.com/pxljake/suncore/actions/workflows/ci.yml/badge.svg)](https://github.com/pxljake/suncore/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/pxljake/suncore/actions/workflows/codeql.yml/badge.svg)](https://github.com/pxljake/suncore/actions/workflows/codeql.yml)
+[![Docs](https://github.com/pxljake/suncore/actions/workflows/docs-lint.yml/badge.svg)](https://github.com/pxljake/suncore/actions/workflows/docs-lint.yml)
+[![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
+[![Add the repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fpxljake%2Fsuncore)
+
 **Energy management for Home Assistant: forecasts, a cost-optimising
 planner and a real-time surplus controller in one app – explainable, safe
 by default, set up in minutes.**
 
-> Status: **pre-alpha, Phase 4 implemented** (waiting for the maintainer's shadow-mode
-> tests on real hardware: first Phase 3, then Phase 4). The beta app has a guided **setup
-> assistant**, a device template gallery (LG ThinQ air conditioner, generic switch, climate and
-> adjustable load, water heaters, Tibber, Nord Pool, ENTSO-E, EPEX Spot, Octopus Energy, Solcast,
-> Forecast.Solar, Open-Meteo Solar Forecast, battery adapters), the live energy-flow view, a
-> **real-time surplus controller** and, new in Phase 4, **forecasts, tariffs, a 48 hour planner
-> and battery control**: a plan with a reason for every interval, a risk level and buffers, and
-> limits on your home battery (generic Home Assistant entities, Kostal Plenticore), all behind a
-> safety layer. Phase 5 (built, awaiting review) adds **history and analysis** (day to year,
-> autarky, savings against two baselines, Sankey, heatmap, forecast skill, CSV and PNG
-> export), a **decision log with "Why?"**, a **plan chart** that sets the plan against
-> measured values, an **expert mode** with
-> a generated parameter reference, and **what-if backtests** of the real planner on past days
-> (an estimate, see its limits). Everything starts in **shadow mode** and switches or writes
-> nothing until you set a device or the battery to automatic or assisted; neither the
-> controller nor the planner and battery control have run against real hardware yet. See
-> [Planning and battery control](docs/user/en/planning-and-battery.md),
-> [Surplus control](docs/user/en/surplus-control.md), the [roadmap](docs/roadmap.md) and
-> [status](docs/STATUS.md).
+> Status: **release candidate for 1.0 in preparation.** Everything starts in **shadow mode**
+> and switches or writes nothing until you set a device or the battery to assisted or
+> automatic. Parts of the controller, the planner and the battery control have not run against
+> real hardware yet; the open points are listed in [status](docs/STATUS.md) under `UNVERIFIED`
+> and in the [roadmap](docs/roadmap.md).
 
 ![SunCore "Now" view: live energy flow between solar, grid, battery and house](docs/user/assets/screenshots/now-tablet-light-en.png)
 
 *Screenshot from the built-in demo mode (simulated data).*
+
+## Features
+
+- Guided setup with entity auto-detection and live sign and unit checks.
+- Live energy-flow view and a real-time surplus controller for air conditioners, heat pumps,
+  water heaters, wallboxes (EV) and switchable loads.
+- Forecasts for PV, load and prices; a 24–48 h planner with a reason for every interval;
+  battery control within your limits.
+- Decision log with "Why?", history and analysis, what-if backtests, expert mode.
+- Safety layer on every device write; shadow, assisted and automatic per device.
+- YAML templates for devices, tariffs, forecasts and regions; English and German.
 
 SunCore runs as a Home Assistant app (formerly add-on) on Home Assistant
 OS. It reads your PV, battery, grid and consumer entities, forecasts
@@ -103,15 +106,18 @@ young: see the roadmap.
 
 ## Installing
 
-Once the first beta is released, add `https://github.com/pxljake/suncore`
-as an app repository in Home Assistant (Settings → Apps → App store →
-menu → Repositories) and install **SunCore (beta)**. The beta guides you through
-the setup, shows the live energy flow, runs the surplus controller, the planner and
-the battery control in shadow mode and lets you take them to assisted and automatic
-one step at a time.
-Start with the [quick start](docs/user/en/quick-start.md)
-([Deutsch](docs/user/de/quick-start.md)). Menu names differ between Home
-Assistant versions (older ones say "Add-ons" and "Add-on store").
+Requires Home Assistant OS or Supervised (apps are not available in Home Assistant Container).
+
+1. In Home Assistant open Settings → Apps → App store → menu (top right) → Repositories and add
+   `https://github.com/pxljake/suncore` (or use the badge above).
+2. Install **SunCore** (stable) or **SunCore (beta)** and start it; open it from the sidebar.
+3. Follow the setup assistant. Leave every device in shadow mode first and compare the
+   decision log with what you would have done.
+
+Details: [quick start](docs/user/en/quick-start.md) ([Deutsch](docs/user/de/quick-start.md)).
+Menu names differ between Home Assistant versions (older ones say "Add-ons" and "Add-on store").
+The documentation site is planned at <https://pxljake.github.io/SunCore/> (published with the
+first stable release; `UNVERIFIED` until then).
 
 ## Licence
 
