@@ -5,7 +5,9 @@
 Die vollständige Liste der Änderungen je Version ist das
 [Changelog](https://github.com/pxljake/suncore/blob/main/CHANGELOG.md) (englisch). Es wird bei
 einem Release aus den Commit-Nachrichten erzeugt. Die
-[Release-Seite](https://github.com/pxljake/suncore/releases) hat die Hinweise jedes Releases.
+[Release-Seite](https://github.com/pxljake/suncore/releases) hat die Hinweise jedes Releases und
+bei stabilen Releases diese Dokumentation als ZIP (`suncore-docs-<Version>.zip`) für ältere
+Versionen.
 
 SunCore ist **Pre-Alpha**. Die neueste getaggte Version ist 0.2.0. Solange es kein stabiles
 Release gibt, lässt dich der Schnellstart die Beta-App (**SunCore (beta)**) installieren. Die

@@ -116,8 +116,9 @@ Requires Home Assistant OS or Supervised (apps are not available in Home Assista
 
 Details: [quick start](docs/user/en/quick-start.md) ([Deutsch](docs/user/de/quick-start.md)).
 Menu names differ between Home Assistant versions (older ones say "Add-ons" and "Add-on store").
-The documentation site is planned at <https://pxljake.github.io/SunCore/> (published with the
-first stable release; `UNVERIFIED` until then).
+The documentation site is built on every stable release (attached as `suncore-docs-<version>.zip`
+and, once set up, published on the maintainer's own server); until then read it under
+[`docs/user/`](docs/user/en/index.md).
 
 ## Licence
 
