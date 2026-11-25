@@ -159,6 +159,8 @@ BODY_LIMITS: Final = [
     ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/config/[^/]+"), SECTION_MAX_BYTES),
     ("POST", re.compile(rf"{re.escape(API_PREFIX)}/wizard/check"), BODY_MAX_BYTES),
     ("POST", re.compile(rf"{re.escape(API_PREFIX)}/preview"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/ev"), BODY_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/program/arm"), BODY_MAX_BYTES),
 ]
 SNAPSHOT_DECISIONS: Final = 20
 

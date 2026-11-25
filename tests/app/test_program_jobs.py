@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -144,3 +145,79 @@ async def test_l2_the_notified_flag_is_kept_by_the_book_and_the_store(
     current = again.current("washer")
     assert current is not None
     assert current.notified_at == NOW
+
+
+class SlowStore:
+    """A store whose writes take a moment (the window of the races)."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.jobs: dict[str, ProgramJob] = {}
+        self.fail = fail
+
+    async def put_job(self, job: ProgramJob) -> None:
+        await asyncio.sleep(0.01)
+        if self.fail:
+            raise OSError("disk full")
+        self.jobs[job.id] = job
+
+
+async def test_concurrent_arms_make_one_job_not_two() -> None:
+    book = ProgramJobBook(SlowStore())  # type: ignore[arg-type]
+    results = await asyncio.gather(
+        book.arm(PLUG, DEADLINE, now=NOW),
+        book.arm(PLUG, DEADLINE, now=NOW + timedelta(seconds=1)),
+        book.arm(PLUG, DEADLINE, now=NOW),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(r, ProgramJob) for r in results) == 1
+    errors = [r for r in results if isinstance(r, ProgramJobError)]
+    assert [e.key for e in errors] == ["api.error.program_job_open"] * 2
+    assert len(book.jobs_of("washer")) == 1
+
+
+async def test_cancel_cannot_overwrite_a_job_the_controller_started() -> None:
+    store = SlowStore()
+    book = ProgramJobBook(store)  # type: ignore[arg-type]
+    job = await book.arm(PLUG, DEADLINE, now=NOW)
+    cancel = asyncio.create_task(book.cancel("washer", now=NOW + timedelta(minutes=1)))
+    await asyncio.sleep(0)  # cancel has applied its state and waits for the store
+    running = transition(job, JobState.RUNNING, NOW + timedelta(minutes=1))
+    assert book.update_jobs([running]) is False  # a cancelled job is final: the update is dropped
+    cancelled = await cancel
+    assert cancelled.state is JobState.CANCELLED
+    assert book._jobs[job.id].state is JobState.CANCELLED
+
+
+async def test_cancel_of_a_job_that_is_already_running_is_refused() -> None:
+    book = ProgramJobBook(SlowStore())  # type: ignore[arg-type]
+    job = await book.arm(PLUG, DEADLINE, now=NOW)
+    book.update_jobs([transition(job, JobState.RUNNING, NOW + timedelta(minutes=1))])
+    with pytest.raises(ProgramJobError) as err:
+        await book.cancel("washer", now=NOW + timedelta(minutes=2))
+    assert err.value.key == "api.error.program_job_running"
+    assert book.current("washer") is not None
+    assert book.current("washer").state is JobState.RUNNING  # type: ignore[union-attr]
+
+
+async def test_a_failing_store_gives_a_key_and_leaves_no_trace() -> None:
+    book = ProgramJobBook(SlowStore(fail=True))  # type: ignore[arg-type]
+    with pytest.raises(ProgramJobError) as err:
+        await book.arm(PLUG, DEADLINE, now=NOW)
+    assert err.value.key == "api.error.flex_store_failed"
+    assert book.jobs_of("washer") == ()
+    good = SlowStore()
+    book = ProgramJobBook(good)  # type: ignore[arg-type]
+    await book.arm(PLUG, DEADLINE, now=NOW)
+    good.fail = True
+    with pytest.raises(ProgramJobError) as cerr:
+        await book.cancel("washer", now=NOW + timedelta(minutes=1))
+    assert cerr.value.key == "api.error.flex_store_failed"
+    assert book.current("washer") is not None  # restored: still armed
+
+
+async def test_a_deadline_beyond_seven_days_is_refused() -> None:
+    book = ProgramJobBook()
+    with pytest.raises(ProgramJobError) as err:
+        await book.arm(PLUG, NOW + timedelta(days=7, seconds=1), now=NOW)
+    assert err.value.key == "api.error.program_deadline_far"
+    await book.arm(PLUG, NOW + timedelta(days=7), now=NOW)

@@ -18,6 +18,8 @@ from pydantic import BaseModel
 
 from suncore import __version__
 from suncore.api.flex_types import (
+    EvTargetError,
+    FlexStoreError,
     GridEventRow,
     GridEvents,
     GridStatus,
@@ -97,7 +99,7 @@ from suncore.core.controlstate import (
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import ChargerControl, DeviceConfig, LoadpointControl
-from suncore.core.flex import EvMode, EvState, EvTarget, ProgramJob
+from suncore.core.flex import MAX_HORIZON, EvMode, EvState, EvTarget, ProgramJob
 from suncore.core.grid import GridState, Para14aStatus, month_key, peak_limit_w
 from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.identity import battery_identity_token, identity_token
@@ -1857,6 +1859,12 @@ class Runtime:
         device = self._device_config(device_id)
         if not isinstance(device.control, ChargerControl | LoadpointControl):
             raise NotAnEvError(device_id)
+        now = self.clock()
+        if mode is EvMode.TARGET and target is not None:
+            if target.by <= now:
+                raise EvTargetError("api.error.ev_target_past")
+            if target.by > now + MAX_HORIZON:
+                raise EvTargetError("api.error.ev_target_far")
         state = EvState(
             device_id=device_id,
             mode=mode,
@@ -1864,7 +1872,11 @@ class Runtime:
             updated_at=self.clock(),
         )
         if self.flex_store is not None:
-            await self.flex_store.put_ev(state)
+            try:
+                await self.flex_store.put_ev(state)
+            except Exception as exc:
+                log.exception("runtime.ev_persist_failed", device_id=device_id)
+                raise FlexStoreError(device_id) from exc
         self._ev_states[device_id] = state
         self._planning_event("manual")
         self._notify_control()
@@ -1892,9 +1904,12 @@ class Runtime:
         shaving = None if self.site is None else self.site.grid.peak_shaving
         state = None if monitor is None else monitor.grid_state
         para = None if monitor is None else monitor.para14a_status
+        # Not configured: nothing to show. Configured but no reading yet: unknown.
+        configured = self.site is not None and self.site.grid.para14a
+        para14a = "not_configured" if not configured else (para or Para14aStatus.UNKNOWN).value
         return GridStatus(
             state=(state or GridState.UNKNOWN).value,
-            para14a=(para or Para14aStatus.INACTIVE).value,
+            para14a=para14a,
             month=month_key(now, tz),
             month_peak_w=peak,
             peak_limit_w=None if shaving is None else peak_limit_w(shaving, peak),

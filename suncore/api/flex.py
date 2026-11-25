@@ -14,10 +14,11 @@ from typing import TYPE_CHECKING, Any, Final
 from fastapi import FastAPI, HTTPException
 from pydantic import AwareDatetime, BaseModel, ConfigDict, model_validator
 
-from suncore.api.flex_types import NotAnEvError
+from suncore.api.flex_types import EvTargetError, FlexStoreError, NotAnEvError
 from suncore.api.models import ErrorOut
 from suncore.core.controlstate import UnknownDeviceError
 from suncore.core.flex import EvMode, EvState, EvTarget, ProgramJob, ProgramJobError
+from suncore.core.validation import invalid
 
 if TYPE_CHECKING:
     from suncore.api.services import Services
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 API_PREFIX: Final = "/api/v1"
 ERR_UNKNOWN_DEVICE: Final = "api.error.unknown_device"
 ERR_NOT_AN_EV: Final = "api.error.ev_not_an_ev"
+ERR_STORE_FAILED: Final = "api.error.flex_store_failed"
 
 
 class _Model(BaseModel):
@@ -46,8 +48,7 @@ class EvStateRequest(_Model):
     @model_validator(mode="after")
     def _target_for_target_mode(self) -> EvStateRequest:
         if self.mode is EvMode.TARGET and self.target is None:
-            msg = "mode `target` needs a target"
-            raise ValueError(msg)
+            raise invalid("ev_mode_target_missing", "mode `target` needs a target")
         return self
 
 
@@ -87,11 +88,14 @@ _UNKNOWN: Final[dict[int | str, dict[str, Any]]] = {
 _PROGRAM_ERRORS: Final[dict[int | str, dict[str, Any]]] = {
     404: {"model": ErrorOut, "description": "Unknown device"},
     409: {"model": ErrorOut, "description": "A job is open already, none is open or it runs"},
-    422: {"model": ErrorOut, "description": "Not a program or the deadline is in the past"},
+    422: {"model": ErrorOut, "description": "Not a program or the deadline is out of range"},
+    503: {"model": ErrorOut, "description": "The job could not be stored"},
 }
 _PROGRAM_STATUS: Final = {
     "api.error.program_not_a_program": 422,
     "api.error.program_deadline_past": 422,
+    "api.error.program_deadline_far": 422,
+    ERR_STORE_FAILED: 503,
     "api.error.program_job_open": 409,
     "api.error.program_no_job": 409,
     "api.error.program_job_running": 409,
@@ -118,7 +122,14 @@ def register_flex(app: FastAPI, services: Services) -> None:
     @app.put(
         f"{API_PREFIX}/devices/{{device_id}}/ev",
         response_model=EvState,
-        responses={**_UNKNOWN, 422: {"model": ErrorOut, "description": "Not an EV charger"}},
+        responses={
+            **_UNKNOWN,
+            422: {
+                "model": ErrorOut,
+                "description": "Not an EV charger or the target time is out of range",
+            },
+            503: {"model": ErrorOut, "description": "The state could not be stored"},
+        },
         operation_id="device_ev_put",
     )
     async def put_ev(device_id: str, body: EvStateRequest) -> EvState:
@@ -131,6 +142,10 @@ def register_flex(app: FastAPI, services: Services) -> None:
             raise HTTPException(status_code=404, detail=ERR_UNKNOWN_DEVICE) from exc
         except NotAnEvError as exc:
             raise HTTPException(status_code=422, detail=ERR_NOT_AN_EV) from exc
+        except EvTargetError as exc:
+            raise HTTPException(status_code=422, detail=exc.key) from exc
+        except FlexStoreError as exc:
+            raise HTTPException(status_code=503, detail=ERR_STORE_FAILED) from exc
 
     @app.post(
         f"{API_PREFIX}/devices/{{device_id}}/program/arm",

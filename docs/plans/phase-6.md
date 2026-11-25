@@ -1680,6 +1680,26 @@ Adapter.
 4. **Bundle:** Der Erstaufbau liegt bei 123,5 von 125 kB. Soll das Budget auf 130 kB steigen
    oder sollen Wizard-Schritte weiter ausgelagert werden? **Empfehlung:** auslagern.
 
+#### Review 6-M (control-safety)
+
+Freigabe mit Auflagen, umgesetzt:
+
+- **M1:** `ProgramJobBook.arm` prüft, legt an und speichert vollständig unter dem Lock; ein
+  Doppelklick mit langsamem Speicher ergibt genau einen Auftrag (Test mit verzögertem Store).
+- **M2:** `cancel` liest, prüft und setzt den Zustand im Speicher ohne `await` dazwischen, erst
+  danach wird gespeichert. Ein Controller-Update (synchron) kann nicht mehr dazwischenfahren;
+  ein bereits laufender Auftrag bleibt `program_job_running`. Schlägt das Speichern fehl, wird
+  der Auftrag wiederhergestellt (Tests für Rennen und Fehlerfall).
+- **L1:** Frist und EV-Zielzeit liegen in (jetzt, jetzt + 7 Tage]; eigene Schlüssel
+  `program_deadline_past/_far` und `ev_target_past/_far` (422).
+- **L2:** `EvStateRequest` nutzt `invalid("ev_mode_target_missing", ...)`.
+- **L3:** Speicherfehler geben 503 mit `api.error.flex_store_failed` (en/de).
+- **L4:** `/grid/status` meldet das §14a-Signal als `not_configured`, wenn §14a nicht
+  konfiguriert ist (das Badge bleibt dann ganz weg), und nur als `unknown`, wenn es
+  konfiguriert ist, aber noch keine Messung vorliegt (kein Monitor oder vor dem ersten Takt).
+  Tests: Backend und Vitest.
+- Optional: `BODY_LIMITS` für `PUT /devices/{id}/ev` und `POST .../program/arm`.
+
 ### 6-O (Lücken der Phase 6 schließen, Backend)
 
 Aus der Doku-Prüfung von 6-N: Regeln und Texte gab es, die Verdrahtung fehlte.
