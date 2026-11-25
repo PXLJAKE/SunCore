@@ -802,6 +802,29 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - New in WP13: `SUNCORE_DEMO_MQTT=1` (CI only), because the HA entity service is not built in
   demo mode.
 
+### 7-B
+
+- Merged `origin/phase-5/l-docs` (an ancestor check confirmed it contains 5-E, 5-I, 5-J and 5-K).
+  Conflicts were unions: `docs/STATUS.md` (Phase 5 entries 5-L, 5-K, 5-J inserted before 5-F; the
+  maintainer questions of #38-#50 kept as their own section), the two app `DOCS.md`, `scripts/check.sh`
+  and CI (both generator checks), `check_reasons.py`, the config section tables
+  (`core/config.py`, `storage/config_store.py`, `sim/demo_config.py`: `expert` next to `mqtt`,
+  `notifications`, `inverter`), `app/runtime.py` (expert overrides, backtest jobs, flex state and
+  grid store side by side), `api/app.py` (params, backtests and flex routes) and three tests.
+  `openapi.json` and `schema.d.ts` were regenerated, not merged. The i18n catalogues merged
+  without conflict (2415 keys each, no duplicates).
+- `frontend/scripts/bundle-size.mjs`: kept the Phase 6 form (`catalogue-*` chunks, one language
+  counts); the Phase 5 variant only matched `catalogue-(en|de)`.
+- No conflict in `suncore/safety/` or `suncore/controller/`. The merge adds `SAFETY_LIMITS` and
+  `inputs_max_age_ticks_within` to `suncore/core/control.py` and the registry in
+  `suncore/core/params.py` without touching Phase 6 code. The registry holds 32 parameters of the
+  controller, planner, tariff and forecast groups; none of the Phase 6 settings (EV, heat pump,
+  programs, grid limits, notifications, inverter) is a registry parameter yet (they are device or
+  site configuration), so WP2 added none ("no new behaviour").
+- Merged bundle (one language): first paint 128.3 kB against 125 kB and total without ECharts
+  254.1 kB against 250 kB, both over budget (R4). The budgets stay unchanged here; 7-G reduces
+  them with lazy wizard steps and settings sub-pages.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

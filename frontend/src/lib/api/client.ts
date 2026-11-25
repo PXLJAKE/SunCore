@@ -14,6 +14,9 @@ import type {
   OperatingMode,
   OperationConfig,
   OverrideCommand,
+  ParamValue,
+  ParamsApplied,
+  ParamsListing,
   EnergyPrefs,
   EvMode,
   EvState,
@@ -310,6 +313,20 @@ export const planApi = {
     request<PvForecastView>(`${API_PREFIX}forecast/pv${query({ hours: String(hours) })}`),
   forecastAccuracy: () => request<ForecastAccuracyView>(`${API_PREFIX}forecast/accuracy`),
   forecastRisk: () => request<RiskView>(`${API_PREFIX}forecast/risk`),
+};
+
+/** The parameter registry (expert mode): every tunable value with its hard range and tags. */
+export const paramsApi = {
+  list: () => request<ParamsListing>(`${API_PREFIX}params`),
+  /** Change values; a changed `safety` parameter needs `confirmSafety` (422 otherwise). */
+  put: (changes: Record<string, ParamValue>, confirmSafety = false) =>
+    send<ParamsApplied>('PUT', `${API_PREFIX}params`, {
+      changes,
+      confirm_safety: confirmSafety,
+    }),
+  resetKey: (key: string) => send<ParamsApplied>('POST', `${API_PREFIX}params/reset`, { key }),
+  resetGroup: (group: string) =>
+    send<ParamsApplied>('POST', `${API_PREFIX}params/reset`, { group }),
 };
 
 export function query(params: Record<string, string | undefined>): string {

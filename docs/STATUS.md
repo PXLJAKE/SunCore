@@ -5,10 +5,11 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 **Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps) ·
 **Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
+PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line.
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-6/o-gaps` (stacked on `phase-6/n-docs`)
+**Branch:** `phase-7/b-phase5-tail` (on `phase-7/a-plan` and `phase-5/l-docs`)
 
 ## Phase 6 at a glance
 
@@ -401,6 +402,101 @@ Carried to Phase 7: see "Open - Phase 7".
   - Frontend follows the regenerated types; the site form keeps the grid fields it does not
     edit yet. Deviations: plan section 8 (6-B).
 
+- **Phase 5 – PR 5-L, WP12 docs (branch `phase-5/l-docs`, on 5-K + 5-F; `docs-writer`)**:
+  - **Phase 5 in short:** analytics core (`suncore/analysis`, ADR-0014: attribution rule, two
+    baselines), frozen `day_summary`/`accuracy_day` with a 365-day backfill, history API with CSV,
+    plan-at/compare and decision explain, parameter registry with 32 parameters and the expert API
+    (ADR-0015, `control-safety` reviewed), UI: plan chart v2, history, decision log with "Why?",
+    expert mode, what-if; backtest engine with job API (`control-safety` reviewed). No new write
+    path to devices; the backtest reads through `ReadOnlyHistory` and writes nothing back.
+  - Guides en + de: `history-and-analysis.md`, `decision-log.md`, `plan-chart.md`,
+    `expert-mode.md`, `what-if-and-backtesting.md` (limitations, the 5 % cost-fidelity tolerance
+    as a stated expectation, link to the generated reference); quick start, README, both app
+    `DOCS.md` and the roadmap point to them. Screenshots are the existing demo ones. There is no
+    `mkdocs.yml` in the repository, so the README documentation list is the index.
+  - Not done here: `docs/architecture.md` §7 (new tables) and §9 (routes, chunks) stay as they
+    are because it is an engineering document; the architect should add `day_summary`,
+    `accuracy_day`, `backtest_run`, and the routes `#/history`, `#/decisions`, `#/whatif`.
+    The generated parameter reference (`docs/reference/parameters*.md`) is current from 5-E.
+  - Merge of 5-F into 5-K: conflicts in STATUS, plan §8 and the catalogues were unions; router and
+    `vite.config.ts` merged without conflict (chunks `echarts-core|plan|history`).
+  - **Bundle after the merge (`npm run verify`):** tests and type check green (Vitest 382),
+    first paint 106.3 kB (budget 125), ECharts chunks core 182.9 / history 13.3 / plan 9.1 kB
+    (each under 200), core + history 196.2 and core + plan 192.0 kB (budget 240). The total
+    without ECharts first summed both language catalogues (265.9 kB). Maintainer decision
+    (2026-11-24): only the active language counts, because only one catalogue is loaded at
+    runtime; the script counts the larger of en/de. **Total now 232.6 kB against 250 kB**;
+    the budget stays unchanged.
+
+- **Phase 5 – PR 5-K, WP11 what-if UI (branch `phase-5/k-whatif`, on 5-J + 5-I + 5-H;
+  `frontend-engineer`)**:
+  - `#/whatif` (lazy chunk `WhatIf`), reachable from the header only while expert mode is on; with
+    expert mode off a deep link shows a hint, not the form. `api/backtests.ts` (list, get, start,
+    DELETE = cancel or delete), `stores/whatif.svelte.ts` (runs, selection, 1 s polling only while
+    a run is active, server date from `history/summary`), pure logic in `whatif/model.ts` (request
+    building and checks, change list, comparison rows, CSV), chart options in
+    `whatif/chartOptions.ts` (types only from ECharts; registered in the existing `echarts` chunk,
+    194.3 of 200 kB, unchanged).
+  - Form: period (default last 14 days up to yesterday, max 30, server date), planner parameters
+    from `GET /params` filtered to tag `whatif` and numeric type (names and help from the lazy
+    param catalogue), battery overlay (strategy, capacity, charge/discharge power, reserve,
+    autarky weight, grid charging off/on with a price), flat tariff, perfect foresight. Only
+    edited parameters are sent. Progress bar and cancel, a live-region announcement, 409/422/503
+    keys through `tDynamic`.
+  - Result: verdict (cheaper/dearer/same), "what is not modelled" from `result.limitations`,
+    list of changes with `params` vs `params_requested` (budget capped), comparison table
+    (actual, what-if, perfect foresight), reference costs (no PV, PV only), charts (net cost per
+    day, SoC, grid power) with PNG download, daily table, skipped days with their reason keys,
+    CSV of the daily table, run list (last five) with show, delete and cancel.
+  - i18n: 5-H lazy main catalogue and 5-E lazy param catalogue compose (`Translator.extend` keeps a
+    side catalogue next to the lazy `set`; main keys win). Vitest: model, chart options, store
+    (polling, start, cancel, delete, 503), router; Playwright `e2e/whatif.spec.ts` on desktop,
+    phone and tablet incl. axe and German; screenshots `whatif-*`.
+  - Numbers: first paint 104.9 kB (budget 125), ECharts chunk 194.3 kB (200), total without
+    ECharts 251.7 kB with both catalogues counted (the what-if view is 12.6 kB JS + 0.7 kB CSS,
+    about 85 catalogue keys); 219.3 kB with only the active language counted (maintainer
+    decision, see the 5-F merge entry above).
+  - Deviations: see plan §8 (5-K).
+
+- **Phase 5 – PR 5-J, WP6 backtest engine and job API (branch `phase-5/j-backtest`, on 5-D + 5-E;
+  `optimizer-engineer`)**:
+  - `suncore/sim/backtest.py`: per local day and hour, `PlannerInputs` from what was known then
+    (newest stored PV/load forecast issued before the hour, stored prices up to their day-ahead
+    publication at 13:00 local, the simulated SoC), the real planner (HiGHS + heuristic, warm
+    start), then the hour executed against the actual PV and house load (`execute_slot`: PV
+    surplus charges, a deficit discharges, inside the plan's band: SoC corridor, power limits,
+    discharge lock, grid charge only where planned; efficiencies of the battery model). Runs
+    compared on the same priced slots: actual (measured, equals `day_summary`), what-if and
+    optionally perfect foresight; both baselines from `suncore.analysis`. Days with < 80 %
+    measured, without prices or without a stored forecast are skipped with a `backtest.skip.*`
+    reason; every result lists its `backtest.limit.*` limitations and is labelled
+    `plan_with_perfect_execution`.
+  - Overlay (`suncore/sim/backtest_models.py`, `core/params.py::check_whatif_overrides`): registry
+    parameters of the `planner`/`forecast` groups tagged `whatif` only (`planner.budget_s`, capped
+    at 10 s, and `planner.mip_gap` today); anything `safety`, controller or untagged is a 422
+    `param_not_whatif`. Plus battery settings (strategy, autarky weight, grid-charge policy,
+    capacity, power, reserve) and a flat tariff. Nothing is written back.
+  - Jobs (`suncore/app/backtests.py`): one run at a time, refused while the planner solves; stop
+    checked before every replan (cancel, 900 s runtime, 280 MB process RSS); results in
+    `backtest_run` (last 5); runs left `running` are `failed` at start-up. History reaches the
+    engine only through `ReadOnlyHistory`; boundary test: the backtest modules import nothing of
+    `safety`, `ha`, `devices`, `controller`, `app.control` and name no write call; a demo-runtime
+    test replays a day with zero service calls.
+  - API: `POST|GET /api/v1/backtests`, `GET|DELETE /api/v1/backtests/{id}` (DELETE cancels a
+    running run, deletes a finished one); new en/de keys; OpenAPI and `schema.d.ts` regenerated.
+  - Numbers (amd64, `scripts/bench_backtest.py`, demo history): 14 days 8.9 s (336 replans, slowest
+    0.05 s), with perfect foresight 16.6 s; 30 days 22.5 s / 39.2 s; peak RSS 80 MB. Override-free
+    replay of the demo's last 14 days: 17.41 EUR vs 17.21 EUR recorded (+1.1 %); the test allows
+    5 %. `UNVERIFIED`: run time and RSS on aarch64 (Pi 4).
+  - `control-safety` review (PR #47, conditions A1–A10) addressed: the overlay is applied at
+    start (422 `api.error.backtest_overlay_invalid|_no_battery`, nothing stored); a battery size,
+    power or reserve change without a battery model is refused; the result echoes the effective
+    params (`params`, budget capped) next to `params_requested` and lists values above the
+    hardware (`backtest.limit.overlay_capped`); replays run in the planner's daemon-thread helper
+    at niceness 10 (Linux, ignored elsewhere); cancel and shutdown wait at most 2 s and abandon a
+    running solve; no start while shutting down; the loop yields between days and old days read
+    `measurement_15m` only. Loop lag while a run replays: 65 ms worst (test bound 250 ms).
+  - Deviations: see plan §8 (5-J).
 - **Phase 5 - PR 5-F, WP7 plan chart v2 (branch `phase-5/f-plan-chart`, on 5-H;
   `frontend-engineer`)**:
   - `#/plan` shows measured values (`/history/series`, 15 min) as wide faint lines under the
@@ -504,6 +600,61 @@ Carried to Phase 7: see "Open - Phase 7".
     coverage gate.
   - Tests `tests/analysis/` (hypothesis: flow balance, KPI bounds, savings identity, PV-only ≤ no-PV
     baseline for non-negative prices, energy-preserving bucketing across DST in four zones).
+
+- **Phase 5 – PR 5-I, WP10 expert mode UI (branch `phase-5/i-expert-ui`, base `phase-5/e-params`;
+  `frontend-engineer`)**: header switch `Expert mode` (`role=switch`, per browser in localStorage,
+  default off); Settings "Expert" area is a lazy chunk (`ExpertArea`) generated from
+  `GET /api/v1/params` (number/int/bool/enum/entity inputs, unit, default and hard range, search,
+  "only modified", modified/unsaved/safety/restart markers, per-key and per-group reset, restart
+  hint). A change of safety-tagged keys opens a confirmation dialog (old to new) and is sent with
+  `confirm_safety`; client-side range check plus the API's `api.validation.param_*` messages per
+  field. Debug views: raw live signals, plan JSON with copy, solver statistics (existing
+  endpoints only). The `param.*` help catalogue is a lazy chunk (`params.<locale>.json`, commit
+  `perf(i18n)`; `check_reasons.py` reads both). First paint 124.4 kB gzip (budget 125 kB, tight:
+  keep new first-paint strings small), total without ECharts 201 kB. Vitest (model, generated
+  form) and Playwright `expert.spec.ts` incl. axe light/dark.
+- **Phase 5 – PR 5-E, WP5 parameter registry and expert API (branch `phase-5/e-params`;
+  `backend-engineer`, safety bounds proposed for `control-safety` review)**:
+  - `suncore/core/params.py`: `ParamSpec` registry (key, kind, unit, default, hard range, group,
+    tags `expert|safety|restart|whatif`, catalogue keys `param.<key>.name|help`), range check
+    (`ParamError` -> `suncore.param_*` validation keys). 32 parameters: 21 controller
+    (`ControlSettings`; 16 `safety`), 7 planner/solver, 4 config
+    (`tariff.export.remunerate_negative`, `tariff.export.negative_reference_entity`,
+    `forecast.learning.min_history_days|load_ml_mode`).
+    Config parameters take default/range from the model field and are tagged by
+    `json_schema_extra={"param": ...}`; the rest is an explicit table (controller defaults read from
+    `ControlSettings`, planner defaults tied to the runtime by a test).
+  - Safety: `core/control.py::SAFETY_LIMITS` is the single table of hard bounds (inside the model
+    bounds, around the defaults); the registry range of every `safety` key *is* that table, the
+    `expert` document model rejects values outside; a *stored* document is repaired at load
+    (out-of-range clamped, unknown keys dropped, logged) so a tightened limit cannot block the
+    start-up; restore and import stay strict and take effect through `gate.handover`.
+    No parameter can switch a check off (every limit has a positive minimum except the deficit
+    battery budget, where 0 = no deficit allowed). `PUT /config/expert` refuses a changed safety
+    value without `/params` confirmation. `control-safety` review: settle time and write
+    interval max 60 s (they pace the import-limit back-off), release deadline 5–10 s,
+    staleness factor 1.5–3, balance tolerance max 1000 W / 30 %, and
+    `inputs_max_age_ticks × tick_s ≤ 180 s` (`INPUTS_MAX_AGE_LIMIT_S`).
+  - New optional section `expert` (`core/expert.py`, schema v1, sparse `overrides` map, absent =
+    today's behaviour, golden-tested); stored/exported/history like any section. Hot apply:
+    `Runtime._apply_expert` swaps the planner settings in place (`PlanningService.update_settings`)
+    and rebuilds the control stack (same hand-over as a device edit) only when a controller value
+    changed; no parameter needs `restart`. The demo stores an empty section.
+  - Tariff (§51 EEG switch and reference spot, plan question 8): `tariff.export.remunerate_negative`
+    (default off) turns the region's `no_remuneration` rule off for the plant;
+    `tariff.export.negative_reference_entity` (sensor, default unset) lets the rule judge a real
+    spot price for the **current slot** of an all-in source (a price sensor has no curve; later
+    slots keep the proxy). Both additive in tariff v3, watched/subscribed like the price entity.
+  - API: `GET|PUT /api/v1/params`, `POST /api/v1/params/reset` (`suncore/api/params.py`); PUT is
+    all-or-nothing, 422 for unknown key/type/range, 422 `param_confirm_required` for a changed
+    safety value without `confirm_safety`, 409 when a config parameter's section does not exist.
+    OpenAPI and `schema.d.ts` regenerated.
+  - `scripts/gen_params.py` (+ `--check` in `check.sh` and CI) writes
+    `docs/reference/parameters.md` and `parameters.de.md`; en/de catalogue keys added
+    (`check_reasons` also checks the registry keys).
+  - Tests: registry/range/safety (hypothesis: no accepted value leaves `SAFETY_LIMITS`, forced
+    out-of-range rows are clamped), API, `expert` section storage/migration, wiring (golden of
+    `ControlSettings`/`PlanningSettings`, stack rebuild, negative-price switch), generator.
 
 - **Phase 4 – PR 4-I, WP12 optional ML load model (branch `phase-4/i-ml-load`, stacked on 4-H;
   `optimizer-engineer`)**:
@@ -1436,6 +1587,43 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
    order (6-A ... 6-N), read the consolidated questions in `docs/plans/phase-6.md` section 10, and
    do the acceptance listed under "Open - Phase 7". Then Phase 7 (plan to be written by the
    architect).
+6. Phase 5 (#38–#50): review and merge in the order A to L (see the table in
+   `docs/plans/phase-5.md` §3); decide the bundle budget first (item 1 below). It was built on the
+   defaults of plan §6 while the maintainer was away. After the merge: run a backtest and the
+   history on the real system, and a 14-day backtest on a Pi (time and memory).
+
+### Open maintainer questions from PRs #38–#50
+
+Each was built with the proposed default; the answer may change that default.
+
+1. **Bundle budget (5-K, #50): decided 2026-11-24.** Only the active language catalogue counts
+   towards the 250 kB total; the budget stays. Total after 5-F + 5-K: 232.6 kB.
+2. **Backtest start while the planner solves (#50):** the server answers 409; should the UI retry
+   by itself?
+3. **Max. switches per hour in expert mode (#42):** hard bound 30, safety review recommends 12.
+4. **Negative-price reference (#42):** is a sensor with the current spot price enough for now?
+5. **Restore/import with changed safety values (#42):** no confirmation (the UI shows the
+   difference first, 5-I). The dialog (#44) does not show the allowed range; add it?
+6. **Backtest (#47):** what-if battery and tariff fields as `whatif` registry parameters instead
+   of fixed request fields? Memory guard 280 MB (plan said 200 MB)? Prices known from 13:00
+   local the day before? HT/NT and price formulas in the what-if form or flat tariff only? State
+   the 5 % cost-fidelity tolerance in the user guide (done in 5-L, change if you disagree).
+7. **History API (#43):** headers `X-Total-Count` and `X-Decision-Ids` instead of a new response
+   model; `layer` filters on `intent.origin`; resolution picks the finest one within 2 000 points
+   (plan decision 8 contradicts itself).
+8. **Storage (#41):** run the 365-day backfill once on existing installs (default yes); demo
+   history on by default (about 2 s longer start, default yes).
+9. **Analytics (#40):** equivalent full cycles over the usable capacity (default) or the nominal
+   one; cost is grid exchange only, without battery wear and standing charges.
+10. **History view (#46):** is "period plus date jump" enough, or should `/history/summary` take a
+    free range?
+11. **Decision log (#45):** link `#/plan?at=<time>` (done in 5-F); are site readings plus device
+    power and state enough in the "Why?" panel?
+12. **Plan chart (#48):** no blocking questions; window snapshot per window, measured CSV with at
+    most three devices, zoom not in the URL.
+13. **Release:** `timeseries.db` 1 to 2 and `suncore.db` 4 to 5 are one-way; the release note must
+    say "export before updating" (plan R9). #39 (dependency bump) and #49 (Phase 6 plan) are not
+    part of Phase 5.
 
 ## Known problems and `UNVERIFIED` items
 
@@ -1505,6 +1693,10 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
 | `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (the `days_offset` handling is verified from source; a changed country/holiday list is not visible in the attributes, so the day-type cache only resets on a changed entity, `workdays`, `excludes` or offset) | `suncore/app/adapters.py`, `suncore/forecast/load_service.py` | maintainer maps a Workday sensor |
 | Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, 7 clean days, degree-day bases 15/22 °C, coverage 75 %/90 %, 20 h temperature days, anchors sunrise + 1 h / sunset − 1 h, sunrise threshold 2 %/20 W) and the default PV bands per weather class (clear 0.85/1.10, mixed 0.55/1.35, overcast 0.35/1.70) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |
 | Known limitation (n6): the load history and the risk samples are not re-derived when the device list changes - a device added later is only subtracted from the base load from the day its power is recorded (or rebuilt), and older risk samples keep the old base load | `suncore/forecast/load_service.py`, `risk_learning.py` | accepted for Phase 4; the KNN model (4-I) shares the base load and the limitation; revisit in Phase 5 |
+| Backtest run time and peak memory on aarch64 (Pi 4, HA Green); amd64: 14 days 8.9 s, 30 days 22.5 s, RSS 80 MB (`scripts/bench_backtest.py`); the 5 % cost fidelity was measured on the demo history only (+1.1 %), not on real data | `suncore/sim/backtest.py`, `docs/user/*/what-if-and-backtesting.md` | CI arm runner or a Pi; a 14-day override-free run on the maintainer's history |
+| Number of days of long-term statistics a Home Assistant keeps and whether the Supervisor proxy forwards `recorder/*` for 365-day ranges; time and memory of the 365-day backfill on aarch64 | `suncore/storage/`, `suncore/app/summaries.py` | first start on HA OS |
+| Expert parameter bounds in `SAFETY_LIMITS` (reviewed, not tried on hardware); the "needs restart" marker (no parameter uses it) | `suncore/core/control.py`, `docs/reference/parameters.md` | shadow run; maintainer's decision on the switches-per-hour bound |
+| Wording and walk-through of the Phase 5 guides (written from the code, the demo and the catalogues, not followed on a real system) | `docs/user/*/history-and-analysis.md`, `decision-log.md`, `plan-chart.md`, `expert-mode.md`, `what-if-and-backtesting.md` | maintainer follows them on his system |
 
 ## Environment notes
 

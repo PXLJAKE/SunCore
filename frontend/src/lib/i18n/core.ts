@@ -28,6 +28,9 @@ export interface Translator {
   loaded(locale: Locale): boolean;
   /** Add or replace the main catalogue of a locale (lazy loading; drops its compiled cache). */
   set(locale: Locale, catalogue: Catalogue): void;
+  /** Add messages of a lazy side catalogue (param texts); it works before and after `set`, and
+   * keys of the main catalogue win. */
+  extend(locale: Locale, messages: Catalogue): void;
 }
 
 /** English is the fallback and must be present; other locales may arrive later via `set`. */
@@ -35,15 +38,20 @@ export function createTranslator(
   initial: Partial<Record<Locale, Catalogue>> & { en: Catalogue },
 ): Translator {
   const catalogues: Partial<Record<Locale, Catalogue>> = { ...initial };
+  const extras: Partial<Record<Locale, Catalogue>> = {};
+  const lookup = (locale: Locale, key: string): string | undefined => {
+    const main = catalogues[locale];
+    if (main && Object.hasOwn(main, key)) return main[key];
+    const extra = extras[locale];
+    return extra && Object.hasOwn(extra, key) ? extra[key] : undefined;
+  };
   const cache = new Map<string, IntlMessageFormat>();
 
   const compile = (locale: Locale, key: string): IntlMessageFormat | null => {
     const id = `${locale}\u0000${key}`;
     const hit = cache.get(id);
     if (hit) return hit;
-    const cat = catalogues[locale];
-    if (!cat || !Object.hasOwn(cat, key)) return null;
-    const source = cat[key];
+    const source = lookup(locale, key);
     if (source === undefined) return null;
     try {
       const fmt = new IntlMessageFormat(source, locale);
@@ -68,13 +76,15 @@ export function createTranslator(
       return key;
     },
     has(key, locale = FALLBACK_LOCALE) {
-      const cat = catalogues[locale];
-      return cat !== undefined && Object.hasOwn(cat, key);
+      return lookup(locale, key) !== undefined;
     },
     loaded: (locale) => catalogues[locale] !== undefined,
     set(locale, catalogue) {
       catalogues[locale] = catalogue;
       for (const id of [...cache.keys()]) if (id.startsWith(`${locale}\u0000`)) cache.delete(id);
+    },
+    extend(locale, messages) {
+      extras[locale] = { ...extras[locale], ...messages };
     },
   };
 }

@@ -252,6 +252,12 @@ du ein Gerät selbst änderst, und was SunCore bei Fehlern tut, steht in der
 [Planung und Akkusteuerung](planning-and-battery.md), mit einem Ablauf, um deinen
 ersten Akku in den assistierten Modus zu nehmen.
 
+Sobald Daten gesammelt sind, zeigt der **Verlauf**, was das Haus getan und gespart hat:
+[Verlauf und Analyse](history-and-analysis.md). Das **Entscheidungsprotokoll** hat je Zeile ein
+**Warum?**: [Entscheidungen und "Warum?"](decision-log.md). Später kannst du den
+[Expertenmodus](expert-mode.md) und [Was-wäre-wenn und Backtest](what-if-and-backtesting.md)
+ausprobieren.
+
 ## 6. Später ändern
 
 Öffne **Einstellungen**. Dort stehen alle Bereiche deiner Einrichtung

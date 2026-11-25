@@ -12,9 +12,14 @@ by default, set up in minutes.**
 > **real-time surplus controller** and, new in Phase 4, **forecasts, tariffs, a 48 hour planner
 > and battery control**: a plan with a reason for every interval, a risk level and buffers, and
 > limits on your home battery (generic Home Assistant entities, Kostal Plenticore), all behind a
-> safety layer. Everything starts in **shadow mode** and switches or writes nothing until you
-> set a device or the battery to automatic or assisted; neither the controller nor the planner
-> and battery control have run against real hardware yet. See
+> safety layer. Phase 5 (built, awaiting review) adds **history and analysis** (day to year,
+> autarky, savings against two baselines, Sankey, heatmap, forecast skill, CSV and PNG
+> export), a **decision log with "Why?"**, a **plan chart** that sets the plan against
+> measured values, an **expert mode** with
+> a generated parameter reference, and **what-if backtests** of the real planner on past days
+> (an estimate, see its limits). Everything starts in **shadow mode** and switches or writes
+> nothing until you set a device or the battery to automatic or assisted; neither the
+> controller nor the planner and battery control have run against real hardware yet. See
 > [Planning and battery control](docs/user/en/planning-and-battery.md),
 > [Surplus control](docs/user/en/surplus-control.md), the [roadmap](docs/roadmap.md) and
 > [status](docs/STATUS.md).
@@ -72,6 +77,17 @@ young: see the roadmap.
   [Überschusssteuerung](docs/user/de/surplus-control.md)
 - [Planning and battery control](docs/user/en/planning-and-battery.md) ·
   [Planung und Akkusteuerung](docs/user/de/planning-and-battery.md)
+- [History and analysis](docs/user/en/history-and-analysis.md) ·
+  [Verlauf und Analyse](docs/user/de/history-and-analysis.md)
+- [Decision log and "Why?"](docs/user/en/decision-log.md) ·
+  [Entscheidungen und "Warum?"](docs/user/de/decision-log.md)
+- [Plan chart](docs/user/en/plan-chart.md) ·
+  [Plan-Diagramm](docs/user/de/plan-chart.md)
+- [Expert mode](docs/user/en/expert-mode.md) ·
+  [Expertenmodus](docs/user/de/expert-mode.md) ·
+  [Parameter reference](docs/reference/parameters.md) (generated)
+- [What-if and backtesting](docs/user/en/what-if-and-backtesting.md) ·
+  [Was-wäre-wenn und Backtest](docs/user/de/what-if-and-backtesting.md)
 - [Contribute a device template](docs/user/en/device-templates.md) ·
   [Compatibility list](docs/user/compatibility.md)
 - [Roadmap](docs/roadmap.md) · [Status](docs/STATUS.md)

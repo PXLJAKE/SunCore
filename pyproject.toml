@@ -104,6 +104,10 @@ module = [
   "suncore.safety.*",
   "suncore.devices.*",
   "suncore.app.control",
+  "suncore.sim.backtest",
+  "suncore.sim.backtest_models",
+  "suncore.app.backtests",
+  "suncore.api.backtests",
 ]
 strict = true
 

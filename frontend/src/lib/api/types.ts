@@ -27,6 +27,12 @@ export type EntityRef = S['EntityRef'];
 export type EntityCandidate = S['EntityCandidateOut'];
 export type ValidationIssue = S['ValidationIssueOut'];
 
+export type Param = S['ParamOut'];
+export type ParamsListing = S['ParamsOut'];
+export type ParamsApplied = S['ParamsApplied'];
+export type ParamValue = Param['value'];
+export type SolverStats = S['SolverStats'];
+
 export type ConfigSectionName =
   | 'site'
   | 'region'
@@ -165,3 +171,12 @@ export interface DecisionPage {
   ids: number[];
   total: number;
 }
+
+export type BacktestRun = S['BacktestRunOut'];
+export type BacktestRequest = S['BacktestRequest'];
+export type BacktestResult = S['BacktestResult'];
+export type BacktestTotals = S['BacktestTotals'];
+export type BacktestDay = S['DayResult'];
+export type BacktestFigures = S['RunFigures'];
+export type BatteryOverlay = S['BatteryOverlay'];
+export type TariffOverlay = S['TariffOverlay'];

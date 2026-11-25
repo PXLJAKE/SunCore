@@ -3,7 +3,7 @@
 Energy management for Home Assistant: forecasts, a cost-optimising planner
 and a real-time surplus controller in one app.
 
-## What SunCore does today (Phase 4)
+## What SunCore does today (Phase 5)
 
 SunCore is **pre-alpha**. This version helps you describe your installation,
 shows your energy flow live, distributes your solar surplus to devices, plans
@@ -114,6 +114,25 @@ The assistant asks whether the live direction is right and inverts the sign
 for you if not. On a sunny day with a charging battery, PV must be positive
 and the battery arrow must point into the battery. Power sensors in W and kW
 are understood; other units are rejected rather than guessed.
+
+## History, decisions, expert mode and what-if
+
+- **History** shows a day, week, month or year: autarky, self-consumption,
+  cost and savings against two baselines (without PV, PV only), energy flows,
+  battery cycles and forecast quality, with CSV and PNG export. Guide:
+  [History and analysis](https://github.com/pxljake/suncore/blob/main/docs/user/en/history-and-analysis.md)
+  ([Deutsch](https://github.com/pxljake/suncore/blob/main/docs/user/de/history-and-analysis.md)).
+- **Decision log** with filters and **Why?** per decision, and a **Plan** view
+  that sets the plan against measured values:
+  [Decision log](https://github.com/pxljake/suncore/blob/main/docs/user/en/decision-log.md),
+  [Plan chart](https://github.com/pxljake/suncore/blob/main/docs/user/en/plan-chart.md).
+- **Expert mode** (header switch, off by default) exposes every parameter with
+  its range inside the safety limits, see the
+  [Expert mode guide](https://github.com/pxljake/suncore/blob/main/docs/user/en/expert-mode.md) and the
+  [parameter reference](https://github.com/pxljake/suncore/blob/main/docs/reference/parameters.md).
+- **What-if** replays the real planner over past days with other battery or
+  tariff settings (expert mode):
+  [What-if and backtesting](https://github.com/pxljake/suncore/blob/main/docs/user/en/what-if-and-backtesting.md).
 
 ## Planning and battery control
 
@@ -237,7 +256,9 @@ verification dialog yet). Island and section 14a events are not pushed as notifi
 yet, the EV, program and heat pump entities are not announced in Home Assistant yet, and
 there is no built-in internet fallback for solar forecasts and prices. The companion
 integration, Lovelace cards, the documentation site and translations through Weblate
-follow in Phase 7. See the
+follow in Phase 7. A what-if backtest replays the planner with perfect execution, so it is an
+estimate and not a promise (its run time on a Raspberry Pi is not measured yet), and the history
+has no free date range and no HT/NT or price-formula what-if. See the
 [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 ## Privacy

@@ -31,6 +31,7 @@ from pydantic_core import PydanticCustomError
 from suncore.core.battery import BatterySettings, GridChargePolicy
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig, DeviceId, RoleName, TemplateId
+from suncore.core.expert import ExpertConfig
 from suncore.core.series import PriceIncludes
 from suncore.core.site import EntityRef, SiteConfig
 from suncore.core.tariff import HHMM_PATTERN, NIGHT_WINDOW, PriceFormula, TouTariff, WeeklySchedule
@@ -190,6 +191,35 @@ class ExportTariff(_Frozen):
     kind: Literal["fixed", "tiered", "none"]
     fixed_price: Price | None = None
     tiers: tuple[ExportTier, ...] = ()
+    remunerate_negative: bool = Field(
+        default=False,
+        json_schema_extra={
+            "param": {"group": "tariff", "tags": ["expert"], "see": "docs/user/tariffs.md"}
+        },
+    )
+    """Per-plant switch for the region's negative-price rule (§51 EEG in Germany; Phase 5
+    WP5, additive in ``tariff`` v3). ``True`` = this plant is remunerated also in slots with a
+    negative spot price (older plants, exempt plants), so the rule ``no_remuneration`` does not
+    zero its export price. ``False`` (default) = the region template's rule applies."""
+    negative_reference_entity: EntityRef | None = Field(
+        default=None,
+        json_schema_extra={"param": {"group": "tariff", "tags": ["expert"]}},
+    )
+    """Optional sensor with the *spot* price (currency/kWh) for the negative-price rule when
+    the import source is an all-in tariff (Tibber): the rule then looks at this price instead
+    of the import end price. It gives the current slot only; later slots keep using the proxy.
+    ``None`` (default) = the proxy as before (Phase 5 WP5, additive in ``tariff`` v3)."""
+
+    @field_validator("negative_reference_entity")
+    @classmethod
+    def _reference_domain(cls, value: EntityRef | None) -> EntityRef | None:
+        if value is not None and not value.entity_id.startswith(("sensor.", "input_number.")):
+            raise invalid(
+                "export_reference_domain",
+                "tariff.export.negative_reference_entity: {entity_id} is not a sensor",
+                entity_id=value.entity_id,
+            )
+        return value
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -239,6 +269,8 @@ class TariffConfig(_Frozen):
 
     def entity_refs(self) -> list[EntityRef]:
         refs = [self.import_.price_entity] if self.import_.price_entity is not None else []
+        if self.export.negative_reference_entity is not None:
+            refs.append(self.export.negative_reference_entity)
         return [*refs, *self.import_.role_entities.values()]
 
 
@@ -286,8 +318,18 @@ class LearningSettings(_Frozen):
     it never replaces the profiles otherwise.
     """
 
-    min_history_days: Annotated[int, Field(ge=1, le=365)] = 30
-    load_ml_mode: Literal["off", "shadow", "auto"] = "shadow"
+    min_history_days: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=365,
+            json_schema_extra={"param": {"group": "forecast", "unit": "d", "tags": ["expert"]}},
+        ),
+    ] = 30
+    load_ml_mode: Literal["off", "shadow", "auto"] = Field(
+        default="shadow",
+        json_schema_extra={"param": {"group": "forecast", "tags": ["expert"]}},
+    )
 
 
 class LoadForecastConfig(_Frozen):
@@ -895,5 +937,6 @@ SECTION_MODELS: Final[Mapping[str, type[BaseModel]]] = {
     "mqtt": MqttConfig,
     "notifications": NotificationsConfig,
     "inverter": InverterConfig,
+    "expert": ExpertConfig,
 }
 """All configuration sections by name and their document model (API and storage share it)."""

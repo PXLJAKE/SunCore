@@ -133,19 +133,29 @@ def test_unknown_error_types_fall_back() -> None:
     assert issue["args"] == {"n": 1}
 
 
+def validator_sources() -> list[Path]:
+    """``core`` plus the backtest request model (Phase 5 WP6), which validates its window."""
+    return [
+        *sorted((ROOT / "suncore" / "core").glob("*.py")),
+        ROOT / "suncore" / "sim" / "backtest_models.py",
+    ]
+
+
 def test_every_custom_validator_error_has_a_catalogue_key() -> None:
-    """Each ``invalid("key", ...)`` in core is mapped, and every mapping has a user."""
+    """Each ``invalid("key", ...)`` / ``ParamError("key", ...)`` in core is mapped and used."""
     used: set[str] = set()
-    for path in (ROOT / "suncore" / "core").glob("*.py"):
+    for path in validator_sources():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
-                and node.func.id == "invalid"
+                and node.func.id in ("invalid", "ParamError")
                 and node.args
                 and isinstance(node.args[0], ast.Constant)
             ):
                 used.add(f"suncore.{node.args[0].value}")
+    # The parameter API raises these two itself (``suncore/api/params.py``).
+    used |= {"suncore.param_confirm_required", "suncore.param_reset_target"}
     mapped = {k for k in VALIDATION_KEYS if k.startswith("suncore.")}
     assert used
     assert used == mapped
@@ -155,15 +165,19 @@ def test_message_arguments_exist_in_the_error_context() -> None:
     """ICU placeholders of custom keys are exactly the context names the validator passes."""
     en = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
     contexts: dict[str, set[str]] = {}
-    for path in (ROOT / "suncore" / "core").glob("*.py"):
+    for path in validator_sources():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
-                and node.func.id == "invalid"
+                and node.func.id in ("invalid", "ParamError")
+                and isinstance(node.args[0], ast.Constant)
             ):
-                key = f"api.validation.{node.args[0].value}"  # type: ignore[attr-defined]
-                contexts[key] = {kw.arg for kw in node.keywords if kw.arg}
+                key = f"api.validation.{node.args[0].value}"
+                names = {kw.arg for kw in node.keywords if kw.arg}
+                if node.func.id == "ParamError":
+                    names.add("param")  # ParamError.to_pydantic adds the key as ``param``
+                contexts[key] = contexts.get(key, set()) | names
     import re  # noqa: PLC0415
 
     for key, names in contexts.items():

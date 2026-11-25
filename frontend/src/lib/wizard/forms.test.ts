@@ -225,7 +225,13 @@ describe('tariff form', () => {
         formula: null,
         tou: null,
       },
-      export: { kind: 'none', fixed_price: null, tiers: [] },
+      export: {
+        kind: 'none',
+        fixed_price: null,
+        tiers: [],
+        remunerate_negative: false,
+        negative_reference_entity: null,
+      },
     });
   });
   it('maps a dynamic tariff with template and price entity, dropping the fixed price', () => {
@@ -306,6 +312,8 @@ describe('tariff form', () => {
           { up_to_kwp: 10, price: 0.08 },
           { up_to_kwp: null, price: 0.07 },
         ],
+        remunerate_negative: false,
+        negative_reference_entity: null,
       },
     };
     expect(tariffFromForm(tariffFormFromConfig(cfg))).toEqual(cfg);
@@ -325,11 +333,38 @@ describe('tariff form', () => {
         formula: null,
         tou,
       },
-      export: { kind: 'none', fixed_price: null, tiers: [] },
+      export: {
+        kind: 'none',
+        fixed_price: null,
+        tiers: [],
+        remunerate_negative: false,
+        negative_reference_entity: null,
+      },
     };
     const form = tariffFormFromConfig(cfg);
     expect(isTariffComplete(form)).toBe(true);
     expect(tariffFromForm(form)).toEqual(cfg);
+  });
+  it('keeps the expert export parameters when the wizard saves the tariff again', () => {
+    const cfg: TariffConfig = {
+      schema_version: 3,
+      import: {
+        kind: 'fixed',
+        template_id: null,
+        price_entity: null,
+        fixed_price: 0.3,
+        formula: null,
+        tou: null,
+      },
+      export: {
+        kind: 'fixed',
+        fixed_price: 0.08,
+        tiers: [],
+        remunerate_negative: true,
+        negative_reference_entity: { entity_id: 'sensor.spot', invert_sign: false },
+      },
+    };
+    expect(tariffFromForm(tariffFormFromConfig(cfg))).toEqual(cfg);
   });
   it('offers region tiers as rows', () => {
     expect(

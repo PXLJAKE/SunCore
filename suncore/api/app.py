@@ -28,6 +28,7 @@ from pydantic import BaseModel, TypeAdapter
 from pydantic_core import PydanticCustomError
 from starlette.websockets import WebSocketState
 
+from suncore.api.backtests import register_backtests
 from suncore.api.flex import register_flex
 from suncore.api.history import register_decisions, register_history
 from suncore.api.limits import BodyLimitMiddleware
@@ -64,6 +65,7 @@ from suncore.api.models import (
     ValidationErrorOut,
     template_list,
 )
+from suncore.api.params import PARAMS_MAX_BYTES, guard_expert_document, register_params
 from suncore.api.security import PeerCheckMiddleware
 from suncore.api.services import (
     EnergyPrefsFailedError,
@@ -157,6 +159,8 @@ SECTION_MAX_BYTES: Final = 256 * 1024
 """Limit of ``PUT /config/<section>``."""
 BODY_LIMITS: Final = [
     ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/config/[^/]+"), SECTION_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/params"), PARAMS_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/params/reset"), PARAMS_MAX_BYTES),
     ("POST", re.compile(rf"{re.escape(API_PREFIX)}/wizard/check"), BODY_MAX_BYTES),
     ("POST", re.compile(rf"{re.escape(API_PREFIX)}/preview"), BODY_MAX_BYTES),
     ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/ev"), BODY_MAX_BYTES),
@@ -188,6 +192,8 @@ def create_app(
     _register_notifications(app, services)
     register_history(app, services)
     register_flex(app, services)
+    register_params(app, services)
+    register_backtests(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
     app.openapi = lambda: _openapi(app)  # type: ignore[method-assign]
@@ -665,6 +671,8 @@ def _register_section(app: FastAPI, services: Services, name: str, model: type[B
             return body
         if isinstance(body, TariffConfig):
             _check_tariff_against_catalog(body, services.templates())
+        if name == "expert":
+            guard_expert_document(await services.get_section(name), body)
         try:
             return await services.put_section(name, body)
         except ModeRaiseRejectedError as exc:

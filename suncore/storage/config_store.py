@@ -32,12 +32,14 @@ from suncore.core.config import (
 )
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
+from suncore.core.expert import ExpertConfig
 from suncore.core.identity import (
     battery_identity_token,
     device_identity,
     identity_parts,
     new_device_ids,
 )
+from suncore.core.params import sanitise_stored_overrides
 from suncore.core.site import SiteConfig, migrate_site_v1_to_v2
 from suncore.storage.db import Database, Row, Transaction
 from suncore.storage.errors import (
@@ -72,6 +74,9 @@ class SectionSpec:
 
     model: type[BaseModel]
     migrations: tuple[DocMigration, ...] = field(default=())
+    on_load: DocMigration | None = None
+    """Repairs the *current* stored body before validation (``get`` only; restore and import
+    stay strict). Used where a document may outlive the rules it was written under."""
 
     @property
     def current_version(self) -> int:
@@ -125,6 +130,19 @@ def migrate_forecast_v1_to_v2_logged(body: Body) -> Body:
     return migrate_forecast_v1_to_v2(body)
 
 
+def sanitise_expert_body(body: Body) -> Body:
+    """Load path of ``expert``: a stored override that the current registry no longer accepts
+    (key removed, range tightened) is dropped or clamped and logged, instead of making the
+    section - and with it the start-up - fail (control-safety review of PR 5-E)."""
+    overrides = body.get("overrides")
+    if not isinstance(overrides, dict):
+        return body
+    repaired, fixed = sanitise_stored_overrides(overrides)
+    if fixed:
+        log.warning("config.expert_overrides_repaired", keys=sorted(fixed))
+    return {**body, "overrides": repaired}
+
+
 DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "site": SectionSpec(SiteConfig, (migrate_site_v1_to_v2,)),
     "region": SectionSpec(RegionConfig),
@@ -138,6 +156,7 @@ DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "mqtt": SectionSpec(MqttConfig),
     "notifications": SectionSpec(NotificationsConfig),
     "inverter": SectionSpec(InverterConfig),
+    "expert": SectionSpec(ExpertConfig, on_load=sanitise_expert_body),
 }
 
 
@@ -165,8 +184,11 @@ class ConfigStore:
             msg = f"unknown config section {section!r}"
             raise UnknownSectionError(msg) from None
 
-    def _upgrade(self, section: str, version: int, body: Body) -> BaseModel:
-        """Migrate ``body`` from ``version`` to current and validate it."""
+    def _upgrade(
+        self, section: str, version: int, body: Body, *, repair: bool = False
+    ) -> BaseModel:
+        """Migrate ``body`` from ``version`` to current and validate it; ``repair`` runs the
+        section's ``on_load`` on the migrated body first (the stored current document only)."""
         spec = self._spec(section)
         if version < 1 or version > spec.current_version:
             msg = (
@@ -178,6 +200,8 @@ class ConfigStore:
             for step in spec.migrations[version - 1 :]:
                 body = step(dict(body))
             body = {**body, "schema_version": spec.current_version}
+            if repair and spec.on_load is not None:
+                body = spec.on_load(body)
             return spec.model.model_validate(body)
         except (ValidationError, KeyError, TypeError, ValueError) as exc:
             msg = f"section {section!r} is invalid: {exc}"
@@ -207,9 +231,9 @@ class ConfigStore:
         )
         if row is None:
             return None
-        return self._parse_row(section, row)
+        return self._parse_row(section, row, current=True)
 
-    def _parse_row(self, section: str, row: Row) -> BaseModel:
+    def _parse_row(self, section: str, row: Row, *, current: bool = False) -> BaseModel:
         version, raw = row
         try:
             body = json.loads(str(raw))
@@ -219,7 +243,7 @@ class ConfigStore:
         if not isinstance(body, dict):
             msg = f"section {section!r}: stored body is not an object"
             raise ConfigCorruptError(msg)
-        return self._upgrade(section, int(str(version)), body)
+        return self._upgrade(section, int(str(version)), body, repair=current)
 
     def _try_parse(self, section: str, row: Row | None) -> BaseModel | None:
         """Parse a stored row; a corrupt one counts as absent (it still goes to the history)."""

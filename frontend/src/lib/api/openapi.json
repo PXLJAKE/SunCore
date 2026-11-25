@@ -285,6 +285,405 @@
         "title": "AttributeSeries",
         "type": "object"
       },
+      "BacktestCancelOut": {
+        "additionalProperties": false,
+        "properties": {
+          "outcome": {
+            "enum": [
+              "cancelled",
+              "deleted"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "BacktestCancelOut",
+        "type": "object"
+      },
+      "BacktestProgressOut": {
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "done",
+          "total"
+        ],
+        "title": "BacktestProgressOut",
+        "type": "object"
+      },
+      "BacktestRequest": {
+        "additionalProperties": false,
+        "description": "One run: local days ``start..end`` (inclusive) and what to change.",
+        "properties": {
+          "battery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryOverlay"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxProperties": 20,
+            "title": "Params",
+            "type": "object"
+          },
+          "perfect_foresight": {
+            "default": false,
+            "title": "Perfect Foresight",
+            "type": "boolean"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "tariff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TariffOverlay"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "BacktestRequest",
+        "type": "object"
+      },
+      "BacktestResult": {
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayResult"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "hourly": {
+            "$ref": "#/components/schemas/HourlySeries"
+          },
+          "label": {
+            "const": "plan_with_perfect_execution",
+            "default": "plan_with_perfect_execution",
+            "title": "Label",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Params",
+            "type": "object"
+          },
+          "params_requested": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Params Requested",
+            "type": "object"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedDay"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/SolveStats"
+          },
+          "tariff": {
+            "enum": [
+              "stored",
+              "fixed"
+            ],
+            "title": "Tariff",
+            "type": "string"
+          },
+          "totals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestTotals"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tz": {
+            "title": "Tz",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "tz",
+          "currency",
+          "tariff",
+          "params",
+          "totals",
+          "days",
+          "skipped",
+          "hourly",
+          "limitations",
+          "stats"
+        ],
+        "title": "BacktestResult",
+        "type": "object"
+      },
+      "BacktestRunOut": {
+        "additionalProperties": false,
+        "description": "One run; ``result`` only from ``GET /backtests/{id}`` of a finished run.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestProgressOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "created_at",
+          "finished_at",
+          "start",
+          "end",
+          "request",
+          "progress",
+          "result",
+          "error"
+        ],
+        "title": "BacktestRunOut",
+        "type": "object"
+      },
+      "BacktestTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "actual": {
+            "$ref": "#/components/schemas/RunFigures"
+          },
+          "baseline_no_pv_cost": {
+            "title": "Baseline No Pv Cost",
+            "type": "number"
+          },
+          "baseline_pv_only_cost": {
+            "title": "Baseline Pv Only Cost",
+            "type": "number"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "perfect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunFigures"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "whatif": {
+            "$ref": "#/components/schemas/RunFigures"
+          }
+        },
+        "required": [
+          "days",
+          "actual",
+          "whatif",
+          "baseline_no_pv_cost",
+          "baseline_pv_only_cost"
+        ],
+        "title": "BacktestTotals",
+        "type": "object"
+      },
       "BackupConfig": {
         "additionalProperties": false,
         "description": "Backup power: the entity that shows island operation (entity only, no heuristic).\n\n``island_states`` are the state values that mean \"island\" (case-sensitive, as HA reports\nthem; ``UNVERIFIED`` per backup device - the user or the template names them).\n``keep_devices`` are device ids that are not shed in island operation.",
@@ -840,6 +1239,99 @@
           "max_discharge_w"
         ],
         "title": "BatteryModel",
+        "type": "object"
+      },
+      "BatteryOverlay": {
+        "additionalProperties": false,
+        "description": "Battery settings to try; ``None`` keeps the configured value.",
+        "properties": {
+          "autarky_weight_per_kwh": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autarky Weight Per Kwh"
+          },
+          "capacity_wh": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Wh"
+          },
+          "grid_charge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GridChargePolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_charge_w": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Charge W"
+          },
+          "max_discharge_w": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Discharge W"
+          },
+          "reserve_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserve Pct"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatteryStrategy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "BatteryOverlay",
         "type": "object"
       },
       "BatterySettings": {
@@ -2286,6 +2778,59 @@
           "days"
         ],
         "title": "CyclesOut",
+        "type": "object"
+      },
+      "DayResult": {
+        "additionalProperties": false,
+        "properties": {
+          "actual": {
+            "$ref": "#/components/schemas/RunFigures"
+          },
+          "baseline_no_pv_cost": {
+            "title": "Baseline No Pv Cost",
+            "type": "number"
+          },
+          "baseline_pv_only_cost": {
+            "title": "Baseline Pv Only Cost",
+            "type": "number"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "perfect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunFigures"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priced_slots": {
+            "title": "Priced Slots",
+            "type": "integer"
+          },
+          "slots": {
+            "title": "Slots",
+            "type": "integer"
+          },
+          "whatif": {
+            "$ref": "#/components/schemas/RunFigures"
+          }
+        },
+        "required": [
+          "day",
+          "slots",
+          "priced_slots",
+          "actual",
+          "whatif",
+          "baseline_no_pv_cost",
+          "baseline_pv_only_cost"
+        ],
+        "title": "DayResult",
         "type": "object"
       },
       "DayType": {
@@ -4385,6 +4930,40 @@
         "title": "EvTarget",
         "type": "object"
       },
+      "ExpertConfig": {
+        "additionalProperties": false,
+        "description": "Configuration section ``expert``: overrides of expert-mode parameters.",
+        "properties": {
+          "overrides": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "maxProperties": 200,
+            "title": "Overrides",
+            "type": "object"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "ExpertConfig",
+        "type": "object"
+      },
       "ExplainInputOut": {
         "additionalProperties": false,
         "properties": {
@@ -4489,6 +5068,34 @@
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "negative_reference_entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "param": {
+              "group": "tariff",
+              "tags": [
+                "expert"
+              ]
+            }
+          },
+          "remunerate_negative": {
+            "default": false,
+            "param": {
+              "group": "tariff",
+              "see": "docs/user/tariffs.md",
+              "tags": [
+                "expert"
+              ]
+            },
+            "title": "Remunerate Negative",
+            "type": "boolean"
           },
           "tiers": {
             "default": [],
@@ -5736,6 +6343,136 @@
         "title": "HorizonBucket",
         "type": "string"
       },
+      "HourlySeries": {
+        "additionalProperties": false,
+        "description": "Hourly means for the comparison chart (W, %); ``None`` = not replayed.",
+        "properties": {
+          "actual_battery_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Actual Battery W",
+            "type": "array"
+          },
+          "actual_grid_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Actual Grid W",
+            "type": "array"
+          },
+          "actual_soc_pct": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Actual Soc Pct",
+            "type": "array"
+          },
+          "perfect_soc_pct": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Perfect Soc Pct"
+          },
+          "starts": {
+            "items": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "title": "Starts",
+            "type": "array"
+          },
+          "whatif_battery_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Whatif Battery W",
+            "type": "array"
+          },
+          "whatif_grid_w": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Whatif Grid W",
+            "type": "array"
+          },
+          "whatif_soc_pct": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Whatif Soc Pct",
+            "type": "array"
+          }
+        },
+        "required": [
+          "starts",
+          "actual_soc_pct",
+          "whatif_soc_pct",
+          "actual_grid_w",
+          "whatif_grid_w",
+          "actual_battery_w",
+          "whatif_battery_w"
+        ],
+        "title": "HourlySeries",
+        "type": "object"
+      },
       "ImportResultOut": {
         "additionalProperties": false,
         "properties": {
@@ -6882,6 +7619,12 @@
               "shadow",
               "auto"
             ],
+            "param": {
+              "group": "forecast",
+              "tags": [
+                "expert"
+              ]
+            },
             "title": "Load Ml Mode",
             "type": "string"
           },
@@ -6889,6 +7632,13 @@
             "default": 30,
             "maximum": 365.0,
             "minimum": 1.0,
+            "param": {
+              "group": "forecast",
+              "tags": [
+                "expert"
+              ],
+              "unit": "d"
+            },
             "title": "Min History Days",
             "type": "integer"
           }
@@ -8332,6 +9082,302 @@
           }
         },
         "title": "OverridePolicy",
+        "type": "object"
+      },
+      "ParamOut": {
+        "additionalProperties": false,
+        "description": "One parameter: spec, default, current value.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "choices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "help_key": {
+            "title": "Help Key",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "modified": {
+            "title": "Modified",
+            "type": "boolean"
+          },
+          "name_key": {
+            "title": "Name Key",
+            "type": "string"
+          },
+          "restart": {
+            "title": "Restart",
+            "type": "boolean"
+          },
+          "safety": {
+            "title": "Safety",
+            "type": "boolean"
+          },
+          "see": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "See"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "enum": [
+              "float",
+              "int",
+              "bool",
+              "enum",
+              "entity"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "group",
+          "unit",
+          "tags",
+          "default",
+          "value",
+          "modified",
+          "minimum",
+          "maximum",
+          "choices",
+          "name_key",
+          "help_key",
+          "see",
+          "restart",
+          "safety",
+          "available"
+        ],
+        "title": "ParamOut",
+        "type": "object"
+      },
+      "ParamsApplied": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamOut"
+            },
+            "title": "Params",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups",
+          "params",
+          "changed"
+        ],
+        "title": "ParamsApplied",
+        "type": "object"
+      },
+      "ParamsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamOut"
+            },
+            "title": "Params",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups",
+          "params"
+        ],
+        "title": "ParamsOut",
+        "type": "object"
+      },
+      "ParamsPut": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxProperties": 100,
+            "minProperties": 1,
+            "title": "Changes",
+            "type": "object"
+          },
+          "confirm_safety": {
+            "default": false,
+            "title": "Confirm Safety",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "changes"
+        ],
+        "title": "ParamsPut",
+        "type": "object"
+      },
+      "ParamsReset": {
+        "additionalProperties": false,
+        "description": "Exactly one of ``key`` and ``group``.",
+        "properties": {
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          }
+        },
+        "title": "ParamsReset",
         "type": "object"
       },
       "PeakShaving": {
@@ -10702,6 +11748,102 @@
         "title": "RoleSpec",
         "type": "object"
       },
+      "RunFigures": {
+        "additionalProperties": false,
+        "description": "Energy (Wh), cost (currency) and KPIs of one run over the priced, replayed slots.",
+        "properties": {
+          "autarky": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autarky"
+          },
+          "charge_wh": {
+            "title": "Charge Wh",
+            "type": "number"
+          },
+          "cost_net": {
+            "title": "Cost Net",
+            "type": "number"
+          },
+          "curtailed_wh": {
+            "default": 0.0,
+            "title": "Curtailed Wh",
+            "type": "number"
+          },
+          "discharge_wh": {
+            "title": "Discharge Wh",
+            "type": "number"
+          },
+          "equivalent_full_cycles": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equivalent Full Cycles"
+          },
+          "export_revenue": {
+            "title": "Export Revenue",
+            "type": "number"
+          },
+          "export_wh": {
+            "title": "Export Wh",
+            "type": "number"
+          },
+          "house_wh": {
+            "title": "House Wh",
+            "type": "number"
+          },
+          "import_cost": {
+            "title": "Import Cost",
+            "type": "number"
+          },
+          "import_wh": {
+            "title": "Import Wh",
+            "type": "number"
+          },
+          "pv_wh": {
+            "title": "Pv Wh",
+            "type": "number"
+          },
+          "self_consumption": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Self Consumption"
+          }
+        },
+        "required": [
+          "pv_wh",
+          "house_wh",
+          "import_wh",
+          "export_wh",
+          "charge_wh",
+          "discharge_wh",
+          "import_cost",
+          "export_revenue",
+          "cost_net",
+          "autarky",
+          "self_consumption",
+          "equivalent_full_cycles"
+        ],
+        "title": "RunFigures",
+        "type": "object"
+      },
       "SankeyLinkOut": {
         "additionalProperties": false,
         "properties": {
@@ -11362,6 +12504,25 @@
         "title": "SkillSeriesOut",
         "type": "object"
       },
+      "SkippedDay": {
+        "additionalProperties": false,
+        "properties": {
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/Reason"
+          }
+        },
+        "required": [
+          "day",
+          "reason"
+        ],
+        "title": "SkippedDay",
+        "type": "object"
+      },
       "SnapshotMessage": {
         "additionalProperties": false,
         "properties": {
@@ -11432,6 +12593,36 @@
           "intervals"
         ],
         "title": "SnapshotRefOut",
+        "type": "object"
+      },
+      "SolveStats": {
+        "additionalProperties": false,
+        "description": "Planner runs of the replay; times vary between machines and are not part of the\ndeterministic result.",
+        "properties": {
+          "fallbacks": {
+            "title": "Fallbacks",
+            "type": "integer"
+          },
+          "replans": {
+            "title": "Replans",
+            "type": "integer"
+          },
+          "solve_s_max": {
+            "title": "Solve S Max",
+            "type": "number"
+          },
+          "solve_s_total": {
+            "title": "Solve S Total",
+            "type": "number"
+          }
+        },
+        "required": [
+          "replans",
+          "fallbacks",
+          "solve_s_total",
+          "solve_s_max"
+        ],
+        "title": "SolveStats",
         "type": "object"
       },
       "SolverStats": {
@@ -11786,6 +12977,36 @@
           "export"
         ],
         "title": "TariffConfig",
+        "type": "object"
+      },
+      "TariffOverlay": {
+        "additionalProperties": false,
+        "description": "A flat tariff to try instead of the stored prices (currency/kWh).",
+        "properties": {
+          "export_price": {
+            "default": 0.0,
+            "maximum": 100.0,
+            "minimum": -10.0,
+            "title": "Export Price",
+            "type": "number"
+          },
+          "import_price": {
+            "maximum": 100.0,
+            "minimum": -10.0,
+            "title": "Import Price",
+            "type": "number"
+          },
+          "kind": {
+            "const": "fixed",
+            "default": "fixed",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "import_price"
+        ],
+        "title": "TariffOverlay",
         "type": "object"
       },
       "TariffTemplate": {
@@ -12543,6 +13764,216 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/backtests": {
+      "get": {
+        "description": "The kept runs (the last five), newest first, with progress but without results.",
+        "operationId": "list_backtests",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BacktestRunOut"
+                  },
+                  "title": "Response List Backtests",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No history"
+          }
+        },
+        "summary": "List Backtests"
+      },
+      "post": {
+        "description": "Replay local days ``start..end`` (at most 30, all in the past) through the planner\nwith the overlay (``planner``/``forecast`` parameters tagged ``whatif``, battery\nsettings, a flat tariff). Returns at once; poll ``GET /backtests/{id}``. Nothing is\nwritten to the configuration or to a device.",
+        "operationId": "start_backtest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "A run or the planner is active"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Window not past, or overlay unusable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No history or no site configuration"
+          }
+        },
+        "summary": "Start Backtest"
+      }
+    },
+    "/api/v1/backtests/{run_id}": {
+      "delete": {
+        "description": "Cancel a running run (kept as ``cancelled``) or delete a finished one.",
+        "operationId": "cancel_backtest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestCancelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such run"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No history"
+          }
+        },
+        "summary": "Cancel Backtest"
+      },
+      "get": {
+        "description": "One run: status, progress while running, the result when done, the reason when it\nfailed or was cancelled.",
+        "operationId": "get_backtest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such run"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No history"
+          }
+        },
+        "summary": "Get Backtest"
+      }
+    },
     "/api/v1/config/battery": {
       "get": {
         "operationId": "get_config_battery",
@@ -12685,6 +14116,78 @@
           }
         },
         "summary": "Replace the devices section"
+      }
+    },
+    "/api/v1/config/expert": {
+      "get": {
+        "operationId": "get_config_expert",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ExpertConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Config Expert"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the expert section"
+      },
+      "put": {
+        "operationId": "put_config_expert",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpertConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpertConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Replace the expert section"
       }
     },
     "/api/v1/config/export": {
@@ -15690,6 +17193,131 @@
           }
         },
         "summary": "Set Global Mode"
+      }
+    },
+    "/api/v1/params": {
+      "get": {
+        "description": "Every tunable parameter: type, unit, hard range, tags (``safety``: confirmation\nneeded, ``restart``), the catalogue keys of its name and help text, the default, the\ncurrent value and whether it differs from the default.",
+        "operationId": "get_params",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParamsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Params"
+      },
+      "put": {
+        "description": "Change parameters, all or nothing. A value outside its hard range, of the wrong type\nor for an unknown key is a 422 (nothing is stored). Changing a ``safety``-tagged value\nneeds ``confirm_safety: true`` (422 otherwise); the range is never widened by it.",
+        "operationId": "put_params",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParamsPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParamsApplied"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "A parameter's section is not configured"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Put Params"
+      }
+    },
+    "/api/v1/params/reset": {
+      "post": {
+        "description": "Restore the default of one ``key`` or of every parameter of a ``group``. Needs no\nconfirmation: a default is inside the hard range by construction.",
+        "operationId": "reset_params",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParamsReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParamsApplied"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unknown key or group"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Reset Params"
       }
     },
     "/api/v1/plan": {

@@ -43,6 +43,7 @@ from suncore.app.adapters import (
     build_pv_forecast_service,
     build_tariff_service,
 )
+from suncore.app.backtests import BacktestJobs
 from suncore.app.cadence import device_cadences, merge_cadences
 from suncore.app.control import BatteryWiring, ControlStack, InverterWiring, probe_temperature_c
 from suncore.app.evcc_link import EvccLink
@@ -99,10 +100,12 @@ from suncore.core.controlstate import (
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.devices import ChargerControl, DeviceConfig, LoadpointControl
+from suncore.core.expert import ExpertConfig
 from suncore.core.flex import MAX_HORIZON, EvMode, EvState, EvTarget, ProgramJob
 from suncore.core.grid import GridState, Para14aStatus, month_key, peak_limit_w
 from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.identity import battery_identity_token, identity_token
+from suncore.core.params import apply_controller, overrides_for
 from suncore.core.series import QuantileSeries, TimeRange
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
@@ -158,8 +161,10 @@ from suncore.notify import (
 from suncore.planner import build_inputs
 from suncore.planner import reasons as planner_reasons
 from suncore.planner.flex import EvLive, FlexRequest
+from suncore.planner.inputs import DEFAULT_MIP_GAP
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck, Trigger
 from suncore.safety.gate import REASON_OVERRIDE_HELD, Clock, SafetyGate
+from suncore.sim.backtest import BACKTEST_BUDGET_S, BacktestSite
 from suncore.storage import (
     ConfigStore,
     Database,
@@ -171,6 +176,7 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
+from suncore.storage.backtests import BacktestRunStore
 from suncore.storage.flex import FlexStateStore
 from suncore.storage.grid import GridStore
 from suncore.storage.summaries import DaySummaryRow
@@ -180,7 +186,7 @@ from suncore.tariff.report import PriceReport
 from suncore.templates import BatteryTemplate, InverterTemplate, TariffTemplate, TemplateCatalog
 
 PLANNING_SECTIONS = frozenset(
-    {"site", "region", "tariff", "forecast", "battery", "goals", "devices"}
+    {"site", "region", "tariff", "forecast", "battery", "goals", "devices", "expert"}
 )
 """Configuration sections whose change asks for a new plan."""
 DEFAULT_INVERTER_TEMPLATES: dict[str, str] = {
@@ -249,6 +255,8 @@ class Runtime:
     """The ``battery`` section (adapter, model, policy); ``None`` = never stored."""
     inverter_config: InverterConfig | None = None
     """The ``inverter`` section (limit adapter, PR 6-G); ``None`` = never stored."""
+    expert: ExpertConfig | None = None
+    """The ``expert`` section (parameter overrides); ``None`` = never stored = all defaults."""
     tariff: TariffService | None = None
     """Keeps the prices fresh (``None``: no tariff, no region or an unusable template)."""
     timeseries_db: Database | None = None
@@ -298,6 +306,8 @@ class Runtime:
     planning: PlanningService | None = None
     """The planner runtime (built in :meth:`prepare`; the control stack reads its plan)."""
     _planning_task: asyncio.Task[None] | None = None
+    backtest_jobs: BacktestJobs | None = None
+    """Backtest runs (Phase 5 WP6); ``None`` without ``timeseries.db``."""
     _plan_unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _history_done: bool = False
     """The statistics rebuild ran (or was not needed) in this process."""
@@ -346,6 +356,7 @@ class Runtime:
         self._build_tariff()
         if self.timeseries is not None:
             self.thermal = ThermalLearner(self.timeseries, self.learned, clock=self.clock)
+        await self._prepare_backtests()
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -458,6 +469,9 @@ class Runtime:
         inverter = await self.config.get("inverter")
         assert inverter is None or isinstance(inverter, InverterConfig)
         self.inverter_config = inverter
+        expert = await self.config.get("expert")
+        assert expert is None or isinstance(expert, ExpertConfig)
+        self.expert = expert
         await self._load_modes()
 
     async def _load_modes(self) -> None:
@@ -489,11 +503,17 @@ class Runtime:
             self._live_reading,
             clock=self.clock,
             sleep=self.control_sleep,
-            settings=PlanningSettings(
-                budget_s=self.settings.planner_budget_s, mip_gap=self.settings.planner_mip_gap
-            ),
+            settings=self._planning_settings(),
             store=self.plans,
         )
+
+    def _planning_settings(self) -> PlanningSettings:
+        """The app options, then the expert overrides on top (``planner.*`` parameters)."""
+        base = PlanningSettings(
+            budget_s=self.settings.planner_budget_s, mip_gap=self.settings.planner_mip_gap
+        )
+        changes = overrides_for(self.expert, "planner")
+        return replace(base, **changes) if changes else base
 
     def _start_planning(self) -> None:
         if self.planning is not None and self._started and self._planning_task is None:
@@ -617,6 +637,54 @@ class Runtime:
         assert self.planning is not None
         return self.planning.add_listener(listener)
 
+    # --- backtests (Phase 5 WP6) ---------------------------------------------------------
+
+    async def _prepare_backtests(self) -> None:
+        if self.timeseries is None or self.backtest_jobs is not None:
+            return
+        timeseries = self.timeseries
+        self.backtest_jobs = BacktestJobs(
+            BacktestRunStore(self.db, clock=self.clock),
+            history=lambda: timeseries,
+            site=self._backtest_site,
+            today=lambda: self.clock().astimezone(self._blend_tz()).date(),
+            busy=lambda: self.planning is not None and self.planning.busy,
+        )
+        await self.backtest_jobs.recover()
+
+    def backtests(self) -> BacktestJobs | None:
+        return self.backtest_jobs
+
+    async def _backtest_site(self) -> BacktestSite | None:
+        """The configuration of the moment as a plain value for a backtest (never written)."""
+        site = self.site
+        if site is None or not self._time_zone_settled():
+            return None
+        context = self._summary_context()
+        pv_sources: tuple[str, ...] = ()
+        if self.pv_service is not None:
+            pv_sources = (BLENDED_SOURCE_ID, *self.pv_service.source_ids)
+        load_sources = (
+            ("load_profile",) if self.load_service is None else self.load_service.source_ids
+        )
+        planning = None if self.planning is None else self.planning.settings
+        return BacktestSite(
+            tz=context.tz,
+            tz_name=context.tz_name,
+            battery=await self._battery_settings(),
+            site_battery=site.battery,
+            goals=self.goals,
+            import_limit_w=site.grid.import_limit_w,
+            export_limit_w=export_limit_w(site),
+            price_source_id=context.price_source_id,
+            export_fallback=context.export_fallback,
+            currency=context.currency,
+            pv_source_ids=pv_sources,
+            load_source_ids=load_sources,
+            budget_s=BACKTEST_BUDGET_S,
+            mip_gap=DEFAULT_MIP_GAP if planning is None else planning.mip_gap,
+        )
+
     # --- tariff (prices) --------------------------------------------------------
 
     def _build_tariff(self) -> None:
@@ -681,8 +749,10 @@ class Runtime:
     ) -> ControlStack:
         devices = list(self.devices.devices) if self.devices is not None else []
         site = self.site
-        settings = self.control_settings or ControlSettings(
-            tick_s=float(self.settings.controller_interval_s)
+        settings = apply_controller(
+            self.control_settings
+            or ControlSettings(tick_s=float(self.settings.controller_interval_s)),
+            self.expert,
         )
         stack = ControlStack(
             self.connection,
@@ -1494,6 +1564,8 @@ class Runtime:
         async with self._stack_lock:
             if self.stack is not None:
                 await self.stack.shutdown()
+        if self.backtest_jobs is not None:
+            await self.backtest_jobs.shutdown()
         for task in storage_tasks:
             if task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -1719,6 +1791,9 @@ class Runtime:
             assert isinstance(stored, InverterConfig)
             self.inverter_config = stored
             await self._load_modes()  # a changed adapter dropped the inverter mode
+        elif name == "expert":
+            assert isinstance(stored, ExpertConfig)
+            await self._apply_expert(stored)
         else:
             self._store_planning_input(name, stored)
         if name == "site":
@@ -1737,6 +1812,18 @@ class Runtime:
             await self._rebuild_load_service()
         if name == "devices":
             await self._sync_modes()
+
+    async def _apply_expert(self, stored: ExpertConfig) -> None:
+        """Hot-apply the expert overrides (Phase 5 WP5): the planner settings are swapped in
+        place, a changed controller or safety value rebuilds the control stack - the same
+        hand-over every device edit goes through (the old gate releases, the new one recovers),
+        so a new write interval or switch limit never applies half-way."""
+        before = overrides_for(self.expert, "controller")
+        self.expert = stored
+        if self.planning is not None:
+            self.planning.update_settings(self._planning_settings())
+        if overrides_for(stored, "controller") != before:
+            await self._rebuild_stack()
 
     # --- operating modes ----------------------------------------------------------
 
@@ -2068,7 +2155,7 @@ class Runtime:
     async def restore_section(self, name: str, entry_id: int) -> BaseModel:
         """Restore a history entry; live sections are reloaded like after a normal save."""
         restored = await self.config.restore(name, entry_id)
-        if name in ("site", "devices", "region", "goals", "operation", "forecast"):
+        if name in ("site", "devices", "region", "goals", "operation", "forecast", "expert"):
             await self._reload_live_sections(resubscribe=name in ("site", "devices", "forecast"))
         self._notify()
         return restored
@@ -2184,12 +2271,19 @@ class Runtime:
         forecast_before = self.forecast
         devices_before = self.devices
         tariff_before = self.tariff_config
+        controller_before = overrides_for(self.expert, "controller")
         await self._load_live_sections()
         if resubscribe:
             await self._resubscribe()
         if self.tariff_config != tariff_before or (self.site, self.region) != before[::2]:
             await self._rebuild_tariff()
-        if (self.site, self.devices, self.region) != before:
+        if self.planning is not None:
+            self.planning.update_settings(self._planning_settings())
+        # A restored or imported ``expert`` section takes effect through the same hand-over as
+        # a ``PUT`` (control-safety review of PR 5-E): never only at the next restart.
+        if (self.site, self.devices, self.region) != before or overrides_for(
+            self.expert, "controller"
+        ) != controller_before:
             await self._rebuild_stack()
         elif self.stack is not None and self.goals is not None:
             self.stack.set_goals(self.goals)

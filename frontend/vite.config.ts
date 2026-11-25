@@ -21,8 +21,9 @@ export default defineConfig({
           ) {
             return 'icu';
           }
-          // One chunk per main catalogue: English is eager, the others load on demand. Other files
-          // in the folder (lazy catalogues such as param texts) keep their own dynamic chunks.
+          // The parameter help (expert area only) loads on demand, not on first paint.
+          if (id.includes('/src/lib/i18n/locales/params.')) return 'catalogue-params';
+          // One chunk per main catalogue: English is eager, the others load on demand.
           const main = /\/src\/lib\/i18n\/locales\/(en|de)\.json$/.exec(id);
           if (main) return `catalogue-${main[1]}`;
           // ECharts and its canvas layer load on demand with the plan and history views only: one

@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, tzinfo
 from pathlib import Path
-from typing import Any, Final, Protocol
+from typing import Any, Final, Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -35,6 +35,7 @@ from suncore.forecast.views import (
 )
 from suncore.notify import NotifyStatus, TestResult
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
+from suncore.sim.backtest_models import BacktestJobView, BacktestRequest
 from suncore.storage import DecisionLog, HistoryEntry, PlanSnapshotStore, TimeseriesStore
 from suncore.storage.summaries import DaySummaryRow
 from suncore.tariff.report import PriceReport
@@ -113,6 +114,25 @@ class HistorySources:
     clock: Callable[[], datetime]
     live_day: Callable[[date], Awaitable[DaySummaryRow | None]] | None = None
     """The row a not yet frozen day would get now (``None``: no live day)."""
+
+
+class BacktestService(Protocol):
+    """The backtest job runner (Phase 5 WP6, ``suncore.app.backtests.BacktestJobs``)."""
+
+    async def start(self, request: BacktestRequest) -> BacktestJobView:
+        """Start a run; raises ``BacktestWindowError``, ``BacktestBusyError``,
+        ``BacktestUnavailableError`` (``suncore.sim.backtest_models``)."""
+        ...
+
+    async def runs(self) -> list[BacktestJobView]:
+        """The kept runs, newest first, without results."""
+        ...
+
+    async def get(self, run_id: int) -> BacktestJobView | None: ...
+
+    async def cancel(self, run_id: int) -> Literal["cancelled", "deleted"] | None:
+        """Cancel a running run or delete a finished one; ``None`` if unknown."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +231,10 @@ class Services(Protocol):
 
     def history_sources(self) -> HistorySources | None:
         """What the history endpoints read; ``None`` while nothing can be read (tests, stub)."""
+        ...
+
+    def backtests(self) -> BacktestService | None:
+        """The backtest jobs; ``None`` without a time-series database (tests, stub)."""
         ...
 
     # --- forecasts (Phase 4 WP5) ---------------------------------------------------------

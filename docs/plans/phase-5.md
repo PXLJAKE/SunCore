@@ -430,6 +430,40 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   newest snapshot created at or before `ts` even when its intervals have run out
   (`interval_index` is then `null`). The explain inputs are the raw site readings (grid, PV, house,
   battery, SoC, the device's power and state), not a derived surplus.
+
+- **5-E (parameter registry).** (1) The `expert` section is a *sparse override map*
+  (`overrides: {key: value}`), not a typed struct per parameter: the defaults stay in the registry,
+  an empty or missing document is today's behaviour, and a reset removes a key. (2) Config
+  parameters (`tariff.export.*`, `forecast.learning.*`) are **not** stored in `expert`; they are
+  written into their own section through the same `PUT /params` (a 409 while that section does not
+  exist yet). (3) `PUT /config/expert` stays available (storage, history, import use the same
+  model) but refuses a changed safety value: those need `/params` with `confirm_safety`. (4) No
+  parameter is tagged `restart`: planner settings are swapped in place and a changed controller
+  value rebuilds the control stack (the device-edit hand-over). (5) The reference spot source for
+  the negative-price rule is a **sensor with the current spot price** (`CurrentPriceSource`), so it
+  informs the current slot only; later slots of an all-in source keep the end-price proxy. A real
+  curve needs a second price template binding and stays open. (6) Per-device minimum run/pause
+  times are device configuration and are not registry parameters; their hard bounds stay with the
+  device model. (7) The hard bounds in `core/control.py::SAFETY_LIMITS` were proposals for the
+  `control-safety` review of 5-E (the maintainer's question 2 gave "inside the hard bounds of the
+  safety layer" without numbers); the review tightened six of them and added the combined
+  bound `INPUTS_MAX_AGE_LIMIT_S` (reasons in the `SAFETY_LIMITS` docstring).
+
+- **5-J (backtest).** (1) The overlay uses the registry as asked, but only `planner.budget_s` and
+  `planner.mip_gap` are tagged `whatif` today; the battery and tariff what-ifs of decision 5
+  (strategy, autarky weight, grid-charge policy, capacity, power, reserve, a flat tariff) are
+  typed request fields, not registry parameters, so they never appear in `PUT /params`. HT/NT
+  and price-formula tariffs are not offered yet (5-K can add them). (2) The learnt risk model
+  (morning buffer, evening target) and the ML/profile choice of the load forecast are not
+  replayed: configured targets apply and the profile forecast is preferred (listed as a
+  limitation). (3) Execution follows the plan's battery *band* like a self-consumption inverter,
+  not the planned set-point (ADR-0013: bands are limits). (4) Prices count as known from their
+  day-ahead publication (13:00 local for the next day). (5) The memory guard compares the process
+  RSS with 280 MB (not 200 MB as in R2): the backtest itself peaks at about 80 MB, but the app's
+  own RSS is included and the Pi budget is 300 MB. (6) `DELETE /backtests/{id}` cancels a running
+  run and deletes a finished one; there is no separate cancel route. (7) The "controller loop is
+  late" refusal of R2 is not implemented; a run is refused only while the planner solves.
+
 - **5-G:** no free custom range (`/history/summary` takes a period and a day only); the date field
   jumps to any day's period instead. The heatmap shows at least the last 28 days, cycles and
   forecast skill the 14 days up to a single day (the caption names the range). The deep link to
@@ -454,6 +488,18 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   it arrived). First paint fell from 124.7 to 98.8 kB. `Translator.set()` adds a catalogue; lazy
   extras such as `params.<lang>.json` (5-E) compose through the same `set`/`extend` idea and keep
   their own chunks (`vite.config.ts` only names the `en`/`de` main files).
+- **5-K (what-if UI).** (1) Navigation: the header link appears only with expert mode on (BRIEF
+  §4.12); `#/whatif` itself stays reachable and explains why it is empty. (2) Only numeric `whatif`
+  parameters are offered (`planner.budget_s`, `planner.mip_gap` today); bool/enum ones would need
+  the fields of `ParamField`. (3) Battery and tariff what-ifs are the typed fields of 5-J; HT/NT
+  and price-formula tariffs are still not offered (no request field). (4) Grid charging offers
+  "never" or "up to a price"; a schedule is not editable. (5) The server date comes from
+  `history/summary?period=day` (the browser clock may differ, the demo's is simulated). (6) No
+  "run again with these settings" button (dropped for the bundle budget). (7) Hourly charts show
+  SoC and grid power; battery power is only in the table (energy). (8) **Budget:** the total
+  without ECharts is 251.7 kB against 250 kB; trimming strings, merging chart helpers and
+  re-using `NumberField` and existing keys was not enough. Options: raise the budget by 2 kB, or
+  drop CSV export and the grid chart (about 0.8 kB) and more. Not decided here.
 
 - **5-F:** the chunks of decision 6 are split as `echarts-core` (183 kB gzip), `echarts-plan`
   (`custom`, `dataZoom`; 9 kB) and `echarts-history` (Sankey, heatmap, visualMap; 13 kB). The size
@@ -470,3 +516,10 @@ if cheap); built-in price and PV fallbacks (Phase 6).
   periods (from `expected.battery_w` with a 50 W threshold), measured bars from
   `device.<id>.on` (share >= 0.5 ran, less partial) and `site.battery_w`. Devices outside the plan
   have no lane. Zoom state is not in the URL.
+
+- **5-L:** two further guides next to the three planned (`decision-log.md`, `plan-chart.md`), no
+  separate screenshots (existing demo ones). There is no `mkdocs.yml` in the repository, so the
+  README documentation list is the index. `docs/architecture.md` §7 and §9 were not touched
+  (engineering document, left to the architect). After merging 5-F into 5-K the total bundle
+  without ECharts is 265.9 kB against 250 kB; the budget was not changed (open question in
+  STATUS).

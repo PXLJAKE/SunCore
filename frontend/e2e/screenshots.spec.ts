@@ -260,3 +260,58 @@ for (const locale of ['en-US', 'de-DE'] as const) {
     }
   });
 }
+
+// The what-if view with a finished replay (expert mode on; the run is started through the API).
+for (const shot of [
+  { scheme: 'light', locale: 'en-US' },
+  { scheme: 'dark', locale: 'en-US' },
+  { scheme: 'light', locale: 'de-DE' },
+  { scheme: 'dark', locale: 'de-DE' },
+] as const) {
+  test(`whatif ${shot.scheme} ${shot.locale}`, async ({ browser, request }, info) => {
+    test.skip(info.project.name === 'desktop', 'docs use phone and tablet');
+    const summary = await request.get('/api/v1/history/summary?period=day');
+    const today = ((await summary.json()) as { key: string }).key;
+    const day = (back: number) =>
+      new Date(Date.parse(`${today}T00:00:00Z`) - back * 86_400_000).toISOString().slice(0, 10);
+    const clear = async (cancelFirst: boolean) => {
+      const runs = (await (await request.get('/api/v1/backtests')).json()) as { id: number }[];
+      for (const r of runs) {
+        if (cancelFirst) await request.delete(`/api/v1/backtests/${r.id}`);
+        await request.delete(`/api/v1/backtests/${r.id}`);
+      }
+    };
+    await clear(true);
+    await expect(async () => {
+      const res = await request.post('/api/v1/backtests', {
+        data: {
+          start: day(4),
+          end: day(1),
+          params: { 'planner.mip_gap': 0.02 },
+          battery: { capacity_wh: 12000 },
+          tariff: { kind: 'fixed', import_price: 0.32, export_price: 0.08 },
+          perfect_foresight: true,
+        },
+      });
+      expect(res.status()).toBe(202);
+    }).toPass({ timeout: 30_000 });
+    const ctx = await browser.newContext({
+      colorScheme: shot.scheme,
+      locale: shot.locale,
+      viewport: info.project.use.viewport ?? { width: 1024, height: 768 },
+      hasTouch: info.project.use.hasTouch,
+    });
+    await ctx.addInitScript(() => localStorage.setItem('suncore.expert', '1'));
+    const page = await ctx.newPage();
+    await page.goto('/#/whatif');
+    await expect(page.getByTestId('whatif-result')).toBeVisible({ timeout: 90_000 });
+    for (const c of ['cost', 'soc', 'grid']) {
+      await expect(page.getByTestId(`whatif-plot-${c}`).locator('canvas').first()).toBeVisible();
+    }
+    await page.waitForTimeout(1000);
+    const name = `whatif-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
+    await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
+    await ctx.close();
+    await clear(false);
+  });
+}

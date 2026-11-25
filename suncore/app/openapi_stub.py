@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from suncore import __version__
 from suncore.api.flex_types import GridEvents, GridStatus
 from suncore.api.services import (
+    BacktestService,
     EntityQuery,
     HealthReport,
     HistorySources,
@@ -98,6 +99,9 @@ class StubServices:
         return []
 
     def history_sources(self) -> HistorySources | None:
+        return None
+
+    def backtests(self) -> BacktestService | None:
         return None
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
