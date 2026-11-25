@@ -1,9 +1,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { tReason } from '../control/reasonText';
   import { tick } from 'svelte';
   import type { Decision } from '../api/types';
   import { batteryParts, describeAction } from '../control/actions';
-  import { t, tDateTime, tDynamic, tPower, type MessageKey } from '../i18n/index.svelte';
+  import { t, tDateTime, tPower, type MessageKey } from '../i18n/index.svelte';
   import type { ExplainState } from '../stores/decisionLog.svelte';
   import DecisionWhy from './DecisionWhy.svelte';
 
@@ -83,7 +84,7 @@
             {#each lines(d) as line, k (k)}<span class="line">{line}</span>{/each}
           </td>
           <td class="reasons">
-            {#each d.reasons as r, k (k)}<span class="line">{tDynamic(r.key, r.args)}</span>{/each}
+            {#each d.reasons as r, k (k)}<span class="line">{tReason(r)}</span>{/each}
           </td>
           <td class="why-cell">
             {#if id !== undefined}

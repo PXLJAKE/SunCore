@@ -43,7 +43,10 @@ export function stateView(d: DeviceControlState): StateView {
     return { kind: 'setpoint', setpoint: s.setpoint_c, base: d.base_setpoint_c };
   }
   if (s.step != null && s.on !== false) return { kind: 'step', step: s.step };
-  if (s.value != null && d.kind === 'number_load') return { kind: 'level', value: s.value };
+  // An adjustable load at level 0 draws nothing: it is off (not "Level 0 W", which reads as power).
+  if (s.value != null && d.kind === 'number_load') {
+    return s.value === 0 ? { kind: 'off' } : { kind: 'level', value: s.value };
+  }
   if (s.on == null) return { kind: 'unknown' };
   return { kind: s.on ? 'on' : 'off' };
 }

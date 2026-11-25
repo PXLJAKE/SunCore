@@ -135,6 +135,8 @@
     display: grid;
     gap: var(--sc-space-4);
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    /* Each card keeps its own height: a stretched battery card would end in an empty gap. */
+    align-items: start;
   }
   .devices {
     display: grid;

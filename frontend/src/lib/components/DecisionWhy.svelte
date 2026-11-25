@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { tReason } from '../control/reasonText';
   import type { Decision, DecisionExplain } from '../api/types';
   import { batteryParts, describeAction } from '../control/actions';
   import {
@@ -127,7 +128,7 @@
       <p class="hint">{t('why.no_reasons')}</p>
     {:else}
       <ul class="plain">
-        {#each d.reasons as r, i (i)}<li>{tDynamic(r.key, r.args)}</li>{/each}
+        {#each d.reasons as r, i (i)}<li>{tReason(r)}</li>{/each}
       </ul>
     {/if}
 
@@ -179,7 +180,7 @@
         {/if}
         {#if iv.reasons.length > 0}
           <ul class="plain">
-            {#each iv.reasons as r, i (i)}<li>{tDynamic(r.key, r.args)}</li>{/each}
+            {#each iv.reasons as r, i (i)}<li>{tReason(r)}</li>{/each}
           </ul>
         {/if}
       {:else}
@@ -243,7 +244,7 @@
                     · {t(KIND[n.decision.kind])}
                     · {actionLines(n.decision)[0]}
                     {#each n.decision.reasons.slice(0, 1) as r, i (i)}
-                      <span class="sub">{tDynamic(r.key, r.args)}</span>
+                      <span class="sub">{tReason(r)}</span>
                     {/each}
                   </li>
                 {/each}

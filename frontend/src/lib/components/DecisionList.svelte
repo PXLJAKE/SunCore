@@ -1,10 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { tReason } from '../control/reasonText';
   import type { Decision } from '../api/types';
   import { batteryParts, describeAction } from '../control/actions';
   import { splitSharedReasons } from '../control/present';
   import Icon from '../ui/Icon.svelte';
-  import { t, tDateTime, tDynamic, tPower, tTime, type MessageKey } from '../i18n/index.svelte';
+  import { t, tDateTime, tPower, tTime, type MessageKey } from '../i18n/index.svelte';
 
   interface Props {
     decisions: readonly Decision[];
@@ -36,7 +37,7 @@
   {#if split.shared.length > 0}
     <p class="shared" data-testid="decisions-shared">
       <Icon name="info" size={16} />
-      <span>{split.shared.map((r) => tDynamic(r.key, r.args)).join(' ')}</span>
+      <span>{split.shared.map((r) => tReason(r)).join(' ')}</span>
     </p>
   {/if}
   <ul class="decisions">
@@ -60,7 +61,7 @@
             >
           </span>
           {#each split.own[i] ?? [] as r, k (k)}
-            <span class="reason">{tDynamic(r.key, r.args)}</span>
+            <span class="reason">{tReason(r)}</span>
           {/each}
         </span>
       </li>

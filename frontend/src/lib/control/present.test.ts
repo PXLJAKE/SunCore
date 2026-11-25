@@ -56,6 +56,10 @@ describe('stateView', () => {
     expect(
       stateView(device({ kind: 'number_load', state: { on: false, value: 1200, quality: 'ok' } })),
     ).toEqual({ kind: 'level', value: 1200 });
+    // Level 0 is off, not "Level 0 W".
+    expect(
+      stateView(device({ kind: 'number_load', state: { on: true, value: 0, quality: 'ok' } })),
+    ).toEqual({ kind: 'off' });
     expect(stateView(device({ state: null }))).toEqual({ kind: 'unknown' });
     expect(stateView(device({ state: { on: null, quality: 'unavailable' } }))).toEqual({
       kind: 'unknown',

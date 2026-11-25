@@ -84,6 +84,13 @@ describe('EnergyNow', () => {
     expect(explain.textContent).toContain('Nothing is switched');
   });
 
+  it('shows no surplus as 0 W, never as a negative surplus', () => {
+    render(EnergyNow, {
+      props: { flows: flows(), hasBattery: true, site: site({ free_w: -100 }) },
+    });
+    expect(screen.getByTestId('site-free').textContent?.trim().replace(/\s/g, ' ')).toBe('0 W');
+  });
+
   it('flags a deficit', () => {
     render(EnergyNow, {
       props: { flows: flows(), hasBattery: true, site: site({ deficit_w: 400 }) },

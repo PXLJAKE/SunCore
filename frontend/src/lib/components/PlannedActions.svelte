@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
-  import { t, tDynamic, tPercent, tPower, tTime } from '../i18n/index.svelte';
+  import { tReason } from '../control/reasonText';
+  import { t, tPercent, tPower, tTime } from '../i18n/index.svelte';
   import type { PlannedAction } from '../plan/model';
   import Icon from '../ui/Icon.svelte';
   import ReasonList from './ReasonList.svelte';
@@ -34,7 +35,7 @@
               >{t('plan.next.range', { from: tTime(a.start), to: tTime(a.end) })}</time
             >
             <span class="what">
-              {#if a.headline}<span>{tDynamic(a.headline.key, a.headline.args)}</span>{/if}
+              {#if a.headline}<span>{tReason(a.headline)}</span>{/if}
               {#if soc}<span class="chip-tag">{soc}</span>{/if}
               {#if a.dischargeLock}<span class="chip-tag warn">{t('plan.next.lock')}</span>{/if}
               {#if a.gridChargeW != null && a.gridChargeW > 0}

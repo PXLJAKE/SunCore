@@ -113,6 +113,9 @@
     (hasBattery ? (['pv', 'grid', 'battery'] as const) : (['pv', 'grid'] as const)).map(edge),
   );
 
+  // `free_w` is the available power minus the reserve and the committed draw; below zero there is
+  // simply no surplus (the gate clamps it the same way). Import caused by the controlled devices
+  // is the deficit, shown next to it.
   const split = $derived(site ? allocationSplit(site.allocated_draw_w, devices) : null);
   const siteBad = $derived(qualityKey(site?.quality));
 </script>
@@ -168,7 +171,7 @@
         <div>
           <dt>{t('site.free')}</dt>
           <dd data-testid="site-free">
-            {site.free_w == null ? t('site.unknown') : tPower(site.free_w)}
+            {site.free_w == null ? t('site.unknown') : tPower(Math.max(0, site.free_w))}
           </dd>
         </div>
         <div>

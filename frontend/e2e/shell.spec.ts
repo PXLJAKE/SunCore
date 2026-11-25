@@ -41,7 +41,11 @@ test('Analysis has tabs for history and decisions; what-if only in expert mode',
     'page',
   );
   await tabs.getByRole('link', { name: 'History' }).click();
-  await expect(page).toHaveURL(/#\/history$/);
+  // The tab opens `#/history`; the history view then writes its state into the URL with
+  // `router.replace` (canonical `#/history?period=week`). Asserting the bare hash raced that
+  // replace and passed only when the view's chunk loaded late, so the test checks the settled
+  // URL instead.
+  await expect(page).toHaveURL(/#\/history\?period=week$/);
   await expect(page.getByRole('heading', { name: 'History', level: 2 })).toBeVisible();
   await page.getByRole('switch', { name: 'Expert mode' }).click();
   await expect(tabs.getByRole('link')).toHaveText(['History', 'Decision log', 'What-if']);

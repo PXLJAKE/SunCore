@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import { tReason } from '../control/reasonText';
   import { onMount } from 'svelte';
   import { router } from '../router.svelte';
   import { parseTarget, targetHash, todayOf } from '../plan/target';
@@ -180,7 +181,7 @@
             <summary>{t('plan.next.why')}</summary>
             <ul class="reasons">
               {#each view.plan.reasons as r, i (i)}
-                <li>{tDynamic(r.key, r.args)}</li>
+                <li>{tReason(r)}</li>
               {/each}
             </ul>
           </details>
