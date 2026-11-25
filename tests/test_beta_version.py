@@ -90,10 +90,9 @@ def test_cli_compute_and_write(
     beta = tmp_path / "beta.yaml"
     stable.write_text('version: "0.2.0" # x-release-please-version\n', encoding="utf-8")
     beta.write_text('version: "0.2.0-beta.1"\n', encoding="utf-8")
-    assert (
-        mod.main(["compute", "--run-number", "5", "--stable", str(stable), "--beta", str(beta)])
-        == 0
-    )
+    unset = str(tmp_path / "no-such-config.json")  # no release-as: minor + 1
+    args = ["compute", "--run-number", "5", "--stable", str(stable), "--beta", str(beta)]
+    assert mod.main([*args, "--release-config", unset]) == 0
     version = capsys.readouterr().out.strip()
     assert version == "0.3.0-beta.5"
     assert mod.main(["write", version, "--beta", str(beta)]) == 0
@@ -107,4 +106,67 @@ def test_repository_configs_are_valid(mod: ModuleType) -> None:
     beta = mod.read_version(mod.BETA_CONFIG)
     mod.parse_stable(stable)
     mod.parse_beta(beta)
-    assert mod.next_beta_version(stable, beta, 1)
+    assert mod.next_beta_version(stable, beta, 1, mod.read_release_as(mod.RELEASE_CONFIG))
+
+
+# --- release-as (WP13): betas before a version jump ---------------------------------------
+
+
+def test_release_as_sets_the_base_of_the_betas(mod: ModuleType) -> None:
+    assert mod.next_beta_version("0.2.0", "0.3.0-beta.57", 60, "1.0.0") == "1.0.0-beta.60"
+
+
+def test_release_as_counter_never_repeats_or_goes_back(mod: ModuleType) -> None:
+    assert mod.next_beta_version("0.2.0", "1.0.0-beta.90", 12, "1.0.0") == "1.0.0-beta.91"
+    assert mod.next_beta_version("0.2.0", "1.0.0-beta.3", 40, "1.0.0") == "1.0.0-beta.40"
+
+
+def test_release_as_that_is_already_released_is_ignored(mod: ModuleType) -> None:
+    # after 1.0.0 is out the key may still be set: the next base is 1.1.0 again
+    assert mod.next_beta_version("1.0.0", "1.0.0-beta.99", 5, "1.0.0") == "1.1.0-beta.5"
+    assert mod.next_beta_version("1.2.0", "1.3.0-beta.4", 9, "1.0.0") == "1.3.0-beta.9"
+
+
+def test_release_as_unset_keeps_minor_plus_one(mod: ModuleType) -> None:
+    assert mod.next_beta_version("0.2.0", "0.3.0-beta.1", 7, None) == "0.3.0-beta.7"
+
+
+def test_release_as_must_be_a_plain_version(mod: ModuleType) -> None:
+    with pytest.raises(ValueError, match="stable version"):
+        mod.next_beta_version("0.2.0", "0.3.0-beta.1", 7, "1.0.0-rc.1")
+
+
+def test_release_as_never_moves_a_published_beta_backwards(mod: ModuleType) -> None:
+    with pytest.raises(ValueError, match="backwards"):
+        mod.next_beta_version("0.2.0", "2.0.0-beta.1", 7, "1.0.0")
+
+
+def test_read_release_as(mod: ModuleType, tmp_path: Path) -> None:
+    config = tmp_path / "release-please-config.json"
+    assert mod.read_release_as(config) is None  # no file
+    config.write_text('{"packages": {".": {"component": "suncore"}}}', encoding="utf-8")
+    assert mod.read_release_as(config) is None
+    config.write_text('{"packages": {".": {"release-as": "1.0.0"}}}', encoding="utf-8")
+    assert mod.read_release_as(config) == "1.0.0"
+    config.write_text('{"packages": {".": {"release-as": 1}}}', encoding="utf-8")
+    with pytest.raises(ValueError, match="release-as"):
+        mod.read_release_as(config)
+    config.write_text("not json", encoding="utf-8")
+    with pytest.raises(ValueError, match="release-as"):
+        mod.read_release_as(config)
+
+
+def test_cli_compute_reads_release_as(
+    mod: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stable = tmp_path / "stable.yaml"
+    beta = tmp_path / "beta.yaml"
+    config = tmp_path / "release-please-config.json"
+    stable.write_text('version: "0.2.0"\n', encoding="utf-8")
+    beta.write_text('version: "0.3.0-beta.9"\n', encoding="utf-8")
+    config.write_text('{"packages": {".": {"release-as": "1.0.0"}}}', encoding="utf-8")
+    args = ["compute", "--run-number", "12", "--stable", str(stable), "--beta", str(beta)]
+    assert mod.main([*args, "--release-config", str(config)]) == 0
+    assert capsys.readouterr().out.strip() == "1.0.0-beta.12"
+    config.write_text('{"packages": {".": {"release-as": 3}}}', encoding="utf-8")
+    assert mod.main([*args, "--release-config", str(config)]) == 2
