@@ -4,8 +4,7 @@ SunCore controls real electrical equipment. We take reports seriously.
 
 ## Supported versions
 
-Until 1.0, only the latest beta and the latest stable release receive
-fixes.
+Only the latest stable release and the latest beta receive fixes.
 
 ## Reporting a vulnerability
 
@@ -15,7 +14,12 @@ or e-mail <jake.frietsch@outlook.de>. You will get an acknowledgement within
 7 days and a fix or mitigation plan within 30 days for confirmed issues.
 
 Include: version, installation type (app or standalone), steps to
-reproduce, and the anonymised diagnostics export if relevant.
+reproduce, and the diagnostics export if relevant (Settings → Advanced →
+Diagnostics; secrets are masked and ids pseudonymised). Never send tokens
+or passwords.
+
+For the user-facing summary of what SunCore stores and exposes, see
+[`docs/user/en/security.md`](docs/user/en/security.md).
 
 ## Design notes
 
