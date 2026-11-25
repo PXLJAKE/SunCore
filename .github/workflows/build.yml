@@ -295,13 +295,11 @@ jobs:
           python-version: "3.13"
       - name: Install the docs toolchain
         run: uv sync --only-group docs --frozen
-      - name: Build the site
-        run: uv run --only-group docs --frozen mkdocs build --strict
-      - name: Zip and attach to the release
+      - name: Build the site as a drop-in folder for /docs/suncore/ and attach it
         run: |
           version="${RELEASE_TAG#v}"
           zip_name="suncore-docs-${version}.zip"
-          (cd site && zip -qr "../${zip_name}" .)
+          scripts/build_docs_zip.sh "${zip_name}"
           gh release upload "${RELEASE_TAG}" "${zip_name}" --clobber --repo "${GITHUB_REPOSITORY}"
 
   docs-deploy:
