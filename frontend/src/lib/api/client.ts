@@ -81,12 +81,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Sent with every request: the server refuses a write without it (security review SEC-13). A
+ * cross-site page cannot set a custom header without a CORS preflight, which SunCore never
+ * answers.
+ */
+export const REQUEST_HEADER = { 'X-SunCore-Request': '1' } as const;
+
 async function fetchOk(path: string, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(apiUrl(path), {
       ...init,
-      headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
+      headers: { Accept: 'application/json', ...(init?.headers ?? {}), ...REQUEST_HEADER },
     });
   } catch {
     throw new ApiError(0, 'api.error.network');

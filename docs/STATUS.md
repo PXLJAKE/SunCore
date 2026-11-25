@@ -245,6 +245,40 @@ Carried to Phase 7: see "Open - Phase 7".
   - en/de keys (`diag.*`, `hp.*`), Vitest (panel, presenter, card), Playwright `diagnostics.spec.ts`
     with axe on desktop, phone and tablet. Bundle: first paint 122.3 kB, standard 247.6 kB, expert
     extras 25.6 kB. Screenshots: `docs/assets/screenshots/after-7i/`.
+- **Phase 7 - PR 7-O, security review 1.0 (WP14; branch `phase-7/o-security`, 7-I + 7-H;
+  `reviewer`)** - `docs/security/review-1.0.md`, 26 findings (SEC-01 to SEC-26). Nothing in
+  `safety/` or `controller/` changed, and no MQTT command changed its effect:
+  - Fixed:
+    - a rejected or corrupt `mqtt` section no longer writes the password into the log or a
+      traceback (Pydantic `input_value`);
+    - broker passwords are registered with the log redaction;
+    - the redaction covers password-like keys and `user:password` in URLs;
+    - `SUNCORE_ALLOW_ANY_PEER` logs a warning;
+    - uvicorn ignores `X-Forwarded-For`;
+    - every JSON route has a body cap, and a test guards it;
+    - `nosniff` and `Referrer-Policy: same-origin`;
+    - the unused `homeassistant_config` map is removed from both apps, with a least-privilege
+      packaging test;
+    - actions are pinned by commit SHA (`helpers/info` was on `master`);
+    - CodeQL covers JavaScript/TypeScript;
+    - Dependabot watches npm;
+    - certifi and opentelemetry-api are bumped, and `pip-audit` is clean.
+  - Fixed with the `control-safety` sign-off (plan section 8, 7-O):
+    - SEC-13: every write needs `X-SunCore-Request: 1` (403
+      `api.error.request_header_missing`), the SPA always sends it; only *setting* the
+      emergency stop is exempt, clearing it never is; both ingress hops forward the header
+      (source read, `UNVERIFIED` on a live system);
+    - SEC-15: MQTT emergency-stop messages coalesce into the run in flight only while the stop
+      is in effect, so a flood costs one repeat; a stop after a clear starts its own run at once,
+      and a session teardown waits for a stop run instead of cancelling it (review F1, F2);
+    - SEC-16: the first refusal per entity and reason is logged, then a count every 60 s;
+      unknown object ids share one bucket (review F3).
+    - The independent `control-safety` review approved with conditions F1 to F3 (and wording
+      F6); all are fixed.
+  - Open after 1.0: CSP, a non-root user, an own AppArmor profile, image digests (`BUILD_FROM`,
+    `uv`) and ECharts 6. The verification window is pending 7-J.
+  - Questions 28 to 33 (23 to 28 on the 7-O branch) are in plan section 10; deviations and `UNVERIFIED` are in plan section 8
+    (7-O).
 - **Phase 7 - PR 7-I, diagnostics export and heat pump live values (backend half; branch
   `phase-7/i-diagnostics-backend`, on 7-B; `backend-engineer`)** - nothing in `safety/` or
   `controller/` changed; `frontend/` only by the regenerated OpenAPI types:
@@ -267,6 +301,25 @@ Carried to Phase 7: see "Open - Phase 7".
     no real entity id, device id or name, or HA area name appears, consistent pseudonyms across
     config, decisions and logs, the ring, the probe, the API route, and the heat pump values.
   - The frontend half is below (7-I frontend). Deviations and `UNVERIFIED`: plan section 8, 7-I.
+- **Phase 7 - PR 7-H, WP6 HA surface completion (branch `phase-7/h-ha-surface`, on 7-B;
+  `ha-integration`)** - read only, no command path, nothing in `safety/` or `controller/`:
+  - Five site sensors announced: `plan_cost_today` (the plan's priced intervals of the local
+    day), `savings_today` (today's `day_summary` preview, saving against a house without PV),
+    `autarky_today` (same row, in %), `pv_forecast_error` (newest `accuracy_day` day of the
+    blended PV forecast, n-weighted MAE) and `next_action` (first busy plan interval, rendered by
+    the backend ICU renderer in the configured language, at most 255 characters). The day values
+    are read in the background at most every 5 minutes; a missing source is "unknown".
+  - `pv_forecast_error` is now a `power` sensor in W, not `%`: `accuracy_day` has no actual
+    energy to divide by. `savings_month` stays unannounced (no month sum yet).
+  - MQTT event types with producers: `island_start/_end`, `para14a_start/_end`,
+    `program_start_now`, `program_done`, `cheap_window_start/_end`, `ev_target_at_risk`. They
+    are derived from the same `NotifyEvent`s as the pushes (`notify/signals.py`), independent
+    of quiet hours, the daily cap and category switches. `cheap_window_end` is new in the rule
+    engine. `proposal_expired` still has no producer; a program that was missed or whose
+    outcome is unknown stays push only.
+  - Device classes `plug`, `battery`, `timestamp`, unit `K` without a class, `monetary` and
+    `power` checked against the HA core source (`research/mqtt-discovery.md`).
+  - Deviations, `UNVERIFIED` and questions: plan section 8 (7-H).
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable
@@ -1542,12 +1595,11 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   §14a "not active", backup entity mapped or skipped), the simulated "car arrives late" and a
   washing-machine job in the demo, later a real wallbox, heat pump, evcc and inverter limit.
   The 16 questions of plan section 10 need answers or confirmation of the defaults.
-- **Still not fed or offered (6-O closed the rest):** costs, savings, autarky, forecast error and
-  the next action as MQTT entities (nothing produces them); the event types `island_*`,
-  `para14a_*`, `program_*`, `cheap_window_*` and `ev_target_at_risk` of the MQTT events entity;
-  HA **commands** for EV mode, target, program arming, comfort band and the battery settings
-  (with the author `mqtt` in the config history; needs a `control-safety` review, plan section 8,
-  6-O); a push for a target the plan meets but the controller later misses.
+- **Still not offered (6-O and 7-H closed the rest):** the month's savings as an MQTT entity, the
+  event type `proposal_expired`; HA **commands** for EV mode, target, program arming, comfort
+  band and the battery settings (with the author `mqtt` in the config history; needs a
+  `control-safety` review, plan section 8, 6-O); a push for a target the plan meets but the
+  controller later misses.
 - **Panel gaps:** evcc `loadpoint_id` and `topic_prefix`; bundle budget (7-Q: standard path
   252.4 of 250 kB, needs a maintainer decision or savings elsewhere). Done since: the inverter
   verification test (7-J), the per-device `para14a` flag, `shed_rank`, the island keep list and
@@ -1561,6 +1613,14 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
 - **Docs:** screenshots of the new views through the `demo-screenshots` skill, a followed test of
   every new how-to on Home Assistant OS, the docs site and the Weblate project (the translation
   structure of `docs/user/en` and `docs/user/de` is identical).
+- **Security (7-O, `docs/security/review-1.0.md`):**
+  - SEC-13, SEC-15 and SEC-16 are fixed (question 31 is answered by the fix; a reverse proxy
+    in front of HA that strips custom headers would break writes, the error text says so);
+  - review the 7-J verification window (SEC-24);
+  - CSP after a browser check (`frontend-engineer`);
+  - digests for `BUILD_FROM` and the `uv` image (question 33);
+  - user-guide notes on MQTT ACLs and backup encryption (questions 28, 30);
+  - after 1.0: a non-root user, an AppArmor profile and ECharts 6 (question 32).
 - Deferred past 1.0 unless asked: built-in PV and price fallbacks, calibration charging, per-phase
   imbalance limits, V2H, several vehicles per charger, EEBus and the certified §14a path.
 
@@ -1862,6 +1922,8 @@ Each was built with the proposed default; the answer may change that default.
 
 | Item | Where | Needed to resolve |
 |---|---|---|
+| 7-O security: whether an app with `NET_ADMIN` on the `hassio` bridge can spoof the ingress peer 172.30.32.2; Docker applying `docker-default` AppArmor when the Supervisor names no profile; whether HA onboarding sets a backup encryption key by default; the affected option of the ECharts advisory GHSA-fgmj-fm8m-jvvx; keyless Cosign in the HA builder; the Mosquitto ACL default (from its docs) | `docs/security/review-1.0.md` | Docker and builder source; the advisory text; maintainer's HA backup settings |
+| 7-O: the action SHA pins were resolved with `git ls-remote` but not run in CI in the session | `.github/workflows/*.yml` | first CI run of the 7-O PR |
 | 7-I diagnostics: the HA core version is read from the `version` key of `get_config` (documented in `docs/research/ha-websocket-api.md`, verified there against `Config.as_dict`) with `auth_ok` `ha_version` as the fallback; the simulator's `get_config` has neither, so the demo shows `null` until a test sets it | `suncore/app/runtime.py` `_remember_ha_version` | Look at the export on a real Home Assistant |
 | 7-I diagnostics: free-text fields of config and logs are scrubbed by known values and a closed list of entity domains; an entity id of a domain not in `ENTITY_DOMAINS` (a custom integration domain) that is not mapped in the configuration is not recognised in a log line, and a log field that holds a secret under an innocent key name is only masked if that exact value was seen in the configuration | `suncore/app/pseudonyms.py` | Read one real export before attaching it to a public issue; extend the domain list from reports |
 | 7-I heat pump card: the outdoor temperature is the weather entity's forecast of the current hour, not a sensor reading | `suncore/app/thermal_live.py` | Decide whether a measured outdoor sensor role is worth adding |
@@ -1875,7 +1937,8 @@ Each was built with the proposed default; the answer may change that default.
 | `release-as` is deprecated in release-please's schema (a `Release-As:` footer replaces it) and not set yet; what `breaking_versions` does for installed versus store config is not verified; `stage` default `stable` verified in Supervisor source | `release-please-config.json`, `scripts/beta_version.py`, plan questions 25, 26 | maintainer decision; `stage` line removed in 7-N part 2 |
 | The Phase 6 user guides (6-N) are written from the code and the catalogues; their set-up steps and the UI names were not followed on a real Home Assistant, and the new views have no screenshots yet | `docs/user/*/home-assistant-entities.md`, `notifications.md`, `grid-limits.md`, `ev-charging.md`, `heat-pump.md`, `programs.md` | maintainer follows them; screenshots through `demo-screenshots` (Phase 7) |
 | 6-D MQTT commands: default payloads of the MQTT `switch` (`ON`/`OFF`), `button` (`PRESS`) and the `number` keys `min`, `max`, `step`, `mode` (HA source was not reachable in the session; used as documented); that HA sends commands with retain off | `research/mqtt-discovery.md`, `suncore/ha/mqtt/commands.py`, `discovery.py` | maintainer's HA: press the buttons, set the switches and the boost duration, see the true state come back |
-| 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); the unit rule of `monetary` sensors; TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
+| 7-H: the device classes and units of the read-only entities (`plug`, `battery`, `timestamp`, `K`, `monetary`, `power`) are verified against the HA core source, not on a running HA; how the sensors, the one-line next action and the events look in HA and in the Companion app; the savings figure reads 0 or the plant's gain while in shadow mode | `research/mqtt-discovery.md`, `suncore/app/ha_site_values.py`, `suncore/notify/signals.py` | maintainer's HA with the Mosquitto app: the five sensors fill after the first plan and the first summary; an event automation fires at night (island simulated in the demo) |
+| 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
 | Kostal §3.4 set-point timeout and how external battery management is enabled (register map itself is verified from KOSTAL rev 2.9) | `research/kostal-plenticore-modbus.md` | Phase 4 measurement on the maintainer's inverter |
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
 | Energy-Charts and aWATTar APIs and terms (not shipped in Phase 4) | `research/integrations.md` | session with network access (Phase 6) |

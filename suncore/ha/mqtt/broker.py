@@ -25,6 +25,7 @@ import structlog
 
 from suncore.core.config import MqttConfig
 from suncore.core.haentities import BrokerState
+from suncore.ha.redact import register_secret
 
 log = structlog.get_logger(__name__)
 
@@ -154,6 +155,7 @@ async def lookup_broker(  # noqa: PLR0911 - one return per outcome
                 BrokerState.ERROR, source="manual", reason_key="mqtt.reason.manual_incomplete"
             )
         password = config.password.get_secret_value() if config.password is not None else None
+        _keep_out_of_logs(password)
         return BrokerLookup(
             BrokerState.CONNECTING,
             BrokerSettings(config.host, config.port, config.tls, config.username, password or None),
@@ -175,4 +177,13 @@ async def lookup_broker(  # noqa: PLR0911 - one return per outcome
         return BrokerLookup(
             BrokerState.ERROR, source="supervisor", reason_key="mqtt.reason.supervisor_unreachable"
         )
+    _keep_out_of_logs(settings.password)
     return BrokerLookup(BrokerState.CONNECTING, settings, "supervisor")
+
+
+def _keep_out_of_logs(password: str | None) -> None:
+    """Register the broker password with the log redaction (security review 1.0, SEC-02):
+    an exception text or a library log line that repeats it is masked like the Supervisor
+    token."""
+    if password:
+        register_secret(password)

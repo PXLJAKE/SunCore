@@ -14,6 +14,7 @@ from suncore.app.ha_entities import SUPPORTED
 from suncore.core.config import MqttConfig
 from suncore.core.decisions import OperatingMode
 from suncore.ha.mqtt import BrokerState, HaEntityService
+from suncore.ha.mqtt.service import MAX_STOP_TASKS
 
 from .stub_broker import Message, StubBroker
 from .support import FakeSource, MemoryStore, topology
@@ -255,3 +256,166 @@ async def test_the_emergency_stop_passes_a_blocked_command(harness: Harness) -> 
     harness.command("emergency_stop_button", "PRESS")
     await harness.broker.wait_for(lambda: ("stop",) in harness.port.calls, seconds=1.0)
     harness.port.block.set()
+
+
+# --- SEC-15: one emergency-stop task, coalesced repeats ----------------------------------
+
+
+def _stop_tasks() -> list[asyncio.Task[Any]]:
+    return [
+        t
+        for t in asyncio.all_tasks()
+        if t.get_name() == "suncore-mqtt-emergency-stop" and not t.done()
+    ]
+
+
+async def test_a_stop_flood_runs_one_task_and_repeats_once(harness: Harness) -> None:
+    await harness.connected()
+    routed = 0
+    route = harness.service._route_command
+
+    def counting(*args: Any) -> None:
+        nonlocal routed
+        routed += 1
+        route(*args)
+
+    harness.service._route_command = counting  # type: ignore[method-assign]
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    # The first stop reaches the port at once, while the flood has not even started.
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    for _ in range(500):
+        harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: routed == 501, seconds=5.0)
+    assert len(_stop_tasks()) == 1
+    assert harness.port.calls == [("stop",)]
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",), ("stop",)]  # the flood collapsed into one repeat
+    # After the run a new stop starts a new task at once.
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 3, seconds=1.0)
+
+
+async def test_a_single_stop_is_not_repeated(harness: Harness) -> None:
+    await harness.connected()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls, seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",)]
+    assert not _stop_tasks()
+
+
+async def test_garbage_during_a_stop_never_replaces_a_pending_press(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    harness.command("emergency_stop_button", "PRESS")
+    for payload in ("garbage", "x" * 500, "press"):
+        harness.command("emergency_stop_button", payload)
+    await settle()
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 2, seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",), ("stop",)]
+
+
+async def test_a_stop_after_garbage_alone_still_repeats(harness: Harness) -> None:
+    """Garbage first marks the repeat; a later valid press replaces it and is not lost."""
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    harness.command("emergency_stop_button", "garbage")
+    harness.command("emergency_stop_button", "PRESS")
+    await settle()
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 2, seconds=1.0)
+
+
+async def test_a_failing_stop_does_not_wedge_the_next_one(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.fail = True
+    harness.command("emergency_stop_button", "PRESS")
+    await settle()
+    assert not _stop_tasks()
+    harness.port.fail = False
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+
+
+async def test_a_stop_after_a_clear_never_waits_behind_an_older_run(opted_in: Harness) -> None:
+    """Review F1: the earlier run is still releasing when the stop is cleared and pressed
+    again; the new stop must reach the port at once, not after the old run."""
+    h = opted_in
+    await h.connected()
+    h.port.stop_block = asyncio.Event()
+    h.command("emergency_stop_button", "PRESS")
+    await h.broker.wait_for(lambda: h.port.calls == [("stop",)], seconds=1.0)
+    h.command("emergency_stop_clear", "PRESS")
+    await h.broker.wait_for(lambda: ("clear",) in h.port.calls, seconds=1.0)
+    h.command("emergency_stop_button", "PRESS")
+    await h.broker.wait_for(lambda: h.port.calls == [("stop",), ("clear",), ("stop",)], seconds=1.0)
+    assert h.port.stopped
+    # With the stop in effect again, a flood coalesces into the runs in flight.
+    for _ in range(200):
+        h.command("emergency_stop_button", "PRESS")
+    await settle()
+    assert len(_stop_tasks()) == 2
+    h.port.stop_block.set()
+    await h.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+    assert h.port.calls.count(("stop",)) == 3  # two runs plus one coalesced repeat
+
+
+async def test_an_unreadable_stop_state_starts_a_run_instead_of_waiting(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+
+    def broken() -> bool:
+        raise RuntimeError("boom")
+
+    harness.port.stored_emergency_active = broken  # type: ignore[method-assign]
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    for _ in range(50):
+        harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: len(harness.port.calls) >= 2, seconds=1.0)
+    await settle()
+    assert len(_stop_tasks()) <= MAX_STOP_TASKS  # the backstop bounds the runs
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+
+
+async def test_a_session_restart_lets_a_stop_and_its_repeat_finish(harness: Harness) -> None:
+    """Review F2: a reconfigure does not cancel a stop in flight or drop its repeat."""
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    harness.port.settled = False
+    harness.command("emergency_stop_button", "PRESS")  # coalesced: the repeat is pending
+    await settle()
+    harness.service.reconfigure()
+    await settle()
+    assert _stop_tasks()  # the teardown waits, it does not cancel
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",), ("stop",)])
+    await harness.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+    await harness.connected()  # the new session comes up after the drain
+
+
+async def test_stopping_the_service_waits_for_a_stop_then_gives_up(harness: Harness) -> None:
+    """A stuck stop is cancelled only after the drain time (bounded by the release deadline)."""
+    await harness.connected()
+    harness.service._stop_drain_s = 0.3
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    await harness.service.stop()
+    assert loop.time() - started >= 0.25
+    await asyncio.sleep(0)
+    assert not _stop_tasks()

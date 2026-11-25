@@ -65,6 +65,21 @@ DocMigration = Callable[[Body], Body]
 """Upgrades a body dict by exactly one schema version."""
 
 
+def describe_validation_error(exc: ValidationError) -> str:
+    """The errors of ``exc`` without the offending input.
+
+    ``str(ValidationError)`` repeats ``input_value``, which for the ``mqtt`` section is the
+    whole body with the password in clear text; the message ends up in the log of a rejected
+    import or a corrupt stored section (security review 1.0, SEC-01). Location, type and the
+    (static) message are enough to find the problem.
+    """
+    parts = [
+        f"{'.'.join(str(p) for p in err['loc']) or '<root>'}: {err['msg']} [{err['type']}]"
+        for err in exc.errors(include_url=False, include_input=False, include_context=False)
+    ]
+    return f"{exc.error_count()} validation error(s): " + "; ".join(parts)
+
+
 @dataclass(frozen=True)
 class SectionSpec:
     """A configuration section: its model and the migrations from version 1 upwards.
@@ -204,7 +219,10 @@ class ConfigStore:
             if repair and spec.on_load is not None:
                 body = spec.on_load(body)
             return spec.model.model_validate(body)
-        except (ValidationError, KeyError, TypeError, ValueError) as exc:
+        except ValidationError as exc:
+            msg = f"section {section!r} is invalid: {describe_validation_error(exc)}"
+            raise ConfigCorruptError(msg) from None
+        except (KeyError, TypeError, ValueError) as exc:
             msg = f"section {section!r} is invalid: {exc}"
             raise ConfigCorruptError(msg) from exc
 

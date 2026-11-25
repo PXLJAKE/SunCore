@@ -58,7 +58,7 @@ from suncore.app.control import BatteryWiring, ControlStack, InverterWiring, pro
 from suncore.app.diagnostics_collect import collect_diagnostics
 from suncore.app.evcc_link import EvccLink
 from suncore.app.grid import GridMonitor
-from suncore.app.ha_entities import build_ha_entities
+from suncore.app.ha_entities import SiteEventBuffer, build_ha_entities
 from suncore.app.history import backfill_history, rebuild_history
 from suncore.app.modes import ConfigModes
 from suncore.app.notifications import build_notifications
@@ -166,7 +166,7 @@ from suncore.ha import (
     legacy_entities,
     suggest_from_prefs,
 )
-from suncore.ha.mqtt import HaEntityService, supervisor_services_from_env
+from suncore.ha.mqtt import HaEntityService, SiteEvent, supervisor_services_from_env
 from suncore.ha.mqtt.check import check_ha_entities
 from suncore.notify import (
     ActionsState,
@@ -174,6 +174,7 @@ from suncore.notify import (
     NotificationService,
     NotifyEvent,
     NotifyStatus,
+    SiteSignal,
     TestResult,
 )
 from suncore.planner import build_inputs
@@ -197,7 +198,7 @@ from suncore.storage import (
 from suncore.storage.backtests import BacktestRunStore
 from suncore.storage.flex import FlexStateStore
 from suncore.storage.grid import GridStore
-from suncore.storage.summaries import DaySummaryRow
+from suncore.storage.summaries import AccuracyDayRow, DaySummaryRow
 from suncore.storage.timeseries import META_HISTORY_BACKFILLED, META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
@@ -348,6 +349,8 @@ class Runtime:
     the entity names while ``region.language`` is ``auto``."""
     ha_entities: HaEntityService | None = None
     notifications: NotificationService | None = None
+    site_events: SiteEventBuffer | None = None
+    """Events for the MQTT ``events`` entity (the notification rules fill it)."""
     """The MQTT entity surface (``None`` in demo mode); never needed by anything else."""
     evcc_link: EvccLink | None = None
     """The MQTT link to evcc (PR 6-J); built with the first stack when a loadpoint exists."""
@@ -429,9 +432,11 @@ class Runtime:
 
     async def _start_ha_entities(self) -> None:
         """The MQTT entity surface runs beside the control layer and never blocks it."""
-        service = build_ha_entities(self, self._on_mqtt_refusal)
+        events = SiteEventBuffer(self.clock)
+        service = build_ha_entities(self, self._on_mqtt_refusal, events)
         if service is None:
             return
+        self.site_events = events
         self.ha_entities = service
         self._unsubscribers.append(self.add_change_listener(service.refresh))
         self._unsubscribers.append(self.add_control_listener(service.refresh))
@@ -443,7 +448,17 @@ class Runtime:
         if service is None:
             return
         self.notifications = service
+        service.add_signal_listener(self._on_site_signal)
         await service.start()
+
+    def _on_site_signal(self, signal: SiteSignal) -> None:
+        """An island, section 14a, program, cheap window or EV target event of the notification
+        rules becomes an entry of the MQTT ``events`` entity (whatever the push says)."""
+        if self.site_events is None:
+            return
+        self.site_events.offer(SiteEvent(signal.type, dict(signal.attrs)))
+        if self.ha_entities is not None:
+            self.ha_entities.refresh()
 
     def _on_mqtt_refusal(self, object_id: str, reason: Reason) -> None:  # noqa: ARG002
         """A raise from Home Assistant was refused: tell the user once an hour per entity."""
@@ -2183,6 +2198,10 @@ class Runtime:
 
         return remove
 
+    def emergency_stop_active(self) -> bool:
+        """The gate's stop flag now (synchronous); ``False`` while the stack is being rebuilt."""
+        return self.stack is not None and self.stack.gate.emergency_stopped
+
     async def emergency_stop(self) -> None:
         if self.stack is not None:
             await self.stack.gate.emergency_stop()
@@ -2381,6 +2400,28 @@ class Runtime:
             clock=self.clock,
             live_day=None if timeseries is None or not self._time_zone_settled() else live_day,
         )
+
+    async def today_summary(self) -> DaySummaryRow | None:
+        """The row today's ``day_summary`` would get now (the history API's live day), for the
+        HA site sensors; ``None`` without a time series, a settled time zone or a measured slot."""
+        timeseries = self.timeseries
+        if timeseries is None or not self._time_zone_settled():
+            return None
+        context = self._summary_context()
+        today = self.clock().astimezone(context.tz).date()
+        return await DaySummaryJob(timeseries, self.clock).preview(today, context)
+
+    async def recent_pv_accuracy(self) -> tuple[list[AccuracyDayRow], str]:
+        """The PV ``accuracy_day`` rows of the last three local days and the id of the blended
+        source (the HA site sensor prefers it); no rows without a time series."""
+        timeseries = self.timeseries
+        if timeseries is None or not self._time_zone_settled():
+            return [], BLENDED_SOURCE_ID
+        today = self.clock().astimezone(self._blend_context().tz).date()
+        rows = await timeseries.accuracy_days.between(
+            today - timedelta(days=3), today - timedelta(days=1)
+        )
+        return [r for r in rows if r.kind == "pv"], BLENDED_SOURCE_ID
 
     async def decisions(
         self,

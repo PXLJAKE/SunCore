@@ -13,7 +13,8 @@ Rules, in the order they are applied to every message:
 2. the object id must be an announced command entity, the payload at most
    :data:`MAX_PAYLOAD_BYTES` of UTF-8 and valid for the platform (``ON``/``OFF``, ``PRESS``, a
    finite number inside the entity's range);
-3. the **emergency stop is never rate-limited and never refused**; everything else is limited to
+3. the **emergency stop is never rate-limited or refused by policy** (only an invalid payload
+   or a failing service call refuses it); everything else is limited to
    one command per second per entity (burst 3) and :data:`GLOBAL_BURST` per
    :data:`GLOBAL_WINDOW_S` over all entities;
 4. **raising** autonomy (a mode above the stored one, clearing the emergency stop) needs
@@ -22,7 +23,9 @@ Rules, in the order they are applied to every message:
    work.
 
 Every message produces a :class:`CommandResult` with a :class:`~suncore.core.decisions.Reason`
-that is logged; the caller republishes the entity's true state after a refusal.
+that is logged; the caller republishes the entity's true state after a refusal. Accepted
+commands are logged one by one; refusals go through :class:`RefusalLogThrottle` (SEC-16): the
+first per entity and reason in full, then a count every 60 s.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ import structlog
 from suncore.core.controlstate import OverrideCommand
 from suncore.core.decisions import OperatingMode, Reason
 from suncore.ha.mqtt.catalogue import EntitySpec, Platform, Scope
+from suncore.ha.mqtt.refusals import RefusalLogThrottle
 
 log = structlog.get_logger(__name__)
 
@@ -86,6 +90,10 @@ class CommandPort(Protocol):
 
     def stored_emergency_settled(self) -> bool:
         """The stop is set and no device still waits to be released (a press changes nothing)."""
+        ...
+
+    def stored_emergency_active(self) -> bool:
+        """The stop flag is set right now (read synchronously; a clear makes it ``False``)."""
         ...
 
     async def command_emergency_stop(self) -> None: ...
@@ -176,6 +184,7 @@ class CommandHandler:
         self._buckets: dict[str, TokenBucket] = {}
         self._global = _SlidingWindow(GLOBAL_BURST, GLOBAL_WINDOW_S, clock)
         self._boost_minutes: dict[str, int] = {}
+        self._refusal_log = RefusalLogThrottle(clock)
 
     def revoke_raise(self) -> None:
         """The opt-in was withdrawn: from now on every raise is refused (also mid-session)."""
@@ -185,6 +194,22 @@ class CommandHandler:
         """The emergency stop: never queued behind other commands, never rate-limited."""
         target = self._targets.get(object_id)
         return target is not None and target.spec.key == "emergency_stop_button"
+
+    def stop_in_effect(self) -> bool:
+        """The emergency stop is set now; ``False`` when it cannot be read (fail towards a new
+        stop run, never towards waiting)."""
+        try:
+            return self._port.stored_emergency_active()
+        except Exception:
+            log.exception("mqtt.stop_state_unreadable")
+            return False
+
+    def is_valid_payload(self, object_id: str, payload: bytes) -> bool:
+        """The payload parses for the entity (no effect, no rate-limit token taken)."""
+        target = self._targets.get(object_id)
+        return target is not None and not isinstance(
+            self._parse(target.spec, payload), CommandResult
+        )
 
     # --- what is commandable -----------------------------------------------------------
 
@@ -218,15 +243,40 @@ class CommandHandler:
 
     async def handle(self, object_id: str, payload: bytes, *, retain: bool) -> CommandResult:
         result = await self._handle(object_id, payload, retain)
-        level = log.info if result.accepted else log.warning
-        level(
-            "mqtt.command",
-            entity=object_id,
-            accepted=result.accepted,
-            reason=result.reason.key,
-            args=dict(result.reason.args),
-        )
+        if result.accepted:
+            log.info(
+                "mqtt.command",
+                entity=object_id,
+                accepted=True,
+                reason=result.reason.key,
+                args=dict(result.reason.args),
+            )
+        elif self._refusal_log.record(object_id, result.reason.key):
+            log.warning(
+                "mqtt.command",
+                entity=object_id,
+                accepted=False,
+                reason=result.reason.key,
+                args=dict(result.reason.args),
+                retained=retain,
+            )
+        self.log_refusal_summary()
         return result
+
+    def log_refusal_summary(self) -> None:
+        """Log the count of refusals not logged one by one, once per interval (SEC-16).
+
+        Called after every command and from the caller's periodic sync, so the count of a
+        flood that has stopped still appears."""
+        counts = self._refusal_log.summary()
+        if counts:
+            log.warning(
+                "mqtt.command_refused_summary",
+                suppressed=[
+                    {"entity": c.entity, "reason": c.reason, "count": c.suppressed} for c in counts
+                ],
+                total=sum(c.suppressed for c in counts),
+            )
 
     async def _handle(  # noqa: PLR0911 - one verdict per refusal
         self, object_id: str, payload: bytes, retain: bool

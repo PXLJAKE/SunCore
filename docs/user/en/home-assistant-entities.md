@@ -49,10 +49,15 @@ language when it is set to automatic). Automations that test an enumerated state
 | Operating mode | sensor | Shadow, assisted or automatic (overall mode) |
 | Available surplus | sensor | The safe surplus the controller sees, in W |
 | Healthy, Shadow mode, Emergency stop | binary sensors | For automations and dashboards |
+| Next action | sensor | The plan's next action as one line, for example "14:30: Store 2,400 W of solar surplus", with the day for tomorrow or later; unknown when the plan has nothing to do |
+| Planned cost today | sensor | What the plan expects the grid to cost for the rest of today (import minus export revenue), in your currency; unknown without prices |
+| Savings today | sensor | What the plant saved today compared with a house without PV (the first savings tile of the history view), in your currency |
+| Autarky today | sensor | Share of today's consumption not drawn from the grid, in % |
+| PV forecast error | sensor | Mean absolute error of the PV forecast on the newest day with a measurement, in W (not a percentage; yesterday, computed overnight) |
 | Peak import this month | sensor | The month's highest 15-minute import, in W (when the grid chain measures it) |
 | Grid state | sensor | Normal, limited by the grid operator (§14a), island operation |
 | Grid operator limit (§14a) active, Island operation | binary sensors | Only with a signal or backup entity; unknown while that is unavailable |
-| Events | event | Device switched, proposal, error |
+| Events | event | Device switched, proposal, error, island start and end, §14a start and end, program "start now" and "finished", cheap window start and end, EV target at risk |
 | Automatic | switch | Overall mode: on = automatic, off = shadow |
 | Replan | button | Start a new plan |
 | Emergency stop | button | Same as the panel's emergency stop |
@@ -74,6 +79,18 @@ Read-only views, only where they apply:
 
 These are sensors on purpose. Setting the EV mode and target, arming a program and the
 comfort band from Home Assistant are not offered yet (see the limits).
+
+The five site sensors read the plan and the history; they never write. A value that has no
+source yet (no plan, no prices, no measured day) is shown as unknown by Home Assistant, not as
+zero. Savings, autarky and the forecast error are read from the history every five minutes at
+most, so they lag the panel by up to that long.
+
+**Events.** Each event carries its type and a few attributes (for example the device name or the
+window times). The events come from the same observations as the notifications, but they are
+independent of the push rules: quiet hours, the daily limit and a category you switched off
+silence the push, not the event. So an automation on "island start" still runs at night. A
+program that was not started in time or whose outcome is unknown is a notification only, with no
+event. Events are not replayed: one that waited more than five minutes for the broker is dropped.
 
 ## 3. Commands and what is refused
 
@@ -103,18 +120,24 @@ Safeguards, all tested:
 
 ## 4. Known limits and UNVERIFIED
 
-- **Not announced yet:** costs, savings, autarky, forecast error and the next action (nothing
-  produces them), the battery strategy, reserve and evening target, and every EV, program and
-  comfort **control** (EV mode, target, arm, cancel, finish by, comfort band). The controls
-  need a command path that arms or sets things; that is open work (plan section 8, 6-O) and
-  comes with the companion integration in Phase 7. Until then use the panel for these.
-  The event entity only fires for a switched device, a proposal and an error.
+- **Not announced yet:** the savings of the month, the battery strategy, reserve and evening
+  target, and every EV, program and comfort **control** (EV mode, target, arm, cancel, finish
+  by, comfort band). The controls need a command path that arms or sets things; that is open
+  work (plan section 8, 6-O) and comes with the companion integration in Phase 7. Until then
+  use the panel for these.
+  The event type "proposal expired" has no producer yet.
   Config changes from Home Assistant (so no "author `mqtt`" in the configuration history) are
   not offered.
 - A device raise from Home Assistant carries the device's current identity token, so the
   protection against a re-mapped device does not apply to it. Only the opt-in does.
 - Anyone with broker credentials can stop SunCore, pause devices and lower modes. This is by
   design: stopping is always safe.
+- The savings, autarky and cost figures are the same ones the history view shows; they are only
+  as good as the prices and the measured flows behind them (shadow mode saves nothing by
+  itself: the figures then show what the plant does, not what SunCore changed).
+- Checked against the Home Assistant core source on 2026-11-25: the device classes `plug`,
+  `battery`, `timestamp`, `power` and `monetary`, the unit K without a device class, and the
+  timestamp format (ISO 8601 with a time zone). They are not yet seen on a running Home Assistant.
 - `UNVERIFIED` on a real Home Assistant: the default payloads of the MQTT switch, button and
   number platforms, that Home Assistant sends commands with retain off, the `language` key used
   for names, the Supervisor answer for the broker lookup, TLS to the Mosquitto app.

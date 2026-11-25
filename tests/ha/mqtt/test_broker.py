@@ -17,6 +17,7 @@ from suncore.ha.mqtt.broker import (
     SupervisorUnreachableError,
     parse_service,
 )
+from suncore.ha.redact import DEFAULT_REGISTRY, redact_text
 
 DATA = {
     "host": "core-mosquitto",
@@ -73,6 +74,25 @@ def test_parse_service_rejects_unusable_data(bad: dict[str, Any]) -> None:
 
 def test_password_is_not_in_the_repr() -> None:
     assert "s3cret" not in repr(parse_service(DATA))
+
+
+async def test_broker_passwords_are_registered_for_log_redaction() -> None:
+    """Security review 1.0, SEC-02: the Supervisor's and a manual broker password are masked
+    in every later log line, like the Supervisor token."""
+    manual = MqttConfig(
+        broker="manual",
+        host="broker.lan",
+        username="u",
+        password="manual-pass-42",  # type: ignore[arg-type]
+    )
+    try:
+        await lookup_broker(MqttConfig(), FakeServices(DATA))
+        await lookup_broker(manual, None)
+        out = redact_text("connect u:s3cret then u:manual-pass-42")
+        assert "s3cret" not in out
+        assert "manual-pass-42" not in out
+    finally:
+        DEFAULT_REGISTRY.clear()
 
 
 async def test_supervisor_lookup_found() -> None:

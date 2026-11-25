@@ -60,6 +60,12 @@ RETRY_S: Final = 60.0
 SYNC_POLL_S: Final = 5.0
 BIRTH_DELAY_S: Final = (1.0, 5.0)
 COMMAND_QUEUE: Final = 64
+MAX_STOP_TASKS: Final = 4
+"""Backstop for concurrent emergency-stop runs (SEC-15). A new run starts only when the stop
+is no longer in effect (it was cleared), so more than one run exists only after a clear."""
+STOP_DRAIN_S: Final = 65.0
+"""How long a session teardown waits for a stop run to finish (``release_deadline_s`` is at
+most 60 s) before it cancels it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +121,12 @@ class _Session:
     commands: CommandHandler | None = None
     allow_mode_raise: bool = False
     queue: asyncio.Queue[tuple[str, str, bytes, bool]] | None = None
-    priority_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    stop_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    """Emergency-stop runs in flight (SEC-15); normally at most one."""
+    stop_starting: bool = False
+    """The newest stop run was created but has not started yet (the flag is not set yet)."""
+    stop_again: tuple[str, str, bytes] | None = None
+    """A stop message coalesced into a run in flight: ``(topic, object_id, payload)``."""
 
 
 class HaEntityService:
@@ -133,6 +144,7 @@ class HaEntityService:
         poll_s: float = SYNC_POLL_S,
         birth_delay: tuple[float, float] = BIRTH_DELAY_S,
         min_interval_s: float = MIN_INTERVAL_S,
+        stop_drain_s: float = STOP_DRAIN_S,
         clock: Callable[[], float] = time.monotonic,
         rng: Callable[[float, float], float] = random.uniform,
     ) -> None:
@@ -147,6 +159,7 @@ class HaEntityService:
         self._poll_s = poll_s
         self._birth_delay = birth_delay
         self._min_interval_s = min_interval_s
+        self._stop_drain_s = stop_drain_s
         self._clock = clock
         self._rng = rng
         self._status = HaEntitiesStatus(BrokerState.DISABLED, None, 0, "mqtt.reason.not_enabled")
@@ -277,15 +290,31 @@ class HaEntityService:
         finally:
             if session.birth_task is not None:
                 session.birth_task.cancel()
+            await self._drain_stops(session)
             await self._goodbye(session)
             for task in tasks:
-                task.cancel()
-            for task in session.priority_tasks:
                 task.cancel()
             for task in tasks:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
+            if session.commands is not None:
+                session.commands.log_refusal_summary()
             self._session = None
+
+    async def _drain_stops(self, session: _Session) -> None:
+        """Let stop runs in flight (and a coalesced repeat) finish before the session ends; a
+        run still open after ``stop_drain_s`` is cancelled (SEC-15, review F2). The runs are
+        awaited without being cancelled, also when the teardown itself was cancelled."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._stop_drain_s
+        while live := {t for t in session.stop_tasks if not t.done()}:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                log.warning("mqtt.emergency_stop_drain_timeout", runs=len(live))
+                for task in live:
+                    task.cancel()
+                return
+            await asyncio.wait(live, timeout=remaining)
 
     async def _guard(self, config: MqttConfig, session: _Session) -> None:
         """Return when the settings changed (or the broker moved)."""
@@ -345,17 +374,33 @@ class HaEntityService:
     ) -> None:
         """Never run a command inside the client's read loop: the emergency stop gets its own
         task at once, everything else goes through one worker queue (a slow service call must
-        not delay the read of a later emergency stop)."""
+        not delay the read of a later emergency stop).
+
+        Stop runs are coalesced only while the stop is in effect (SEC-15). The first stop
+        message starts a run at once. A stop message that arrives while a run is in flight and
+        the stop is set (or the newest run has not started yet) only marks the stop to run once
+        more when a run ends, so a flood costs one task and one repeat per run. When the stop
+        was cleared in the meantime, a new stop starts its own run at once (review F1): it never
+        waits behind an older run. :data:`MAX_STOP_TASKS` bounds the runs as a backstop. A valid
+        press is never replaced by a later invalid payload."""
         handler = session.commands
         if handler is None:
             return
         if not retain and handler.is_priority(object_id):
+            running = sum(not t.done() for t in session.stop_tasks)
+            if running and (
+                session.stop_starting or running >= MAX_STOP_TASKS or handler.stop_in_effect()
+            ):
+                if session.stop_again is None or handler.is_valid_payload(object_id, payload):
+                    session.stop_again = (topic, object_id, payload)
+                return
+            session.stop_starting = True
             task = asyncio.create_task(
-                self._command(session, topic, object_id, payload, retain),
+                self._stop(session, topic, object_id, payload),
                 name="suncore-mqtt-emergency-stop",
             )
-            session.priority_tasks.add(task)
-            task.add_done_callback(session.priority_tasks.discard)
+            session.stop_tasks.add(task)
+            task.add_done_callback(session.stop_tasks.discard)
             return
         if session.queue is None:
             return
@@ -363,6 +408,19 @@ class HaEntityService:
             session.queue.put_nowait((topic, object_id, payload, retain))
         except asyncio.QueueFull:
             log.warning("mqtt.command_queue_full", entity=object_id)
+
+    async def _stop(self, session: _Session, topic: str, object_id: str, payload: bytes) -> None:
+        """Run the stop, then once more for each run during which another stop arrived."""
+        session.stop_starting = False  # the gate sets its flag in this very step
+        pending: tuple[str, str, bytes] | None = (topic, object_id, payload)
+        while pending is not None:
+            try:
+                await self._command(session, *pending, False)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("mqtt.emergency_stop_failed", entity=pending[1])
+            pending, session.stop_again = session.stop_again, None
 
     async def _command_worker(self, session: _Session) -> None:
         assert session.queue is not None
@@ -389,13 +447,17 @@ class HaEntityService:
             await session.client.publish(topic, "", 1, True)
         session.publisher.forget(object_id)
         self.refresh()  # the true state (also after a refusal) goes out at the next sync
-        if result.refused and not retain:
-            log.info("mqtt.command_refused", entity=object_id, reason=result.reason.key)
-            if self._on_refusal is not None and result.reason.key == REASON_RAISE_DISABLED:
-                try:
-                    self._on_refusal(object_id, result.reason)
-                except Exception:
-                    log.exception("mqtt.refusal_hook_failed")
+        # A refusal is logged by the handler, throttled (SEC-16).
+        if (
+            result.refused
+            and not retain
+            and self._on_refusal is not None
+            and result.reason.key == REASON_RAISE_DISABLED
+        ):
+            try:
+                self._on_refusal(object_id, result.reason)
+            except Exception:
+                log.exception("mqtt.refusal_hook_failed")
 
     async def _after_birth(self, session: _Session) -> None:
         await asyncio.sleep(self._rng(*self._birth_delay))
@@ -499,6 +561,8 @@ class HaEntityService:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._dirty.wait(), self._poll_s)
             self._dirty.clear()
+            if session.commands is not None:
+                session.commands.log_refusal_summary()
             if not session.client.connected:
                 continue
             try:

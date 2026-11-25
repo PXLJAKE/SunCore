@@ -1443,6 +1443,184 @@ Part 2 (community hygiene) is below; the final runs after 7-I and 7-J are still 
 - No troubleshooting page exists in `docs/user` on this base, so no hint was added there.
 - E2E note: the demo's simulated clock drifts when one server runs for hours; `plan.spec` ("jumps
   to a day") and `whatif.spec` (replay) then fail on the tablet project and pass on a fresh server.
+### 7-H
+
+- Branch `phase-7/h-ha-surface`, on `phase-7/b-phase5-tail` (7-B had landed on the line first; the
+  plan said 7-H depends on 7-A only and nothing of 7-B is used).
+- **Five site sensors announced** (`app/ha_site_values.py`, `app/ha_entities.py`):
+  `plan_cost_today` sums `import_w * import_price - export_w * export_price` over the plan's
+  intervals that start on the local day (the plan holds only the time from its creation on, so it
+  is the rest of today); `savings_today` is `savings_vs_no_pv` of `DaySummaryJob.preview` for
+  today, the first savings tile of the history view (the history view has no "default" baseline;
+  the tile order was taken; `savings_vs_pv_only`, what SunCore adds, is not announced);
+  `autarky_today` is its autarky times 100; `pv_forecast_error` is the `n`-weighted mean of
+  `mae_w` over the horizon buckets of the newest day of the blended PV source (any PV source if
+  the blend has no row), looked up over the last three days; `next_action` is the first reason of
+  the first plan interval that has not ended and is not "balanced" (the same rule as the plan
+  view's `plannedActions`), prefixed by `mqtt.next_action.value` (day, time) and cut at 255
+  characters (Home Assistant drops longer states).
+- **Deviation: `pv_forecast_error` is a power in W, not a percentage.** The catalogue said `%`,
+  but `accuracy_day` stores `mae_w`; a percentage needs the actual energy, which the row does not
+  hold, and an invented denominator would mislead. The entry is now `device_class power`, `W`,
+  `measurement`; its name says "(mean absolute)". The unique id and topics are unchanged.
+- The day values (`today_summary`, `recent_pv_accuracy` on the runtime) are read in a background
+  task from the synchronous `values()` call at most every 300 s; a failing read keeps the last
+  values. `savings_month` stays out of `SUPPORTED` (no month sum).
+- **Event types** (`notify/signals.py`): `signal_for(NotifyEvent)` maps the notification text keys
+  of the same observations to `island_*`, `para14a_*`, `program_start_now`, `program_done`,
+  `cheap_window_start` and `ev_target_at_risk`; the rule engine adds `cheap_window_end` as an
+  `Evaluation.signals` entry (a window ends once, when its end has passed; overlapping windows are
+  closed by the first end). The service calls its signal listeners for every tick event and every
+  posted event **before** the category switch, the quiet hours and the cap are consulted. The
+  runtime hands them to a bounded, age-limited `SiteEventBuffer` (64 entries, 5 minutes) that the
+  entity source drains with the decision-based events. Attributes: `name` (the device's display
+  name, the notification reason carries no id), window times and price, EV need and planned kWh.
+  A program that was missed or whose outcome is unknown has no type in the catalogue and stays a
+  push; `proposal_expired` has no producer. No type name was invented.
+- Reason keys: `mqtt.next_action.value` (en, de, in the frontend catalogue, regenerated backend
+  catalogue and ICU golden file). Golden discovery payloads regenerated (`pv_forecast_error`,
+  names); the other four sensors were already in the golden file.
+- **Verified against the HA core source on 2026-11-25** (`research/mqtt-discovery.md`): `plug`,
+  `battery` (unit `%`, state class `measurement`), `timestamp` (ISO 8601 **with** a time zone; the
+  values are aware datetimes), unit `K` without a class, `monetary` (no state class, no unit
+  list), `power`/`W`/`measurement`, the 255 character state limit, the abbreviations.
+- Tests: `tests/notify/test_signals.py` (mapping, no invented type, cheap window end, listeners
+  past quiet hours, the cap and a silenced category, a failing listener),
+  `tests/app/test_ha_site_values.py` (pure values, runtime source, day refresh and failure,
+  buffer, wiring, real time-series reads), discovery goldens, ICU golden.
+- No change in `safety/` or `controller/`; nothing is written to a device or a setting, no
+  command was added. No `config.yaml` or app translation changed.
+
+#### UNVERIFIED (7-H)
+
+- How a running Home Assistant and the Companion app show the five sensors, the one-line next
+  action and the events (only the schema was verified, from source).
+- The plan's `savings_today` choice (savings against a house without PV) is the maintainer's to
+  confirm; in shadow mode it shows the plant's gain, not what SunCore changed.
+- The ISO 4217 rule of `monetary` is documented in HA but not enforced; SunCore uses the
+  region's currency code.
+
+#### Offene Fragen an den Maintainer (7-H)
+
+1. **Welche Ersparnis soll `savings_today` zeigen?** Jetzt: gegenüber einem Haus ohne PV (was
+   die Anlage bringt). Alternative: gegenüber PV ohne Batterie und Steuerung (was SunCore
+   bringt, im Schattenmodus etwa 0). **Empfehlung:** so lassen, die zweite Zahl später als
+   eigene Entität.
+2. **Soll der PV-Prognosefehler in W bleiben?** Ein Prozentwert braucht einen Nenner
+   (mittlere Tagesleistung oder Tagesenergie), der in `accuracy_day` fehlt. **Empfehlung:** W.
+
+### 7-O (security review; branch `phase-7/o-security`)
+
+- Base: `phase-7/i-diagnostics-backend` with `phase-7/h-ha-surface` merged in (the two
+  conflicts were the STATUS and plan entries of both PRs; both were kept). The plan's dependency
+  "7-E … 7-N" is not met: the views, 7-J, 7-K, 7-L and 7-N are not on this base. The review
+  covers what is here, and the verification window of 7-J is the row "pending 7-J" (SEC-24).
+- Output: `docs/security/review-1.0.md`, which has 26 findings. Twelve are fixed here, three are
+  "needs control-safety" (SEC-13 CSRF header, SEC-15 emergency-stop task coalescing, SEC-16
+  refusal log throttling) with concrete proposals, and three are open for later PRs (SEC-12 CSP,
+  SEC-17 non-root user, SEC-19 image digests). The rest are accepted or verified.
+- Fixed without touching `safety/`, `controller/` or the effect of MQTT commands:
+  - validation errors no longer echo the MQTT password (`storage/config_store.py`);
+  - the broker password is registered with the log redaction;
+  - the redaction covers password-like keys and URL user info;
+  - `SUNCORE_ALLOW_ANY_PEER` logs a warning;
+  - uvicorn `proxy_headers=False`;
+  - body caps on every JSON route, with a guard test;
+  - `nosniff` and `Referrer-Policy`;
+  - the unused `homeassistant_config` map is removed;
+  - actions are pinned by SHA;
+  - CodeQL covers JavaScript/TypeScript;
+  - Dependabot watches npm;
+  - certifi and opentelemetry-api are bumped.
+- **Deviation: the `homeassistant_config` map is removed.** The WP14 table listed it as "read-only
+  map" to check. No code reads it, and it exposed `secrets.yaml` and `.storage/auth`. If a
+  later feature needs a file from the HA config folder, it must bring its own justification
+  (question 29).
+- **Deviation: question 19's premise is corrected.** HA backups are encrypted only with a
+  configured backup password (`create_backup.password` defaults to `None` in HA core). The
+  recommendation stays "keep and document", with a different reason (question 28).
+- Audits: `uvx pip-audit` 2.10.1 found two advisories, both fixed; the re-run is clean.
+  `npm audit --omit=dev` reports echarts 5.6.0 (accepted for 1.0, SEC-21). The full audit adds
+  dev-only vite, undici and eslint/minimatch, left to Dependabot.
+- Numbering: 7-O's questions were 23 to 28 on its branch; 7-L, 7-M and 7-N took 23 to 27 first,
+  so the integration branch `phase-7/p-release` renumbered them to 28 to 33. The 7-N question on
+  the Mosquitto digest (27) and SEC-19 (33, base and `uv` image digests) belong to the same
+  `prepare-release` step.
+- Conflicts to expect on merge: the workflows and both `config.yaml` with 7-N (pins, map
+  removal), and `docs/STATUS.md`.
+
+#### SEC-13, SEC-15, SEC-16 (`control-safety`)
+
+The three findings that touch a command path are fixed on this branch (`e6617d0`); the design
+and the tests are in the review under each finding. Decisions:
+
+- **SEC-13, emergency-stop exemption.** Only `POST /api/v1/control/emergency-stop` (exact method
+  and path) works without `X-SunCore-Request: 1`. Setting the stop moves SunCore towards the
+  safe state only, and it must work from any client, also one older than the check. Clearing
+  it gives control back and is never exempt. The middleware covers every path, not only
+  `/api/v1`, so a later write route outside the prefix fails closed.
+- **SEC-15.** Messages during a run set `stop_again`, which runs the stop once more after the
+  run, but only while the gate's stop flag is set. A valid press is never replaced by garbage.
+- **SEC-16.** `RefusalLogThrottle`: the first refusal per entity and reason in full, then
+  `mqtt.command_refused_summary` every 60 s; at most 64 pairs, the rest under `*`, and unknown
+  object ids always under `*`.
+- **Independent review of `e6617d0`: conditional approval, fixed in `7ee77ae`.**
+  - F1 (Medium): a stop pressed after a clear waited behind the older run for up to
+    `release_deadline_s`, with the gate not stopped meanwhile. Now coalescing needs the stop
+    flag (`CommandPort.stored_emergency_active`, via `Runtime.emergency_stop_active`); with the
+    flag cleared a new run starts at once. Backstop `MAX_STOP_TASKS` = 4.
+  - F2 (Low): the session teardown cancelled a stop run and could drop its repeat. Now it waits
+    for the runs, at most `STOP_DRAIN_S` = 65 s, then cancels with a warning.
+  - F3 (Low): invented object ids could fill the 64-pair cap. `unknown_entity` now always
+    counts under `*`.
+  - F6 (wording): "never rate-limited or refused by policy" in code and review.
+- **Deviation:** the service's `mqtt.command_refused` info line is removed; it duplicated the
+  handler's `mqtt.command` warning, which is now the throttled line.
+- **Deviation:** the e2e spec is a new file (`frontend/e2e/security.spec.ts`) and
+  `playwright.config.ts` sends the header for the specs' own setup calls, so the parallel
+  frontend PRs keep merging cleanly.
+
+##### Safety self-review SEC-13/15/16 (control-safety)
+
+| Invariant | Ergebnis | Nachweis |
+|---|---|---|
+| Netzbezug nie über dem Limit | bestanden (unberührt) | kein Pfad in `controller/` oder `safety/` geändert; `tests/safety`, `tests/controller` grün |
+| Batterie nie unter die Reserve | bestanden (unberührt) | wie oben |
+| Min-Lauf-/Pausenzeiten, Schaltungen pro Stunde | bestanden (unberührt) | wie oben; ein wiederholter Not-Aus ruft nur das idempotente `gate.emergency_stop()` auf; Läufe überlappen nur nach einem Aufheben (F1) und tun dann dasselbe |
+| Komfortgrenzen | bestanden (unberührt) | wie oben |
+| Rate-Limits, Schreiben nur bei Änderung, Read-back | bestanden (unberührt) | MQTT-Rate-Limits unverändert (`test_the_throttle_changes_no_verdict`); Geräteschreibvorgänge nur im Gate |
+| Veraltete/fehlende Eingaben -> sicherer Zustand | bestanden (unberührt) | wie oben |
+| Shadow/assistiert/automatisch, manuelle Übersteuerung | bestanden | Hochstufen über HTTP braucht jetzt zusätzlich die Kopfzeile; über MQTT weiterhin `allow_mode_raise`; Verdikte gleich |
+| Not-Aus "zurück auf normal" aus jedem Zustand | bestanden | HTTP: Setzen ohne Kopfzeile möglich (`test_a_stale_client_can_always_set_the_stop`, e2e `security.spec.ts`); Aufheben nie ausgenommen (`test_clearing_the_stop_is_never_exempt`). MQTT: erster Not-Aus sofort, nie verworfen (`test_a_stop_flood_runs_one_task_and_repeats_once`); ein Not-Aus nach dem Aufheben wartet nie auf einen älteren Lauf (`test_a_stop_after_a_clear_never_waits_behind_an_older_run`, F1); ein Fehler oder ein unlesbarer Zustand blockiert den nächsten nicht |
+| Nur `safety/` ruft `apply()` | bestanden | kein neuer Aufruf; `tests/safety/test_boundary.py` grün |
+| Fail-safe: Shutdown, Crash, Verbindungsverlust | bestanden | Session-Ende (Neukonfiguration, Shutdown) lässt einen laufenden Not-Aus samt Wiederholung zu Ende laufen (`test_a_session_restart_lets_a_stop_and_its_repeat_finish`, F2), höchstens 65 s, dann Abbruch (`test_stopping_the_service_waits_for_a_stop_then_gives_up`); der Gate-Flag ist im ersten Schritt gesetzt und persistiert |
+| Keine Oszillation | nicht betroffen | keine Hysterese geändert |
+
+Zusammenfassung: SEC-13 schützt jede schreibende Anfrage mit einer eigenen Kopfzeile, die eine
+fremde Seite ohne CORS-Preflight nicht setzen kann. Ausgenommen ist nur das Auslösen des
+Not-Aus, weil es SunCore ausschließlich in den sicheren Zustand bringt und von jedem, auch einem
+veralteten Client, erreichbar bleiben muss; das Aufheben braucht die Kopfzeile immer. SEC-15
+fasst MQTT-Not-Aus-Nachrichten nur zusammen, solange der Not-Aus wirkt: eine Flut kostet einen
+Task und eine Wiederholung je Lauf, der erste Not-Aus und ein Not-Aus nach dem Aufheben starten
+sofort, und das Ende einer Session bricht keinen Not-Aus mehr ab. Die bedingte Freigabe des
+unabhängigen Reviews (F1 bis F3, F6) ist umgesetzt. SEC-16 drosselt nur das Log. Keine
+Invariante wird geschwächt, jeder Geräteschreibvorgang läuft weiter über `safety/`. Nicht live
+geprüft: die Weitergabe der Kopfzeile durch Ingress (nur Quelltext gelesen) und Reverse-Proxys
+vor HA.
+
+#### UNVERIFIED (7-O)
+
+See the list at the end of `docs/security/review-1.0.md`. In short:
+
+- spoofing of 172.30.32.2 on the `hassio` bridge;
+- Docker's default AppArmor profile;
+- the default backup encryption key of the HA onboarding;
+- the ECharts advisory text;
+- keyless Cosign in the HA builder;
+- the SHA pins in a real CI run;
+- the Mosquitto ACL default, which comes from its docs only.
+- that both ingress hops forward `X-SunCore-Request` (source read, not run through a live
+  ingress; SEC-13).
 
 ## 9. Follow-ups per agent
 
@@ -1621,3 +1799,37 @@ Part 2 (community hygiene) is below; the final runs after 7-I and 7-J are still 
 27. **Mosquitto im Rauchtest.** Das Image ist per Digest fixiert (2.0.23); Dependabot erneuert
     Digests in Skripten nicht. **Empfehlung:** beim Vorbereiten jedes Releases den Digest von
     Hand prüfen (Schritt in der Skill `prepare-release`), sonst läuft der Test mit dem alten Stand.
+28. **Sicherheits-Review (7-O), Fragen 28 bis 33: MQTT-Passwort im Klartext (zu Frage 19,
+    SEC-22).** Die Annahme „HA-Sicherungen sind verschlüsselt“ stimmt nur, wenn in HA ein
+    Sicherungs-Passwort gesetzt ist. In HA Core ist `create_backup.password` ohne Einstellung
+    leer. Ein Schlüssel in SunCore würde nichts nützen,
+    denn er läge in derselben Sicherung. **Empfehlung:** Speicherung so lassen. In der Doku
+    empfehlen wir den Supervisor-Broker (dann wird kein Passwort gespeichert), für einen
+    manuellen Broker einen eigenen MQTT-Benutzer mit ACL, und die Verschlüsselung der
+    HA-Sicherungen einzuschalten.
+29. **Zugriff auf den HA-Konfigurationsordner entfernt (SEC-07).** Die App hatte
+    `homeassistant_config` nur lesend eingebunden, benutzt hat ihn kein Code. Darüber waren
+    `secrets.yaml` und die Anmelde-Tokens in `.storage/` im Container lesbar. **Empfehlung:**
+    entfernt lassen. Braucht eine spätere Funktion eine Datei daraus, bekommt sie einen eigenen
+    PR mit Begründung.
+30. **Wer darf SunCore über MQTT steuern (SEC-14)?** Jeder, der sich am Mosquitto-Broker
+    anmelden kann, darf SunCore steuern. Das sind alle HA-Benutzer, auch Nicht-Admins, und alle
+    Apps über den Benutzer `addons`. Möglich sind Not-Aus, Modus senken, Pause, Boost und
+    Neuplanung. Hochstufen geht nur mit `allow_mode_raise`. **Empfehlung:** so lassen, denn das
+    entspricht dem Entitätsmodell von HA. In der Doku kommt ein ACL-Beispiel für `suncore/#`
+    dazu.
+31. **Schutz gegen fremde Webseiten (CSRF, SEC-13).** Heute schützen das Ingress-Cookie
+    (`SameSite=Strict`), der zufällige Ingress-Pfad und der Admin-Zwang. Zusätzlich würde jede
+    schreibende Anfrage eine eigene Kopfzeile verlangen (`X-SunCore-Request: 1`); die Oberfläche
+    sendet sie. **Empfehlung:** vor 1.0 als kleiner eigener PR (Backend, Frontend, e2e-Test)
+    mit Prüfung durch `control-safety`. Das Auslösen des Not-Aus bleibt ohne die Kopfzeile
+    möglich, das Aufheben nicht. **Stand:** in 7-O umgesetzt (`e6617d0`, §8 7-O); steht als
+    Verhaltensänderung in den Release-Notes. Offen ist nur dein Einverständnis.
+32. **Härtung des Containers (SEC-17, SEC-18).** SunCore läuft im Container als root und ohne
+    eigenes AppArmor-Profil; seccomp schaltet der Supervisor für alle Apps ab. **Empfehlung:**
+    nach 1.0, denn eigener Benutzer und Profil müssen auf HA OS getestet werden (Rauchtest und
+    Upgrade-Test). Ebenso das Update auf ECharts 6 (SEC-21).
+33. **Basis-Images per Digest fixieren (SEC-19).** Das Python-Basis-Image und das `uv`-Image
+    hängen an Tags. Dependabot erkennt das Basis-Image nicht, weil es über `ARG` kommt.
+    **Empfehlung:** beide per Digest fixieren und den Digest im Skill `prepare-release` prüfen,
+    zusammen mit dem Mosquitto-Digest des Rauchtests (Frage 27).

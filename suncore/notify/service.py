@@ -46,6 +46,7 @@ from suncore.notify.model import POLICIES, Category, NotifyEvent, Verdict
 from suncore.notify.ratelimit import NotifyLimiter
 from suncore.notify.render import render_action_titles, render_reason
 from suncore.notify.rules import Observation, RuleEngine
+from suncore.notify.signals import SiteSignal, signal_for
 from suncore.notify.sink import Button, HaNotificationSink, NotifyPort
 
 log = structlog.get_logger(__name__)
@@ -163,6 +164,29 @@ class NotificationService:
         self._persistent: set[str] = set()
         self._lock = asyncio.Lock()
         self._last_test = float("-inf")
+        self._signal_listeners: list[Callable[[SiteSignal], None]] = []
+
+    # --- site signals (MQTT events) -------------------------------------------------------
+
+    def add_signal_listener(self, listener: Callable[[SiteSignal], None]) -> Callable[[], None]:
+        """Call ``listener`` for every event that has an MQTT event type, whatever the category
+        switches, the quiet hours and the daily cap say about the push. Returns the remover."""
+        self._signal_listeners.append(listener)
+
+        def remove() -> None:
+            if listener in self._signal_listeners:
+                self._signal_listeners.remove(listener)
+
+        return remove
+
+    def _signal(self, signal: SiteSignal | None) -> None:
+        if signal is None:
+            return
+        for listener in tuple(self._signal_listeners):
+            try:
+                listener(signal)
+            except Exception:
+                log.exception("notify.signal_listener_failed", type=signal.type)
 
     # --- lifecycle ------------------------------------------------------------------------
 
@@ -232,6 +256,7 @@ class NotificationService:
         self._spawn(self.submit(event))
 
     async def submit(self, event: NotifyEvent) -> None:
+        self._signal(signal_for(event))
         async with self._lock:
             await self._deliver(event)
 
@@ -250,6 +275,10 @@ class NotificationService:
     async def _tick(self) -> None:
         now = self._clock()
         evaluation = self._engine.evaluate(self._source.observe(now))
+        for event in evaluation.events:
+            self._signal(signal_for(event))
+        for signal in evaluation.signals:
+            self._signal(signal)
         self._tokens.prune(now)
         async with self._lock:
             for key in evaluation.resolved:

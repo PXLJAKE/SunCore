@@ -68,7 +68,11 @@ from suncore.api.models import (
     template_list,
 )
 from suncore.api.params import PARAMS_MAX_BYTES, guard_expert_document, register_params
-from suncore.api.security import PeerCheckMiddleware
+from suncore.api.security import (
+    PeerCheckMiddleware,
+    RequireHeaderMiddleware,
+    SecurityHeadersMiddleware,
+)
 from suncore.api.services import (
     EnergyPrefsFailedError,
     EntityQuery,
@@ -169,6 +173,15 @@ BODY_LIMITS: Final = [
     ("POST", re.compile(rf"{re.escape(API_PREFIX)}/preview"), BODY_MAX_BYTES),
     ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/ev"), BODY_MAX_BYTES),
     ("POST", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/program/arm"), BODY_MAX_BYTES),
+    # Security review 1.0 (SEC-06): every other route that takes a JSON body. Their bodies are
+    # a few hundred bytes; the cap only stops a huge body before it is parsed.
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/notifications/settings"), BODY_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/override"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/operation/mode"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/operation/devices/[^/]+"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/operation/battery"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/operation/inverter"), BODY_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/backtests"), BODY_MAX_BYTES),
 ]
 SNAPSHOT_DECISIONS: Final = 20
 
@@ -187,7 +200,9 @@ def create_app(
         redoc_url=None,
     )
     app.add_middleware(BodyLimitMiddleware, rules=BODY_LIMITS)
+    app.add_middleware(RequireHeaderMiddleware)  # SEC-13: inside the peer check
     app.add_middleware(PeerCheckMiddleware, policy=services.peer_policy)
+    app.add_middleware(SecurityHeadersMiddleware)  # outermost: the 403 carries them too
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     _register_http(app, services)
     _register_prices(app, services)

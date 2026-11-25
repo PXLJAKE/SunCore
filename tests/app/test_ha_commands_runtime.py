@@ -59,11 +59,14 @@ async def test_port_stop_clear_override_and_replan(
     port = RuntimeCommandPort(demo_runtime)
     await _devices(demo_runtime)
     device = "pool_pump"
+    assert port.stored_emergency_active() is False
     await port.command_emergency_stop()
     assert demo_runtime.control_state().emergency_stop is True
+    assert port.stored_emergency_active() is True  # the gate flag (SEC-15, review F1)
     assert RuntimeEntitySource(demo_runtime).values()["emergency_stop"] is True
     await port.command_clear_stop()
     assert demo_runtime.control_state().emergency_stop is False
+    assert port.stored_emergency_active() is False
     results = []
     original = Runtime.override_device
 
