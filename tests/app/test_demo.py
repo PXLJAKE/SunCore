@@ -258,6 +258,24 @@ async def test_export_import_roundtrip_resubscribes(demo_runtime: Runtime) -> No
     assert bad.status_code == 422
 
 
+async def test_rejected_import_never_logs_the_mqtt_password(
+    demo_runtime: Runtime, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Security review 1.0, SEC-01: the API logs why an import was rejected; Pydantic's text
+    would repeat the whole ``mqtt`` body, password included."""
+    async with client_for(create_app(demo_runtime)) as client:
+        exported = (await client.get("/api/v1/config/export")).json()
+        exported["sections"]["mqtt"] = {
+            "schema_version": 1,
+            "body": {"broker": "manual", "host": "h", "password": "hunter2-in-import"},
+        }
+        with caplog.at_level("INFO"):
+            r = await client.post("/api/v1/config/import", json=exported)
+    assert (r.status_code, r.json()) == (422, {"detail": "api.error.import_rejected"})
+    assert "config import rejected" in caplog.text
+    assert "hunter2-in-import" not in caplog.text
+
+
 async def test_import_over_real_limit_is_413(demo_runtime: Runtime) -> None:
     limit = demo_runtime.max_import_bytes
     async with client_for(create_app(demo_runtime)) as client:

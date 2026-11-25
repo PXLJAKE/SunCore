@@ -18,13 +18,28 @@ from typing import Any, Final
 
 MASK: Final = "***"
 SENSITIVE_KEYS: Final = frozenset(
-    {"access_token", "api_password", "authorization", "password", "refresh_token", "token"}
+    {
+        "access_token",
+        "api_key",
+        "api_password",
+        "apikey",
+        "authorization",
+        "client_secret",
+        "passwd",
+        "password",
+        "refresh_token",
+        "secret",
+        "token",
+    }
 )
 _BEARER = re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+")
 _JSON_FIELD = re.compile(
-    r"""(?ix)(["']?(?:access_token|api_password|authorization|refresh_token)["']?\s*[:=]\s*)
+    r"""(?ix)(["']?(?:access_token|api_key|api_password|apikey|authorization|client_secret
+    |passwd|password|refresh_token)["']?\s*[:=]\s*)
     ("[^"]*"|'[^']*'|[^\s,}&]+)"""
 )
+_URL_USERINFO = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^\s/:@]+:)[^\s/@]+(@)")
+"""``scheme://user:password@host``: the password part (security review 1.0, SEC-03)."""
 _MIN_SECRET_LEN: Final = 4
 
 
@@ -50,6 +65,7 @@ class SecretRegistry:
         for secret in secrets:
             text = text.replace(secret, MASK)
         text = _BEARER.sub(rf"\1 {MASK}", text)
+        text = _URL_USERINFO.sub(rf"\1{MASK}\2", text)
         return _JSON_FIELD.sub(rf"\1{MASK}", text)
 
 

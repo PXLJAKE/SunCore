@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import logging
 
+import pytest
 import structlog
 
 from suncore.ha.redact import (
@@ -32,6 +33,35 @@ def test_registered_secret_and_patterns_are_masked() -> None:
     assert SECRET not in reg.redact('{"type":"auth","access_token":"other-value"}')
     assert "other-value" not in reg.redact('{"type":"auth","access_token":"other-value"}')
     assert "xyz" not in reg.redact("access_token=xyz&a=1")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "mqtt://suncore:hunter2pass@core-mosquitto:1883",
+        "mqtts://u:hunter2pass@broker.lan",
+        '{"username": "u", "password": "hunter2pass"}',
+        "password=hunter2pass&x=1",
+        "client_secret: hunter2pass",
+        "api_key=hunter2pass",
+    ],
+)
+def test_passwords_in_free_text_are_masked(text: str) -> None:
+    """Security review 1.0, SEC-03: URL user info and password-like fields."""
+    out = SecretRegistry().redact(text)
+    assert "hunter2pass" not in out
+    assert MASK in out
+
+
+def test_ordinary_text_about_passwords_is_kept() -> None:
+    text = "mqtt: a password needs `username`; see https://example.org/a:b"
+    assert SecretRegistry().redact(text) == text
+
+
+@pytest.mark.parametrize("key", ["password", "secret", "api_key", "client_secret", "passwd"])
+def test_secret_like_keys_are_masked(key: str) -> None:
+    out = redact_value({key: "hunter2pass", "nested": {key.upper(): "hunter2pass"}})
+    assert "hunter2pass" not in str(out)
 
 
 def test_short_secrets_are_ignored() -> None:
