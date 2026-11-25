@@ -1,0 +1,71 @@
+name: Weblate sync
+
+# Weblate opens pull requests from the branch `weblate` (ADR-0007, ADR-0020, WP12). A translator
+# cannot run the generators, so this workflow does it on the pull request branch:
+#   1. scripts/gen_backend_catalogue.py   backend catalogue from the frontend catalogues; a
+#                                         message outside the backend ICU subset fails the run
+#   2. scripts/sync_beta_translations.py  beta app options translations from the stable app
+#   3. commit and push of what changed to the pull request branch
+#   4. scripts/check_reasons.py           every backend key exists in en and de
+# Only pull requests whose head branch lives in this repository run (never forks).
+# Documentation: docs/i18n-weblate.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Nothing by default; the one job asks for what it needs.
+permissions: {}
+
+concurrency:
+  group: weblate-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Regenerate and check
+    if: >-
+      github.event.pull_request.head.ref == 'weblate' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          # The push below needs the credential. A push with the default token does not start
+          # other workflows; WEBLATE_SYNC_TOKEN (optional secret) does, see docs/i18n-weblate.md.
+          token: ${{ secrets.WEBLATE_SYNC_TOKEN || github.token }}
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - name: Install
+        run: uv sync --frozen --no-dev
+      - name: Backend catalogue (fails for messages outside the ICU subset)
+        run: |
+          if ! uv run --no-dev python scripts/gen_backend_catalogue.py 2> /tmp/gen.err; then
+            cat /tmp/gen.err
+            echo "::error title=Message outside the backend ICU subset::A message uses ICU syntax the backend renderer does not support. Fix it in Weblate (keys in the log above), see docs/i18n-weblate.md."
+            exit 1
+          fi
+      - name: Beta app translations
+        run: uv run --no-dev python scripts/sync_beta_translations.py
+      - name: Commit regenerated files
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git add suncore/i18n/catalogue addon/suncore_beta/translations
+          if git diff --cached --quiet; then
+            echo "Nothing to regenerate."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(i18n): regenerate backend catalogue and beta translations"
+          git push origin "HEAD:refs/heads/${HEAD_REF}"
+      - name: Backend keys exist in en and de
+        run: uv run --no-dev python scripts/check_reasons.py

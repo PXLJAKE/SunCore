@@ -36,7 +36,11 @@ def generate(language: str) -> str:
         except MessageSyntaxError as exc:
             bad.append(f"{language}:{key}: {exc}")
     if bad:
-        raise SystemExit("messages outside the supported ICU subset:\n  " + "\n  ".join(bad))
+        raise SystemExit(
+            "messages outside the supported ICU subset (the backend renders these keys; fix "
+            "the message in the frontend catalogue or in Weblate, see "
+            "docs/i18n-weblate.md):\n  " + "\n  ".join(bad)
+        )
     return json.dumps(picked, indent=2, ensure_ascii=False) + "\n"
 
 
