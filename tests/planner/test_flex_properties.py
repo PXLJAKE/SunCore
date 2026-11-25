@@ -16,16 +16,18 @@ import os
 from dataclasses import replace
 from datetime import timedelta
 
+import pytest
 from hypothesis import HealthCheck, event, given, settings
 from hypothesis import strategies as st
 
 from suncore.core.flex import EvMode, EvState, EvTarget
 from suncore.core.grid import Para14aBudget, Para14aStatus, PeakShaving
+from suncore.core.series import PLANNING_STEP, floor_to_step
 from suncore.planner.flex import EvLive, FlexRequest, GridRequest, PlannerJob
 from suncore.planner.heuristic import heuristic_schedule
 from suncore.planner.model import build_problem, economics, objective, violations
 from suncore.planner.run import run
-from suncore.sim.planner_flex import heat_pump, job, outdoor, program, wallbox
+from suncore.sim.planner_flex import flex_situation, heat_pump, job, outdoor, program, wallbox
 from suncore.sim.planner_scenarios import Situation, situation_inputs
 from tests.planner.helpers import situations
 
@@ -153,3 +155,78 @@ def test_flexible_plans_are_feasible_and_never_worse_than_the_heuristic(
             band = interval.devices[load.device_id]
             if band.grid_power_max_w is not None and band.max_power_w is not None:
                 assert band.grid_power_max_w <= band.max_power_w + 1e-6
+
+
+# --- the first slot is only what is left of it (7-K, docs/research/late-car-gap.md) ------------
+
+
+@st.composite
+def late_situations(draw: st.DrawFn) -> tuple[Situation, float]:
+    """A random situation with a charging car, planned ``elapsed`` seconds into its quarter."""
+    base = draw(situations())
+    quarter = floor_to_step(base.now, PLANNING_STEP).astimezone(base.now.tzinfo)
+    elapsed = draw(st.one_of(st.floats(0, 898.0), st.sampled_from([0.0, 450.0, 870.0, 898.0])))
+    now = quarter + timedelta(seconds=elapsed)
+    mode = draw(st.sampled_from([EvMode.TARGET, EvMode.NOW, EvMode.MIN_PV, EvMode.PV]))
+    target = (
+        EvTarget(
+            soc_pct=draw(st.floats(40, 100)), by=now + timedelta(hours=draw(st.integers(1, 12)))
+        )
+        if mode is EvMode.TARGET
+        else None
+    )
+    flex = FlexRequest(
+        ev_states={
+            "wallbox": EvState(device_id="wallbox", mode=mode, target=target, updated_at=now)
+        },
+        ev_live={"wallbox": EvLive(soc_pct=draw(st.floats(0, 39)), connected=True)},
+    )
+    situation = replace(
+        base, now=now, devices=(*base.devices, wallbox()), flex=flex, grid_limits=None
+    )
+    return situation, (quarter + PLANNING_STEP - now).total_seconds()
+
+
+@PROPS
+@given(late_situations())
+def test_the_first_slot_books_no_more_energy_than_its_remaining_time_allows(
+    case: tuple[Situation, float],
+) -> None:
+    """Energy booked in slot 0 <= max power x remaining hours, for the EV and the battery, in
+    the LP and the heuristic alike; and the plan stays feasible under its own accounting."""
+    situation, left_s = case
+    inputs = situation_inputs(situation)
+    left_h = left_s / 3600.0
+    assert inputs.hours[0] == pytest.approx(left_h, abs=1e-12)
+    assert all(h == inputs.dt_h for h in inputs.hours[1:])
+    heuristic = heuristic_schedule(inputs)
+    result = run(inputs)
+    battery = inputs.battery
+    for schedule in (result.schedule, heuristic):
+        assert violations(inputs, schedule) == []
+        for load, flows in zip(inputs.flex_loads, schedule.flex, strict=True):
+            booked = flows.power_w(0) * inputs.hours[0]
+            assert booked <= load.max_w[0] * left_h + 1e-6
+        if battery is not None:
+            model = battery.model
+            stored = schedule.soc_wh[0] - battery.soc_wh
+            assert stored <= battery.max_charge_w * model.charge_efficiency * left_h + 1e-6
+            assert -stored <= battery.max_discharge_w / model.discharge_efficiency * left_h + 1e-6
+    cost = objective(inputs, heuristic)
+    assert result.objective <= cost + 1e-6 * max(1.0, abs(cost))
+
+
+def test_a_negligible_first_slot_still_solves_and_books_almost_nothing() -> None:
+    base = flex_situation("ev_arrives_late")
+    quarter = floor_to_step(base.now, PLANNING_STEP).astimezone(base.now.tzinfo)
+    now = quarter + PLANNING_STEP - timedelta(microseconds=1)
+    assert base.flex is not None
+    flex = replace(base.flex, ev_live={"wallbox": EvLive(soc_pct=30.0, connected=True)})
+    inputs = situation_inputs(replace(base, now=now, flex=flex))
+    assert inputs.hours[0] == pytest.approx(1 / 3600)
+    result = run(inputs)
+    assert result.solver is not None
+    assert result.solver.status in {"optimal", "time_limit"}
+    assert violations(inputs, result.schedule) == []
+    for load, flows in zip(inputs.flex_loads, result.schedule.flex, strict=True):
+        assert flows.power_w(0) * inputs.hours[0] <= load.max_w[0] / 3600 + 1e-6

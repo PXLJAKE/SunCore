@@ -112,7 +112,7 @@ def _no_export_while_a_device_could_use_it(inputs: PlannerInputs, schedule: Sche
             continue
         budget_left = min(
             (
-                b - sum(schedule.device_total_w(x) for x in range(s + 1)) * inputs.dt_h
+                b - sum(schedule.device_total_w(x) * inputs.hours[x] for x in range(s + 1))
                 for s, b in econ.device_budget
                 if s >= t
             ),

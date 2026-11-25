@@ -104,7 +104,7 @@ def test_ev_arrives_late_charges_in_the_cheap_night_and_meets_the_target() -> No
     assert econ.flex is not None
     flows = result.schedule.flex[i]
     assert ev.need_by_wh is not None
-    assert ev_delivered_wh(ev, flows, econ.flex.surplus_p10_w, inputs.dt_h) >= ev.need_by_wh - 1
+    assert ev_delivered_wh(ev, flows, econ.flex.surplus_p10_w, inputs.hours) >= ev.need_by_wh - 1
     for t in range(inputs.n):
         local = _local(inputs, t)
         band = result.plan.intervals[t].devices[ev.device_id]
@@ -220,7 +220,7 @@ def test_peak_variable_holds_every_import_and_the_limit() -> None:
     i, ev = _ev(inputs)
     assert ev.need_by_wh is not None
     assert econ.flex is not None
-    got = ev_delivered_wh(ev, result.schedule.flex[i], econ.flex.surplus_p10_w, inputs.dt_h)
+    got = ev_delivered_wh(ev, result.schedule.flex[i], econ.flex.surplus_p10_w, inputs.hours)
     assert got >= ev.need_by_wh - 1
 
 
@@ -255,7 +255,7 @@ def test_full_house_meets_deadlines_with_binaries() -> None:
             end = inputs.starts[flows.start] + inputs.step * len(load.profile_w)
             assert end <= load.deadline
         if isinstance(load, PlannerEv) and load.need_by_wh is not None:
-            got = ev_delivered_wh(load, flows, econ.flex.surplus_p10_w, inputs.dt_h)
+            got = ev_delivered_wh(load, flows, econ.flex.surplus_p10_w, inputs.hours)
             assert got >= load.need_by_wh - 1
 
 
@@ -400,7 +400,10 @@ def test_jobs_running_ignored_and_without_job() -> None:
     planned = built.jobs[0]
     assert planned.running
     assert planned.candidates == (0,)
-    assert planned.profile_w == (400.0, 400.0, 1200.0)  # 20 min done: from the 2nd quarter
+    # 20 min done: the run's quarters [2000, 400, 400, 1200] W, shifted by 5 min onto the grid
+    # (exact in energy since 7-K; before, the remainder was cut at the quarter boundary)
+    assert planned.profile_w == pytest.approx((400.0, 2000.0 / 3.0, 800.0))
+    assert sum(planned.profile_w) * 0.25 == pytest.approx(100.0 * 2 / 3 + 100.0 + 300.0)
     assert [r.key for r in built.reasons] == [rk.JOB_IGNORED]
     nothing, _ = _build([washer], FlexRequest())
     assert nothing.jobs == ()

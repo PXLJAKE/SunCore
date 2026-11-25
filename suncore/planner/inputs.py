@@ -27,7 +27,8 @@ median of the known prices of the same kind and counted (``prices_filled_slots``
 charging is never planned in a slot without a known price.
 
 Times are UTC, powers W (mean over the slot), energies Wh, prices currency/kWh; battery
-+ = charging (``core/units.py``).
++ = charging (``core/units.py``). Energy in slot ``t`` is ``power * hours[t]``: the first slot
+counts only the time left after ``now`` (:mod:`suncore.planner.slots`, late-car gap, WP9).
 """
 
 from __future__ import annotations
@@ -81,6 +82,7 @@ from suncore.planner.flex import (
     build_grid,
     cap_para14a_floors,
 )
+from suncore.planner.slots import slot_hours
 
 PLANNER_HORIZON: Final = timedelta(hours=48)
 DEFAULT_BUDGET_S: Final = 8.0
@@ -249,12 +251,16 @@ class PlannerInputs:
     """Effective import limit per slot (``core.grid``); empty = ``import_limit_w`` everywhere."""
     export_limits_w: tuple[float | None, ...] = ()
     """Effective export limit per slot; empty = ``export_limit_w`` everywhere."""
+    hours: tuple[float, ...] = field(init=False, repr=False, compare=False)
+    """Usable hours per slot, derived from ``now`` (:func:`~suncore.planner.slots.slot_hours`):
+    the first slot only counts the time left. Every energy and cost is ``power * hours[t]``."""
 
     def __post_init__(self) -> None:
         n = len(self.starts)
         if n == 0:
             msg = "planner inputs: empty grid"
             raise ValueError(msg)
+        object.__setattr__(self, "hours", slot_hours(self.now, self.starts, self.step))
         series = (
             self.import_price,
             self.export_price,
@@ -300,6 +306,7 @@ class PlannerInputs:
 
     @property
     def dt_h(self) -> float:
+        """The nominal slot length (h); energies use :attr:`hours` (the first slot is shorter)."""
         return self.step / timedelta(hours=1)
 
     @property
@@ -584,6 +591,7 @@ def buffer_goal(
     pv: Sequence[float],
     load: Sequence[float],
     until: datetime,
+    now: datetime | None = None,
 ) -> tuple[datetime, float] | None:
     """Where the morning buffer becomes a soft SoC target: ``(time, SoC %)`` or ``None``.
 
@@ -593,16 +601,18 @@ def buffer_goal(
     or above ``target_pct``; when PV cannot get there, the highest SoC the simulation reaches
     (at the first slot it reaches it). So the buffer only orders the surplus (battery before
     devices) and never makes the plan hold energy or buy it from the grid by itself.
-    ``None`` = the live SoC is already there, or PV adds nothing.
+    ``None`` = the live SoC is already there, or PV adds nothing. ``now``: the first slot
+    counts only the time left (:mod:`suncore.planner.slots`; ``None`` = whole slots).
     """
     model = battery.model
     target = model.soc_to_wh(target_pct)
     energy = battery.soc_wh
     if energy >= target - 1e-6:
         return None
-    hours = step / timedelta(hours=1)
+    hours_of = slot_hours(now if now is not None else starts[0], starts, step)
     best: tuple[datetime, float] | None = None
     for t, begin in enumerate(starts):
+        hours = hours_of[t]
         end = begin + step
         if end > until:
             break
@@ -652,6 +662,7 @@ def _battery(
 def _soc_goals(
     battery: PlannerBattery | None,
     *,
+    now: datetime,
     starts: Sequence[datetime],
     step: timedelta,
     tz: tzinfo,
@@ -687,7 +698,7 @@ def _soc_goals(
         until = evening if begin + step < evening <= end else (coming[0] if coming else end)
         until = min(until, end)
         reach = buffer_goal(
-            battery, buffer_pct, starts=starts, step=step, pv=pv, load=load, until=until
+            battery, buffer_pct, starts=starts, step=step, pv=pv, load=load, until=until, now=now
         )
         if reach is not None:
             kind: GoalKind = "morning_buffer" if morning_buffer is not None else "prefer_full"
@@ -831,6 +842,7 @@ def build_inputs(  # noqa: PLR0912, PLR0915 - one step per input family
                 allowance[t] = 0.0  # §14a: no grid charging while dimmed (ADR-0018 d. 5)
     soc_goals, buffer_pct = _soc_goals(
         planner_battery,
+        now=now,
         starts=starts,
         step=grid.step,
         tz=tz,

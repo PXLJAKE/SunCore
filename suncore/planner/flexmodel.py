@@ -20,12 +20,13 @@ column          meaning
 ``PK[m]``       peak of month ``m`` (capacity price per kW)
 ==============  ==================================================================
 
-Rows: EV ``min * on <= S + G <= max * on``, ``S + G >= floor``, ``sum dt (G + S10) + short >=
-need``, ``sum dt (S + G) <= total``; program ``S + G + B = sum_k profile[t - k] y_k``; thermal
-``T_t = alpha T_{t-1} + k_t (S + G + B) + drift_t``, ``min - LO <= T <= max + HI``, ``G + B <=
+Rows: EV ``min * on <= S + G <= max * on``, ``S + G >= floor``, ``sum h_t (G + S10) + short >=
+need``, ``sum h_t (S + G) <= total``; program ``S + G + B = sum_k profile_k[t] y_k``; thermal
+``T_t = alpha_t T_{t-1} + k_t (S + G + B) + drift_t``, ``min - LO <= T <= max + HI``, ``G + B <=
 base`` without ``grid_preheat``; grid ``gL + gC + sum G - OV <= max(limit, deficit)``, ``gL + gC +
 sum G <= PK[m]``, ``sum_{flagged} (S + G + B) <= §14a budget``; battery ``bL + sum B <= max
-discharge``.
+discharge``. ``h_t`` is the usable length of slot ``t`` (:mod:`slots`: the first slot only
+counts the time left after ``now``); every energy and cost of a slot is ``h_t * power``.
 """
 
 from __future__ import annotations
@@ -68,7 +69,7 @@ class FlexInputs(Protocol):
     def n(self) -> int: ...
 
     @property
-    def dt_h(self) -> float: ...
+    def hours(self) -> tuple[float, ...]: ...
 
     @property
     def tz(self) -> tzinfo: ...
@@ -282,9 +283,9 @@ def set_flow_bounds(  # noqa: PLR0917 - the LP arrays
     upper: FloatArray,
 ) -> None:
     """Bounds and costs of ``S``, ``G``, ``B`` (before the balance rows are written)."""
-    dt = inputs.dt_h
     for i, load in enumerate(fl.loads):
         for t in range(fl.n):
+            dt = inputs.hours[t]
             cap = load.max_w[t] / KW
             if cap <= 0:
                 continue
@@ -312,14 +313,14 @@ def add_rows(  # noqa: PLR0917 - one block per load kind and grid rule
     integrality: list[int],
 ) -> None:
     """Every row of the module doc except the surplus balance and the SoC dynamics."""
-    n, dt = fl.n, inputs.dt_h
+    n, hours = fl.n, inputs.hours
     for i, load in enumerate(fl.loads):
         if isinstance(load, PlannerEv):
-            _ev_rows(fe, fl, i, load, cost, lower, upper, rows, integrality, dt)
+            _ev_rows(fe, fl, i, load, cost, lower, upper, rows, integrality, hours)
         elif isinstance(load, PlannerJob):
             _job_rows(fl, i, load, cost, lower, upper, rows, integrality)
         elif isinstance(load, PlannerThermal):
-            _thermal_rows(fe, fl, i, load, cost, lower, upper, rows, dt)
+            _thermal_rows(fe, fl, i, load, cost, lower, upper, rows, hours)
     grid_cols = [
         [fl.g(i, t) for i in range(len(fl.loads)) if upper[fl.g(i, t)] > 0] for t in range(n)
     ]
@@ -330,7 +331,7 @@ def add_rows(  # noqa: PLR0917 - one block per load kind and grid rule
         if limit is not None and grid_cols[t]:
             forced = sum(load.forced_max_w(t) for load in fl.loads) / KW
             upper[fl.ov(t)] = forced
-            cost[fl.ov(t)] = dt * fe.over_penalty
+            cost[fl.ov(t)] = hours[t] * fe.over_penalty
             cap = max(limit, base.deficit_w[t]) / KW
             rows.add([*imports, (fl.ov(t), -1.0)], -INF, cap)
         if fl.n_months:
@@ -374,11 +375,12 @@ def _ev_rows(  # noqa: PLR0917 - the LP arrays
     upper: FloatArray,
     rows: RowSink,
     integrality: list[int],
-    dt: float,
+    hours: Sequence[float],
 ) -> None:
     target: list[tuple[int, float]] = []
     total: list[tuple[int, float]] = []
     for t in range(fl.n):
+        dt = hours[t]
         cap = ev.max_w[t] / KW
         if cap <= 0:
             continue
@@ -451,21 +453,22 @@ def _thermal_rows(  # noqa: PLR0917 - the LP arrays
     lower: FloatArray,
     upper: FloatArray,
     rows: RowSink,
-    dt: float,
+    hours: Sequence[float],
 ) -> None:
-    penalty = dt * fe.comfort_penalty[i]
     for t in range(fl.n):
         temp, low, high = fl.temp(i, t), fl.low(i, t), fl.high(i, t)
         lower[temp], upper[temp] = -TEMP_BOUND_C, TEMP_BOUND_C
         upper[low] = upper[high] = INF
-        cost[low] = cost[high] = penalty
+        cost[low] = cost[high] = hours[t] * fe.comfort_penalty[i]
         power = [(c, -th.heat_k[t]) for c, _ in _power(fl, i, t)]
         if t == 0:
-            rhs = th.drift[0] + th.alpha * th.temp0_c
+            rhs = th.drift[0] + th.alpha[0] * th.temp0_c
             rows.add([(temp, 1.0), *power], rhs, rhs)
         else:
             rows.add(
-                [(temp, 1.0), (fl.temp(i, t - 1), -th.alpha), *power], th.drift[t], th.drift[t]
+                [(temp, 1.0), (fl.temp(i, t - 1), -th.alpha[t]), *power],
+                th.drift[t],
+                th.drift[t],
             )
         rows.add([(temp, 1.0), (low, 1.0)], th.min_c, INF)
         rows.add([(temp, 1.0), (high, -1.0)], -INF, th.max_c)
@@ -517,7 +520,7 @@ def fill_vector(  # noqa: PLR0912, PLR0917 - one block per load kind
     deficit_w: Sequence[float],
 ) -> None:
     """The flexible columns of a schedule (slacks recomputed, for costing and warm starts)."""
-    n, dt = fl.n, inputs.dt_h
+    n, hours = fl.n, inputs.hours
     for i, (load, f) in enumerate(zip(fl.loads, flows, strict=True)):
         for t in range(n):
             x[fl.s(i, t)] = f.surplus_w[t] / KW
@@ -536,7 +539,7 @@ def fill_vector(  # noqa: PLR0912, PLR0917 - one block per load kind
                 if load.target_slot(t):
                     s10 = min(f.surplus_w[t], fe.surplus_p10_w[t], load.max_w[t])
                     x[fl.ev_s10(i, t)] = s10 / KW
-                    got += (f.grid_w[t] + s10) * dt
+                    got += (f.grid_w[t] + s10) * hours[t]
             if load.need_by_wh is not None and load.deadline_slot is not None:
                 x[fl.ev_short(i)] = max(0.0, load.need_by_wh - got) / KW
         elif isinstance(load, PlannerJob):
@@ -575,11 +578,11 @@ def forced_power_w(load: FlexLoad, flows: FlexFlows, t: int) -> float:
 
 
 def ev_delivered_wh(
-    ev: PlannerEv, flows: FlexFlows, surplus_p10_w: Sequence[float], dt: float
+    ev: PlannerEv, flows: FlexFlows, surplus_p10_w: Sequence[float], hours: Sequence[float]
 ) -> float:
     """Energy that counts toward the target (grid plus surplus up to the P10 surplus)."""
     return sum(
-        (flows.grid_w[t] + min(flows.surplus_w[t], surplus_p10_w[t], ev.max_w[t])) * dt
+        (flows.grid_w[t] + min(flows.surplus_w[t], surplus_p10_w[t], ev.max_w[t])) * hours[t]
         for t in range(len(flows.grid_w))
         if ev.target_slot(t)
     )
@@ -590,7 +593,7 @@ def flex_violations(  # noqa: PLR0912 - one check per rule of the module doc
 ) -> list[str]:
     """Constraint violations of the flexible loads beyond rounding (empty = feasible)."""
     found: list[str] = []
-    n, dt = inputs.n, inputs.dt_h
+    n, hours = inputs.n, inputs.hours
     loads = inputs.flex_loads
     if len(flows) != len(loads):
         return [f"flex flows: {len(flows)} for {len(loads)} loads"]
@@ -608,7 +611,7 @@ def flex_violations(  # noqa: PLR0912 - one check per rule of the module doc
                 found.append(f"{name}: grid power not allowed at {t}")
             if b > TOL_W and (not load.battery or not battery):
                 found.append(f"{name}: battery power not allowed at {t}")
-            total += p * dt
+            total += p * hours[t]
             if isinstance(load, PlannerEv):
                 if p > TOL_W and p < load.min_w - TOL_W and load.binary(t):
                     found.append(f"{name}: below the minimum power at {t}")
@@ -623,7 +626,7 @@ def flex_violations(  # noqa: PLR0912 - one check per rule of the module doc
         if (
             isinstance(load, PlannerEv)
             and load.need_total_wh is not None
-            and total > load.need_total_wh + TOL_W * dt
+            and total > load.need_total_wh + TOL_W * inputs.hours[-1]
         ):
             found.append(f"{name}: more energy than the vehicle takes")
         if isinstance(load, PlannerJob):
@@ -662,7 +665,7 @@ def flex_band(load: FlexLoad, flows: FlexFlows, t: int) -> DeviceBand:  # noqa: 
     power = flows.power_w(t)
     if isinstance(load, PlannerJob):
         start = flows.start if flows.start is not None else load.candidates[0]
-        end = start + len(load.profile_w)
+        end = start + load.length(start)
         if load.running:
             return DeviceBand(preference=BandPreference.PREFER_ON)
         if t < start:
@@ -704,7 +707,7 @@ def flex_reasons(  # noqa: PLR0912 - one branch per load kind
 ) -> list[Reason]:
     """Reasons of slot ``t`` for the flexible loads (keys in :mod:`reasons`)."""
     out: list[Reason] = []
-    dt = inputs.dt_h
+    hours = inputs.hours
     for load, f in zip(inputs.flex_loads, flows, strict=True):
         device = load.device_id
         power = f.power_w(t)
@@ -735,7 +738,7 @@ def flex_reasons(  # noqa: PLR0912 - one branch per load kind
             if (
                 load.need_by_wh is not None
                 and load.deadline_slot == t
-                and ev_delivered_wh(load, f, fe.surplus_p10_w, dt) < load.need_by_wh - 1.0
+                and ev_delivered_wh(load, f, fe.surplus_p10_w, hours) < load.need_by_wh - 1.0
             ):
                 out.append(
                     Reason(
@@ -744,7 +747,7 @@ def flex_reasons(  # noqa: PLR0912 - one branch per load kind
                             "device": device,
                             "need_kwh": round(load.need_by_wh / KW, 1),
                             "planned_kwh": round(
-                                ev_delivered_wh(load, f, fe.surplus_p10_w, dt) / KW, 1
+                                ev_delivered_wh(load, f, fe.surplus_p10_w, hours) / KW, 1
                             ),
                             "time": hhmm(t),
                         },

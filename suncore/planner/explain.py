@@ -113,7 +113,7 @@ def slot_facts(inputs: PlannerInputs, econ: Economics, schedule: Schedule) -> li
     )
     buffer_open = buffer_goal is not None and battery is not None
     used = {
-        slot: sum(schedule.device_total_w(t) for t in range(slot + 1)) * inputs.dt_h
+        slot: sum(schedule.device_total_w(t) * inputs.hours[t] for t in range(slot + 1))
         for slot, _ in econ.device_budget
     }
     for t in range(inputs.n):
@@ -136,7 +136,7 @@ def slot_facts(inputs: PlannerInputs, econ: Economics, schedule: Schedule) -> li
         hold: SocGoal | None = None
         if battery is not None and deficit > EPS_W:
             floor = min(battery.reserve_wh, battery.soc_wh)
-            room_w = (prev - floor) * battery.model.discharge_efficiency / inputs.dt_h
+            room_w = (prev - floor) * battery.model.discharge_efficiency / inputs.hours[t]
             possible = min(deficit, battery.max_discharge_w, room_w)
             lock = schedule.discharge_w(t) < possible - EPS_W
             if lock:

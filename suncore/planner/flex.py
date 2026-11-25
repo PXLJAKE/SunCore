@@ -22,13 +22,19 @@ the EV**: ``battery.allow_discharge_to_ev`` does not exist yet and defaults to o
 * :class:`PlannerJob` (an armed program job): one start slot among ``candidates`` (a binary
   each), the profile convolved from there, finished by the deadline. No candidate fits ->
   start as soon as possible with ``planner.job.deadline_infeasible``. A running job is a
-  fixed remainder of its profile from slot 0.
+  fixed remainder of its profile from slot 0. Starting in slot 0 means starting at ``now``:
+  that start's profile is resampled onto the grid from ``now`` (from the actual start for a
+  running job), so its energy per slot is exact although the first slot is short.
 * :class:`PlannerThermal` (a thermal kind with a usable learned RC model, the live temperature,
   an outdoor-temperature forecast and a comfort band): the store's temperature per slot with
   the COP from the outdoor forecast; the comfort (lift) band as soft bounds. The heating the
   device would do by itself to hold the band's minimum (``base_w``, a thermostat simulation)
   may come from grid or battery; **pre-heating** beyond it uses surplus only, unless
   ``grid_preheat``. Without a usable model the device stays energy-only (Phase 4) and says so.
+
+**Slot 0** has only the time left after ``now`` (:mod:`suncore.planner.slots`): powers stay
+powers, but every energy (EV floors and needs, the thermal step, the programs' profile) uses
+the usable hours of the slot.
 
 **Grid** (:class:`PlannerGrid`, through the resolvers of ``core.grid`` only): the effective
 import limit per slot (fuse and peak shaving, the peak resets at the local month boundary),
@@ -75,6 +81,7 @@ from suncore.core.grid import (
 from suncore.core.series import Grid, TimeSeries, resample_power
 from suncore.core.thermal import GENERIC_AIR_WATER_COP, ThermalModel, model_usable
 from suncore.planner import reasons as rk
+from suncore.planner.slots import slot_hours
 
 EV_BINARY_WINDOW: Final = timedelta(hours=24)
 """The 6 A floor is modelled with binaries in this window, its LP relaxation beyond (R11)."""
@@ -153,13 +160,24 @@ class PlannerJob(FlexLoad):
     deadline_met: bool
     """``False`` = no start finishes by the deadline: start as soon as possible."""
     previous_start: int | None = None
+    now_profile_w: tuple[float, ...] = ()
+    """The run started at ``now`` (or, running, at its real start) on the grid from slot 0:
+    mean power over the usable part of each slot (empty = ``profile_w``, slot 0 is whole)."""
 
     def forced_max_w(self, t: int) -> float:
         return self.max_w[t]
 
+    def _profile(self, start: int) -> tuple[float, ...]:
+        return self.now_profile_w if start == 0 and self.now_profile_w else self.profile_w
+
+    def length(self, start: int) -> int:
+        """Slots the run covers from ``start``."""
+        return len(self._profile(start))
+
     def power_at(self, start: int, t: int) -> float:
+        profile = self._profile(start)
         k = t - start
-        return self.profile_w[k] if 0 <= k < len(self.profile_w) else 0.0
+        return profile[k] if 0 <= k < len(profile) else 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,8 +187,9 @@ class PlannerThermal(FlexLoad):
     temp0_c: float
     min_c: float
     max_c: float
-    alpha: float
-    """``T_t = alpha * T_{t-1} + heat_k[t] * P_kw + drift[t]`` (exact for a constant input)."""
+    alpha: tuple[float, ...]
+    """``T_t = alpha[t] * T_{t-1} + heat_k[t] * P_kw + drift[t]`` (exact for a constant input;
+    per slot because the first slot is shorter)."""
     heat_k: tuple[float, ...]
     """K per kW of electric power over slot ``t`` (COP of the slot included)."""
     drift: tuple[float, ...]
@@ -185,7 +204,7 @@ class PlannerThermal(FlexLoad):
         return self.base_w[t]
 
     def next_temp(self, t: int, temp_c: float, power_w: float) -> float:
-        return self.alpha * temp_c + self.heat_k[t] * power_w / 1000.0 + self.drift[t]
+        return self.alpha[t] * temp_c + self.heat_k[t] * power_w / 1000.0 + self.drift[t]
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,6 +345,7 @@ def _ev(  # noqa: PLR0912, PLR0915 - one rule per mode, as in the module doc
     *,
     starts: Sequence[datetime],
     step: timedelta,
+    hours: Sequence[float],
     found: list[Reason],
 ) -> PlannerEv | None:
     spec = device.ev
@@ -376,19 +396,20 @@ def _ev(  # noqa: PLR0912, PLR0915 - one rule per mode, as in the module doc
                 need_total = need_by
             if deadline is None or need_by <= 0:
                 need_by, deadline = None, None
-    dt = step / timedelta(hours=1)
     floor = [0.0] * n
     grid = [0.0] * n
     if mode in (EvMode.NOW, EvMode.MIN_PV):
         level = max_w if mode is EvMode.NOW else min_w
         if need_total is None:
             found.append(Reason(key=rk.EV_NEED_UNKNOWN, args={"device": device.id}))
-            left = level * dt  # the plan is redone every 15 min: only the coming slot
+            # the plan is redone every 15 min: only the coming (whole) slot
+            left = level * step / timedelta(hours=1)
         else:
             left = need_total
         for t in range(n):
             if not available[t]:
                 continue
+            dt = hours[t]
             power = min(level, left / dt)
             if power < min_w - 1e-9:
                 break  # below the 6 A floor: the rest comes from surplus, if at all
@@ -437,6 +458,36 @@ def job_profile_w(device: DeviceConfig, step: timedelta, nominal_w: float | None
     return profile
 
 
+def profile_from(
+    profile: Sequence[float],
+    *,
+    origin: datetime,
+    now: datetime,
+    starts: Sequence[datetime],
+    step: timedelta,
+) -> tuple[float, ...]:
+    """A run of ``profile`` (W per ``step`` from ``origin``) on the grid: per slot the mean
+    power over its usable part (slot 0 from ``now``), exact in energy. Ends with the last slot
+    the run reaches; the part before ``now`` is gone."""
+    end = origin + step * len(profile)
+    out: list[float] = []
+    for t, begin in enumerate(starts):
+        a = max(begin, now) if t == 0 else begin
+        b = begin + step
+        if a >= end:
+            break
+        energy = 0.0  # W x s
+        for k, p in enumerate(profile):
+            lo, hi = max(a, origin + step * k), min(b, origin + step * (k + 1))
+            if hi > lo:
+                energy += p * (hi - lo).total_seconds()
+        span = (b - a).total_seconds()
+        out.append(energy / span if span > 0 else 0.0)
+    while out and out[-1] <= 0.0:
+        out.pop()
+    return tuple(out)
+
+
 def _job(
     device: DeviceConfig,
     job: ProgramJob,
@@ -454,14 +505,14 @@ def _job(
     n = len(starts)
     runtime = timedelta(minutes=spec.runtime_min)
     deadline_text = job.deadline.astimezone(tz).strftime("%H:%M")
+    now_profile: tuple[float, ...] = ()
     if job.state is JobState.RUNNING:
-        started = job.started_at or now
-        done = max(0, math.floor((now - started) / step))
-        rest = profile[done:]
+        started = min(job.started_at or now, now)
+        rest = profile_from(profile, origin=started, now=now, starts=starts, step=step)
         if not rest:
             return None
         candidates: tuple[int, ...] = (0,)
-        profile = rest
+        profile = list(rest)
         met = True
         running = True
     else:
@@ -480,9 +531,12 @@ def _job(
                     args={"device": device.id, "deadline": deadline_text},
                 )
             )
+        if 0 in candidates and now > starts[0]:
+            now_profile = profile_from(profile, origin=now, now=now, starts=starts, step=step)
     cover = [0.0] * n
     for k in candidates:
-        for i, p in enumerate(profile):
+        run = now_profile if k == 0 and now_profile else profile
+        for i, p in enumerate(run):
             if k + i < n:
                 cover[k + i] = max(cover[k + i], p)
     previous: int | None = None
@@ -503,6 +557,7 @@ def _job(
         deadline=job.deadline,
         deadline_met=met,
         previous_start=previous,
+        now_profile_w=now_profile,
     )
 
 
@@ -514,23 +569,26 @@ def thermal_base_w(
     outdoor_c: Sequence[float],
     cop: Sequence[float],
     max_w: float,
-    dt_s: float,
+    dt_s: float | Sequence[float],
 ) -> list[float]:
-    """Electric power per slot that holds ``min_c`` from ``temp0_c`` (thermostat simulation)."""
+    """Electric power per slot that holds ``min_c`` from ``temp0_c`` (thermostat simulation).
+
+    ``dt_s``: the slot length, or one per slot (the first slot is shorter, :mod:`slots`)."""
     out: list[float] = []
     temp = temp0_c
-    for out_c, c in zip(outdoor_c, cop, strict=True):
-        idle = model.step(temp, out_c, 0.0, dt_s)
+    lengths = [dt_s] * len(outdoor_c) if isinstance(dt_s, (int, float)) else list(dt_s)
+    for out_c, c, length in zip(outdoor_c, cop, lengths, strict=True):
+        idle = model.step(temp, out_c, 0.0, length)
         if idle >= min_c:
             out.append(0.0)
             temp = idle
             continue
-        full = model.step(temp, out_c, max_w * c, dt_s)
+        full = model.step(temp, out_c, max_w * c, length)
         # Linear in the heat: solve for the power that ends exactly at min_c.
         share = 1.0 if full <= idle else min(1.0, (min_c - idle) / (full - idle))
         power = max(0.0, share * max_w)
         out.append(power)
-        temp = model.step(temp, out_c, power * c, dt_s)
+        temp = model.step(temp, out_c, power * c, length)
     return out
 
 
@@ -555,7 +613,7 @@ def _thermal(  # noqa: PLR0911
     max_w: float | None,
     temperature: float | None,
     outdoor: list[float] | None,
-    step: timedelta,
+    hours: Sequence[float],
     found: list[Reason],
 ) -> PlannerThermal | None:
     spec = device.thermal
@@ -582,10 +640,11 @@ def _thermal(  # noqa: PLR0911
     model = spec.learned.model
     curve = spec.cop or GENERIC_AIR_WATER_COP
     cop = [curve.cop_at(t) for t in outdoor]
-    dt_s = step.total_seconds()
+    n = len(outdoor)
+    lengths = [h * 3600.0 for h in hours[:n]]
     # Exact one-step response (core.thermal.ThermalModel.step), split into its linear parts.
-    alpha = model.step(1.0, 0.0, 0.0, dt_s) - model.step(0.0, 0.0, 0.0, dt_s)
-    drift = [model.step(0.0, out_c, 0.0, dt_s) for out_c in outdoor]
+    alpha = tuple(model.step(1.0, 0.0, 0.0, d) - model.step(0.0, 0.0, 0.0, d) for d in lengths)
+    drift = [model.step(0.0, o, 0.0, d) for o, d in zip(outdoor, lengths, strict=True)]
     base = thermal_base_w(
         model,
         temp0_c=temperature,
@@ -593,11 +652,11 @@ def _thermal(  # noqa: PLR0911
         outdoor_c=outdoor,
         cop=cop,
         max_w=max_w,
-        dt_s=dt_s,
+        dt_s=lengths,
     )
-    n = len(outdoor)
     heat_k = tuple(
-        (model.step(0.0, 0.0, 1000.0 * c, dt_s) - model.step(0.0, 0.0, 0.0, dt_s)) for c in cop
+        (model.step(0.0, 0.0, 1000.0 * c, d) - model.step(0.0, 0.0, 0.0, d))
+        for c, d in zip(cop, lengths, strict=True)
     )
     return PlannerThermal(
         device_id=device.id,
@@ -637,6 +696,7 @@ def build_flex(
     request = request or FlexRequest()
     starts = grid.starts()
     step = grid.step
+    hours = slot_hours(now, starts, step)
     found: list[Reason] = []
     claimed: set[str] = set()
     evs: list[PlannerEv] = []
@@ -656,6 +716,7 @@ def build_flex(
                 request.ev_live.get(device.id, EvLive()),
                 starts=starts,
                 step=step,
+                hours=hours,
                 found=found,
             )
             if ev is not None:
@@ -683,7 +744,7 @@ def build_flex(
                 max_w=max_power.get(device.id),
                 temperature=request.temperatures_c.get(device.id),
                 outdoor=outdoor if outdoor is None else outdoor[: grid.count],
-                step=step,
+                hours=hours,
                 found=found,
             )
             if thermal is not None:

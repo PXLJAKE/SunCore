@@ -20,6 +20,7 @@ from suncore.app.notifications import RuntimeObservationSource, grid_flags
 from suncore.core.decisions import OperatingMode
 from suncore.core.flex import EvMode, EvState, EvTarget
 from suncore.notify import Category, EvTargetObs, NotifyEvent, Observation, RuleEngine
+from suncore.planner.flex import EvLive
 from suncore.planner.run import run
 from suncore.sim.planner_flex import flex_situation
 from suncore.sim.planner_scenarios import situation_inputs
@@ -174,3 +175,43 @@ def test_a_shortfall_that_a_replan_removes_within_the_hold_time_is_never_announc
         )
         == []
     )
+
+
+def late_plan_shortfall(minutes_into_quarter: float) -> tuple[float | None, float | None] | None:
+    """7-K: the car (72.5 %, connected) wants 80 % by 01:30, about 5 kWh from the grid; the plan
+    is made ``minutes_into_quarter`` after 01:00. Two quarters at 11 kW hold 5.5 kWh, but of the
+    first only the time left counts."""
+    situation = flex_situation("ev_arrives_late")
+    assert situation.flex is not None
+    state = situation.flex.ev_states["wallbox"]
+    assert state.target is not None
+    quarter = state.target.by - timedelta(hours=6)  # 07:00 -> 01:00
+    now = quarter + timedelta(minutes=minutes_into_quarter)
+    flex = replace(
+        situation.flex,
+        ev_states={
+            "wallbox": EvState(
+                device_id="wallbox",
+                mode=EvMode.TARGET,
+                target=EvTarget(soc_pct=80.0, by=quarter + timedelta(minutes=30)),
+                updated_at=now,
+            )
+        },
+        ev_live={"wallbox": EvLive(soc_pct=72.5, connected=True)},
+    )
+    result = run(situation_inputs(replace(situation, now=now, flex=flex)))
+    return RuntimeObservationSource._shortfall(result.plan.intervals, "wallbox")
+
+
+def test_a_late_plan_announces_the_target_its_dead_first_slot_used_to_hide() -> None:
+    """Before 7-K a plan made at 01:14:30 booked the whole first quarter and reported the
+    target as met; now the 30 s left are counted, the shortfall is reported and announced."""
+    assert late_plan_shortfall(1.0 / 3.0) is None  # fresh plan (01:00:20): feasible
+    shortfall = late_plan_shortfall(14.5)
+    assert shortfall is not None
+    need, planned = shortfall
+    assert need is not None
+    assert planned is not None
+    assert planned < need
+    events = replay(shortfall, timedelta(hours=7, minutes=30))
+    assert [e.category for e in events] == [Category.EV_TARGET]

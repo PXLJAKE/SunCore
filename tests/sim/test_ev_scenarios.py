@@ -163,12 +163,26 @@ def test_para14a_dims_the_now_floor_and_cooldown_holds() -> None:
 
 # --- ev_arrives_late (planner + controller + gate + battery lock, automatic) -----------------
 
-PLAN_EVERY_STEPS = 30  # 15 minutes at 30 s per step
+PLAN_EVERY_STEPS = 1
+"""The planner is ticked every step: the service decides itself when a run is due (once per
+quarter, ``PlanningSettings.offset_s`` = 20 s after the boundary), as in production."""
+PLAN_OFFSET_STEPS = 0
+LATE_PLAN_EVERY_STEPS = 30
+"""Deliberately late plans (7-K regression): every 30 steps, which lands 30 s before each
+quarter boundary, i.e. 14.5 minutes into the plan's first slot."""
+LATE_S = 870.0
 
 
 async def arrives_late_run(
     lose_lock_at_s: float | None = None,
+    *,
+    every_steps: int | None = None,
+    offset_steps: int | None = None,
 ) -> tuple[RunResult, ScenarioRunner, list[Plan]]:
+    """The late car closed-loop; the planner ticks at ``index % every_steps == offset_steps``
+    (defaults: :data:`PLAN_EVERY_STEPS`, :data:`PLAN_OFFSET_STEPS`)."""
+    every = PLAN_EVERY_STEPS if every_steps is None else every_steps
+    offset = PLAN_OFFSET_STEPS if offset_steps is None else offset_steps
     from suncore.app.planning import (  # noqa: PLC0415
         LiveReading,
         PlanningService,
@@ -218,7 +232,7 @@ async def arrives_late_run(
         runner.at(lose_lock_at_s, lose_lock)
     await runner.start()
     for index in range(scenario.steps):
-        if index % PLAN_EVERY_STEPS == 0:
+        if index % every == offset:
             await planning.tick()
         await runner.step(index)
     result = await runner.finish()
@@ -229,6 +243,12 @@ async def arrives_late_run(
 @pytest.fixture(scope="module")
 def late() -> tuple[RunResult, ScenarioRunner, list[Plan]]:
     return asyncio.run(arrives_late_run())
+
+
+@pytest.fixture(scope="module")
+def late_plans() -> tuple[RunResult, ScenarioRunner, list[Plan]]:
+    """Every plan made 14.5 minutes into its first slot (7-K regression)."""
+    return asyncio.run(arrives_late_run(every_steps=LATE_PLAN_EVERY_STEPS))
 
 
 LOSE_LOCK_AT_S = 12_600.0  # 02:00, the car charges from the grid on the plan's floor
@@ -280,8 +300,9 @@ def test_the_late_car_reaches_its_target_in_the_cheap_hours(
     assert result.of_kind(DecisionKind.FAILED) == []
     assert _grid_hours(plans)  # the planner permitted grid power for the car
     sim = wallbox(runner)
-    # The 6-H planner stops permitting grid power at ~77 % (target 80 %): see plan §8 (6-I).
-    assert sim.soc_pct >= 75.0
+    # Within 1 point of the 80 % target (7-K; before, the plan booked the elapsed part of its
+    # first slot and the car ended at ~77 %, docs/research/late-car-gap.md).
+    assert sim.soc_pct >= 79.0
     power = result.devices["wallbox"].power_w
     assert all(w == 0 for w in power[: at(result, 1800)])  # not before it arrives
     charging = [result.steps[i].t for i, w in enumerate(power) if w > 0]
@@ -313,3 +334,28 @@ def test_the_house_battery_never_discharges_into_the_car(
     assert locks
     first_charge = next(i for i, w in enumerate(power) if w > 0)
     assert locks[0].ts <= result.steps[first_charge].t
+
+
+def test_late_plans_still_bring_the_car_to_its_target(
+    late_plans: tuple[RunResult, ScenarioRunner, list[Plan]],
+) -> None:
+    """7-K regression: plans made 14.5 min into their first slot book only the 30 s that are
+    left of it, so the need moves to real slots and the car reaches its target; G1 and E1-E9
+    hold (nothing rejected or failed, no import above the limit, no battery into the car)."""
+    result, runner, plans = late_plans
+    assert result.of_kind(DecisionKind.REJECTED) == []
+    assert result.of_kind(DecisionKind.FAILED) == []
+    late = [p for p in plans[1:] if p.created_at is not None]
+    assert late
+    for plan in late:
+        assert plan.created_at is not None
+        assert (plan.created_at - plan.intervals[0].start).total_seconds() == pytest.approx(LATE_S)
+    assert wallbox(runner).soc_pct >= 79.0
+    power = result.devices["wallbox"].power_w
+    for i, w in enumerate(power):
+        if w > 0:
+            assert result.steps[i].battery_w >= -50, (result.steps[i].t, result.steps[i].battery_w)
+            assert 1 <= result.steps[i].t.hour < 5  # cheap window only
+    limit = result.scenario.control.import_limit_w
+    assert limit is not None
+    assert all(s.grid_w <= limit + 1 for s in result.steps)

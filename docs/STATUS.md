@@ -36,6 +36,21 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-K, WP9 late-car gap (branch `phase-7/k-late-car`; `qa-engineer` root cause,
+  `optimizer-engineer` fix)** - planner only, nothing in `safety/` or `controller/` changed:
+  - Cause: each plan booked its whole first quarter although most of it had passed
+    (`docs/research/late-car-gap.md`). Fix: `planner/slots.py`, `PlannerInputs.hours`; every
+    energy and cost term is `power * hours[t]`, the first slot counts only the time left after
+    `now` (battery, EV, programs resampled from `now`, thermal step, grid slack, costs; LP and
+    heuristic alike). A remainder below 1 s counts as 1 s; the slot is never dropped.
+  - Simulator: the EV harness ticks the planner every step (service cadence); a scenario with
+    every plan 14.5 min late is the regression. Late car 81.15 % (service cadence) and 79.94 %
+    (late plans) of 80 %, before 77.35 %; assertion raised to 79 %, `xfail` removed.
+  - Tests: Hypothesis property "energy in slot 0 <= max power x remaining hours" (EV and
+    battery, LP and heuristic), a 1-microsecond remainder, and a late plan whose infeasible
+    target is reported and announced once ("EV target at risk").
+  - No second notification rule ("plan meets, controller misses"): decided in plan section 8
+    (7-K).
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable
@@ -1316,15 +1331,17 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   `para14a_*`, `program_*`, `cheap_window_*` and `ev_target_at_risk` of the MQTT events entity;
   HA **commands** for EV mode, target, program arming, comfort band and the battery settings
   (with the author `mqtt` in the config history; needs a `control-safety` review, plan section 8,
-  6-O); a push for a target the plan meets but the controller later misses.
+  6-O). A push for a target the plan meets but the controller later misses is not needed
+  (7-K: the gap had a planner cause, see plan section 8).
 - **Panel gaps:** inverter verification test as an endpoint with a dialog (without it
   `limit_verified` stays false and no limit is ever written), per-device `para14a` flag,
   `shed_rank` and the island keep list, evcc `loadpoint_id` and `topic_prefix`, a manual MQTT
   broker, COP at the current weather on the heat pump card, bundle budget (first paint 123.5 of
   125 kB: move more wizard steps out).
-- **Behaviour decisions deferred:** hard target at any price for the EV (the late-car scenario
-  stops at about 77 % of 80 %), grid pre-heating execution, `generic.heat_pump_select`, a
-  `button.press` remote start, a plan clear for evcc, resetting evcc's mode at unplugging.
+- **Behaviour decisions deferred:** hard target at any price for the EV (the late-car gap is
+  fixed in 7-K: 79.94 % of 80 % even with every plan 14.5 min late), grid pre-heating
+  execution, `generic.heat_pump_select`, a `button.press` remote start, a plan clear for evcc,
+  resetting evcc's mode at unplugging.
 - **Budgets to measure:** resident memory below 300 MB with MQTT, notifications and a full plan,
   planner at most 10 s on an aarch64 CI runner or Pi (amd64: 0.26 s for the full house).
 - **Docs:** screenshots of the new views through the `demo-screenshots` skill, a followed test of

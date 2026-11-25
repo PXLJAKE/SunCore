@@ -21,7 +21,7 @@ variable   flow                                 bounds
 
 Constraints: ``pC + E + K + sum D = s`` and ``gL + bL = d`` (together the energy balance
 ``pv + import + discharge = load + devices + charge + export + curtail``); ``pC + gC <= max
-charge``; ``e_t = e_{t-1} + dt * (eta_c * (pC + gC) - bL / eta_d)``; soft lower bounds
+charge``; ``e_t = e_{t-1} + h_t * (eta_c * (pC + gC) - bL / eta_d)``; soft lower bounds
 ``e_k + short_k >= target_k`` for the morning buffer, the evening target and the user's timed
 target (a high penalty per kWh of shortfall, so the model is always feasible and the
 shortfall is explained); the import limit holds through the grid-charging allowance
@@ -38,7 +38,8 @@ same load at the same price without the loss); dumping energy at negative prices
 curtailment, which is free of losses. Phase 4 therefore solves a pure LP (``n_binaries = 0``);
 the backend accepts integer columns for later device models (Phase 6).
 
-**Objective** (minimised, currency; energies ``dt * power``)::
+**Objective** (minimised, currency; energies ``h_t * power``, ``h_t`` the usable hours of
+slot ``t``: the first slot counts only the time left after ``now``, :mod:`slots`)::
 
     sum_t  (p_imp + w_aut) * (gL + gC)            import cost + self-sufficiency weight
          - p_exp * E                               export revenue (0 under the negative rule)
@@ -236,7 +237,6 @@ def _device_budgets(
     if battery is None or not inputs.devices:
         return ()
     model = battery.model
-    dt = inputs.dt_h
     reach: list[float] = []
     e = battery.soc_wh
     floor = min(battery.reserve_wh, e)
@@ -244,6 +244,7 @@ def _device_budgets(
     overflow: list[float] = []
     spilled = 0.0
     for t in range(inputs.n):
+        dt = inputs.hours[t]
         net = inputs.pv_p50[t] - inputs.load_p50[t]
         if net > 0:
             room_w = max(0.0, ceiling - e) / (dt * model.charge_efficiency)
@@ -403,7 +404,7 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
     inputs: PlannerInputs, econ: Economics
 ) -> tuple[LinearProblem, Layout]:
     """The sparse LP of the module doc."""
-    n, dt = inputs.n, inputs.dt_h
+    n, hours = inputs.n, inputs.hours
     base_layout = Layout(n=n, n_dev=len(inputs.devices), n_goals=len(inputs.goals))
     flex = fx.flex_layout(inputs, base_layout.n_base)
     layout = Layout(n=n, n_dev=base_layout.n_dev, n_goals=base_layout.n_goals, flex=flex)
@@ -430,6 +431,7 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
     if flex is not None and econ.flex is not None:
         fx.set_flow_bounds(inputs, econ.flex, flex, base_cols, cost, upper)
     for t in range(n):
+        dt = hours[t]
         s, d = econ.surplus_w[t] / KW, econ.deficit_w[t] / KW
         pi, pe = inputs.import_price[t], inputs.export_price[t]
         limit = inputs.export_limit_at(t)
@@ -496,7 +498,9 @@ def build_problem(  # noqa: PLR0912, PLR0915 - one block per constraint family
         if bat.e0 > bat.max_:
             rows.add([(col(t, SOC), 1.0), (col(t, HIGH), -1.0)], -INF, bat.max_)
     for until, budget_wh in econ.device_budget:
-        terms = [(layout.dev(t, j), dt) for t in range(until + 1) for j in range(layout.n_dev)]
+        terms = [
+            (layout.dev(t, j), hours[t]) for t in range(until + 1) for j in range(layout.n_dev)
+        ]
         rows.add(terms, -INF, budget_wh / KW)
     if bat is not None:
         cost[layout.var(n - 1, SOC)] -= econ.terminal_value
@@ -624,7 +628,7 @@ def violations(  # noqa: PLR0912, PLR0915 - one check per constraint family
     found: list[str] = []
     bat = inputs.battery
     prev = None if bat is None else bat.soc_wh
-    dt = inputs.dt_h
+    hours = inputs.hours
     loads = inputs.flex_loads
     if loads or schedule.flex:
         if econ.flex is None or len(schedule.flex) != len(loads):
@@ -697,7 +701,7 @@ def violations(  # noqa: PLR0912, PLR0915 - one check per constraint family
         if schedule.discharge_w(t) > bat.max_discharge_w + BALANCE_TOL_W:
             found.append(f"discharge limit at {t}")
         model = bat.model
-        expected = prev + dt * (
+        expected = prev + hours[t] * (
             model.charge_efficiency * schedule.charge_w(t)
             - schedule.discharge_w(t) / model.discharge_efficiency
         )
@@ -710,7 +714,7 @@ def violations(  # noqa: PLR0912, PLR0915 - one check per constraint family
             found.append(f"soc bounds at {t}: {e:.0f} Wh")
         prev = e
     for slot, budget_wh in econ.device_budget:
-        used = sum(schedule.device_total_w(t) for t in range(slot + 1)) * dt
+        used = sum(schedule.device_total_w(t) * hours[t] for t in range(slot + 1))
         if used > budget_wh + SOC_TOL_WH:
             found.append(f"device budget before slot {slot}: {used:.0f} > {budget_wh:.0f} Wh")
     return found

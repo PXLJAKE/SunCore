@@ -42,6 +42,7 @@ from suncore.planner.inputs import (
     grid_charge_allowance,
     window_allows,
 )
+from suncore.planner.slots import FIRST_SLOT_MIN, first_slot_left, slot_hours
 from suncore.sim.planner_scenarios import (
     SUMMER,
     TZ,
@@ -468,3 +469,31 @@ def test_an_unreachable_buffer_names_the_reachable_soc(series) -> None:  # type:
 def test_soc_goal_is_plain_data() -> None:
     goal = SocGoal("user_target", 50.0, NOW, Reason(key=rk.USER_TARGET))
     assert goal.kind == "user_target"
+
+
+# --- usable hours of the first slot (7-K, docs/research/late-car-gap.md) -----------------------
+
+
+def test_the_first_slot_counts_only_the_time_left_after_now() -> None:
+    quarter = datetime(SUMMER.year, SUMMER.month, SUMMER.day, 6, 0, tzinfo=TZ)
+    for elapsed_s, left_s in ((0, 900), (420, 480), (870, 30), (899, 1)):
+        now = quarter + timedelta(seconds=elapsed_s)
+        hours = slot_hours(now, [quarter, quarter + timedelta(minutes=15)], timedelta(minutes=15))
+        assert hours == pytest.approx((left_s / 3600, 0.25))
+    # a remainder below one second counts as one second (solver tolerance), never as zero
+    almost = quarter + timedelta(minutes=15) - timedelta(microseconds=1)
+    assert first_slot_left(almost, quarter, timedelta(minutes=15)) == FIRST_SLOT_MIN
+    # a grid that starts after now has its first slot whole
+    early = quarter - timedelta(minutes=3)
+    assert first_slot_left(early, quarter, timedelta(minutes=15)) == timedelta(minutes=15)
+
+
+def test_built_inputs_carry_the_hours_and_replace_recomputes_them() -> None:
+    inputs = build_inputs(
+        NOW, tz=TZ, load=None, pv=None, prices=None, battery=SETTINGS, soc_pct=50.0
+    )
+    assert inputs.starts[0] == NOW - timedelta(minutes=7)
+    assert inputs.hours[0] == pytest.approx(8 / 60)
+    assert inputs.hours[1:] == (0.25,) * (inputs.n - 1)
+    later = replace(inputs, now=NOW + timedelta(minutes=7, seconds=30))
+    assert later.hours[0] == pytest.approx(0.5 / 60)

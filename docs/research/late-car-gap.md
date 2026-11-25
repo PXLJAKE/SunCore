@@ -1,6 +1,7 @@
-# Late-car gap: root cause (Phase 7, WP9 step 1)
+# Late-car gap: root cause and fix (Phase 7, WP9)
 
-Status: finding only, nothing fixed yet. Reproducer: `tests/sim/test_late_car_gap.py`.
+Status: root cause found in step 1, fixed in step 2 (7-K, planner only; see "Fix" at the end).
+Reproducer and regression: `tests/sim/test_late_car_gap.py`.
 
 ## Symptom
 
@@ -13,8 +14,9 @@ missing 2.65 percentage points are 1766 Wh drawn from the grid (1590 Wh stored a
 **Every plan books the whole first quarter-hour slot, although most of it has passed when the
 plan is made.** The planner builds its grid from the quarter that contains `now` and gives that
 slot its full length (`dt = 0.25 h`). It does not shorten the slot to the time that is left, and
-it does not mark the slot unavailable once it has begun (observed in the plans' first interval;
-the exact code location is still to be confirmed in step 2).
+it does not mark the slot unavailable once it has begun. Confirmed in step 2: the grid comes
+from `core.series.planning_grid` (floor of `now`, called by `planner.inputs.build_inputs`), and
+every energy term used the uniform `PlannerInputs.dt_h`; `flex.py` only sets powers per slot.
 
 In the harness the plan is made 14.5 minutes into its first slot (870 s; 30 steps of 30 s,
 phase 30 s before each quarter boundary). The slot offers `11040 W * 0.25 h = 2760 Wh` on paper
@@ -107,3 +109,59 @@ becomes a shortfall, and the existing rule (6-O, 600 s hold, once per target) fi
 "plan meets, controller misses" would need a different cause; this scenario provides none (the
 controller delivered 100 % of every band it was given, and the control run has no gap). Revisit
 only if a scenario shows a band that the controller does not deliver.
+
+## Fix (step 2, 7-K)
+
+Where: the planner only (`suncore/planner/`). Nothing in `suncore/controller/` or
+`suncore/safety/` changed.
+
+- `planner/slots.py`: `slot_hours(now, starts, step)` gives the usable hours per slot, the first
+  slot `starts[0] + step - now`, every later slot the full step. `PlannerInputs.hours` carries
+  them (derived from `now` in `__post_init__`, so `dataclasses.replace(inputs, now=...)`
+  recomputes them).
+- Every energy and cost term of a slot is `power * hours[t]`: the LP (import, export,
+  curtailment, device value, degradation, battery SoC dynamics, the device budget, the EV
+  target and total rows, the EV floor fill of modes `now`/`min_pv`, the import-limit slack, the
+  thermal comfort penalty), the heuristic, the warm-start repair, the feasibility check, the
+  "why" facts and the morning-buffer simulation. Powers (bands, limits, flows, the import and
+  export limits per slot) stay powers.
+- Thermal loads: `alpha`, `heat_k`, `drift` and the thermostat base power are computed per slot
+  with the slot's usable length (`PlannerThermal.alpha` is now a tuple).
+- Programs: a start in slot 0 means "start now". That start's profile is resampled onto the grid
+  from `now` (`PlannerJob.now_profile_w`, `flex.profile_from`), and a running job's remainder is
+  resampled from its real start, exact in energy (before, the remainder was cut at the quarter
+  boundary).
+- Negligible remainder: the slot stays in the plan (the controller needs an interval that
+  covers `now`; dropping it would leave the controller without a band for that moment). A
+  remainder below `FIRST_SLOT_MIN` (1 s) counts as 1 s so that no energy coefficient falls under
+  the solver's matrix tolerance; at most one second of full power is booked too much.
+
+Harness: `tests/sim/test_ev_scenarios.py` ticks the planner every step (`PLAN_EVERY_STEPS = 1`,
+`PLAN_OFFSET_STEPS = 0`; the service fires at quarter + 20 s). The late cadence stays as the
+regression `test_late_plans_still_bring_the_car_to_its_target` (`LATE_PLAN_EVERY_STEPS = 30`,
+870 s into every first slot).
+
+Results:
+
+| Run | Final SoC | Drawn | Rejected / failed |
+|-----|----------:|------:|------------------:|
+| Service cadence (quarter + 20 s) | 81.15 % | 34098 Wh | 0 / 0 |
+| Late plans (870 s into the slot), before the fix | 77.35 % | 31567 Wh | 0 / 0 |
+| Late plans (870 s into the slot), after the fix | 79.94 % | 33293 Wh | 0 / 0 |
+
+Tests:
+
+- Property (`tests/planner/test_flex_properties.py`): for random situations planned 0 to 898 s
+  into the quarter, the energy booked in slot 0 is at most `max_w * remaining hours` for the EV
+  and the battery, in the LP and the heuristic; both stay feasible, the LP is never worse than
+  the heuristic. A remainder of 1 microsecond solves and books almost nothing.
+- Notification (`tests/sim/test_notify_scenarios.py`): a target that needs 5 kWh within the first
+  two quarters is met by a plan made at quarter + 20 s, and reported as a shortfall and announced
+  once ("EV target at risk") by a plan made 14.5 minutes into the quarter; with the old
+  accounting the late plan reported the target as met.
+
+Residual: at the late cadence the last 0.06 points stay open. The 6 A floor (4140 W) makes a
+remainder of less than a quarter at the floor (1035 Wh) unplaceable in a whole slot when the
+vehicle's total caps the energy, so the plan books it in the 30 s left of slot 0, which the
+controller does not start for. At the service cadence the first slot has 14 min 40 s, and the
+target is met (81.15 %). Bounded by `max_w * 30 s` (92 Wh at 11 kW) per late plan.

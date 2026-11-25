@@ -837,6 +837,39 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   standard path 236.9 kB, expert extras 25.4 kB; ECharts chunks unchanged. Budgets for first
   paint and ECharts are unchanged.
 
+### 7-K
+
+- Root cause (step 1, `qa-engineer`, `docs/research/late-car-gap.md`): every plan booked the
+  whole first quarter, also when most of it had passed; at the harness cadence (870 s into the
+  slot) the remaining EV energy sat in that dead slot, so no plan reported a shortfall.
+- Fix in the planner only (`optimizer-engineer`): `planner/slots.py` and `PlannerInputs.hours`;
+  every energy and cost term is `power * hours[t]` with the first slot counting only the time
+  left after `now` (LP, heuristic, warm-start repair, feasibility check, "why" facts, the
+  morning-buffer simulation). Thermal coefficients are per slot (`PlannerThermal.alpha` is a
+  tuple); a program started in slot 0 and a running program are resampled onto the grid from
+  `now` or their real start (exact in energy). A remainder below 1 s counts as 1 s (solver
+  tolerance); the slot is never dropped, so the controller always has an interval covering
+  `now`. **No change in `suncore/controller/` or `suncore/safety/`**, so no CS sign-off is
+  needed for this PR (the final CS read of 7-K in 7-P stays).
+- Deviation from the proposal: the first slot is not dropped below "minimum run time or one
+  tick plus settle time". The planner does not know the controller's timings (dependency rule),
+  and an interval that ends before `now` would leave the controller without a band. Residual at
+  the late cadence: 0.06 points (the 6 A floor cannot place a remainder below 1035 Wh in a whole
+  slot), bounded by `max_w * remaining` per plan.
+- Harness: `tests/sim/test_ev_scenarios.py` ticks the planner every step (the service fires at
+  quarter + 20 s); the late cadence is kept as a regression scenario. Late-car assertion raised
+  from 75 % to 79 %; the `xfail` in `tests/sim/test_late_car_gap.py` is removed.
+- Results: 81.15 % at the service cadence, 79.94 % with every plan 14.5 min late (before: 77.35
+  %); nothing rejected or failed, no import above the limit, no battery into the car (G1, E1-E9).
+  An infeasible target is still reported and announced once (new check with a late plan).
+- **Decision: no second notification rule** ("plan meets, controller misses"). The gap had a
+  planner cause; with it fixed the residual is either in a real slot or a reported shortfall,
+  and the existing 6-O rule fires. Revisit only if a scenario shows a band the controller does
+  not deliver.
+- The program profile of a running job changed from "cut at the quarter boundary" to the exact
+  resampling; `tests/planner/test_flex.py::test_jobs_running_ignored_and_without_job` was
+  adjusted to the exact values.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

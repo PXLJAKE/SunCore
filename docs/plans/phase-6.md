@@ -1034,7 +1034,9 @@ reconnect is not detected (the service stays `active`, taps just never arrive).
   there is no API to set the EV mode/target yet (6-D/6-M).
 - **Simulator:** `ControlParams.site_battery: false` removes the demo site's battery for EV
   scenarios without one. In `ev_arrives_late` the 6-H planner stops permitting grid power at
-  about 77 % (target 80 %); the controller follows the plan (finding for 6-H).
+  about 77 % (target 80 %); the controller follows the plan (finding for 6-H). [Correction 7-K:
+  the planner did not stop on purpose; it booked the elapsed part of its first slot, see
+  `docs/research/late-car-gap.md`. Fixed in 7-K.]
 - **Behaviour cap:** unconfirmed chargers stay capped at assisted (E8, 6-B rule unchanged);
   scenarios set `behaviour_confirmed: true`.
 
