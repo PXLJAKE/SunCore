@@ -107,6 +107,9 @@ def jobs_for(env: Env, **kw: Any) -> BacktestJobs:
         "history": lambda: env.history,
         "site": site,
         "today": lambda: TODAY,
+        # The real RSS of the pytest process grows with the suite (about 300 MB on CI with the
+        # Phase 6 tests), so the memory stop is pinned here and tested on its own.
+        "rss_mb": lambda: None,
     }
     return BacktestJobs(env.store, **{**fields, **kw})
 
