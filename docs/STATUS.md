@@ -3,8 +3,8 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-F import side, 6-G export chain, 6-H planner flex, 6-I EV,
-6-J evcc, 6-K heat pump, 6-L programs, 6-M frontend) · **Phase:** 5 started
+**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-F import side, 6-G export chain,
+6-H planner flex, 6-I EV, 6-J evcc, 6-K heat pump, 6-L programs, 6-M frontend) · **Phase:** 5 started
 (plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
 (4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
 the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·

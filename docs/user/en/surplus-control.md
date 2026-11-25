@@ -203,6 +203,7 @@ actions:
 ```
 
 Replace the entity id with your plug and choose the hours to fit your longest "finished by".
+
 ### evcc loadpoint (MQTT)
 
 With the template `evcc.loadpoint` SunCore does not drive the wallbox itself: it tells evcc what

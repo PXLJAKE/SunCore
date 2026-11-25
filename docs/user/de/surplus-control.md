@@ -215,6 +215,7 @@ actions:
 
 Ersetze die Entitäts-ID durch deine Steckdose und wähle die Stunden passend zu deinem längsten
 „fertig bis“.
+
 ### evcc-Ladepunkt (MQTT)
 
 Mit der Vorlage `evcc.loadpoint` steuert SunCore die Wallbox nicht selbst: Es sagt evcc über die

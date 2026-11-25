@@ -1245,6 +1245,7 @@ Approved with conditions; all done in the follow-up commit:
 
 - The UI must warn before cancelling a job and before "back to normal" on a program device
   that the plug is switched **on**, so the machine starts immediately.
+
 ### 6-J (evcc as actor)
 
 - **evcc facts read from source (`evcc-io/evcc`, branch `master`, 2026-11-24):** `server/mqtt.go`,
@@ -1436,47 +1437,6 @@ A1, B1, B2 and C1-C3 are confirmed fixed; A2 is partly fixed. Two new items, bot
 - **Residual risk (safety review, listed as such):** G1 for `smart` is reactive, about 1 min
   (evcc's own plan may import until the cut is written; up to 60-90 s with noisy import).
 
-### 6-C (MQTT base and backend ICU)
-
-- **`hassio_api` stays off** (plan WP3 and decision 1 said "re-enable"): the Supervisor lets apps
-  call `/services*` without it (`security.py` `api_bypass`, verified 2026-11-24), the `mqtt:want`
-  services role is what grants the lookup. A boundary test asserts that `GET /services/mqtt` is
-  the only Supervisor REST URL in the code and that no app folder sets `hassio_api`.
-- **Stub broker, not `amqtt`**: `amqtt`'s latest release is a pre-release that does not resolve with
-  the project's dependencies; `tests/ha/mqtt/stub_broker.py` is a ~200-line MQTT 3.1.1 broker
-  (credentials, will, retained, wildcards) and the tests run the real `aiomqtt` against it.
-  6-J can reuse it for the evcc fake.
-- **Read-only subset announced**: only the entities whose values SunCore has today are
-  announced (`app/ha_entities.py` `SUPPORTED`): `status`, `mode`, `available_surplus`, `healthy`,
-  `shadow_mode`, `emergency_stop`, `events`, and per device `<dev>_mode`, `<dev>_power`,
-  `<dev>_last_decision`. Not announced yet (catalogue entries exist, values follow): `next_action`,
-  `plan_cost_today`, `savings_today`, `savings_month`, `autarky_today`, `pv_forecast_error`
-  (need a summary reader, to be added with 6-D or 6-N), `month_peak`, `grid_state`,
-  `para14a_active`, `island` (6-F), `battery_action`, `battery_lease` (battery state mapping),
-  EV, program and comfort entities (6-I, 6-K, 6-L). All command entities (switch, button, select,
-  number, text) are in the catalogue but never announced before 6-D.
-- **Object id** of the emergency stop button is `emergency_stop_button` (the binary sensor keeps
-  `emergency_stop`): object ids are unique per site because they form the topics.
-- **Enum sensors publish the rendered label** (state and `options` in the backend language), as
-  ADR-0016 decision 6 says; a language change republishes configs and states. Automations on
-  these states therefore depend on the language; see question 15.
-- **`available_surplus`** is the controller's smoothed `available_w` (before the reserve).
-  `healthy` = Home Assistant connected and the control loop active.
-- **Events** produced now: `device_switched` (accepted decision), `proposal` (proposed),
-  `error` (failed), derived from each device's newest gate decision; the other types of the
-  `events` entity belong to later PRs. Events are not retained (HA ignores retained replays).
-- **Install record** (`iid`, announced device ids) lives in `learned_param` (namespace
-  `ha_entities`), not in a new table: no schema bump.
-- **Discovery** uses one device payload per HA device with `via_device` pointing at the site
-  device; no `cu` (configuration_url) and no `child_devices`.
-- **Backend catalogue prefixes** as planned (`mqtt.`, `notify.`, `safety.`, `controller.`,
-  `planner.`, `device.`, `grid.`); the golden file covers up to 8 sample argument sets per key.
-  Languages other than `en` and `de` have plural rule `other` only.
-- Image smoke test not run locally (no Docker daemon in the session); the new dependencies
-  `aiomqtt` 2.5.1 and `paho-mqtt` 2.2.0 are pure-Python wheels with hashes in `uv.lock`, so the
-  image's `--only-binary --require-hashes` install is unaffected. CI's smoke job covers it.
-- `UNVERIFIED`: `get_config` language key, custom HA birth topic, monetary unit rule, TLS to the
-  Mosquitto app with verification (see `docs/research/mqtt-discovery.md`).
 ### 6-K (heat pump)
 
 - **Scope:** WP11. SG-Ready moves from rejected to supported through `safety/` (H1-H5 in
@@ -1566,6 +1526,7 @@ A1, B1, B2 and C1-C3 are confirmed fixed; A2 is partly fixed. Two new items, bot
    ohne Modell (nur Energie). Reicht das vorerst?
 6. **Sollwert-Anhebung bei unbekannter Temperatur:** kein Fail-safe, weil der Sollwert selbst
    begrenzt (Komfortband, Entitätsbereich). Einverstanden?
+
 ### 6-G (export chain, inverter limit)
 
 - **Separate template kind `inverter`** (not roles on the battery template): one role `limit`,
