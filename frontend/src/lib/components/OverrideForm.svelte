@@ -15,8 +15,10 @@
 
   interface Props {
     device: Pick<DeviceControlState, 'device_id' | 'name' | 'held'>;
+    /** Replaces the direct "back to normal" call (the card asks first for a plug program). */
+    onresume?: () => void;
   }
-  let { device }: Props = $props();
+  let { device, onresume }: Props = $props();
 
   const uid = $props.id();
   let minutes = $state<number | null>(60);
@@ -99,7 +101,8 @@
     class="btn small secondary"
     disabled={busy || !device.held}
     data-testid="override-resume"
-    onclick={() => void control.override(device, resumeCommand())}>{t('override.resume')}</button
+    onclick={() => (onresume ? onresume() : void control.override(device, resumeCommand()))}
+    >{t('override.resume')}</button
   >
 </div>
 

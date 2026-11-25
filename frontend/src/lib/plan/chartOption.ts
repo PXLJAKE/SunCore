@@ -139,6 +139,8 @@ export function segColor(c: ChartColors, kind: SegKind): string {
     case 'prefer_on':
     case 'run':
       return c.devices;
+    case 'start':
+      return c.pv;
     case 'allowed':
       return withAlpha(c.devices, 0.5);
     case 'partial':

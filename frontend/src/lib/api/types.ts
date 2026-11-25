@@ -36,7 +36,10 @@ export type ConfigSectionName =
   | 'goals'
   | 'operation'
   | 'wizard'
-  | 'battery';
+  | 'battery'
+  | 'mqtt'
+  | 'notifications'
+  | 'inverter';
 export type RegionConfig = S['RegionConfig'];
 export type TariffConfig = S['TariffConfig'];
 export type ForecastConfig = S['ForecastConfig'];
@@ -131,6 +134,27 @@ export type DecisionsMessage = S['DecisionsMessage'];
 export type ControlMessage = S['ControlMessage'];
 export type LiveMessage =
   SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage | PlanMessage;
+
+export type EvSpec = S['EvSpec'];
+export type ProgramSpec = S['ProgramSpec'];
+export type ThermalSpec = S['ThermalSpec'];
+export type LoadpointControl = S['LoadpointControl'];
+export type ChargerControl = S['ChargerControl'];
+export type FlexView = S['FlexOut'];
+export type EvState = S['EvState'];
+export type EvMode = S['EvMode'];
+export type EvTarget = S['EvTarget'];
+export type ProgramJob = S['ProgramJob'];
+export type JobState = S['JobState'];
+export type GridStatus = S['GridStatusOut'];
+export type GridEvent = S['GridEventOut'];
+export type MonthPeak = S['MonthPeakOut'];
+export type GridEvents = S['GridEventsOut'];
+export type HaEntitiesStatus = S['HaEntitiesStatusOut'];
+export type NotificationsConfig = S['NotificationsConfig'];
+export type NotificationsStatus = S['NotificationsStatusOut'];
+export type NotificationTest = S['NotificationTestOut'];
+export type MqttConfig = S['MqttConfig-Output'];
 
 export type DecisionExplain = S['DecisionExplainOut'];
 export type DecisionOrigin = S['Origin'];

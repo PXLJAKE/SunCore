@@ -12,6 +12,32 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 
 ## Done
 
+- **Phase 6 - PR 6-M, WP13 frontend (branch `phase-6/m-frontend`, on 6-L, 6-J, 6-K, 6-G;
+  `frontend-engineer`)** - no safety path changed, shadow stays the default:
+  - Backend (commit scope `api`, `suncore/api/flex.py`): `GET /devices/{id}/flex`,
+    `PUT /devices/{id}/ev` (mode + target into `flex_state`, the controller reads it),
+    `POST /devices/{id}/program/arm` and `/cancel` (through `ProgramJobBook`; a cancelled
+    plug job is released by the controller, never written by the API),
+    `GET /grid/status`, `GET /grid/events?days=`; errors are Reason keys (`api.error.*`).
+    New entity role `backup_state` (detect.py) for the island entity picker.
+  - Wizard step 3: peak shaving, export chain (zero export, 0 W at negative prices), §14a
+    signal kind and limit, backup entity with live state preview and island states. Step 5:
+    inverter limit block, disabled with a reason (no verification endpoint exists yet).
+    Step 7: wallbox, evcc, heat pump and program templates in the gallery (13 templates),
+    evcc loadpoint id/prefix, program run time/idle power/peak placeholder, resume
+    confirmation, "behaviour confirmed" checkbox where the backend caps the mode. The device
+    form now carries `ev`/`program`/`thermal` from the template (they were dropped before).
+  - Now: device cards for EV (mode, target, plug, phases, vehicle SoC), heat pump (SG state,
+    lift, COP range, learned-model error), program (arm "finished by", job state, planned
+    start, cancel); a warning dialog before cancelling a job and before "back to normal" of a
+    plug program (the plug switches ON, the machine starts at once); badges island, §14a,
+    month peak. Settings: "Home Assistant entities" (status, broker hint, republish,
+    mode-raise opt-in) and "Notifications" (categories, targets, quiet hours, cap, test).
+    Plan Gantt: program start slots; History: grid events and monthly peaks.
+  - Bundle: `scripts/bundle-size.mjs` counts one language catalogue (the largest) because the
+    app loads only the active language: 228.6 kB of 250 kB, first paint 123.5 kB of 125 kB.
+  - Tests: Vitest 378, Playwright `phase6.spec.ts` (10 tests) plus the updated gallery count.
+  - Deviations, `UNVERIFIED` and questions: plan section 8 (6-M).
 - **Phase 6 - PR 6-L, WP12 shiftable programs (branch `phase-6/l-programs`, on 6-I + 6-E;
   `control-safety`)** - shadow stays the default, every write still passes the gate:
   - Control kind `program` is judged now (no longer rejected). `safety/programs.py`: P1-P5 as

@@ -1087,6 +1087,36 @@
  },
  {
   "lang": "en",
+  "key": "device.behaviour",
+  "args": {},
+  "expected": "Behaviour not yet verified"
+ },
+ {
+  "lang": "en",
+  "key": "device.behaviour_confirm",
+  "args": {},
+  "expected": "I checked the behaviour of this device and confirm it"
+ },
+ {
+  "lang": "en",
+  "key": "device.behaviour_hint",
+  "args": {},
+  "expected": "This template is untested with real hardware. Until you confirm that the device behaves as described, SunCore only proposes actions and does not switch it by itself."
+ },
+ {
+  "lang": "en",
+  "key": "device.charger_max",
+  "args": {},
+  "expected": "Largest charging current"
+ },
+ {
+  "lang": "en",
+  "key": "device.charger_min",
+  "args": {},
+  "expected": "Smallest charging current"
+ },
+ {
+  "lang": "en",
   "key": "device.comfort_hint",
   "args": {},
   "expected": "SunCore never leaves this range."
@@ -1113,7 +1143,7 @@
   "lang": "en",
   "key": "device.control.charger",
   "args": {},
-  "expected": "SunCore sets the charging current (and the phases) of the wallbox. Available in a later version."
+  "expected": "SunCore sets the charging current (and the phases) of the wallbox."
  },
  {
   "lang": "en",
@@ -1125,7 +1155,7 @@
   "lang": "en",
   "key": "device.control.loadpoint",
   "args": {},
-  "expected": "SunCore sets mode, limit and plan of an evcc loadpoint; evcc regulates the current. Available in a later version."
+  "expected": "SunCore sets mode, limit and plan of an evcc loadpoint; evcc regulates the current."
  },
  {
   "lang": "en",
@@ -1161,7 +1191,7 @@
   "lang": "en",
   "key": "device.control.sg_ready",
   "args": {},
-  "expected": "SunCore selects the SG-Ready state of the heat pump (never the utility block). Available in a later version."
+  "expected": "SunCore selects the SG-Ready state of the heat pump (never the utility block)."
  },
  {
   "lang": "en",
@@ -1305,6 +1335,24 @@
  },
  {
   "lang": "en",
+  "key": "device.ev",
+  "args": {},
+  "expected": "Vehicle"
+ },
+ {
+  "lang": "en",
+  "key": "device.ev_capacity",
+  "args": {},
+  "expected": "Battery capacity of the vehicle"
+ },
+ {
+  "lang": "en",
+  "key": "device.ev_capacity_hint",
+  "args": {},
+  "expected": "Optional. Lets SunCore turn a state of charge target into an energy to charge."
+ },
+ {
+  "lang": "en",
   "key": "device.hvac.auto",
   "args": {},
   "expected": "Auto"
@@ -1374,6 +1422,30 @@
   "key": "device.kind.water_heater",
   "args": {},
   "expected": "Water heater"
+ },
+ {
+  "lang": "en",
+  "key": "device.loadpoint_id",
+  "args": {},
+  "expected": "evcc loadpoint number"
+ },
+ {
+  "lang": "en",
+  "key": "device.loadpoint_id_hint",
+  "args": {},
+  "expected": "The number of the loadpoint in evcc, counted from 1 in the order of the evcc configuration."
+ },
+ {
+  "lang": "en",
+  "key": "device.loadpoint_prefix",
+  "args": {},
+  "expected": "evcc MQTT topic prefix"
+ },
+ {
+  "lang": "en",
+  "key": "device.loadpoint_prefix_hint",
+  "args": {},
+  "expected": "Usually evcc. Only change it if you set a different topic in the evcc configuration."
  },
  {
   "lang": "en",
@@ -1519,6 +1591,136 @@
  },
  {
   "lang": "en",
+  "key": "device.program",
+  "args": {},
+  "expected": "Program"
+ },
+ {
+  "lang": "en",
+  "key": "device.program.notify",
+  "args": {},
+  "expected": "SunCore only asks you to start the appliance; it switches nothing."
+ },
+ {
+  "lang": "en",
+  "key": "device.program.plug",
+  "args": {},
+  "expected": "SunCore switches a smart plug on when the program should start. The appliance must be loaded and set to start by itself."
+ },
+ {
+  "lang": "en",
+  "key": "device.program.remote",
+  "args": {},
+  "expected": "SunCore starts the appliance through its remote start entity."
+ },
+ {
+  "lang": "en",
+  "key": "device.program_idle",
+  "args": {},
+  "expected": "Finished below"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_idle_hint",
+  "args": {},
+  "expected": "Power below this value for a while counts as finished."
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak",
+  "args": {
+   "value": 0
+  },
+  "expected": "Peak power from the profile: 0 W"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak",
+  "args": {
+   "value": 1
+  },
+  "expected": "Peak power from the profile: 1 W"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak",
+  "args": {
+   "value": 2
+  },
+  "expected": "Peak power from the profile: 2 W"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak",
+  "args": {
+   "value": 5
+  },
+  "expected": "Peak power from the profile: 5 W"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak",
+  "args": {
+   "value": 21
+  },
+  "expected": "Peak power from the profile: 21 W"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak",
+  "args": {
+   "value": 1234.5
+  },
+  "expected": "Peak power from the profile: 1,234.5 W"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak",
+  "args": {
+   "value": -3.25
+  },
+  "expected": "Peak power from the profile: -3.25 W"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak",
+  "args": {
+   "value": 0.125
+  },
+  "expected": "Peak power from the profile: 0.125 W"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_peak_none",
+  "args": {},
+  "expected": "No profile stored. SunCore plans with the nominal power for the whole run time."
+ },
+ {
+  "lang": "en",
+  "key": "device.program_resume",
+  "args": {},
+  "expected": "The appliance resumes by itself after the power comes back"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_resume_hint",
+  "args": {},
+  "expected": "Needed for a smart plug: the appliance is armed with the door closed and the program selected, and starts as soon as the plug switches on."
+ },
+ {
+  "lang": "en",
+  "key": "device.program_runtime",
+  "args": {},
+  "expected": "Run time of one program"
+ },
+ {
+  "lang": "en",
+  "key": "device.program_runtime_hint",
+  "args": {},
+  "expected": "How long the appliance needs from start to finish."
+ },
+ {
+  "lang": "en",
   "key": "device.protection",
   "args": {},
   "expected": "Protection times"
@@ -1573,6 +1775,123 @@
  },
  {
   "lang": "en",
+  "key": "grid.backup",
+  "args": {},
+  "expected": "Backup power (island)"
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_enable",
+  "args": {},
+  "expected": "My system can run as an island"
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_entity",
+  "args": {},
+  "expected": "Backup state entity"
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_entity_hint",
+  "args": {},
+  "expected": "The entity that shows whether the system is in backup mode, for example the inverter mode."
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_hint",
+  "args": {},
+  "expected": "While the grid is down, SunCore keeps essential devices running and switches the rest off."
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_preview",
+  "args": {
+   "island": "zzz",
+   "state": "abc"
+  },
+  "expected": "Now: abc. This counts as grid connected."
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_preview",
+  "args": {
+   "island": "yes",
+   "state": 42
+  },
+  "expected": "Now: 42. This counts as island operation."
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_preview",
+  "args": {
+   "island": "other",
+   "state": "abc"
+  },
+  "expected": "Now: abc. This counts as grid connected."
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_states",
+  "args": {},
+  "expected": "States that mean island operation"
+ },
+ {
+  "lang": "en",
+  "key": "grid.backup_states_hint",
+  "args": {},
+  "expected": "Comma separated, exactly as the entity reports them, for example: backup, island."
+ },
+ {
+  "lang": "en",
+  "key": "grid.badge.island",
+  "args": {},
+  "expected": "Island operation"
+ },
+ {
+  "lang": "en",
+  "key": "grid.badge.island_unknown",
+  "args": {},
+  "expected": "Grid state unknown"
+ },
+ {
+  "lang": "en",
+  "key": "grid.badge.para14a",
+  "args": {},
+  "expected": "§14a limit active"
+ },
+ {
+  "lang": "en",
+  "key": "grid.badge.para14a_unknown",
+  "args": {},
+  "expected": "§14a signal unavailable"
+ },
+ {
+  "lang": "en",
+  "key": "grid.badge.peak",
+  "args": {
+   "peak": "abc",
+   "limit": "abc"
+  },
+  "expected": "Month peak abc (floor abc)"
+ },
+ {
+  "lang": "en",
+  "key": "grid.badge.peak",
+  "args": {
+   "peak": 42,
+   "limit": 42
+  },
+  "expected": "Month peak 42 (floor 42)"
+ },
+ {
+  "lang": "en",
+  "key": "grid.badges",
+  "args": {},
+  "expected": "Grid status"
+ },
+ {
+  "lang": "en",
   "key": "grid.counters",
   "args": {},
   "expected": "Energy counters"
@@ -1609,6 +1928,48 @@
  },
  {
   "lang": "en",
+  "key": "grid.event.import_limit_exceeded",
+  "args": {},
+  "expected": "Import above the grid limit"
+ },
+ {
+  "lang": "en",
+  "key": "grid.event.island_end",
+  "args": {},
+  "expected": "Island operation ended"
+ },
+ {
+  "lang": "en",
+  "key": "grid.event.island_start",
+  "args": {},
+  "expected": "Island operation started"
+ },
+ {
+  "lang": "en",
+  "key": "grid.event.para14a_end",
+  "args": {},
+  "expected": "§14a limit ended"
+ },
+ {
+  "lang": "en",
+  "key": "grid.event.para14a_start",
+  "args": {},
+  "expected": "§14a limit started"
+ },
+ {
+  "lang": "en",
+  "key": "grid.event.para14a_unknown",
+  "args": {},
+  "expected": "§14a signal unavailable"
+ },
+ {
+  "lang": "en",
+  "key": "grid.event.peak_new",
+  "args": {},
+  "expected": "New peak of the month"
+ },
+ {
+  "lang": "en",
   "key": "grid.export.none",
   "args": {},
   "expected": "No limit"
@@ -1624,6 +1985,30 @@
   "key": "grid.export.w",
   "args": {},
   "expected": "In watts"
+ },
+ {
+  "lang": "en",
+  "key": "grid.export_chain",
+  "args": {},
+  "expected": "Export limit chain"
+ },
+ {
+  "lang": "en",
+  "key": "grid.export_chain_hint",
+  "args": {},
+  "expected": "What SunCore may do about feed-in beyond the static limit above. Writing to the inverter needs a verified inverter adapter."
+ },
+ {
+  "lang": "en",
+  "key": "grid.export_dynamic",
+  "args": {},
+  "expected": "0 W at negative export prices"
+ },
+ {
+  "lang": "en",
+  "key": "grid.export_dynamic_hint",
+  "args": {},
+  "expected": "Lowers the inverter limit to 0 W while the feed-in price is negative. Only takes effect with a verified inverter adapter."
  },
  {
   "lang": "en",
@@ -1769,6 +2154,36 @@
  },
  {
   "lang": "en",
+  "key": "grid.para14a_kind",
+  "args": {},
+  "expected": "Signal type"
+ },
+ {
+  "lang": "en",
+  "key": "grid.para14a_kind.binary",
+  "args": {},
+  "expected": "Contact (on or off)"
+ },
+ {
+  "lang": "en",
+  "key": "grid.para14a_kind.power_w",
+  "args": {},
+  "expected": "Allowed power (W)"
+ },
+ {
+  "lang": "en",
+  "key": "grid.para14a_limit",
+  "args": {},
+  "expected": "Limit while the signal is active"
+ },
+ {
+  "lang": "en",
+  "key": "grid.para14a_limit_hint",
+  "args": {},
+  "expected": "The §14a EnWG reference is 4200 W."
+ },
+ {
+  "lang": "en",
   "key": "grid.para14a_signal",
   "args": {},
   "expected": "Signal of the grid operator"
@@ -1778,6 +2193,54 @@
   "key": "grid.para14a_signal_hint",
   "args": {},
   "expected": "A binary sensor or switch that shows when the grid operator reduces your power."
+ },
+ {
+  "lang": "en",
+  "key": "grid.peak",
+  "args": {},
+  "expected": "Peak shaving"
+ },
+ {
+  "lang": "en",
+  "key": "grid.peak_enable",
+  "args": {},
+  "expected": "Keep the monthly grid peak low"
+ },
+ {
+  "lang": "en",
+  "key": "grid.peak_floor",
+  "args": {},
+  "expected": "Peak floor"
+ },
+ {
+  "lang": "en",
+  "key": "grid.peak_floor_hint",
+  "args": {},
+  "expected": "Draw below this value is never limited; above it SunCore tries not to set a new monthly peak."
+ },
+ {
+  "lang": "en",
+  "key": "grid.peak_hint",
+  "args": {},
+  "expected": "Some grid operators bill the highest 15-minute draw of the month. With this on, SunCore holds back large loads and charging so that the peak stays below the floor you set."
+ },
+ {
+  "lang": "en",
+  "key": "grid.peak_price",
+  "args": {},
+  "expected": "Capacity price"
+ },
+ {
+  "lang": "en",
+  "key": "grid.peak_price_hint",
+  "args": {},
+  "expected": "Optional. Lets the planner weigh a new peak against its cost; 0 = only keep the peak low."
+ },
+ {
+  "lang": "en",
+  "key": "grid.peak_price_unit",
+  "args": {},
+  "expected": "per kW and month"
  },
  {
   "lang": "en",
@@ -1796,6 +2259,18 @@
   "key": "grid.sensors",
   "args": {},
   "expected": "Grid sensors"
+ },
+ {
+  "lang": "en",
+  "key": "grid.zero_export",
+  "args": {},
+  "expected": "Zero export"
+ },
+ {
+  "lang": "en",
+  "key": "grid.zero_export_hint",
+  "args": {},
+  "expected": "Use surplus on site and never feed in on purpose."
  },
  {
   "lang": "en",
@@ -2491,6 +2966,102 @@
  },
  {
   "lang": "en",
+  "key": "notify.actions.active",
+  "args": {},
+  "expected": "Buttons work"
+ },
+ {
+  "lang": "en",
+  "key": "notify.actions.pending",
+  "args": {},
+  "expected": "Checking buttons"
+ },
+ {
+  "lang": "en",
+  "key": "notify.actions.refused",
+  "args": {},
+  "expected": "Buttons refused"
+ },
+ {
+  "lang": "en",
+  "key": "notify.add",
+  "args": {},
+  "expected": "Add"
+ },
+ {
+  "lang": "en",
+  "key": "notify.add_entity",
+  "args": {},
+  "expected": "Add a notify entity"
+ },
+ {
+  "lang": "en",
+  "key": "notify.add_service",
+  "args": {},
+  "expected": "Add a notify service"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cap",
+  "args": {},
+  "expected": "Push messages per day at most"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cap_hint",
+  "args": {},
+  "expected": "0 switches push messages off."
+ },
+ {
+  "lang": "en",
+  "key": "notify.cat.cheap_window",
+  "args": {},
+  "expected": "Cheap price windows"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cat.daily_summary",
+  "args": {},
+  "expected": "Daily summary"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cat.error",
+  "args": {},
+  "expected": "Errors"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cat.ev_target",
+  "args": {},
+  "expected": "Charging target missed or reached"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cat.program",
+  "args": {},
+  "expected": "Programs (start, finished)"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cat.proposal",
+  "args": {},
+  "expected": "Proposals to confirm"
+ },
+ {
+  "lang": "en",
+  "key": "notify.cat.safety",
+  "args": {},
+  "expected": "Safety events"
+ },
+ {
+  "lang": "en",
+  "key": "notify.categories",
+  "args": {},
+  "expected": "What to notify about"
+ },
+ {
+  "lang": "en",
   "key": "notify.cheap_window.start",
   "args": {
    "start": "abc",
@@ -2574,6 +3145,57 @@
   "key": "notify.cheap_window.start.title",
   "args": {},
   "expected": "SunCore: cheap electricity"
+ },
+ {
+  "lang": "en",
+  "key": "notify.choose",
+  "args": {},
+  "expected": "Choose"
+ },
+ {
+  "lang": "en",
+  "key": "notify.counts",
+  "args": {
+   "targets": 0,
+   "today": 0
+  },
+  "expected": "0 push targets, 0 messages today"
+ },
+ {
+  "lang": "en",
+  "key": "notify.counts",
+  "args": {
+   "targets": 1,
+   "today": 1
+  },
+  "expected": "1 push target, 1 message today"
+ },
+ {
+  "lang": "en",
+  "key": "notify.counts",
+  "args": {
+   "targets": 2,
+   "today": 2
+  },
+  "expected": "2 push targets, 2 messages today"
+ },
+ {
+  "lang": "en",
+  "key": "notify.counts",
+  "args": {
+   "targets": 5,
+   "today": 5
+  },
+  "expected": "5 push targets, 5 messages today"
+ },
+ {
+  "lang": "en",
+  "key": "notify.counts",
+  "args": {
+   "targets": 21,
+   "today": 21
+  },
+  "expected": "21 push targets, 21 messages today"
  },
  {
   "lang": "en",
@@ -2762,9 +3384,39 @@
  },
  {
   "lang": "en",
+  "key": "notify.intro",
+  "args": {},
+  "expected": "SunCore tells you about errors, safety events and proposals. Persistent notifications in Home Assistant are always possible; push messages need a target."
+ },
+ {
+  "lang": "en",
+  "key": "notify.kind.entity",
+  "args": {},
+  "expected": "entity"
+ },
+ {
+  "lang": "en",
+  "key": "notify.kind.service",
+  "args": {},
+  "expected": "service"
+ },
+ {
+  "lang": "en",
+  "key": "notify.no_targets",
+  "args": {},
+  "expected": "No push target yet."
+ },
+ {
+  "lang": "en",
   "key": "notify.panel_hint",
   "args": {},
   "expected": "Open the SunCore panel to answer."
+ },
+ {
+  "lang": "en",
+  "key": "notify.persistent",
+  "args": {},
+  "expected": "Persistent notifications in Home Assistant"
  },
  {
   "lang": "en",
@@ -3051,6 +3703,36 @@
  },
  {
   "lang": "en",
+  "key": "notify.quiet",
+  "args": {},
+  "expected": "Quiet hours"
+ },
+ {
+  "lang": "en",
+  "key": "notify.quiet_enable",
+  "args": {},
+  "expected": "Hold back less urgent push messages during quiet hours"
+ },
+ {
+  "lang": "en",
+  "key": "notify.quiet_end",
+  "args": {},
+  "expected": "Until"
+ },
+ {
+  "lang": "en",
+  "key": "notify.quiet_hint",
+  "args": {},
+  "expected": "Proposals, charging targets and cheap windows wait. Errors, safety events, programs and the daily summary are not held back."
+ },
+ {
+  "lang": "en",
+  "key": "notify.quiet_start",
+  "args": {},
+  "expected": "From"
+ },
+ {
+  "lang": "en",
   "key": "notify.reason.actions_entity_only",
   "args": {},
   "expected": "Buttons need a companion app service such as mobile_app_PHONE. Notify entities get plain messages with a pointer to the SunCore panel."
@@ -3175,15 +3857,102 @@
  },
  {
   "lang": "en",
+  "key": "notify.save",
+  "args": {},
+  "expected": "Save"
+ },
+ {
+  "lang": "en",
+  "key": "notify.saved",
+  "args": {},
+  "expected": "Notification settings saved."
+ },
+ {
+  "lang": "en",
+  "key": "notify.service_hint",
+  "args": {},
+  "expected": "The part after notify., for example mobile_app_phone."
+ },
+ {
+  "lang": "en",
+  "key": "notify.service_placeholder",
+  "args": {},
+  "expected": "mobile_app_phone"
+ },
+ {
+  "lang": "en",
+  "key": "notify.targets",
+  "args": {},
+  "expected": "Push targets"
+ },
+ {
+  "lang": "en",
+  "key": "notify.targets_hint",
+  "args": {},
+  "expected": "A notify entity of Home Assistant or a notify service such as mobile_app_phone. Buttons for confirming need a companion app service."
+ },
+ {
+  "lang": "en",
   "key": "notify.test",
   "args": {},
-  "expected": "This is a test message from SunCore. Notifications reach this device."
+  "expected": "Send a test message"
  },
  {
   "lang": "en",
   "key": "notify.test.title",
   "args": {},
   "expected": "SunCore: test"
+ },
+ {
+  "lang": "en",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 0,
+   "failed": "abc"
+  },
+  "expected": "0 messages sent, abc failed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 1,
+   "failed": 42
+  },
+  "expected": "1 message sent, 42 failed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 2,
+   "failed": "abc"
+  },
+  "expected": "2 messages sent, abc failed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 5,
+   "failed": 42
+  },
+  "expected": "5 messages sent, 42 failed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 21,
+   "failed": "abc"
+  },
+  "expected": "21 messages sent, abc failed."
+ },
+ {
+  "lang": "en",
+  "key": "notify.title",
+  "args": {},
+  "expected": "Notifications"
  },
  {
   "lang": "en",
@@ -8834,6 +9603,36 @@
  },
  {
   "lang": "de",
+  "key": "device.behaviour",
+  "args": {},
+  "expected": "Verhalten noch nicht geprüft"
+ },
+ {
+  "lang": "de",
+  "key": "device.behaviour_confirm",
+  "args": {},
+  "expected": "Ich habe das Verhalten dieses Geräts geprüft und bestätige es"
+ },
+ {
+  "lang": "de",
+  "key": "device.behaviour_hint",
+  "args": {},
+  "expected": "Diese Vorlage ist mit echter Hardware ungetestet. Bis Sie bestätigen, dass sich das Gerät wie beschrieben verhält, schlägt SunCore Aktionen nur vor und schaltet es nicht selbst."
+ },
+ {
+  "lang": "de",
+  "key": "device.charger_max",
+  "args": {},
+  "expected": "Größter Ladestrom"
+ },
+ {
+  "lang": "de",
+  "key": "device.charger_min",
+  "args": {},
+  "expected": "Kleinster Ladestrom"
+ },
+ {
+  "lang": "de",
   "key": "device.comfort_hint",
   "args": {},
   "expected": "SunCore verlässt diesen Bereich nie."
@@ -8860,7 +9659,7 @@
   "lang": "de",
   "key": "device.control.charger",
   "args": {},
-  "expected": "SunCore stellt den Ladestrom (und die Phasen) der Wallbox ein. Verfügbar in einer späteren Version."
+  "expected": "SunCore stellt den Ladestrom (und die Phasen) der Wallbox ein."
  },
  {
   "lang": "de",
@@ -8872,7 +9671,7 @@
   "lang": "de",
   "key": "device.control.loadpoint",
   "args": {},
-  "expected": "SunCore setzt Modus, Limit und Plan eines evcc-Ladepunkts; evcc regelt den Strom. Verfügbar in einer späteren Version."
+  "expected": "SunCore setzt Modus, Limit und Plan eines evcc-Ladepunkts; evcc regelt den Strom."
  },
  {
   "lang": "de",
@@ -8908,7 +9707,7 @@
   "lang": "de",
   "key": "device.control.sg_ready",
   "args": {},
-  "expected": "SunCore wählt den SG-Ready-Zustand der Wärmepumpe (nie die EVU-Sperre). Verfügbar in einer späteren Version."
+  "expected": "SunCore wählt den SG-Ready-Zustand der Wärmepumpe (nie die EVU-Sperre)."
  },
  {
   "lang": "de",
@@ -9052,6 +9851,24 @@
  },
  {
   "lang": "de",
+  "key": "device.ev",
+  "args": {},
+  "expected": "Fahrzeug"
+ },
+ {
+  "lang": "de",
+  "key": "device.ev_capacity",
+  "args": {},
+  "expected": "Batteriekapazität des Fahrzeugs"
+ },
+ {
+  "lang": "de",
+  "key": "device.ev_capacity_hint",
+  "args": {},
+  "expected": "Optional. Damit kann SunCore ein Ladezustandsziel in eine zu ladende Energie umrechnen."
+ },
+ {
+  "lang": "de",
   "key": "device.hvac.auto",
   "args": {},
   "expected": "Automatisch"
@@ -9121,6 +9938,30 @@
   "key": "device.kind.water_heater",
   "args": {},
   "expected": "Warmwasserbereiter"
+ },
+ {
+  "lang": "de",
+  "key": "device.loadpoint_id",
+  "args": {},
+  "expected": "evcc-Ladepunkt-Nummer"
+ },
+ {
+  "lang": "de",
+  "key": "device.loadpoint_id_hint",
+  "args": {},
+  "expected": "Die Nummer des Ladepunkts in evcc, ab 1 in der Reihenfolge der evcc-Konfiguration."
+ },
+ {
+  "lang": "de",
+  "key": "device.loadpoint_prefix",
+  "args": {},
+  "expected": "evcc-MQTT-Topic-Präfix"
+ },
+ {
+  "lang": "de",
+  "key": "device.loadpoint_prefix_hint",
+  "args": {},
+  "expected": "Meist evcc. Nur ändern, wenn Sie in der evcc-Konfiguration ein anderes Topic gesetzt haben."
  },
  {
   "lang": "de",
@@ -9266,6 +10107,136 @@
  },
  {
   "lang": "de",
+  "key": "device.program",
+  "args": {},
+  "expected": "Programm"
+ },
+ {
+  "lang": "de",
+  "key": "device.program.notify",
+  "args": {},
+  "expected": "SunCore bittet Sie nur, das Gerät zu starten; es schaltet nichts."
+ },
+ {
+  "lang": "de",
+  "key": "device.program.plug",
+  "args": {},
+  "expected": "SunCore schaltet eine Steckdose ein, wenn das Programm starten soll. Das Gerät muss befüllt sein und selbstständig starten."
+ },
+ {
+  "lang": "de",
+  "key": "device.program.remote",
+  "args": {},
+  "expected": "SunCore startet das Gerät über seine Fernstart-Entität."
+ },
+ {
+  "lang": "de",
+  "key": "device.program_idle",
+  "args": {},
+  "expected": "Fertig unterhalb von"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_idle_hint",
+  "args": {},
+  "expected": "Eine Leistung unter diesem Wert über eine Weile gilt als fertig."
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak",
+  "args": {
+   "value": 0
+  },
+  "expected": "Spitzenleistung aus dem Profil: 0 W"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak",
+  "args": {
+   "value": 1
+  },
+  "expected": "Spitzenleistung aus dem Profil: 1 W"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak",
+  "args": {
+   "value": 2
+  },
+  "expected": "Spitzenleistung aus dem Profil: 2 W"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak",
+  "args": {
+   "value": 5
+  },
+  "expected": "Spitzenleistung aus dem Profil: 5 W"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak",
+  "args": {
+   "value": 21
+  },
+  "expected": "Spitzenleistung aus dem Profil: 21 W"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak",
+  "args": {
+   "value": 1234.5
+  },
+  "expected": "Spitzenleistung aus dem Profil: 1.234,5 W"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak",
+  "args": {
+   "value": -3.25
+  },
+  "expected": "Spitzenleistung aus dem Profil: -3,25 W"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak",
+  "args": {
+   "value": 0.125
+  },
+  "expected": "Spitzenleistung aus dem Profil: 0,125 W"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_peak_none",
+  "args": {},
+  "expected": "Kein Profil hinterlegt. SunCore plant über die ganze Laufzeit mit der Nennleistung."
+ },
+ {
+  "lang": "de",
+  "key": "device.program_resume",
+  "args": {},
+  "expected": "Das Gerät läuft nach Stromrückkehr von selbst an"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_resume_hint",
+  "args": {},
+  "expected": "Für eine Steckdose nötig: Das Gerät wird mit geschlossener Tür und gewähltem Programm vorbereitet und startet, sobald die Steckdose einschaltet."
+ },
+ {
+  "lang": "de",
+  "key": "device.program_runtime",
+  "args": {},
+  "expected": "Laufzeit eines Programms"
+ },
+ {
+  "lang": "de",
+  "key": "device.program_runtime_hint",
+  "args": {},
+  "expected": "Wie lange das Gerät vom Start bis zum Ende braucht."
+ },
+ {
+  "lang": "de",
   "key": "device.protection",
   "args": {},
   "expected": "Schutzzeiten"
@@ -9320,6 +10291,123 @@
  },
  {
   "lang": "de",
+  "key": "grid.backup",
+  "args": {},
+  "expected": "Ersatzstrom (Inselbetrieb)"
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_enable",
+  "args": {},
+  "expected": "Meine Anlage kann im Inselbetrieb laufen"
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_entity",
+  "args": {},
+  "expected": "Entität für den Ersatzstrom-Zustand"
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_entity_hint",
+  "args": {},
+  "expected": "Die Entität, die zeigt, ob die Anlage im Ersatzstrombetrieb ist, zum Beispiel der Wechselrichter-Modus."
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_hint",
+  "args": {},
+  "expected": "Bei Netzausfall hält SunCore wichtige Geräte am Laufen und schaltet den Rest ab."
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_preview",
+  "args": {
+   "island": "zzz",
+   "state": "abc"
+  },
+  "expected": "Jetzt: abc. Das gilt als netzgekoppelt."
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_preview",
+  "args": {
+   "island": "yes",
+   "state": 42
+  },
+  "expected": "Jetzt: 42. Das gilt als Inselbetrieb."
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_preview",
+  "args": {
+   "island": "other",
+   "state": "abc"
+  },
+  "expected": "Jetzt: abc. Das gilt als netzgekoppelt."
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_states",
+  "args": {},
+  "expected": "Zustände für Inselbetrieb"
+ },
+ {
+  "lang": "de",
+  "key": "grid.backup_states_hint",
+  "args": {},
+  "expected": "Kommagetrennt, genau wie die Entität sie meldet, zum Beispiel: backup, island."
+ },
+ {
+  "lang": "de",
+  "key": "grid.badge.island",
+  "args": {},
+  "expected": "Inselbetrieb"
+ },
+ {
+  "lang": "de",
+  "key": "grid.badge.island_unknown",
+  "args": {},
+  "expected": "Netzzustand unbekannt"
+ },
+ {
+  "lang": "de",
+  "key": "grid.badge.para14a",
+  "args": {},
+  "expected": "§14a-Begrenzung aktiv"
+ },
+ {
+  "lang": "de",
+  "key": "grid.badge.para14a_unknown",
+  "args": {},
+  "expected": "§14a-Signal nicht verfügbar"
+ },
+ {
+  "lang": "de",
+  "key": "grid.badge.peak",
+  "args": {
+   "peak": "abc",
+   "limit": "abc"
+  },
+  "expected": "Monatsspitze abc (Untergrenze abc)"
+ },
+ {
+  "lang": "de",
+  "key": "grid.badge.peak",
+  "args": {
+   "peak": 42,
+   "limit": 42
+  },
+  "expected": "Monatsspitze 42 (Untergrenze 42)"
+ },
+ {
+  "lang": "de",
+  "key": "grid.badges",
+  "args": {},
+  "expected": "Netzstatus"
+ },
+ {
+  "lang": "de",
   "key": "grid.counters",
   "args": {},
   "expected": "Energiezähler"
@@ -9356,6 +10444,48 @@
  },
  {
   "lang": "de",
+  "key": "grid.event.import_limit_exceeded",
+  "args": {},
+  "expected": "Bezug über der Netzgrenze"
+ },
+ {
+  "lang": "de",
+  "key": "grid.event.island_end",
+  "args": {},
+  "expected": "Inselbetrieb beendet"
+ },
+ {
+  "lang": "de",
+  "key": "grid.event.island_start",
+  "args": {},
+  "expected": "Inselbetrieb gestartet"
+ },
+ {
+  "lang": "de",
+  "key": "grid.event.para14a_end",
+  "args": {},
+  "expected": "§14a-Begrenzung beendet"
+ },
+ {
+  "lang": "de",
+  "key": "grid.event.para14a_start",
+  "args": {},
+  "expected": "§14a-Begrenzung gestartet"
+ },
+ {
+  "lang": "de",
+  "key": "grid.event.para14a_unknown",
+  "args": {},
+  "expected": "§14a-Signal nicht verfügbar"
+ },
+ {
+  "lang": "de",
+  "key": "grid.event.peak_new",
+  "args": {},
+  "expected": "Neue Spitze des Monats"
+ },
+ {
+  "lang": "de",
   "key": "grid.export.none",
   "args": {},
   "expected": "Keine Grenze"
@@ -9371,6 +10501,30 @@
   "key": "grid.export.w",
   "args": {},
   "expected": "In Watt"
+ },
+ {
+  "lang": "de",
+  "key": "grid.export_chain",
+  "args": {},
+  "expected": "Kette der Einspeisebegrenzung"
+ },
+ {
+  "lang": "de",
+  "key": "grid.export_chain_hint",
+  "args": {},
+  "expected": "Was SunCore über das statische Limit oben hinaus bei der Einspeisung tun darf. Das Schreiben zum Wechselrichter braucht einen verifizierten Wechselrichter-Adapter."
+ },
+ {
+  "lang": "de",
+  "key": "grid.export_dynamic",
+  "args": {},
+  "expected": "0 W bei negativen Einspeisepreisen"
+ },
+ {
+  "lang": "de",
+  "key": "grid.export_dynamic_hint",
+  "args": {},
+  "expected": "Senkt das Wechselrichter-Limit auf 0 W, solange der Einspeisepreis negativ ist. Wirkt nur mit einem verifizierten Wechselrichter-Adapter."
  },
  {
   "lang": "de",
@@ -9516,6 +10670,36 @@
  },
  {
   "lang": "de",
+  "key": "grid.para14a_kind",
+  "args": {},
+  "expected": "Signalart"
+ },
+ {
+  "lang": "de",
+  "key": "grid.para14a_kind.binary",
+  "args": {},
+  "expected": "Kontakt (an oder aus)"
+ },
+ {
+  "lang": "de",
+  "key": "grid.para14a_kind.power_w",
+  "args": {},
+  "expected": "Erlaubte Leistung (W)"
+ },
+ {
+  "lang": "de",
+  "key": "grid.para14a_limit",
+  "args": {},
+  "expected": "Grenze bei aktivem Signal"
+ },
+ {
+  "lang": "de",
+  "key": "grid.para14a_limit_hint",
+  "args": {},
+  "expected": "Der Referenzwert nach §14a EnWG ist 4200 W."
+ },
+ {
+  "lang": "de",
   "key": "grid.para14a_signal",
   "args": {},
   "expected": "Signal des Netzbetreibers"
@@ -9525,6 +10709,54 @@
   "key": "grid.para14a_signal_hint",
   "args": {},
   "expected": "Ein Binärsensor oder Schalter, der anzeigt, wenn der Netzbetreiber deine Leistung reduziert."
+ },
+ {
+  "lang": "de",
+  "key": "grid.peak",
+  "args": {},
+  "expected": "Lastspitzenkappung"
+ },
+ {
+  "lang": "de",
+  "key": "grid.peak_enable",
+  "args": {},
+  "expected": "Monatliche Netzbezugsspitze niedrig halten"
+ },
+ {
+  "lang": "de",
+  "key": "grid.peak_floor",
+  "args": {},
+  "expected": "Spitzen-Untergrenze"
+ },
+ {
+  "lang": "de",
+  "key": "grid.peak_floor_hint",
+  "args": {},
+  "expected": "Bezug unter diesem Wert wird nie begrenzt; darüber versucht SunCore, keine neue Monatsspitze zu setzen."
+ },
+ {
+  "lang": "de",
+  "key": "grid.peak_hint",
+  "args": {},
+  "expected": "Manche Netzbetreiber berechnen den höchsten 15-Minuten-Bezug des Monats. Ist dies aktiv, hält SunCore große Verbraucher und das Laden zurück, damit die Spitze unter der eingestellten Untergrenze bleibt."
+ },
+ {
+  "lang": "de",
+  "key": "grid.peak_price",
+  "args": {},
+  "expected": "Leistungspreis"
+ },
+ {
+  "lang": "de",
+  "key": "grid.peak_price_hint",
+  "args": {},
+  "expected": "Optional. Der Planer kann damit eine neue Spitze gegen ihre Kosten abwägen; 0 = nur die Spitze niedrig halten."
+ },
+ {
+  "lang": "de",
+  "key": "grid.peak_price_unit",
+  "args": {},
+  "expected": "pro kW und Monat"
  },
  {
   "lang": "de",
@@ -9543,6 +10775,18 @@
   "key": "grid.sensors",
   "args": {},
   "expected": "Netzsensoren"
+ },
+ {
+  "lang": "de",
+  "key": "grid.zero_export",
+  "args": {},
+  "expected": "Nulleinspeisung"
+ },
+ {
+  "lang": "de",
+  "key": "grid.zero_export_hint",
+  "args": {},
+  "expected": "Überschuss vor Ort nutzen und nie absichtlich einspeisen."
  },
  {
   "lang": "de",
@@ -10238,6 +11482,102 @@
  },
  {
   "lang": "de",
+  "key": "notify.actions.active",
+  "args": {},
+  "expected": "Schaltflächen funktionieren"
+ },
+ {
+  "lang": "de",
+  "key": "notify.actions.pending",
+  "args": {},
+  "expected": "Schaltflächen werden geprüft"
+ },
+ {
+  "lang": "de",
+  "key": "notify.actions.refused",
+  "args": {},
+  "expected": "Schaltflächen abgelehnt"
+ },
+ {
+  "lang": "de",
+  "key": "notify.add",
+  "args": {},
+  "expected": "Hinzufügen"
+ },
+ {
+  "lang": "de",
+  "key": "notify.add_entity",
+  "args": {},
+  "expected": "Notify-Entität hinzufügen"
+ },
+ {
+  "lang": "de",
+  "key": "notify.add_service",
+  "args": {},
+  "expected": "Notify-Dienst hinzufügen"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cap",
+  "args": {},
+  "expected": "Höchstens so viele Push-Nachrichten pro Tag"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cap_hint",
+  "args": {},
+  "expected": "0 schaltet Push-Nachrichten aus."
+ },
+ {
+  "lang": "de",
+  "key": "notify.cat.cheap_window",
+  "args": {},
+  "expected": "Günstige Preisfenster"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cat.daily_summary",
+  "args": {},
+  "expected": "Tageszusammenfassung"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cat.error",
+  "args": {},
+  "expected": "Fehler"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cat.ev_target",
+  "args": {},
+  "expected": "Ladeziel verfehlt oder erreicht"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cat.program",
+  "args": {},
+  "expected": "Programme (Start, fertig)"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cat.proposal",
+  "args": {},
+  "expected": "Vorschläge zur Bestätigung"
+ },
+ {
+  "lang": "de",
+  "key": "notify.cat.safety",
+  "args": {},
+  "expected": "Sicherheitsereignisse"
+ },
+ {
+  "lang": "de",
+  "key": "notify.categories",
+  "args": {},
+  "expected": "Worüber benachrichtigt wird"
+ },
+ {
+  "lang": "de",
   "key": "notify.cheap_window.start",
   "args": {
    "start": "abc",
@@ -10321,6 +11661,57 @@
   "key": "notify.cheap_window.start.title",
   "args": {},
   "expected": "SunCore: günstiger Strom"
+ },
+ {
+  "lang": "de",
+  "key": "notify.choose",
+  "args": {},
+  "expected": "Auswählen"
+ },
+ {
+  "lang": "de",
+  "key": "notify.counts",
+  "args": {
+   "targets": 0,
+   "today": 0
+  },
+  "expected": "0 Push-Ziele, 0 Nachrichten heute"
+ },
+ {
+  "lang": "de",
+  "key": "notify.counts",
+  "args": {
+   "targets": 1,
+   "today": 1
+  },
+  "expected": "1 Push-Ziel, 1 Nachricht heute"
+ },
+ {
+  "lang": "de",
+  "key": "notify.counts",
+  "args": {
+   "targets": 2,
+   "today": 2
+  },
+  "expected": "2 Push-Ziele, 2 Nachrichten heute"
+ },
+ {
+  "lang": "de",
+  "key": "notify.counts",
+  "args": {
+   "targets": 5,
+   "today": 5
+  },
+  "expected": "5 Push-Ziele, 5 Nachrichten heute"
+ },
+ {
+  "lang": "de",
+  "key": "notify.counts",
+  "args": {
+   "targets": 21,
+   "today": 21
+  },
+  "expected": "21 Push-Ziele, 21 Nachrichten heute"
  },
  {
   "lang": "de",
@@ -10509,9 +11900,39 @@
  },
  {
   "lang": "de",
+  "key": "notify.intro",
+  "args": {},
+  "expected": "SunCore meldet Fehler, Sicherheitsereignisse und Vorschläge. Dauerhafte Benachrichtigungen in Home Assistant sind immer möglich; Push-Nachrichten brauchen ein Ziel."
+ },
+ {
+  "lang": "de",
+  "key": "notify.kind.entity",
+  "args": {},
+  "expected": "Entität"
+ },
+ {
+  "lang": "de",
+  "key": "notify.kind.service",
+  "args": {},
+  "expected": "Dienst"
+ },
+ {
+  "lang": "de",
+  "key": "notify.no_targets",
+  "args": {},
+  "expected": "Noch kein Push-Ziel."
+ },
+ {
+  "lang": "de",
   "key": "notify.panel_hint",
   "args": {},
   "expected": "Öffne das SunCore-Panel, um zu antworten."
+ },
+ {
+  "lang": "de",
+  "key": "notify.persistent",
+  "args": {},
+  "expected": "Dauerhafte Benachrichtigungen in Home Assistant"
  },
  {
   "lang": "de",
@@ -10798,6 +12219,36 @@
  },
  {
   "lang": "de",
+  "key": "notify.quiet",
+  "args": {},
+  "expected": "Ruhezeiten"
+ },
+ {
+  "lang": "de",
+  "key": "notify.quiet_enable",
+  "args": {},
+  "expected": "Weniger dringende Push-Nachrichten in den Ruhezeiten zurückhalten"
+ },
+ {
+  "lang": "de",
+  "key": "notify.quiet_end",
+  "args": {},
+  "expected": "Bis"
+ },
+ {
+  "lang": "de",
+  "key": "notify.quiet_hint",
+  "args": {},
+  "expected": "Vorschläge, Ladeziele und günstige Fenster warten. Fehler, Sicherheitsereignisse, Programme und die Tageszusammenfassung werden nicht zurückgehalten."
+ },
+ {
+  "lang": "de",
+  "key": "notify.quiet_start",
+  "args": {},
+  "expected": "Von"
+ },
+ {
+  "lang": "de",
   "key": "notify.reason.actions_entity_only",
   "args": {},
   "expected": "Schaltflächen brauchen einen Companion-App-Dienst wie mobile_app_HANDY. Notify-Entities bekommen einfache Meldungen mit Hinweis auf das SunCore-Panel."
@@ -10922,15 +12373,102 @@
  },
  {
   "lang": "de",
+  "key": "notify.save",
+  "args": {},
+  "expected": "Speichern"
+ },
+ {
+  "lang": "de",
+  "key": "notify.saved",
+  "args": {},
+  "expected": "Benachrichtigungen gespeichert."
+ },
+ {
+  "lang": "de",
+  "key": "notify.service_hint",
+  "args": {},
+  "expected": "Der Teil nach notify., zum Beispiel mobile_app_handy."
+ },
+ {
+  "lang": "de",
+  "key": "notify.service_placeholder",
+  "args": {},
+  "expected": "mobile_app_handy"
+ },
+ {
+  "lang": "de",
+  "key": "notify.targets",
+  "args": {},
+  "expected": "Push-Ziele"
+ },
+ {
+  "lang": "de",
+  "key": "notify.targets_hint",
+  "args": {},
+  "expected": "Eine Notify-Entität von Home Assistant oder ein Notify-Dienst wie mobile_app_handy. Schaltflächen zum Bestätigen brauchen einen Dienst der Companion-App."
+ },
+ {
+  "lang": "de",
   "key": "notify.test",
   "args": {},
-  "expected": "Das ist eine Testnachricht von SunCore. Benachrichtigungen erreichen dieses Gerät."
+  "expected": "Testnachricht senden"
  },
  {
   "lang": "de",
   "key": "notify.test.title",
   "args": {},
   "expected": "SunCore: Test"
+ },
+ {
+  "lang": "de",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 0,
+   "failed": "abc"
+  },
+  "expected": "0 Nachrichten gesendet, abc fehlgeschlagen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 1,
+   "failed": 42
+  },
+  "expected": "1 Nachricht gesendet, 42 fehlgeschlagen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 2,
+   "failed": "abc"
+  },
+  "expected": "2 Nachrichten gesendet, abc fehlgeschlagen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 5,
+   "failed": 42
+  },
+  "expected": "5 Nachrichten gesendet, 42 fehlgeschlagen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.test_result",
+  "args": {
+   "sent": 21,
+   "failed": "abc"
+  },
+  "expected": "21 Nachrichten gesendet, abc fehlgeschlagen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.title",
+  "args": {},
+  "expected": "Benachrichtigungen"
  },
  {
   "lang": "de",

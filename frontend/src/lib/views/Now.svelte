@@ -3,6 +3,7 @@
   import BatteryCard from '../components/BatteryCard.svelte';
   import DecisionList from '../components/DecisionList.svelte';
   import ConfirmResult from '../components/ConfirmResult.svelte';
+  import GridBadges from '../components/GridBadges.svelte';
   import DeviceCard from '../components/DeviceCard.svelte';
   import ProposalList from '../components/ProposalList.svelte';
   import SiteSummary from '../components/SiteSummary.svelte';
@@ -75,6 +76,7 @@
       <a class="btn" href="#/setup">{t('now.open_settings')}</a>
     </div>
   {:else}
+    <GridBadges />
     <div class="card diagram">
       <EnergyFlow flows={live.flows} {hasBattery} />
     </div>
@@ -115,7 +117,11 @@
     {:else}
       <div class="grid" data-testid="device-cards">
         {#each devices as d (d.device_id)}
-          <DeviceCard device={d} unit={unitOf(d.device_id)} />
+          <DeviceCard
+            device={d}
+            unit={unitOf(d.device_id)}
+            config={app.devices?.devices?.find((c) => c.id === d.device_id)}
+          />
         {/each}
       </div>
     {/if}

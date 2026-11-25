@@ -15,6 +15,17 @@ import type {
   OperationConfig,
   OverrideCommand,
   EnergyPrefs,
+  EvMode,
+  EvState,
+  EvTarget,
+  FlexView,
+  GridEvents,
+  GridStatus,
+  HaEntitiesStatus,
+  NotificationTest,
+  NotificationsConfig,
+  NotificationsStatus,
+  ProgramJob,
   EntityCandidate,
   ForecastAccuracyView,
   HistoryRestore,
@@ -254,6 +265,37 @@ export const controlApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode, identity }),
     }),
+};
+
+/** EV mode and target, program jobs, grid status (PR 6-M). None of these writes a device. */
+export const flexApi = {
+  flex: (deviceId: string) =>
+    request<FlexView>(`${API_PREFIX}devices/${encodeURIComponent(deviceId)}/flex`),
+  setEv: (deviceId: string, mode: EvMode, target: EvTarget | null) =>
+    send<EvState>('PUT', `${API_PREFIX}devices/${encodeURIComponent(deviceId)}/ev`, {
+      mode,
+      target,
+    }),
+  armProgram: (deviceId: string, deadline: string) =>
+    send<ProgramJob>('POST', `${API_PREFIX}devices/${encodeURIComponent(deviceId)}/program/arm`, {
+      deadline,
+    }),
+  cancelProgram: (deviceId: string) =>
+    send<ProgramJob>('POST', `${API_PREFIX}devices/${encodeURIComponent(deviceId)}/program/cancel`),
+  gridStatus: () => request<GridStatus>(`${API_PREFIX}grid/status`),
+  gridEvents: (days = 30) =>
+    request<GridEvents>(`${API_PREFIX}grid/events${query({ days: String(days) })}`),
+};
+
+/** MQTT entity surface and notifications (Phase 6). */
+export const surfaceApi = {
+  haEntities: () => request<HaEntitiesStatus>(`${API_PREFIX}ha-entities/status`),
+  republish: () => send<{ republished: boolean }>('POST', `${API_PREFIX}ha-entities/republish`),
+  notifications: () => request<NotificationsConfig>(`${API_PREFIX}notifications/settings`),
+  putNotifications: (body: NotificationsConfig) =>
+    send<NotificationsConfig>('PUT', `${API_PREFIX}notifications/settings`, body),
+  notificationsStatus: () => request<NotificationsStatus>(`${API_PREFIX}notifications/status`),
+  notificationsTest: () => send<NotificationTest>('POST', `${API_PREFIX}notifications/test`),
 };
 
 /** The planner and its inputs (WP9): plan, status, prices and forecasts (all read only). */

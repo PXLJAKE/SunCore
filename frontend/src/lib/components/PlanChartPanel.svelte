@@ -52,6 +52,7 @@
     lock: 'plan.seg.lock',
     run: 'plan.seg.run',
     partial: 'plan.seg.partial',
+    start: 'plan.seg.start',
   };
 
   const store = new PlanChartStore();

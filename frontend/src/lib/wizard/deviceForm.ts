@@ -7,7 +7,10 @@ import type {
   DeviceConfig,
   DeviceKind,
   DeviceTemplate,
+  EvSpec,
   OverridePolicy,
+  ProgramSpec,
+  ThermalSpec,
   PowerModel,
   PowerModelKind,
 } from '../api/types';
@@ -28,6 +31,30 @@ export function controlRoleOf(control: ControlSpec): string {
     default:
       return control.role;
   }
+}
+
+/**
+ * Mirror of `needs_behaviour_confirmation` (core/devices.py): a charger, evcc loadpoint or
+ * SG-Ready control, a program job or a heat pump's set-point lift runs on an unverified template
+ * and at most assisted until the user confirms the vendor behaviour.
+ */
+export function needsBehaviourConfirmation(
+  form: Pick<DeviceForm, 'control' | 'program' | 'kind'>,
+): boolean {
+  const k = form.control.kind;
+  return (
+    k === 'charger' ||
+    k === 'sg_ready' ||
+    k === 'loadpoint' ||
+    form.program !== null ||
+    (form.kind === 'heat_pump' && k === 'setpoint')
+  );
+}
+
+/** Peak power of a program's profile (energy per 15 min x 4), `null` without a profile. */
+export function programPeakW(spec: Pick<ProgramSpec, 'profile_wh'>): number | null {
+  const wh = Math.max(0, ...(spec.profile_wh ?? []));
+  return wh > 0 ? wh * 4 : null;
 }
 
 /** Device kinds with a comfort band (core/devices.py THERMAL_KINDS). */
@@ -101,6 +128,12 @@ export interface DeviceForm {
    * the stored device when editing. `null` = safety/controller default, never "unlimited".
    */
   protection: Protection;
+  /** Phase 6 specs (kind wallbox / program / thermal), from the template defaults for a new device. */
+  ev: EvForm | null;
+  program: ProgramSpec | null;
+  thermal: ThermalSpec | null;
+  /** The user confirmed the vendor behaviour the template lists as unverified. */
+  behaviourConfirmed: boolean;
   /** The stored device: fields the form does not edit (hysteresis, windows, ...) are kept. */
   base: DeviceConfig | null;
 }
@@ -168,6 +201,13 @@ export function preferredPowerKind(
   return 'nominal';
 }
 
+/** A copy of the EV spec with an explicit `null` capacity (the number field binds to it). */
+export type EvForm = EvSpec & { capacity_wh: number | null };
+
+function evSpecOf(spec: EvSpec): EvForm {
+  return { ...structuredClone(spec), capacity_wh: spec.capacity_wh ?? null };
+}
+
 export function newDeviceForm(
   template: DeviceTemplate,
   name: string,
@@ -195,6 +235,10 @@ export function newDeviceForm(
       powerUpdateS: null,
     },
     control: structuredClone(d.control),
+    ev: d.ev ? evSpecOf(d.ev) : null,
+    program: d.program ? structuredClone(d.program) : null,
+    thermal: d.thermal ? structuredClone(d.thermal) : null,
+    behaviourConfirmed: false,
     allowSwitchOn: false,
     switchOnHvacMode: null,
     overrideKind: 'next_day',
@@ -240,6 +284,10 @@ export function deviceFormFromConfig(
       powerUpdateS: pm.power_update_s ?? null,
     },
     control: structuredClone(cfg.control),
+    ev: cfg.ev ? evSpecOf(cfg.ev) : null,
+    program: cfg.program ? structuredClone(cfg.program) : null,
+    thermal: cfg.thermal ? structuredClone(cfg.thermal) : null,
+    behaviourConfirmed: cfg.behaviour_confirmed ?? false,
     allowSwitchOn: cfg.allow_switch_on ?? false,
     switchOnHvacMode: cfg.switch_on_hvac_mode ?? null,
     overrideKind: cfg.override_policy?.kind ?? 'next_day',
@@ -307,8 +355,11 @@ export function deviceFromForm(
     windows: base?.windows ?? [],
     ...(base ?? {}),
     // Phase 6 fields the form does not edit yet keep their stored value (or the default).
-    behaviour_confirmed: base?.behaviour_confirmed ?? false,
+    behaviour_confirmed: form.behaviourConfirmed,
     para14a: base?.para14a ?? false,
+    ev: form.ev,
+    program: form.program,
+    thermal: form.thermal,
     ...switchOnFromForm(form),
     override_policy: overridePolicyFromForm(form),
     ...form.protection,

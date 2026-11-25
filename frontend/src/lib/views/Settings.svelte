@@ -4,6 +4,8 @@
   import { api } from '../api/client';
   import { describeError } from '../api/errors';
   import type { ConfigHistoryEntry, ConfigSectionName } from '../api/types';
+  import HaEntitiesSettings from '../components/HaEntitiesSettings.svelte';
+  import NotificationsSettings from '../components/NotificationsSettings.svelte';
   import { t, tDateTime, tDynamic, tNumber, type MessageKey } from '../i18n/index.svelte';
   import { router, stepHash } from '../router.svelte';
   import { clearCandidateCache } from '../stores/candidates';
@@ -12,7 +14,11 @@
   import { STEPS, type StepId } from '../wizard/steps';
 
   const uid = $props.id();
-  const SECTIONS: Exclude<ConfigSectionName, 'wizard'>[] = [
+  type HistorySection = Exclude<
+    ConfigSectionName,
+    'wizard' | 'mqtt' | 'notifications' | 'inverter'
+  >;
+  const SECTIONS: HistorySection[] = [
     'site',
     'region',
     'tariff',
@@ -137,7 +143,7 @@
   const titleOf = (id: StepId): MessageKey => STEPS.find((x) => x.id === id)!.title;
 
   // --- history / restore -------------------------------------------------------------
-  let histSection = $state<Exclude<ConfigSectionName, 'wizard'>>('site');
+  let histSection = $state<HistorySection>('site');
   let history = $state.raw<ConfigHistoryEntry[] | null>(null);
   let histError = $state<string | null>(null);
   let confirming = $state<number | null>(null);
@@ -269,6 +275,10 @@
       >
     </li>
   </ul>
+
+  <HaEntitiesSettings />
+
+  <NotificationsSettings />
 
   <section class="card stack" aria-labelledby="{uid}-hist">
     <h3 id="{uid}-hist">{t('settings.history.title')}</h3>

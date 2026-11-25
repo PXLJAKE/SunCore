@@ -20,6 +20,17 @@ export interface GridForm {
   para14aSignal: RefField;
   energyImport: RefField;
   energyExport: RefField;
+  peakEnabled: boolean;
+  peakFloorW: number | null;
+  peakPrice: number | null;
+  exportDynamic: boolean;
+  zeroExport: boolean;
+  para14aLimitW: number | null;
+  para14aSignalKind: 'binary' | 'power_w';
+  backupEnabled: boolean;
+  backup: RefField;
+  /** States of the backup entity that mean "island", comma separated in the form. */
+  backupStates: string;
 }
 
 export interface PvRow {
@@ -43,17 +54,7 @@ export interface BatteryForm {
 }
 
 /** Grid fields the wizard does not edit yet (Phase 6, PR 6-B): kept as stored on save. */
-type GridKept = Partial<
-  Pick<
-    SiteConfig['grid'],
-    | 'peak_shaving'
-    | 'export_dynamic'
-    | 'zero_export'
-    | 'para14a_limit_w'
-    | 'para14a_signal_kind'
-    | 'backup'
-  >
->;
+type GridKept = { backupKeepDevices?: string[] };
 
 export interface SiteForm {
   schemaVersion: number;
@@ -77,6 +78,16 @@ export const emptyGrid = (): GridForm => ({
   para14aSignal: emptyRef(),
   energyImport: emptyRef(),
   energyExport: emptyRef(),
+  peakEnabled: false,
+  peakFloorW: 2500,
+  peakPrice: 0,
+  exportDynamic: false,
+  zeroExport: false,
+  para14aLimitW: 4200,
+  para14aSignalKind: 'binary',
+  backupEnabled: false,
+  backup: emptyRef(),
+  backupStates: '',
 });
 
 export const emptyPvRow = (name = ''): PvRow => ({
@@ -122,14 +133,7 @@ export function siteFormFromSite(site: SiteConfig | null): SiteForm {
   const b = site.battery;
   return {
     schemaVersion: site.schema_version,
-    gridKept: {
-      peak_shaving: g.peak_shaving,
-      export_dynamic: g.export_dynamic,
-      zero_export: g.zero_export,
-      para14a_limit_w: g.para14a_limit_w,
-      para14a_signal_kind: g.para14a_signal_kind,
-      backup: g.backup,
-    },
+    gridKept: { backupKeepDevices: g.backup?.keep_devices ?? [] },
     grid: {
       mode: pair ? 'pair' : 'single',
       power: fromRef(g.power),
@@ -143,6 +147,18 @@ export function siteFormFromSite(site: SiteConfig | null): SiteForm {
       para14aSignal: fromRef(g.para14a_signal),
       energyImport: fromRef(g.energy_import),
       energyExport: fromRef(g.energy_export),
+      peakEnabled: g.peak_shaving?.enabled ?? false,
+      peakFloorW: g.peak_shaving?.peak_floor_w ?? 2500,
+      peakPrice: g.peak_shaving?.capacity_price_per_kw_month ?? 0,
+      exportDynamic: g.export_dynamic ?? false,
+      zeroExport: g.zero_export ?? false,
+      para14aLimitW: g.para14a_limit_w ?? 4200,
+      para14aSignalKind: g.para14a_signal_kind ?? 'binary',
+      backupEnabled: !!g.backup,
+      backup: g.backup
+        ? fromRef({ entity_id: g.backup.entity_id, invert_sign: false })
+        : emptyRef(),
+      backupStates: (g.backup?.island_states ?? []).join(', '),
     },
     pv: (site.pv ?? []).map((a) => ({
       name: a.name,
@@ -194,6 +210,26 @@ export function validateSiteForm(form: SiteForm): SiteFormError[] {
   return errors;
 }
 
+/** Split the island-state list ("island, backup") into trimmed, non-empty states. */
+export function parseIslandStates(text: string): string[] {
+  return text
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => x !== '');
+}
+
+function backupFromForm(form: SiteForm): SiteConfig['grid']['backup'] {
+  const g = form.grid;
+  const ref = g.backupEnabled ? toRef(g.backup, false) : null;
+  const states = parseIslandStates(g.backupStates);
+  if (!ref || states.length === 0) return null;
+  return {
+    entity_id: ref.entity_id,
+    island_states: states,
+    keep_devices: form.gridKept?.backupKeepDevices ?? [],
+  };
+}
+
 export function siteFromForm(form: SiteForm): SiteConfig {
   const g = form.grid;
   const single = g.mode === 'single';
@@ -222,12 +258,16 @@ export function siteFromForm(form: SiteForm): SiteConfig {
   return {
     schema_version: form.schemaVersion,
     grid: {
-      peak_shaving: { enabled: false, peak_floor_w: 2500, capacity_price_per_kw_month: 0 },
-      export_dynamic: false,
-      zero_export: false,
-      para14a_limit_w: 4200,
-      para14a_signal_kind: 'binary',
-      ...form.gridKept,
+      peak_shaving: {
+        enabled: g.peakEnabled,
+        peak_floor_w: g.peakFloorW ?? 2500,
+        capacity_price_per_kw_month: g.peakPrice ?? 0,
+      },
+      export_dynamic: g.exportDynamic,
+      zero_export: g.zeroExport,
+      para14a_limit_w: g.para14aLimitW ?? 4200,
+      para14a_signal_kind: g.para14aSignalKind,
+      backup: backupFromForm(form),
       power: single ? toRef(g.power) : null,
       import_power: single ? null : toRef(g.importPower),
       export_power: single ? null : toRef(g.exportPower),

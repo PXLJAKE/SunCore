@@ -1669,3 +1669,52 @@ Adapter.
    darüber, wird Netzstrom bezogen. Gibt es in deinem Wechselrichter einen Fallback (z. B. eine
    Kommunikations-Timeout-Einstellung)? **Empfehlung:** bis dahin das Export-Limit
    (REST-Zahl) statt 533 verwenden.
+
+### 6-M (Frontend, WP13)
+
+- **Backend-Endpunkte (Commit `feat(api)`):** EV-Modus/-Ziel, Programm vormerken/abbrechen und
+  Netzstatus/-ereignisse gab es noch nicht. Die Routen schreiben nie ein Gerät: der EV-Zustand
+  geht in `flex_state` (die Steuerung liest ihn), ein Auftrag in das `ProgramJobBook`. Das
+  Abbrechen eines Steckdosen-Auftrags gibt die Steckdose über die Steuerung frei (EIN).
+  `ProgramJobError` liegt jetzt in `core/flex.py`, damit `api` nicht `app` importiert.
+- **Rolle `backup_state`:** neue Entitätsrolle in `ha/detect.py` (Schlüsselwörter backup,
+  ersatzstrom, island, ...), damit die Auswahl der Backup-Entität Kandidaten mit Live-Wert
+  zeigt.
+- **Schritt 5, Wechselrichter-Limit:** nur als deaktivierter Block mit Begründung. Es gibt
+  keinen Endpunkt für den Verifikationstest; ohne ihn bleibt `limit_verified` falsch und
+  SunCore schreibt nie ein Limit. Adapterwahl und Test folgen mit dem Backend dazu.
+- **Wärmepumpen-Karte:** SG-Zustand und Anhebung kommen aus dem Steuerungszustand. COP und
+  Modellgüte hat die API nicht live; die Karte zeigt die COP-Spanne der Kennlinie
+  („angenommen“ markiert) und den Fit-Fehler des gelernten Modells aus der Gerätekonfiguration,
+  keinen COP beim aktuellen Wetter.
+- **Gerätekonfiguration:** `newDeviceForm` verwarf `ev`, `program` und `thermal` der Vorlage.
+  Das Formular trägt sie jetzt mit. `behaviour_confirmed` ist eine Checkbox genau dort, wo
+  `needs_behaviour_confirmation` zutrifft (Spiegel der Backend-Regel, per Test fixiert).
+- **Bundle-Prüfung:** `scripts/bundle-size.mjs` zählt nur einen Sprachkatalog (den größten),
+  weil die App nur die aktive Sprache lädt; beide zusammen lägen bei 271,8 kB. Gemessen:
+  228,6 kB von 250 kB, Erstaufbau 123,5 kB von 125 kB (wenig Luft).
+- **Plan-Gantt:** Programmstart-Slots (`band.start`) als eigene Segmentart; EV-Zeilen nutzen die
+  vorhandenen Bänder (bevorzugt an/erlaubt). Eine eigene EV-Ladeleistung je Intervall zeigt der
+  Plan nicht.
+- **Verlauf:** Abschnitt „Netzereignisse und Monatsspitze“ (30 Tage, ohne CSV-Export).
+- **Abfrage statt Push:** EV-/Programmkarten lesen `/flex` alle 10 s, die Netz-Badges alle 15 s
+  (kein neuer WebSocket-Nachrichtentyp, die Steuerung bleibt der eine Live-Kanal).
+
+#### UNVERIFIED (6-M)
+
+- Die Bedienung ist nur gegen die Demo und die Simulator-Geräte geprüft, mit keiner echten
+  Wallbox, Wärmepumpe oder Waschmaschine.
+- Ob `mqtt.allow_mode_raise` und die Benachrichtigungsziele auf deiner HA-Instanz so ankommen
+  wie getestet (Companion-App-Dienstname `mobile_app_*`), ist ungeprüft.
+
+#### Offene Fragen an den Maintainer (6-M)
+
+1. **Wechselrichter-Verifikationstest:** Soll der Test als Backend-Endpunkt mit Schritt-für-
+   Schritt-Dialog im Panel kommen (Schritt 5), oder bleibt er ein geführter Ablauf mit dir?
+   **Empfehlung:** Endpunkt in einem eigenen PR nach der Abnahme von 6-G.
+2. **Abfrageintervall:** 10 s für EV-/Programmkarten reicht für Anzeige und Bedienung. Soll
+   stattdessen ein `flex`-Block im Live-Feed mitlaufen? **Empfehlung:** erst bei Bedarf.
+3. **COP live:** Soll die Wärmepumpen-Karte den COP beim aktuellen Außenwetter zeigen? Das
+   braucht ein Feld im Steuerungszustand. **Empfehlung:** ja, zusammen mit der Modellgüte.
+4. **Bundle:** Der Erstaufbau liegt bei 123,5 von 125 kB. Soll das Budget auf 130 kB steigen
+   oder sollen Wizard-Schritte weiter ausgelagert werden? **Empfehlung:** auslagern.

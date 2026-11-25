@@ -9,7 +9,15 @@ import { actualIndex, type ActualData, type Values } from './actual';
 export const BATTERY_IDLE_W = 50;
 
 export type SegKind =
-  'prefer_on' | 'allowed' | 'prefer_off' | 'charge' | 'discharge' | 'lock' | 'run' | 'partial';
+  | 'prefer_on'
+  | 'allowed'
+  | 'prefer_off'
+  | 'charge'
+  | 'discharge'
+  | 'lock'
+  | 'run'
+  | 'partial'
+  | 'start';
 
 /** Fixed order: the index is what the chart's colour tables use. */
 export const SEG_KINDS: readonly SegKind[] = [
@@ -21,6 +29,7 @@ export const SEG_KINDS: readonly SegKind[] = [
   'lock',
   'run',
   'partial',
+  'start',
 ];
 
 export interface GanttSeg {
@@ -62,8 +71,10 @@ function plannedDevice(intervals: readonly PlanInterval[], id: string): GanttSeg
   for (const i of intervals) {
     const band = i.devices?.[id];
     if (!band?.allowed) continue;
-    const kind: SegKind =
-      band.preference === 'prefer_on'
+    // A program's start slot (the planner picks it) beats the band preference.
+    const kind: SegKind = band.start
+      ? 'start'
+      : band.preference === 'prefer_on'
         ? 'prefer_on'
         : band.preference === 'prefer_off'
           ? 'prefer_off'

@@ -3,6 +3,7 @@
   import { onMount, untrack } from 'svelte';
   import { historyApi, type HistoryEndpoint } from '../api/history';
   import type { Granularity, HistoryCycles, HistorySummary } from '../api/types';
+  import GridEventsSection from '../components/GridEventsSection.svelte';
   import HistorySection from '../components/HistorySection.svelte';
   import {
     costOption,
@@ -734,6 +735,8 @@
           >{t('history.export.csv')}</a
         >
       </section>
+
+      <GridEventsSection />
     {/if}
   {/if}
 </section>

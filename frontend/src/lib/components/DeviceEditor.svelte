@@ -21,6 +21,8 @@
     SLOW_POWER_SENSOR,
     SWITCH_ON_MODES,
     THERMAL_KINDS,
+    needsBehaviourConfirmation,
+    programPeakW,
     validateDeviceForm,
     type DeviceForm,
     type DeviceFormError,
@@ -57,7 +59,7 @@
   }: Props = $props();
 
   const uid = $props.id();
-  const UNIT = { w: 'W', min: 'min', c: '°C', a: 'A', pct: '%', s: 's', h: 'h' } as const;
+  const UNIT = { w: 'W', wh: 'Wh', min: 'min', c: '°C', a: 'A', pct: '%', s: 's', h: 'h' } as const;
   const KIND_LABEL: Record<PowerModelKind, MessageKey> = {
     measured: 'device.power.measured',
     counter_derived: 'device.power.counter_derived',
@@ -101,6 +103,8 @@
   const options = $derived(powerModelOptions(template, form.entities));
   const current = $derived(options.find((o) => o.kind === form.powerKind));
   const thermal = $derived(THERMAL_KINDS.includes(form.kind));
+  const needsConfirm = $derived(needsBehaviourConfirmation(form));
+  const programPeak = $derived(form.program ? programPeakW(form.program) : null);
   const control = $derived(form.control);
   // Primary roles are mapped first; `same_device_as` roles only list entities of that device.
   const roles = $derived(
@@ -291,6 +295,47 @@
           issues={at('control', 'max')}
         />
       </div>
+    {:else if control.kind === 'loadpoint'}
+      <div class="cols">
+        <NumberField
+          label={t('device.loadpoint_id')}
+          bind:value={control.loadpoint_id}
+          min={1}
+          step={1}
+          hint={t('device.loadpoint_id_hint')}
+          issues={at('control', 'loadpoint_id')}
+        />
+        <div class="field">
+          <label for="{uid}-prefix">{t('device.loadpoint_prefix')}</label>
+          <input
+            id="{uid}-prefix"
+            class="input"
+            bind:value={control.topic_prefix}
+            autocomplete="off"
+            maxlength="64"
+            aria-describedby="{uid}-prefix-hint"
+          />
+          <p class="hint" id="{uid}-prefix-hint">{t('device.loadpoint_prefix_hint')}</p>
+          <FieldIssues issues={at('control', 'topic_prefix')} id="{uid}-prefix-err" />
+        </div>
+      </div>
+    {:else if control.kind === 'charger'}
+      <div class="cols">
+        <NumberField
+          label={t('device.charger_min')}
+          bind:value={control.min_current_a}
+          unit={UNIT.a}
+          min={0}
+          issues={at('control', 'min_current_a')}
+        />
+        <NumberField
+          label={t('device.charger_max')}
+          bind:value={control.max_current_a}
+          unit={UNIT.a}
+          min={0}
+          issues={at('control', 'max_current_a')}
+        />
+      </div>
     {:else if control.kind === 'setpoint'}
       <NumberField
         label={t('device.shift_max')}
@@ -321,6 +366,79 @@
       <FieldIssues issues={at('comfort')} id="{uid}-comfort-err" />
     {/if}
   </fieldset>
+
+  {#if form.program}
+    <fieldset class="card" data-testid="program-spec">
+      <legend>{t('device.program')}</legend>
+      <p class="hint">{t(`device.program.${form.program.start_method}`)}</p>
+      <div class="cols">
+        <NumberField
+          label={t('device.program_runtime')}
+          bind:value={form.program.runtime_min}
+          unit={UNIT.min}
+          min={1}
+          max={1440}
+          step={1}
+          hint={t('device.program_runtime_hint')}
+          issues={at('program', 'runtime_min')}
+        />
+        <NumberField
+          label={t('device.program_idle')}
+          bind:value={form.program.idle_w}
+          unit={UNIT.w}
+          min={0}
+          hint={t('device.program_idle_hint')}
+          issues={at('program', 'idle_w')}
+        />
+      </div>
+      <p class="hint" data-testid="program-peak">
+        {programPeak === null
+          ? t('device.program_peak_none')
+          : t('device.program_peak', { value: Math.round(programPeak) })}
+      </p>
+      {#if form.program.start_method === 'plug'}
+        <label class="check">
+          <input
+            type="checkbox"
+            bind:checked={form.program.resume_confirmed}
+            data-testid="resume-confirmed"
+          />
+          {t('device.program_resume')}
+        </label>
+        <p class="hint">{t('device.program_resume_hint')}</p>
+        <FieldIssues issues={at('program', 'resume_confirmed')} id="{uid}-resume-conf-err" />
+      {/if}
+    </fieldset>
+  {/if}
+
+  {#if form.ev}
+    <fieldset class="card" data-testid="ev-spec">
+      <legend>{t('device.ev')}</legend>
+      <NumberField
+        label={t('device.ev_capacity')}
+        bind:value={form.ev.capacity_wh}
+        unit={UNIT.wh}
+        min={0}
+        hint={t('device.ev_capacity_hint')}
+        issues={at('ev', 'capacity_wh')}
+      />
+    </fieldset>
+  {/if}
+
+  {#if needsConfirm}
+    <fieldset class="card" data-testid="behaviour-confirm">
+      <legend>{t('device.behaviour')}</legend>
+      <p class="hint">{t('device.behaviour_hint')}</p>
+      <label class="check">
+        <input
+          type="checkbox"
+          bind:checked={form.behaviourConfirmed}
+          data-testid="behaviour-confirmed"
+        />
+        {t('device.behaviour_confirm')}
+      </label>
+    </fieldset>
+  {/if}
 
   <fieldset class="card">
     <legend>{t('device.protection')}</legend>

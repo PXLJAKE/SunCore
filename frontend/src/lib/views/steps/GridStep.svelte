@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import { FormError } from '../../api/errors';
+  import FieldIssues from '../../components/FieldIssues.svelte';
   import NumberField from '../../components/NumberField.svelte';
   import RolePicker from '../../components/RolePicker.svelte';
   import SignCheck from '../../components/SignCheck.svelte';
@@ -8,12 +9,15 @@
   import { live } from '../../stores/live.svelte';
   import { t, tPower, type MessageKey } from '../../i18n/index.svelte';
   import { isUsable } from '../../flow';
+  import type { EntityCandidate } from '../../api/types';
+  import { candidateValueText } from '../../entityFormat';
   import { SaveState, wizard } from '../../stores/wizard.svelte';
   import { issuesAt } from '../../wizard/issues';
   import {
     validateSiteForm,
     type ExportLimitMode,
     type GridMode,
+    parseIslandStates,
     type SiteFormError,
   } from '../../wizard/siteForm';
 
@@ -30,6 +34,15 @@
   const gridLive = $derived(
     isUsable(live.flows?.grid_w) ? tPower(live.flows.grid_w.value) : t('grid.live_none'),
   );
+  let backupCandidate = $state.raw<EntityCandidate | null>(null);
+  const islandStates = $derived(parseIslandStates(g.backupStates));
+  const backupPreview = $derived.by(() => {
+    const c = backupCandidate;
+    if (!c) return null;
+    const state = candidateValueText(c);
+    const island = c.available && islandStates.includes(c.state);
+    return { state, island };
+  });
   const at = (...p: (string | number)[]) => issuesAt(save.issues, 'grid', ...p);
 
   async function onsave(): Promise<void> {
@@ -143,6 +156,50 @@
   </fieldset>
 
   <fieldset class="card">
+    <legend>{t('grid.peak')}</legend>
+    <label class="check">
+      <input type="checkbox" bind:checked={wizard.site.grid.peakEnabled} />
+      {t('grid.peak_enable')}
+    </label>
+    <p class="hint">{t('grid.peak_hint')}</p>
+    {#if g.peakEnabled}
+      <div class="cols">
+        <NumberField
+          label={t('grid.peak_floor')}
+          bind:value={wizard.site.grid.peakFloorW}
+          unit={UNIT.w}
+          min={0}
+          hint={t('grid.peak_floor_hint')}
+          issues={at('peak_shaving', 'peak_floor_w')}
+        />
+        <NumberField
+          label={t('grid.peak_price')}
+          bind:value={wizard.site.grid.peakPrice}
+          unit={t('grid.peak_price_unit')}
+          min={0}
+          hint={t('grid.peak_price_hint')}
+          issues={at('peak_shaving', 'capacity_price_per_kw_month')}
+        />
+      </div>
+    {/if}
+  </fieldset>
+
+  <fieldset class="card">
+    <legend>{t('grid.export_chain')}</legend>
+    <p class="hint">{t('grid.export_chain_hint')}</p>
+    <label class="check">
+      <input type="checkbox" bind:checked={wizard.site.grid.zeroExport} />
+      {t('grid.zero_export')}
+    </label>
+    <p class="hint">{t('grid.zero_export_hint')}</p>
+    <label class="check">
+      <input type="checkbox" bind:checked={wizard.site.grid.exportDynamic} />
+      {t('grid.export_dynamic')}
+    </label>
+    <p class="hint">{t('grid.export_dynamic_hint')}</p>
+  </fieldset>
+
+  <fieldset class="card">
     <legend>{t('grid.para14a')}</legend>
     <label class="check">
       <input type="checkbox" bind:checked={wizard.site.grid.para14a} />
@@ -158,6 +215,67 @@
         hint={t('grid.para14a_signal_hint')}
         issues={at('para14a_signal')}
       />
+      <div class="radios" role="radiogroup" aria-label={t('grid.para14a_kind')}>
+        {#each ['binary', 'power_w'] as const as kind (kind)}
+          <label class="radio">
+            <input
+              type="radio"
+              name="{uid}-kind"
+              value={kind}
+              checked={g.para14aSignalKind === kind}
+              onchange={() => (wizard.site.grid.para14aSignalKind = kind)}
+            />
+            {t(kind === 'binary' ? 'grid.para14a_kind.binary' : 'grid.para14a_kind.power_w')}
+          </label>
+        {/each}
+      </div>
+      <NumberField
+        label={t('grid.para14a_limit')}
+        bind:value={wizard.site.grid.para14aLimitW}
+        unit={UNIT.w}
+        min={0}
+        hint={t('grid.para14a_limit_hint')}
+        issues={at('para14a_limit_w')}
+      />
+    {/if}
+  </fieldset>
+
+  <fieldset class="card">
+    <legend>{t('grid.backup')}</legend>
+    <label class="check">
+      <input type="checkbox" bind:checked={wizard.site.grid.backupEnabled} />
+      {t('grid.backup_enable')}
+    </label>
+    <p class="hint">{t('grid.backup_hint')}</p>
+    {#if g.backupEnabled}
+      <RolePicker
+        label={t('grid.backup_entity')}
+        role="backup_state"
+        bind:field={wizard.site.grid.backup}
+        hint={t('grid.backup_entity_hint')}
+        issues={at('backup', 'entity_id')}
+        oncandidate={(c) => (backupCandidate = c)}
+      />
+      <div class="field">
+        <label class="label" for="{uid}-island">{t('grid.backup_states')}</label>
+        <input
+          id="{uid}-island"
+          class="input"
+          type="text"
+          bind:value={wizard.site.grid.backupStates}
+          aria-describedby="{uid}-island-hint {uid}-island-issues"
+        />
+        <p class="hint" id="{uid}-island-hint">{t('grid.backup_states_hint')}</p>
+        <FieldIssues issues={at('backup', 'island_states')} id="{uid}-island-issues" />
+      </div>
+      {#if backupPreview}
+        <p class="hint" role="status" data-testid="backup-preview">
+          {t('grid.backup_preview', {
+            state: backupPreview.state,
+            island: backupPreview.island ? 'yes' : 'no',
+          })}
+        </p>
+      {/if}
     {/if}
   </fieldset>
 

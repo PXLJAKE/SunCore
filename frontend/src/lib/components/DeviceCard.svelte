@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
-  import type { DeviceControlState, OperatingMode } from '../api/types';
+  import type { DeviceConfig, DeviceControlState, OperatingMode } from '../api/types';
+  import { startsOnRelease } from '../flex/present';
   import { holdDay, MODE_ORDER, qualityKey, stateView, virtualDraw } from '../control/present';
   import {
     t,
@@ -13,6 +14,7 @@
   } from '../i18n/index.svelte';
   import { control } from '../stores/control.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import FlexSection from './FlexSection.svelte';
   import OverrideForm from './OverrideForm.svelte';
   import ReasonList from './ReasonList.svelte';
 
@@ -22,8 +24,10 @@
     now?: Date;
     /** Unit of an adjustable load's value (W, A, %) from the device configuration. */
     unit?: string;
+    /** The stored device (EV, program and heat pump sections depend on it). */
+    config?: DeviceConfig;
   }
-  let { device, now, unit }: Props = $props();
+  let { device, now, unit, config }: Props = $props();
 
   const uid = $props.id();
   const MODE_LABEL: Record<OperatingMode, MessageKey> = {
@@ -78,6 +82,21 @@
     if (day === 'today') return t('card.held_today', { time: tTime(at) });
     if (day === 'tomorrow') return t('card.held_tomorrow', { time: tTime(at) });
     return t('card.held_later', { when: tDateTime(at) });
+  }
+
+  // --- "back to normal" of a program started through a plug ---------------------------------
+  // Releasing such a device switches the plug ON: the machine starts at once. Ask first.
+  const plugStart = $derived(startsOnRelease(config));
+  let resumeAsk = $state(false);
+
+  function requestResume(): void {
+    if (plugStart) resumeAsk = true;
+    else void control.override(device, { action: 'resume' });
+  }
+
+  async function confirmResume(): Promise<void> {
+    resumeAsk = false;
+    await control.override(device, { action: 'resume' });
   }
 
   // --- mode switch -----------------------------------------------------------------------
@@ -176,10 +195,11 @@
       class="btn small secondary resume"
       disabled={busy}
       data-testid="resume-now"
-      onclick={() => void control.override(device, { action: 'resume' })}
-      >{t('card.resume_now')}</button
+      onclick={requestResume}>{t('card.resume_now')}</button
     >
   {/if}
+
+  <FlexSection {device} {config} {now} />
 
   <div class="modes" role="group" aria-labelledby="{uid}-modes">
     <span id="{uid}-modes" class="label">{t('card.mode', { name: device.name })}</span>
@@ -231,9 +251,24 @@
 
   <details class="manual">
     <summary>{t('card.manual')}</summary>
-    <OverrideForm {device} />
+    <OverrideForm {device} onresume={requestResume} />
   </details>
 </article>
+
+<ConfirmDialog
+  open={resumeAsk}
+  title={t('card.resume_title', { name: device.name })}
+  confirmLabel={t('card.resume_confirm')}
+  danger
+  onconfirm={() => void confirmResume()}
+  oncancel={() => (resumeAsk = false)}
+  testid="resume-dialog-{device.device_id}"
+>
+  <p>{t('card.resume_text', { name: device.name })}</p>
+  <p class="notice warn" data-testid="resume-warning">
+    {t('program.plug_warning', { name: device.name })}
+  </p>
+</ConfirmDialog>
 
 <ConfirmDialog
   open={pending !== null}
