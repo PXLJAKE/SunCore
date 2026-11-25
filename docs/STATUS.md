@@ -42,17 +42,20 @@ Carried to Phase 7: see "Open - Phase 7".
   - Spike: MkDocs 1.6.1 + Material 9.8.2 + `mkdocs-static-i18n` 1.3.1 folder layout builds with
     `--strict`, shares assets and switches languages; no fallback needed. One rule found: no
     same-named Markdown file in the root of `docs/user` (plan section 8, 7-L).
-  - `mkdocs.yml` (`docs_dir: docs/user`, Material light/dark, search, Mermaid, mike version
-    provider), a `docs` dependency group (locked), screenshots moved to
+  - `mkdocs.yml` (`docs_dir: docs/user`, Material light/dark, search, Mermaid; `site_url` from
+    `SUNCORE_DOCS_URL`), a `docs` dependency group (locked), screenshots moved to
     `docs/user/assets/screenshots/`, links out of `docs/user` are absolute GitHub links.
   - Generators write per language: `docs/user/<lang>/reference/parameters.md` and
     `docs/user/<lang>/compatibility.md` (German now complete); stubs stay at
     `docs/reference/parameters*.md`; `docs/user/compatibility.md` is gone.
   - New pages en and de: index, concepts, FAQ, troubleshooting, translate, release notes and
     upgrade, security, and a dashboard recipe **placeholder** (WP11 is still to do).
-  - CI: `mkdocs build --strict` in `docs-lint.yml`; `docs-deploy` (mike) in `build.yml` on stable
-    releases. Never run yet; GitHub Pages must be enabled (plan question 23).
-  - `UNVERIFIED`: the deploy job, the site on `github.io`, a followed test of the how-tos.
+  - CI: `mkdocs build --strict` in `docs-lint.yml`; on stable releases `build.yml` attaches
+    `suncore-docs-<version>.zip` (`docs-zip`) and, only with the `DOCS_DEPLOY_*` secrets, syncs the
+    site to the maintainer's Plesk server by rsync over SSH (`docs-deploy`). No GitHub Pages, no
+    mike. Never run yet; setup steps in plan question 23.
+  - `UNVERIFIED`: both release jobs, the hosted site, Plesk menu names, a followed test of the
+    how-tos.
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable

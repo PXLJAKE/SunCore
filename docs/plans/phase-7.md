@@ -450,10 +450,10 @@ recorded in §8. Built only if the maintainer confirms question 12 (default yes)
   Release notes and upgrade ("export before updating", supported upgrade paths), Security
   (link to `SECURITY.md`), the Phase 5 guides from the tail. Existing guides keep their file
   names; links fixed by `--strict`.
-- CI: `docs-lint.yml` gains `mkdocs build --strict` on pull requests; a `docs-deploy` job in the
-  release workflow publishes with `mike` (`latest`, `x.y`) to `gh-pages`. GitHub Pages must be
-  enabled by the maintainer (question 17). The deployed site cannot be opened from the session
-  (`*.github.io` is blocked for builds and checks there): the maintainer checks it.
+- CI: `docs-lint.yml` gains `mkdocs build --strict` on pull requests; the release
+  workflow attaches the site as a ZIP and optionally syncs it to the maintainer's own server
+  (changed after the first 7-L commit: no `mike`, no GitHub Pages; question 23). The hosted site
+  cannot be opened from the session: the maintainer checks it.
 - Screenshots: the final set (all views, phone and desktop, light and dark, en and de; long pages
   desktop only) is generated in 7-P after the design pass; each PNG under 300 kB.
 
@@ -806,7 +806,8 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 
 - Merged `origin/phase-5/l-docs` (an ancestor check confirmed it contains 5-E, 5-I, 5-J and 5-K).
   Conflicts were unions: `docs/STATUS.md` (Phase 5 entries 5-L, 5-K, 5-J inserted before 5-F; the
-  maintainer questions of #38-#50 kept as their own section), the two app `DOCS.md`, `scripts/check.sh`
+  maintainer questions of #38-#50 kept as their own section), the two app `DOCS.md`,
+  `scripts/check.sh`
   and CI (both generator checks), `check_reasons.py`, the config section tables
   (`core/config.py`, `storage/config_store.py`, `sim/demo_config.py`: `expert` next to `mqtt`,
   `notifications`, `inverter`), `app/runtime.py` (expert overrides, backtest jobs, flex state and
@@ -840,11 +841,12 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 ### 7-L
 
 - **Spike result (`mkdocs build --strict`, MkDocs 1.6.1, Material 9.8.2, `mkdocs-static-i18n` 1.3.1,
-  `mike` 2.2.0, Python 3.13):** the folder layout (`en/` default, `de/`) works. Shared assets in
+  Python 3.13):** the folder layout (`en/` default, `de/`) works. Shared assets in
   `docs/user/assets/` are found from both languages (relative `../assets/...`; the German pages
   resolve to `/assets/...` at the site root), the language switcher is generated, German falls back
-  to English for missing pages, and `mike deploy` with `latest` and `x.y` aliases works with the
-  plugin in a throw-away repository. The ADR-0020 fallback (suffix structure) is **not** needed.
+  to English for missing pages, and `mike deploy` with `latest` and `x.y` aliases worked with the
+  plugin in a throw-away repository (mike was dropped later, see below). The ADR-0020 fallback
+  (suffix structure) is **not** needed.
 - **One layout rule found:** the plugin refuses a Markdown file in the root of `docs/user` that has
   the same name as a page in a language folder ("Conflicting files for the default language"), even
   when `exclude_docs` hides it. Consequence: the redirect stub `docs/user/compatibility.md` could
@@ -865,9 +867,16 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   quick starts was corrected to the 6-O state.
 - CI: `docs-lint.yml` gets a `site` job (`mkdocs build --strict`, `uv sync --only-group docs
   --frozen`) and more path triggers. The release trigger lives in `build.yml`, so the `docs-deploy`
-  job is there (`release: published`, not for pre-releases; `mike deploy --push --update-aliases
-  x.y latest`, then `mike set-default latest`). The job has never run: `UNVERIFIED` until the first
-  stable release; the deployed site cannot be opened from the session. Question 23 (§10).
+  jobs are there (`release: published`, not for pre-releases): `docs-zip` attaches
+  `suncore-docs-<version>.zip` to the release, the optional `docs-deploy` syncs it by rsync over SSH
+  to the maintainer's Plesk server when the `DOCS_DEPLOY_*` secrets exist. The maintainer chose
+  self-hosting over GitHub Pages after the first commit of 7-L, so `mike` and `gh-pages` are gone
+  (version switching is not needed); `site_url` comes from `SUNCORE_DOCS_URL` (subpath
+  `/docs/suncore/` verified: relative asset links, canonical and
+  language switcher resolve under the subpath; `DOCS_DEPLOY_PATH` is the full target directory).
+  Actions are pinned
+  by SHA like on `phase-7/o-security`. Neither job has run: `UNVERIFIED` until the first stable
+  release; `actionlint` is clean. Question 23 (§10).
 - Screenshots moved with `git mv` to `docs/user/assets/screenshots/`; the spec, the skill, README
   and CONTRIBUTING use the new path. The final screenshot set stays with 7-P.
 - Not done: a followed test of the how-tos on a real Home Assistant (docs only), the dashboard
@@ -943,9 +952,9 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
     0.2.0 → 1.0 ist Pflicht. `stage: experimental` entfällt mit 1.0.
 16. **Live-Feed für E-Auto/Programme.** **Empfehlung:** beim Abfragen alle 10 s bleiben, außer das
     neue Jetzt-Layout wirkt dadurch träge.
-17. **GitHub-Einstellungen.** Bitte GitHub Pages (Branch `gh-pages`) und Discussions aktivieren;
-    `main` muss für den Beta-Bump und den Weblate-Abgleich weiter erreichbar bleiben.
-    **Empfehlung:** so einrichten.
+17. **GitHub-Einstellungen.** Bitte GitHub Discussions aktivieren (die Doku-Seite
+    läuft auf deinem Server, siehe Frage 23); `main` muss für den Beta-Bump und den
+    Weblate-Abgleich weiter erreichbar bleiben. **Empfehlung:** so einrichten.
 18. **Screenshots im Repository.** **Empfehlung:** nur der finale Doku-Satz wird eingecheckt;
     Vorher/Nachher-Bilder hängen als Anhang an den PRs, damit das Repository klein bleibt.
 19. **MQTT-Passwort im Klartext in `suncore.db`.** Es landet in HA-Backups. **Empfehlung:** so
@@ -962,13 +971,43 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 22. **Doku-Sprachen per Pull Request.** Die deutsche Nutzer-Doku wird für 1.0 weiter von uns per
     PR gepflegt, nicht in Weblate. **Empfehlung:** so lassen; Weblate für die Doku nach 1.0 prüfen,
     wenn Übersetzer für weitere Sprachen kommen.
-23. **GitHub Pages einschalten (Schritt von Hand).** Der Job `docs-deploy` in `build.yml` läuft nur
-    bei einem veröffentlichten, nicht als Vorabversion markierten Release und legt dabei den Zweig
-    `gh-pages` an (`mike deploy`). Danach bitte unter *Settings → Pages* als Quelle den Zweig
-    `gh-pages` (Ordner `/ (root)`) wählen; die genaue Menüführung bei GitHub ist `UNVERIFIED`. Die
-    Adresse `https://pxljake.github.io/SunCore/` steht in `mkdocs.yml` (`site_url`) und in
-    `pyproject.toml`; bitte prüfen, ob sie stimmt (Groß-/Kleinschreibung des Repository-Namens).
-    Ob der Job beim ersten Release klappt, wurde nicht getestet; bitte die Seite danach öffnen
-    (aus der Sitzung ist `*.github.io` gesperrt). **Empfehlung:** so einrichten. Außerdem: Der alte
-    Pfad `docs/user/compatibility.md` ist ohne Weiterleitung entfallen (siehe §8, 7-L); wenn du
-    externe Links darauf kennst, melde es.
+23. **Doku-Seite auf deinem Plesk-Server (statt GitHub Pages).** Bei einem veröffentlichten, nicht
+    als Vorabversion markierten Release baut die CI die Seite und hängt sie als
+    `suncore-docs-<Version>.zip` an das Release; das geht ohne Einrichtung. Das automatische
+    Hochladen auf deinen Server ist optional und bleibt aus, solange die Secrets fehlen.
+    Einrichtung (alle Menünamen von Plesk sind `UNVERIFIED`, sie hängen von deiner Version ab):
+    1. **Zielordner:** Auf derselben Domain liegt dein Portfolio, die SunCore-Doku liegt unter dem
+       Unterpfad `/docs/suncore/`. Lege im Dokumentenstamm der Domain den Ordner `docs/suncore/`
+       an (Plesk-Dateimanager). Den Dokumentenstamm findest du unter *Websites & Domains →
+       Hosting-Einstellungen* (typisch `/var/www/vhosts/<domain>/httpdocs`; bei einer Shell mit
+       chroot sieht der Benutzer einen anderen Pfad, dann den Pfad nehmen, den `pwd` nach dem
+       SSH-Login zeigt). `DOCS_DEPLOY_PATH` ist das **vollständige Zielverzeichnis**, also
+       `<Dokumentenstamm>/docs/suncore/`. Nur dieses Verzeichnis wird mit `--delete` bereinigt;
+       der Job lehnt einen leeren Pfad, `/`, Pfade mit `..` und zu flache Pfade ab. Dein
+       Portfolio im Dokumentenstamm bleibt unberührt, solange der Pfad stimmt.
+    2. **SSH für den Abonnement-Benutzer erlauben:** *Websites & Domains → (Domain) →
+       Webhosting-Zugriff*, Zugriff auf die Server-Shell erlauben. `rsync` muss auf dem Server
+       installiert sein (`which rsync` nach dem Login prüfen).
+    3. **Schlüssel erzeugen** (auf deinem Rechner, ohne Passphrase, nur für diesen Zweck):
+       `ssh-keygen -t ed25519 -N "" -C suncore-docs-deploy -f docs_deploy`. Den Inhalt von
+       `docs_deploy.pub` in `~/.ssh/authorized_keys` des Abonnement-Benutzers eintragen (per SSH
+       oder über die Plesk-Erweiterung für SSH-Schlüssel, falls vorhanden).
+    4. **Host-Schlüssel holen und prüfen:** `ssh-keyscan -t ed25519 <host>` ausführen und den
+       Fingerabdruck mit dem Server vergleichen (`ssh-keygen -lf` auf dem Server auf
+       `/etc/ssh/ssh_host_ed25519_key.pub`). Die Ausgabezeile ist `DOCS_DEPLOY_KNOWN_HOSTS`.
+    5. **Repository-Secrets** (*Settings → Secrets and variables → Actions*): `DOCS_DEPLOY_HOST`
+       (Servername), `DOCS_DEPLOY_USER` (Abonnement-Benutzer), `DOCS_DEPLOY_KEY` (Inhalt der
+       privaten Datei `docs_deploy`), `DOCS_DEPLOY_PATH` (Zielverzeichnis aus Schritt 1),
+       `DOCS_DEPLOY_KNOWN_HOSTS` (Zeile aus Schritt 4). Optional
+       `DOCS_DEPLOY_URL` (Adresse der Seite, für Sitemap und kanonische Links, zum Beispiel
+       `https://<domain>/docs/suncore/`; wird als `SUNCORE_DOCS_URL` gesetzt). Fehlt eines der vier
+       ersten, wird der Upload übersprungen;
+       fehlt nur `DOCS_DEPLOY_KNOWN_HOSTS`, bricht der Job ab (die Host-Prüfung wird nie
+       abgeschaltet).
+    6. Der Server liefert die statischen Dateien unter `/docs/suncore/` aus (TLS der Domain
+       gilt schon). Das Portfolio darf diesen Pfad nicht mit eigenem Routing überschreiben. Der Job
+       lief noch nie; bitte nach dem
+       ersten stabilen Release prüfen. Von Hand geht es auch: ZIP vom Release laden und in den
+       Dokumentenstamm entpacken.
+    **Empfehlung:** so einrichten. Außerdem: Der alte Pfad `docs/user/compatibility.md` ist ohne
+    Weiterleitung entfallen (siehe §8, 7-L); wenn du externe Links darauf kennst, melde es.

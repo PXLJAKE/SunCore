@@ -68,7 +68,7 @@ jobs:
       app: ${{ steps.meta.outputs.app }}
       beta_version: ${{ steps.meta.outputs.beta_version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - name: Select channel
@@ -147,7 +147,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - name: Build image
@@ -217,7 +217,7 @@ jobs:
     steps:
       # Only after the image and manifest exist: HA must never be offered a
       # version whose tag cannot be pulled.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: main
           # RELEASE_PLEASE_TOKEN (PAT) may bypass branch protection; GITHUB_TOKEN
@@ -252,33 +252,97 @@ jobs:
           echo "::error::could not push the beta version bump (branch protection? see ADR-0009 addendum)"
           exit 1
 
-  docs-deploy:
-    name: Publish the documentation (mike)
-    # Stable releases only; the version number x.y and the alias `latest` go to gh-pages
-    # (ADR-0020). GitHub Pages must be enabled for the gh-pages branch by the maintainer.
+  docs-zip:
+    name: Build the documentation and attach it to the release
+    # Stable releases only (ADR-0020 addendum). The site is a ZIP on the release; the maintainer
+    # may host it anywhere. Least privilege: only this job can write to the release.
     if: github.event_name == 'release' && !github.event.release.prerelease
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
       NO_MKDOCS_2_WARNING: "1"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           version: "0.11.32"
           enable-cache: true
           python-version: "3.13"
       - name: Install the docs toolchain
         run: uv sync --only-group docs --frozen
-      - name: Deploy x.y and latest
+      - name: Build the site
+        run: uv run --only-group docs --frozen mkdocs build --strict
+      - name: Zip and attach to the release
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           version="${RELEASE_TAG#v}"
-          minor="$(echo "${version}" | cut -d. -f1,2)"
-          uv run --only-group docs --frozen mike deploy --push --update-aliases "${minor}" latest
-          uv run --only-group docs --frozen mike set-default --push latest
+          zip_name="suncore-docs-${version}.zip"
+          (cd site && zip -qr "../${zip_name}" .)
+          gh release upload "${RELEASE_TAG}" "${zip_name}" --clobber --repo "${GITHUB_REPOSITORY}"
+
+  docs-deploy:
+    name: Sync the documentation to the web server (optional)
+    # Runs only when the four repository secrets exist; otherwise the steps are skipped.
+    # The target path is the deploy root: --delete acts inside it only.
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    needs: docs-zip
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DEPLOY_HOST: ${{ secrets.DOCS_DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DOCS_DEPLOY_USER }}
+      DEPLOY_KEY: ${{ secrets.DOCS_DEPLOY_KEY }}
+      DEPLOY_PATH: ${{ secrets.DOCS_DEPLOY_PATH }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DOCS_DEPLOY_KNOWN_HOSTS }}
+      SUNCORE_DOCS_URL: ${{ secrets.DOCS_DEPLOY_URL }}
+      NO_MKDOCS_2_WARNING: "1"
+    steps:
+      - name: Check the configuration
+        id: cfg
+        run: |
+          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ] \
+            || [ -z "${DEPLOY_PATH}" ]; then
+            echo "::notice::DOCS_DEPLOY_* secrets are not set, skipping the deploy"
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if [ -z "${DEPLOY_KNOWN_HOSTS}" ]; then
+            echo "::error::DOCS_DEPLOY_KNOWN_HOSTS is missing; host key checking is never disabled"
+            exit 1
+          fi
+          case "${DEPLOY_PATH}" in
+            /|""|*..*) echo "::error::DOCS_DEPLOY_PATH must be an absolute path below /"; exit 1 ;;
+            /*/*) ;;
+            *) echo "::error::DOCS_DEPLOY_PATH is too shallow for --delete"; exit 1 ;;
+          esac
+          echo "enabled=true" >> "${GITHUB_OUTPUT}"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        if: steps.cfg.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        if: steps.cfg.outputs.enabled == 'true'
+        with:
+          version: "0.11.32"
+          enable-cache: true
+          python-version: "3.13"
+      - name: Build the site
+        if: steps.cfg.outputs.enabled == 'true'
+        run: |
+          uv sync --only-group docs --frozen
+          uv run --only-group docs --frozen mkdocs build --strict
+      - name: Sync over SSH
+        if: steps.cfg.outputs.enabled == 'true'
+        run: |
+          install -d -m 700 "${HOME}/.ssh"
+          printf '%s\n' "${DEPLOY_KEY}" > "${HOME}/.ssh/docs_deploy"
+          chmod 600 "${HOME}/.ssh/docs_deploy"
+          printf '%s\n' "${DEPLOY_KNOWN_HOSTS}" > "${HOME}/.ssh/known_hosts"
+          rsync -rlt --delete \
+            -e "ssh -i ${HOME}/.ssh/docs_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${HOME}/.ssh/known_hosts" \
+            site/ "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH%/}/"

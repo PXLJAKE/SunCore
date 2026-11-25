@@ -1,7 +1,8 @@
 # MkDocs site of the user documentation (ADR-0020). Build: uv run --group docs mkdocs build --strict
 site_name: SunCore
 site_description: Energy management for Home Assistant - forecasts, planner and real-time surplus control
-site_url: https://pxljake.github.io/SunCore/
+# Set SUNCORE_DOCS_URL to the public address, e.g. https://<domain>/docs/suncore/ (subpath ok).
+site_url: !ENV [SUNCORE_DOCS_URL, ""]
 repo_url: https://github.com/pxljake/suncore
 repo_name: pxljake/suncore
 edit_uri: ""
@@ -40,10 +41,6 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
-
-extra:
-  version:
-    provider: mike
 
 plugins:
   - search
