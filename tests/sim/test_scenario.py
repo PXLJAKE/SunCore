@@ -33,6 +33,8 @@ BUNDLED = [
     "inverter_hang",
     "inverter_hang_battery",
     "inverter_limit_heartbeat_lost",
+    "inverter_verify_modbus",
+    "inverter_verify_rest",
     "kostal_rest_reserve",
     "manual_override",
     "modbus_heartbeat_lost",

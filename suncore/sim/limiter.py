@@ -58,6 +58,13 @@ class ExportLimiterParams(BaseModel):
     rest_refresh_s: float = Field(default=2.0, ge=0, le=120)
     write_fails: bool = False
     resets_at_s: tuple[int, ...] = ()
+    # PR 7-J: what the written value really does (the verification test must find out).
+    acts_as: LimiterCapability | None = None
+    """The physics of SunCore's value: ``None`` = as the capability says; ``ac_limit`` for an
+    ``export_limit`` adapter = the W value caps the AC output (the semantics the test must catch);
+    ``export_limit`` for an ``ac_limit`` adapter = the percent caps the export."""
+    inert: bool = False
+    """The entity shows the written value but the inverter ignores it (export does not follow)."""
     """Inverter restarts (offsets from the start): the volatile register 533 is back at 100 %."""
 
 
@@ -113,15 +120,24 @@ class SimExportLimiter:
         """The PV power after the inverter's limits (never above ``pv_w``)."""
         self._reset_due(now)
         out = pv_w
-        if self.capability == "ac_limit":
-            ac_cap = self.ac_pct / 100.0 * self.params.nominal_ac_w
-            if ac_cap + battery_w < out:
-                # A real inverter regulates around its limit; a perfectly constant PV reading
-                # would (rightly) trip the watchdog's frozen-PV check after frozen_pv_s.
-                out = max(0.0, ac_cap + battery_w - _jitter_w(now, self.start))
-        caps = [c for c in (self.params.hardware_export_limit_w,) if c is not None]
-        if self.capability == "export_limit":
-            caps.append(self.export_limit_w)
+        physical = self.params.acts_as or self.capability
+        ac_cap: float | None = None
+        export_cap: float | None = None
+        if not self.params.inert:
+            value_w = (
+                self.ac_pct / 100.0 * self.params.nominal_ac_w
+                if self.capability == "ac_limit"
+                else self.export_limit_w
+            )
+            if physical == "ac_limit":
+                ac_cap = value_w
+            else:
+                export_cap = value_w
+        if ac_cap is not None and ac_cap + battery_w < out:
+            # A real inverter regulates around its limit; a perfectly constant PV reading
+            # would (rightly) trip the watchdog's frozen-PV check after frozen_pv_s.
+            out = max(0.0, ac_cap + battery_w - _jitter_w(now, self.start))
+        caps = [c for c in (self.params.hardware_export_limit_w, export_cap) if c is not None]
         if caps:
             export = out - load_w - battery_w
             cap = min(caps)

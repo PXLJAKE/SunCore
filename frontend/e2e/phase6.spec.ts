@@ -134,12 +134,12 @@ test.describe('Phase 6 wizard', () => {
       });
   });
 
-  test('step 5 shows the inverter limit disabled with a reason', async ({ page, request }) => {
+  test('step 5 shows the inverter limit disabled without an adapter', async ({ page, request }) => {
     await resetDemo(request, { wizardDone: false });
     await openStep(page, 'battery');
     const block = page.getByTestId('inverter-limit');
     await expect(block).toBeVisible();
-    await expect(page.getByTestId('inverter-why')).toContainText('Not available yet');
+    await expect(page.getByTestId('inverter-why')).toContainText('No inverter limit adapter');
     await expect(block.getByRole('button', { name: 'Run the verification test' })).toBeDisabled();
   });
 });

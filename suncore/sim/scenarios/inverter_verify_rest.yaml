@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+name: inverter_verify_rest
+description: The inverter limit verification test (PR 7-J) on a clear summer midday with the Kostal REST adapter ("Active Power Limitation", W, not yet verified, assisted). About 6 kW go to the grid, the house draws about 500 W and the full battery takes nothing. The test proposes 5 kW, the export follows to the limit (export semantics), the user's 13.5 kW come back and the export recovers. The test variants change what the written value really does, make the write fail or the export ignore it, switch on a 4 kW load mid-step, drop the connection, stop everything, crash and restart, or let the window expire.
+start: "2026-06-21T12:00:00+02:00"
+duration_s: 900
+step_s: 10
+house:
+  seed: 17
+  pv: {kwp: 8.0}
+  load:
+    noise_fraction: 0.02
+    hourly_w: [300, 300, 300, 300, 300, 300, 400, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 600, 700, 700, 600, 500, 400, 300]
+  battery: {capacity_wh: 10000, max_charge_w: 2500, max_discharge_w: 3000, initial_soc_pct: 100}
+  export_limiter:
+    adapter: kostal_rest
+    hardware_export_limit_w: 13500
+    initial_export_limit_w: 13500
+    rest_refresh_s: 5
+outdoor: {mean_c: 26.0, amplitude_c: 5.0}
+grid:
+  export_limit_w: 13500
+inverter:
+  mode: assisted
+  verified: false

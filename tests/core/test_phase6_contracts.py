@@ -814,7 +814,13 @@ def test_inverter_defaults_and_rules() -> None:
     assert not InverterConfig().mode_capped
     modbus = InverterConfig(adapter="kostal_modbus", capability="ac_limit", nominal_ac_w=10_000)
     assert modbus.mode_capped  # X6 until the verification test
-    assert not modbus.model_copy(update={"limit_verified": True}).mode_capped
+    # PR 7-J: verified only together with the identity the passed test ran against.
+    assert modbus.model_copy(update={"limit_verified": True}).mode_capped
+    token = modbus.identity_token()
+    assert not modbus.model_copy(
+        update={"limit_verified": True, "verified_identity": token}
+    ).mode_capped
+    assert modbus.model_copy(update={"limit_verified": True, "verified_identity": "x"}).mode_capped
     cases: list[tuple[dict[str, Any], str]] = [
         ({"limit_verified": True}, "inverter_none_extra"),
         ({"adapter": "kostal_rest"}, "inverter_needs_capability"),

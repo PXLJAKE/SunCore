@@ -1073,6 +1073,64 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   devices and summary. Before: `docs/assets/screenshots/before-7g/` (7-F tip with only this spec
   change; the sub-pages did not exist), after: `docs/assets/screenshots/after-7g/`.
 
+### 7-J
+
+- Based on `phase-7/g-settings`. Built as the ADR-0018 addendum says, with these deviations:
+- **Four endpoints, not three:** `GET` and `POST /api/v1/inverter/verification` (view, start),
+  `POST .../confirm` (the one write) and `POST .../abort`. None takes a body: the server alone
+  computes the test limit, so the panel cannot choose a value. A refusal is 409
+  `api.error.verification_refused` with reason keys.
+- **The user confirms the write, not the release.** The addendum says "the user confirms each
+  write"; the procedure writes once (the test limit, confirmed in the dialog within 2 min) and
+  releases on its own (`gate.release_device` with `Origin.USER`). Asking to confirm the way
+  back would keep a test limit in place while the user is away; the release only moves towards
+  the user's own value. H9 step 1 ("confirm each step") reads accordingly.
+- **Who fills the window field:** `GateInputs.verification_window` exists as the addendum
+  says, but the gate overwrites it with the window it holds in memory (`open_verification_window`
+  / `close_verification_window`); a value from the inputs provider is ignored. So no provider,
+  test fixture or future code path can grant the waiver by putting a window into the inputs. The
+  procedure calls the gate's window methods directly (it is in `app/`, next to the stack), not
+  through `api/services.py`; the services layer only starts, confirms and aborts.
+- **The waiver is narrower than the addendum:** besides an active window, `Origin.USER`, the
+  inverter asset and `≥ lowest`, the intent id must be `verify:<window id>:...`, so a manual
+  USER limit from elsewhere during the window is still judged by X3. The window opens only
+  while the inverter is effectively assisted, without an emergency stop and with an actuator,
+  and at most one at a time.
+- **Expiry releases.** When the window closes or expires while a limit written under it is
+  held, the gate's `poll` releases that limit (`safety.verification_window_closed`); the
+  procedure's own deadline (settle + 60 s) is shorter, the window (≤ 600 s) is the backstop.
+  The window is also cleared on connection loss, shutdown and handover (the addendum names
+  pass, fail, abort, emergency stop, restart and expiry).
+- **A fail with evidence resets the flag.** The addendum says "a fail stores a reason key;
+  nothing else changes". Here a semantics mismatch, an export that does not follow, a read-back
+  mismatch or a baseline that is not restored set `limit_verified = false` (an earlier pass is
+  no longer trusted); interruptions (load rise, disconnect, emergency stop, abort, timeouts)
+  leave it as it was. Aborts and runs that never wrote are not stored.
+- **No author column:** the config history has no author field, so the pass is a normal
+  `inverter` section version written by `ConfigStore.record_inverter_verification`. A `PUT
+  /config/inverter` cannot raise `limit_verified` (`_guard_verification` keeps the stored
+  value), an import resets it, and the effective `InverterConfig.verified` also needs
+  `verified_identity` to equal the adapter's current identity token.
+- **Fail records:** stored in `inverter.last_verification` (outcome, reason key, semantics,
+  identity, time), shown in the card.
+- **View model in `core/verification_view.py`** (pydantic, for the API and the OpenAPI types);
+  `core/verification.py` imports only `core.decisions` and `core.inverter`, so `safety/` does
+  not reach `core.config` through it.
+- **Classification:** export semantics when the export settles at the limit; AC semantics when
+  it settles at limit − house (DC-coupled battery) or limit − house − battery charging
+  (AC-coupled); tolerance `max(150 W, 5 %)`, held 20 s; both near (small house load) =
+  `verify.semantics_unclear` (failed without evidence, flag unchanged). `UNVERIFIED` on
+  hardware (STATUS).
+- **While the test runs** the export chain proposes nothing for the inverter
+  (`verify.running`), so the controller cannot write over the test limit.
+- **Panel:** no Grid page exists in Settings, so the card sits in setup step 5 (where the
+  disabled Phase 6 block was) and under Settings, Your system. Without an adapter the card says
+  so and the button is disabled. Closing the dialog or pressing Escape while the test runs
+  aborts it.
+- **Simulator:** the limiter got physical semantics (an export limit caps export, an AC limit
+  caps the AC output, so export = AC − house − AC-coupled charging) and an `inert` mode; the
+  house model got timed load events. Two bundled scenarios, 14 scenario tests.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

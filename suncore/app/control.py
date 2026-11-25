@@ -44,6 +44,8 @@ import structlog
 
 from suncore.app.grid import GridMonitor
 from suncore.app.programs import ProgramJobBook
+from suncore.app.verification import REASON_RUNNING as REASON_VERIFY_RUNNING
+from suncore.app.verification import InverterVerification
 from suncore.controller import (
     CallableQuantiser,
     Controller,
@@ -375,6 +377,9 @@ class ControlStack:
         self.inverter_driver: InverterDriver | None = self._make_inverter(connection, inverter)
         self.inverter_limit: InverterLimitAction | None = None
         """What the inverter adapter's entity showed at the latest tick."""
+        self.verification: InverterVerification | None = None
+        """The inverter limit verification running on this stack (PR 7-J; set by the runtime):
+        ticked after every controller tick, the export chain pauses while it is active."""
         actuators: dict[str, StatefulActuator | BatteryDriver | InverterDriver] = dict(self.drivers)
         gate_inverter: InverterGateConfig | None = None
         if inverter is not None and self.inverter_driver is not None:
@@ -382,7 +387,7 @@ class ControlStack:
             gate_inverter = InverterGateConfig(
                 identity=inverter.identity,
                 capability=self.inverter_driver.capability,
-                verified=inverter.config.limit_verified,
+                verified=inverter.config.verified,
                 nominal_ac_w=inverter.config.nominal_ac_w,
                 static_limit_w=self._static_export_limit_w(),
                 pv_kwp=self._site.total_kwp if self._site is not None else None,
@@ -475,6 +480,10 @@ class ControlStack:
         """The observed device states of the latest tick."""
 
     # --- wiring helpers ----------------------------------------------------------------------
+
+    def now(self) -> datetime:
+        """The injected clock's now."""
+        return self._clock()
 
     def _make_driver(self, device: DeviceConfig, write: WriterFn) -> DeviceActuator:
         return cast(
@@ -769,6 +778,8 @@ class ControlStack:
     async def shutdown(self) -> None:
         """Graceful stop: stop ticking, release every device (baseline restored), save models."""
         self.stopped = True
+        if self.verification is not None:
+            self.verification.stopped(Reason(key="verify.stopped"))
         await self._stop_tasks()
         await self.loop.close()
         await self.gate.shutdown()
@@ -784,6 +795,8 @@ class ControlStack:
         (``gate.handover``): a harmless edit must not short-cycle a compressor.
         """
         self.stopped = True
+        if self.verification is not None:
+            self.verification.stopped(Reason(key="verify.stopped"))
         await self._stop_tasks()
         await self.loop.close()
         await self.gate.handover(keep)
@@ -878,6 +891,8 @@ class ControlStack:
 
     async def _disconnected(self) -> None:
         await self.gate.connection_lost()
+        if self.verification is not None:
+            self.verification.connection_lost()
         self._notify()
 
     # --- entity feed -------------------------------------------------------------------------
@@ -1023,6 +1038,12 @@ class ControlStack:
         self.states = states
         self._record_measurements(now, flows, estimates, states)
         self.last = await self.loop.tick(now, inputs)
+        if self.verification is not None:
+            try:
+                await self.verification.tick(now)
+            except Exception:
+                log.exception("control.verification_tick_failed")
+                await self.verification.abort(Reason(key="verify.internal_error"))
         self._program_outcome(self.last)
         self._observe_grid(now, flows, grid)
         self._maybe_save_models(now)
@@ -1084,7 +1105,7 @@ class ControlStack:
             return resolve_grid_inputs(
                 config,
                 export_price=None if inverter is None else inverter.export_price(now),
-                export_adapter_verified=inverter is not None and inverter.config.limit_verified,
+                export_adapter_verified=inverter is not None and inverter.config.verified,
                 month_peak_w=self.grid_monitor.month_peak_w(now),
                 para14a_state=self._state_text(
                     None if config.para14a_signal is None else config.para14a_signal.entity_id
@@ -1122,10 +1143,12 @@ class ControlStack:
             return REASON_OVERRIDE_HELD
         return None
 
-    def _inverter_blocked(self, now: datetime) -> Reason | None:
+    def _inverter_blocked(self, now: datetime) -> Reason | None:  # noqa: PLR0911
         runtime = self.gate.runtime_of(INVERTER_ASSET_ID)
         if self.gate.emergency_stopped:
             return REASON_EMERGENCY_STOP
+        if self.verification is not None and self.verification.active:
+            return REASON_VERIFY_RUNNING
         if (pause := self.watchdog.pause_reason(INVERTER_ASSET_ID, now)) is not None:
             return pause
         if self.gate.is_orphaned(INVERTER_ASSET_ID):
@@ -1151,7 +1174,7 @@ class ControlStack:
             nominal_ac_w=wiring.config.nominal_ac_w,
             static_limit_w=self._static_export_limit_w(),
             enforce_static=wiring.config.enforce_static,
-            verified=wiring.config.limit_verified,
+            verified=wiring.config.verified,
             held=held if isinstance(held, InverterLimitAction) else None,
             under_control=under,
             blocked=self._inverter_blocked(now),
@@ -1278,7 +1301,7 @@ class ControlStack:
             adapter=wiring.config.adapter,
             adapter_template_id=wiring.spec.template_id,
             capability=driver.capability,
-            verified=wiring.config.limit_verified,
+            verified=wiring.config.verified,
             global_mode=modes.global_mode,
             inverter_mode=self._modes.inverter_mode(),
             effective_mode=modes.effective,

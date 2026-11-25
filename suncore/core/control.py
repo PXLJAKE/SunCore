@@ -30,6 +30,7 @@ from suncore.core.devices import RESUME_TIME_DEFAULT, DeviceConfig, SetpointCont
 from suncore.core.grid import GridState, Para14aStatus
 from suncore.core.signals import Quality
 from suncore.core.validation import invalid
+from suncore.core.verification import VerificationWindow
 
 
 class _Frozen(BaseModel):
@@ -151,6 +152,11 @@ class GateInputs:
     """What the controlled devices and the battery could still absorb this tick (W): devices
     still rising and SunCore's own battery charge cap. ``None`` = unknown; the gate then never
     lets an inverter limit go below the current export (X3)."""
+    # PR 7-J (additive): the inverter limit verification (ADR-0018 addendum, plan WP8).
+    verification_window: VerificationWindow | None = None
+    """The open verification window, the only waiver of X3 (``Origin.USER`` intents of that
+    window, not below its ``lowest``). The gate fills it from its own register and ignores what
+    an inputs provider passes, so only ``SafetyGate.open_verification_window`` can open one."""
 
 
 # --- settings -----------------------------------------------------------------

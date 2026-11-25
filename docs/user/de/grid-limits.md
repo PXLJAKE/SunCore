@@ -113,14 +113,39 @@ Ein Wechselrichter-Adapter schreibt das Limit. Vorlagen: `kostal.plenticore_powe
 `Inverter:ActivePowerLimitation`, ein Einspeiselimit in W), `kostal.plenticore_g3_modbus_limit`
 (Register 533, ein AC-Ausgangslimit in %) und `generic.inverter_limit` (eine Number-Entität).
 
-- Der Wechselrichter startet im Schatten und bleibt **höchstens assistiert, bis
-  `limit_verified` wahr ist.** **SunCore schreibt vorher nie ein Limit.** Der Einrichtungsschritt
-  zeigt den Block deaktiviert mit Begründung: Das Panel hat noch keinen Verifikationsdialog, das
-  Wechselrichter-Limit lässt sich in dieser Version also nicht aus dem Panel aktivieren.
-- Der vorgesehene Test, mit dir im assistierten Modus, bevor das Flag gesetzt wird: ein Limit
-  unter die aktuelle Einspeisung setzen, die Einspeisung folgt, und „Zurück zu normal“ stellt
-  deinen eigenen Wert wieder her. Setze `limit_verified` nicht selbst in der Konfiguration, bevor
-  du das getan hast.
+- Der Wechselrichter startet im Schatten und bleibt **höchstens assistiert, bis das Limit
+  verifiziert ist.** Unverifiziert schreibt SunCore nie selbst ein Limit (automatischer Modus),
+  es schlägt nur vor. Nur der Verifikationstest setzt das Flag; Speichern der Konfiguration oder
+  ein Import können es nicht setzen (ein Import setzt es zurück). Das Flag gehört zu einem
+  Adapter: Wechselst du Vorlage, Entität, Register oder Fähigkeit, ist das Limit wieder
+  unverifiziert.
+- **Den Test ausführen.** Öffne den Block in Einrichtungsschritt 5 oder unter Einstellungen,
+  *Deine Anlage*, und wähle *Verifikationstest starten*. Stelle den Wechselrichter vorher auf
+  **assistiert**. Der Test:
+  1. wartet auf stetige Sonne: mindestens 1 kW Einspeisung und 1,5 kW über Hauslast plus
+     Batterieladung, 2 Minuten lang in einem Band von 1 kW (höchstens 15 Minuten);
+  2. zeigt das vorgeschlagene Testlimit, `max(Hauslast + Batterieladung + 700 W, Einspeisung −
+     1 kW)`, neben deinem eigenen Limit. **Nichts wird geschrieben, bevor du bestätigst**
+     (innerhalb von 2 Minuten);
+  3. schreibt das Testlimit einmal, über die Sicherheitsschicht, als deine eigene Aktion, und
+     beobachtet die Einspeisung etwa eine Minute: Ein Einspeiselimit zeigt sich als Einspeisung ≈
+     Limit, ein AC-Ausgangslimit als Einspeisung ≈ Limit − Hauslast (− Batterieladung);
+  4. stellt dein eigenes Limit wieder her, liest es zurück und prüft, dass die Einspeisung
+     zurückkommt.
+- Der Test ist bestanden, wenn das beobachtete Verhalten zur eingestellten Fähigkeit passt und
+  dein Limit wieder steht. Dann ist das Limit verifiziert, und der automatische Modus wird
+  möglich. Passt das Verhalten nicht, folgt die Einspeisung nicht, schlägt das Zurücklesen fehl
+  oder kommt dein Limit nicht zurück, wird das Limit **unverifiziert**; der Grund steht im Block.
+- Der Test endet sofort und stellt dein Limit wieder her, wenn du den Dialog schließt, den
+  Notaus drückst, die Verbindung zu Home Assistant abreißt, SunCore stoppt oder neu startet, die
+  Hauslast so weit steigt, dass das Limit Netzbezug verursachen würde, oder sein Zeitfenster
+  (höchstens 10 Minuten) abläuft. Währenddessen schlägt SunCore kein anderes
+  Wechselrichter-Limit vor.
+- Der Test ist die einzige Stelle, an der SunCore das Limit unter die aktuelle Einspeisung senkt,
+  obwohl Geräte oder die Batterie den Überschuss noch aufnehmen könnten. Diese Ausnahme gilt nur
+  im Zeitfenster des Tests, nur für den einen Schreibvorgang, den du bestätigt hast, und nie
+  gegen die anderen Regeln (kein Netzbezug, der Bereich des Adapters, höchstens alle paar
+  Sekunden).
 - Ein AC-Limit (Register 533) hält Hauslast plus Batterieladung plus 500 W frei, damit das Limit
   selbst nie Netzbezug verursacht.
 - **Register 533 hat keinen dokumentierten Timeout.** Stoppt SunCore oder reißt die Verbindung ab,

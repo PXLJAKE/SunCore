@@ -78,6 +78,7 @@ from suncore.app.summaries import (
     record_accuracy_days,
     tariff_fingerprint,
 )
+from suncore.app.verification import InverterVerification
 from suncore.controller.programs import ProgramEvent
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.battery import BatterySettings, effective_reserve_pct
@@ -86,6 +87,7 @@ from suncore.core.config import (
     ForecastConfig,
     GoalsConfig,
     InverterConfig,
+    InverterVerificationRecord,
     MqttConfig,
     OperationConfig,
     RegionConfig,
@@ -117,6 +119,11 @@ from suncore.core.params import apply_controller, overrides_for
 from suncore.core.series import QuantileSeries, TimeRange
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
+from suncore.core.verification_view import (
+    VerificationPhase,
+    VerificationRefusedError,
+    VerificationView,
+)
 from suncore.core.wizard import (
     CheckItem,
     PreviewItem,
@@ -339,6 +346,9 @@ class Runtime:
     """The MQTT entity surface (``None`` in demo mode); never needed by anything else."""
     evcc_link: EvccLink | None = None
     """The MQTT link to evcc (PR 6-J); built with the first stack when a loadpoint exists."""
+    _verification: InverterVerification | None = None
+    """The latest inverter limit verification (PR 7-J; memory only, a restart forgets it)."""
+    _verification_tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     @property
     def gate(self) -> SafetyGate:
@@ -1939,6 +1949,76 @@ class Runtime:
             await self._apply_operation(stored)
         self._notify()
         return stored
+
+    # --- inverter limit verification (PR 7-J, plan phase 7 WP8) ---------------------------
+
+    def inverter_verification(self) -> VerificationView:
+        """The procedure's view, with the adapter facts of the *current* configuration."""
+        procedure = self._verification
+        view = procedure.view() if procedure is not None else VerificationView()
+        stack, config = self.stack, self.inverter_config
+        driver = None if stack is None else stack.inverter_driver
+        return view.model_copy(
+            update={
+                "adapter": driver is not None,
+                "capability": None if driver is None else driver.capability,
+                "verified": config is not None and config.verified,
+                "last": None if config is None else config.last_verification,
+            }
+        )
+
+    async def start_inverter_verification(self) -> VerificationView:
+        stack = self.stack
+        if stack is None or stack.inverter_driver is None:
+            raise VerificationRefusedError((Reason(key="verify.no_adapter"),))
+        current = self._verification
+        if current is not None and current.active:
+            raise VerificationRefusedError((Reason(key="verify.already_running"),))
+        procedure = InverterVerification(stack, on_finished=self._verification_finished)
+        reasons = procedure.start()
+        if reasons:
+            raise VerificationRefusedError(reasons)
+        self._verification = procedure
+        stack.verification = procedure
+        self._notify_control()
+        return self.inverter_verification()
+
+    async def confirm_inverter_verification(self) -> VerificationView:
+        procedure = self._verification
+        if procedure is None or procedure.phase is not VerificationPhase.READY:
+            raise VerificationRefusedError((Reason(key="verify.nothing_to_confirm"),))
+        await procedure.confirm()
+        self._notify_control()
+        return self.inverter_verification()
+
+    async def abort_inverter_verification(self) -> VerificationView:
+        procedure = self._verification
+        if procedure is not None:
+            await procedure.abort()
+        self._notify_control()
+        return self.inverter_verification()
+
+    def _verification_finished(
+        self, record: InverterVerificationRecord, verified: bool | None
+    ) -> None:
+        """Store the outcome in a task of its own: the call comes from inside the stack's tick,
+        and storing the ``inverter`` section rebuilds the stack."""
+        task = asyncio.ensure_future(self._store_verification(record, verified))
+        self._verification_tasks.add(task)
+        task.add_done_callback(self._verification_tasks.discard)
+
+    async def _store_verification(
+        self, record: InverterVerificationRecord, verified: bool | None
+    ) -> None:
+        try:
+            async with self._operation_lock:
+                before = (self.site, self.devices, self.region)
+                stored = await self.config.record_inverter_verification(record, verified=verified)
+                if stored is not None:
+                    await self._apply_stored("inverter", stored, before)
+        except Exception:
+            log.exception("runtime.verification_store_failed")
+        self._notify_control()
 
     # --- EV, programs, grid (PR 6-M) ----------------------------------------------------
 

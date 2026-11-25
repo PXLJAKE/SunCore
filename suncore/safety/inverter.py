@@ -13,7 +13,9 @@ violation (empty = may be written).
 * X2 - an AC limit (or a not yet verified export limit, read as an AC limit) keeps house load
   + battery charging + 500 W (:func:`check_no_import`);
 * X3 - below the current export only when devices and battery cannot absorb more
-  (:func:`check_chain`);
+  (:func:`check_chain`); the **only** exception is an open verification window for that
+  window's own ``Origin.USER`` intents, not below its lowest limit (:func:`window_waives_chain`,
+  ADR-0018 addendum, PR 7-J). X1, X2, X4, X5 and X6 have no exception;
 * X4 - write on change, rate limit, read-back, heartbeat only under the lease (the gate);
 * X5 - stale or not-OK PV/grid/house inputs, island -> no write; the lease ends (baseline)
   (:func:`check_inputs`, :func:`lease_violations`);
@@ -27,10 +29,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Final, Protocol, runtime_checkable
 
 from suncore.core.balance import FlowSnapshot
-from suncore.core.decisions import Action, InverterLimitAction, Reason
+from suncore.core.decisions import Action, InverterLimitAction, Origin, Reason
 from suncore.core.grid import GridState
 from suncore.core.inverter import (
     EXPORT_TOLERANCE_W,
@@ -43,6 +46,7 @@ from suncore.core.inverter import (
     same_limit,
 )
 from suncore.core.signals import Quality
+from suncore.core.verification import VerificationWindow
 from suncore.safety.actuator import Actuator
 
 REASON_INVERTER_NOT_SUPPORTED: Final = Reason(key="safety.inverter_limit_not_supported")
@@ -169,6 +173,12 @@ class InverterContext:
     headroom_w: float | None = None
     """``GateInputs.export_headroom_w`` (``None`` = unknown)."""
     grid_state: GridState = GridState.NOT_CONFIGURED
+    # PR 7-J: what the X3 waiver looks at (all ``None`` = no waiver, e.g. a lease renewal).
+    origin: Origin | None = None
+    intent_id: str | None = None
+    window: VerificationWindow | None = None
+    """``GateInputs.verification_window`` as the gate holds it (``None`` = none open)."""
+    now: datetime | None = None
 
 
 # --- the invariants --------------------------------------------------------------------------
@@ -259,13 +269,36 @@ def check_no_import(ctx: InverterContext, *, share: float = 1.0) -> Reason | Non
     return None
 
 
+def window_waives_chain(ctx: InverterContext) -> bool:
+    """The X3 waiver of the verification test (ADR-0018 addendum decision 2, PR 7-J).
+
+    All of: a window is open at ``ctx.now``; the intent is the user's (``Origin.USER``); its id
+    belongs to that window (``verify:<window id>:...``); the limit is in the window's unit and
+    not tighter than the window's lowest limit. Nothing else is waived: X1, X2, X5 and the
+    unit/range checks run unchanged, and the gate applies X4 and X6 around them.
+    """
+    window, now, intent_id = ctx.window, ctx.now, ctx.intent_id
+    return (
+        window is not None
+        and now is not None
+        and intent_id is not None
+        and ctx.origin is Origin.USER
+        and window.active(now)
+        and window.owns(intent_id)
+        and window.allows(ctx.requested)
+    )
+
+
 def check_chain(ctx: InverterContext) -> Reason | None:
-    """X3: curtail below the current export only when devices and battery cannot absorb more."""
+    """X3: curtail below the current export only when devices and battery cannot absorb more
+    (or inside the verification window, :func:`window_waives_chain`)."""
     export = ctx.live.export_w
     cap = export_cap_w(ctx.requested, ctx.config.nominal_ac_w, ctx.live.house_w)
     if export is None or cap is None:
         return REASON_INVERTER_INPUTS_UNKNOWN
     if cap >= export - EXPORT_TOLERANCE_W:
+        return None
+    if window_waives_chain(ctx):
         return None
     headroom = ctx.headroom_w
     if headroom is None:
@@ -396,4 +429,5 @@ __all__ = [
     "evaluate_inverter",
     "lease_violations",
     "no_import_floor_w",
+    "window_waives_chain",
 ]

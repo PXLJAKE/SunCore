@@ -107,13 +107,33 @@ An inverter adapter writes the limit. Templates: `kostal.plenticore_power_limit`
 `Inverter:ActivePowerLimitation`, an export limit in W), `kostal.plenticore_g3_modbus_limit`
 (register 533, an AC output limit in %) and `generic.inverter_limit` (a number entity).
 
-- The inverter asset starts in shadow and stays **at most assisted until `limit_verified` is
-  true.** **SunCore never writes a limit before that.** The setup step shows the block
-  disabled with the reason: the panel has no verification dialog yet, so in this version the
-  inverter limit cannot be activated from the panel.
-- The intended test, to be done with you in assisted mode before the flag is set: set a limit
-  below the current export, the export follows, and "back to normal" restores your own value.
-  Do not set `limit_verified` yourself in the configuration before you have done this.
+- The inverter asset starts in shadow and stays **at most assisted until the limit is
+  verified.** Unverified, SunCore never writes a limit on its own (automatic mode); it only
+  proposes. Only the verification test sets the flag; saving the configuration or importing
+  a file cannot set it (an import resets it). The flag belongs to one adapter: changing the
+  template or its entity, register or capability makes the limit unverified again.
+- **Running the test.** Open the block in setup step 5 or under Settings, *Your system*, and
+  choose *Run the verification test*. Set the inverter asset to **assisted** first. The test:
+  1. waits until the sunshine is steady: at least 1 kW export and 1.5 kW above house load plus
+     battery charging, within a 1 kW band for 2 minutes (up to 15 minutes);
+  2. shows the proposed test limit, `max(house + battery charging + 700 W, export − 1 kW)`,
+     next to your own limit. **Nothing is written until you confirm** (within 2 minutes);
+  3. writes the test limit once, through the safety layer, as your own action, and watches the
+     export for about a minute: an export limit shows up as export ≈ limit, an AC output limit
+     as export ≈ limit − house load (− battery charging);
+  4. restores your own limit, reads it back and checks the export comes back.
+- The test passes when the observed behaviour matches the configured capability and your limit
+  is back. Then the limit is verified and automatic mode becomes possible. A mismatch, an
+  export that does not follow, a failed read-back or a limit that does not come back mark the
+  limit **unverified**; the reason is shown in the block.
+- The test ends at once and restores your limit when you close the dialog, press the
+  emergency stop, the connection to Home Assistant is lost, SunCore stops or restarts, the
+  house load rises so far that the limit would cause grid import, or its time window
+  (at most 10 minutes) expires. Meanwhile SunCore proposes no other inverter limit.
+- The test is the only place where SunCore lowers the limit below the current export while
+  devices or the battery could still take the surplus. That exception holds only inside the
+  test's time window, only for the one write you confirmed, and never against the other
+  rules (no grid import, the range of the adapter, at most every few seconds).
 - An AC limit (register 533) keeps house load plus battery charging plus 500 W free so that
   the limit itself never causes grid import.
 - **Register 533 has no documented timeout.** If SunCore stops or loses the connection, an AC

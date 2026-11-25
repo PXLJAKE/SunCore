@@ -59,6 +59,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, tzinfo
 from types import MappingProxyType
 from typing import Final, Protocol, runtime_checkable
@@ -120,6 +121,7 @@ from suncore.core.identity import identity_token
 from suncore.core.inverter import INVERTER_ASSET_ID, same_limit
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
+from suncore.core.verification import VerificationWindow
 from suncore.safety import overrides
 from suncore.safety.actuator import Actuator
 from suncore.safety.battery import (
@@ -281,6 +283,13 @@ REASON_INVERTER_READBACK_LOST: Final = Reason(key="safety.inverter_readback_lost
 REASON_INVERTER_RESET: Final = Reason(key="safety.inverter_limit_reset")
 """A volatile limit register shows the inverter's default again (a reset): re-written."""
 INVERTER_SCOPE: Final = INVERTER_ASSET_ID
+# PR 7-J: the verification window (ADR-0018 addendum, the only waiver of X3).
+REASON_VERIFY_WINDOW_CLOSED: Final = Reason(key="safety.verification_window_closed")
+"""A limit written inside a verification window is held after the window closed or expired:
+the gate gives the user's own limit back (the waiver never outlives its window)."""
+REASON_VERIFY_NOT_ASSISTED: Final = Reason(key="safety.verification_not_assisted")
+REASON_VERIFY_WINDOW_INVALID: Final = Reason(key="safety.verification_window_invalid")
+REASON_VERIFY_WINDOW_BUSY: Final = Reason(key="safety.verification_window_busy")
 BATTERY_RELEASE_BACKOFF_S: Final = 30.0
 BATTERY_RELEASE_BACKOFF_MAX_S: Final = 600.0
 REASON_BATTERY_OVERRIDE: Final = Reason(key="safety.battery_override")
@@ -362,6 +371,11 @@ class SafetyGate:
         self._plan = plan
         self._inverter = inverter
         self._inverter_beat: datetime | None = None
+        # PR 7-J: the verification window lives only in this gate's memory (a restart, a new
+        # gate after a configuration change and the emergency stop start without one).
+        self._window: VerificationWindow | None = None
+        self._window_held: str | None = None
+        """Id of the window a held inverter limit was written under (released when it ends)."""
         # Actuators of assets a configuration change removed or re-mapped while their release
         # failed (``handover``): used only to release them, never to write (the identity of the
         # runtime selects them). Dropped once the release succeeded.
@@ -519,6 +533,7 @@ class SafetyGate:
         device's minimum run/pause time stays deferred (:meth:`poll` executes it); everything
         else under control is released at once, and so is everything under an emergency stop.
         """
+        self._end_window("recover")
         self._emergency_stop = await self._store.load_emergency_stop()
         for runtime in await self._store.all_runtimes():
             self._runtimes[runtime.device_id] = runtime
@@ -535,6 +550,7 @@ class SafetyGate:
 
     async def shutdown(self) -> None:
         """Release every device under control within ``release_deadline_s``."""
+        self._end_window("shutdown")
         await self._release_all(
             REASON_SHUTDOWN, origin=Origin.SAFETY, deadline_s=self._settings.release_deadline_s
         )
@@ -552,6 +568,7 @@ class SafetyGate:
         Assistant down) is not lost: the successor gate is built with ``predecessor=self`` and
         keeps this gate's actuator for that release only (``recover``, ``connection_restored``).
         """
+        self._end_window("handover")
         kept = frozenset(keep)
         others = [d for d, rt in self._runtimes.items() if rt.under_control and d not in kept]
         deadline = self._settings.release_deadline_s
@@ -575,6 +592,7 @@ class SafetyGate:
         control are released (baseline restored) within ``release_deadline_s``.
         """
         self._emergency_stop = True
+        self._end_window("emergency_stop")
         await self._store.save_emergency_stop(True)
         await self._release_all(
             REASON_EMERGENCY_STOP,
@@ -617,6 +635,9 @@ class SafetyGate:
             decisions.append(
                 await self.release_device(device_id, reason, origin=Origin.SAFETY, backoff=True)
             )
+        window_end = await self._window_expiry(now)
+        if window_end is not None:
+            decisions.append(window_end)
         if not self._emergency_stop:
             lease = await self._battery_lease(now)
             if lease is not None:
@@ -656,6 +677,8 @@ class SafetyGate:
     async def connection_lost(self) -> None:
         """HA connection gone: everything pauses; nothing can be written, so no release."""
         self._watchdog.connection_lost(self._now())
+        # PR 7-J: the window ends; a held test limit is released by ``connection_restored``.
+        self._window = None
         self._site_tripped = True
 
     async def connection_restored(self) -> None:
@@ -1432,7 +1455,7 @@ class SafetyGate:
                     else as_limit(await actuator.read_back())
                 )
                 reasons += evaluate_inverter(
-                    self._inverter_context(action, actuator, baseline, now)
+                    self._inverter_context(action, actuator, baseline, now, intent)
                 )
             return await self._decide(intent, DecisionKind.SHADOW, now, reasons, mode)
         pause = self._watchdog.pause_reason(INVERTER_SCOPE, now)
@@ -1463,7 +1486,9 @@ class SafetyGate:
                 intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
             )
         baseline = as_limit(runtime.baseline) if runtime.under_control else observed
-        violations = evaluate_inverter(self._inverter_context(action, actuator, baseline, now))
+        violations = evaluate_inverter(
+            self._inverter_context(action, actuator, baseline, now, intent)
+        )
         if violations:
             return await self._decide(intent, DecisionKind.REJECTED, now, violations, mode)
         held = as_limit(runtime.last_written) if runtime.under_control else None
@@ -1485,6 +1510,8 @@ class SafetyGate:
         inputs = self._inputs() or GateInputs()
         max_age = timedelta(seconds=self._settings.inputs_max_age_ticks * self._settings.tick_s)
         fresh = inputs.ts is not None and now - inputs.ts <= max_age
+        # PR 7-J: the window is the gate's own; whatever a provider passes is replaced.
+        inputs = replace(inputs, verification_window=self._active_window(now))
         return InverterLive.of(inputs.flows, fresh=fresh), inputs
 
     def _inverter_context(
@@ -1493,7 +1520,10 @@ class SafetyGate:
         actuator: InverterActuator,
         baseline: InverterLimitAction | None,
         now: datetime,
+        intent: Intent | None = None,
     ) -> InverterContext:
+        """The context of one limit; ``intent`` only for a new write (the X3 waiver looks at
+        its origin and id; a lease renewal has none and is never waived)."""
         config = self._inverter
         assert config is not None
         live, inputs = self._inverter_live(now)
@@ -1505,6 +1535,90 @@ class SafetyGate:
             limit_range=actuator.limit_range(),
             headroom_w=inputs.export_headroom_w if live.fresh else None,
             grid_state=inputs.grid_state,
+            origin=None if intent is None else intent.origin,
+            intent_id=None if intent is None else intent.id,
+            window=inputs.verification_window if intent is not None else None,
+            now=now,
+        )
+
+    # --- verification window (PR 7-J, ADR-0018 addendum) -----------------------------------
+
+    @property
+    def verification_window(self) -> VerificationWindow | None:
+        """The open verification window (``None`` = none, or it expired)."""
+        return self._active_window(self._now())
+
+    def _active_window(self, now: datetime) -> VerificationWindow | None:
+        """The window the X3 waiver may use now: open, not expired, no emergency stop, an
+        inverter adapter and the inverter asset effectively assisted."""
+        window = self._window
+        if (
+            window is None
+            or not window.active(now)
+            or self._emergency_stop
+            or self._inverter_actuator() is None
+            or self.modes_of(INVERTER_ASSET_ID).effective is not OperatingMode.ASSISTED
+        ):
+            return None
+        return window
+
+    def open_verification_window(self, window: VerificationWindow) -> Reason | None:
+        """Open the verification window (the verification procedure only; ``None`` = opened).
+
+        Refused during an emergency stop, without an inverter adapter, unless the inverter asset
+        is effectively assisted, for a window that is not open now, and while another window is
+        open. Never persisted: a restart starts without a window.
+        """
+        now = self._now()
+        if self._emergency_stop:
+            return REASON_EMERGENCY_STOP
+        if self._inverter_actuator() is None:
+            return REASON_INVERTER_NOT_SUPPORTED
+        if self.modes_of(INVERTER_ASSET_ID).effective is not OperatingMode.ASSISTED:
+            return REASON_VERIFY_NOT_ASSISTED
+        if not window.active(now):
+            return REASON_VERIFY_WINDOW_INVALID
+        current = self._window
+        if current is not None and current.active(now) and current.id != window.id:
+            return REASON_VERIFY_WINDOW_BUSY
+        self._window = window
+        log.info(
+            "safety.verification_window_opened",
+            window=window.id,
+            expires_at=window.expires_at.isoformat(),
+            lowest=window.lowest.model_dump(exclude_none=True),
+        )
+        return None
+
+    def close_verification_window(self, window_id: str) -> None:
+        """Close the window (pass, fail, abort). A limit still held from it is released by the
+        next :meth:`poll` (``safety.verification_window_closed``)."""
+        if self._window is not None and self._window.id == window_id:
+            self._window = None
+            log.info("safety.verification_window_closed", window=window_id)
+
+    def _end_window(self, why: str) -> None:
+        if self._window is not None:
+            log.info("safety.verification_window_closed", window=self._window.id, why=why)
+        self._window = None
+        self._window_held = None
+
+    async def _window_expiry(self, now: datetime) -> Decision | None:
+        """A limit written under a window that is closed or expired now is given back."""
+        held = self._window_held
+        if held is None:
+            return None
+        window = self._active_window(now)
+        if window is not None and window.id == held:
+            return None
+        self._window_held = None
+        if self._window is not None and self._window.id == held:
+            self._window = None  # expired (or no longer assisted): over for good
+        runtime = self._runtimes.get(INVERTER_ASSET_ID)
+        if runtime is None or not runtime.under_control or runtime.release_pending:
+            return None
+        return await self.release_device(
+            INVERTER_ASSET_ID, REASON_VERIFY_WINDOW_CLOSED, origin=Origin.SAFETY
         )
 
     async def _inverter_write(  # noqa: PLR0911, PLR0912, PLR0915 - one return per verdict
@@ -1554,8 +1668,11 @@ class SafetyGate:
                         "attempted": (),
                     }
                 )
-            ctx = self._inverter_context(requested, actuator, as_limit(runtime.baseline), now)
+            ctx = self._inverter_context(
+                requested, actuator, as_limit(runtime.baseline), now, intent
+            )
             violations = evaluate_inverter(ctx)
+            window = ctx.window if ctx.window is not None and ctx.window.owns(intent.id) else None
             if violations:
                 # Judged again right before the write: something changed meanwhile.
                 self._limiter.release_slot(INVERTER_ASSET_ID, previous_slot)
@@ -1569,6 +1686,9 @@ class SafetyGate:
             except Exception as exc:
                 log.warning("safety.inverter_write_failed", error=str(exc)[:200])
                 failed = True
+            if window is not None:
+                # Sent under the window: whatever lands is released when the window ends.
+                self._window_held = window.id
             update: dict[str, object] = {"last_write_ts": now}
             if failed:
                 update.update({"pending_action": requested, "pending_ts": now})
