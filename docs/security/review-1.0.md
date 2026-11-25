@@ -188,8 +188,8 @@ found.
   - per entity 1/s with a burst of 3, and 20 per 10 s over all entities (`:48-51`);
   - a raise needs `mqtt.allow_mode_raise`, default off (`core/config.py:645`; `commands.py:312`
     for clearing the stop and `:347` for a mode);
-  - the emergency stop is never rate-limited or refused (`:184`), and a settled stop is not
-    repeated.
+  - the emergency stop is never rate-limited or refused by policy (`:184`); only an invalid
+    payload or a failing service call refuses it. A settled stop is not repeated.
 
   Queued commands use a bounded queue of 64 (`service.py:62, 269, 364`). Commands go through the
   same application services as the UI and the safety gate; this module never touches a device.
@@ -200,19 +200,36 @@ found.
   "again" flag. The running task then repeats the stop at most once. This still never drops the
   first stop.
 
-  **Fixed (`control-safety`).** The session holds at most one stop task (`stop_task`). The
-  first stop message starts it at once, exactly as before. A stop message that arrives while it
-  runs only records itself in `stop_again`; when the run ends, the stop runs once more and the
-  task ends. A flood during one run therefore costs one repeat, and the runs never overlap. A
-  valid `PRESS` in `stop_again` is never replaced by a later invalid payload
-  (`CommandHandler.is_valid_payload`, no rate-limit token taken). The gate sets its stop flag
-  before it awaits anything, so the coalesced message adds nothing but a second release pass.
-  An exception in a run is logged and does not wedge the next stop; stopping the session
-  cancels the task. A stuck MQTT stop does not block the UI stop, which is a separate path.
-  Tests in `tests/ha/mqtt/test_service_commands.py`: a flood of 500 stops during a held first
-  stop gives one task and exactly two port calls, the first before the flood; a single stop is
-  not repeated; garbage never replaces a pending press; a failing stop does not wedge the next
-  one; shutdown cancels a stop in flight.
+  **Fixed (`control-safety`, `e6617d0`, review conditions F1 and F2 in `7ee77ae`).** The first
+  stop message starts a run at once, exactly as before. Coalescing applies only while the stop
+  is in effect: a stop message that arrives while a run is in flight **and** the gate's stop
+  flag is set (`CommandPort.stored_emergency_active`, read synchronously), or while the newest
+  run has not started yet, only records itself in `stop_again`; when a run ends, the stop runs
+  once more. A flood therefore costs one task and one repeat per run. A valid `PRESS` in
+  `stop_again` is never replaced by a later invalid payload (`CommandHandler.is_valid_payload`,
+  no rate-limit token taken).
+  - **Stop after a clear (F1).** If the stop was cleared while an older run is still releasing
+    (up to `release_deadline_s`), the flag is `False` and a new stop starts its own run at
+    once; it never waits behind the older run. Runs can then overlap; both only call the
+    idempotent `gate.emergency_stop()`. An unreadable flag counts as `False` (start a run,
+    never wait). `MAX_STOP_TASKS` (4) bounds the runs as a backstop: more than one run exists
+    only after a clear, and clears over MQTT need the opt-in and are rate-limited.
+  - **Session teardown (F2).** A reconfigure or shutdown no longer cancels a stop run. The
+    teardown waits for the runs and their coalesced repeat, also for a run started during the
+    wait, for at most `STOP_DRAIN_S` (65 s, above the largest `release_deadline_s` of 60 s),
+    and cancels a run only after that, with a warning. The gate flag is set in the first step
+    of a run and persisted, so even a cancelled run leaves the stop in effect.
+  - An exception in a run is logged and does not wedge the next stop. A stuck MQTT stop does
+    not block the UI stop, which is a separate path.
+  - Tests in `tests/ha/mqtt/test_service_commands.py`: a flood of 500 stops during a held first
+    stop gives one task and exactly two port calls, the first before the flood; a stop after a
+    clear reaches the port at once while the older run is still held, and a flood after it
+    coalesces into the two runs (the reviewer's reproduction as a regression test); an
+    unreadable flag starts a run and the backstop bounds the runs; a reconfigure lets a held
+    stop and its pending repeat finish and the new session comes up afterwards; shutdown waits
+    for a stuck stop for the drain time and then cancels it; a single stop is not repeated;
+    garbage never replaces a pending press; a failing stop does not wedge the next one.
+    `tests/app/test_ha_commands_runtime.py` checks that the runtime port reports the gate flag.
 - **SEC-16 (needs control-safety).** `mqtt.command_refused` is logged at info level for every
   refused message (`service.py:393`), including rate-limited ones. **Proposal:** log the first
   refusal per entity and reason, then a count every 60 s. Nothing else changes.
@@ -222,16 +239,19 @@ found.
   (`suncore/ha/mqtt/refusals.py`): the first refusal per entity and reason in full, the rest
   counted, and `mqtt.command_refused_summary` with the counts every 60 s (checked after every
   command and in the sync loop, and once at session end). A pair quiet for a whole interval is
-  forgotten, so its next refusal is logged in full again. Invented object ids beyond 64 pairs
-  are counted under `*`. Accepted commands are logged as before. The verdict, the republished
-  state and the refusal hook are unchanged. Tests in `tests/ha/mqtt/test_commands.py`: a flood
-  of 200 rate-limited and 50 invalid commands gives two full lines and one summary with the
-  exact count; the same message sequence gives identical results with and without the throttle;
-  a Hypothesis property that every refusal is either logged in full or counted in exactly one
-  summary, with a bounded number of full lines per interval. Residual: an accepted but
-  unchanged emergency stop (a settled stop) is still logged at info level per message; the
-  stop is never refused or rate-limited, so a broker user can still write one info line per
-  stop message. That is the price of never throttling the stop.
+  forgotten, so its next refusal is logged in full again. `mqtt.command.unknown_entity` refusals are
+  always counted under `*`, because their object id comes from the topic; invented ids can therefore
+  never fill the 64-pair cap and hide the refusals of real entities (review F3, `7ee77ae`). Real pairs
+  beyond the cap are also counted under `*`. Accepted commands are logged as before. The verdict,
+  the republished state and the refusal hook are unchanged. Tests in
+  `tests/ha/mqtt/test_commands.py`: a flood of 200 rate-limited and 50 invalid commands gives two
+  full lines and one summary with the exact count; the same message sequence gives identical results
+  with and without the throttle; a Hypothesis property that every refusal is either logged in full
+  or counted in exactly one summary, with a bounded number of full lines per interval; 500 invented
+  ids still leave the refusal of a real entity logged in full. Residual: an accepted but unchanged
+  emergency stop (a settled stop) is still logged at info level per message; the stop is never
+  rate-limited or refused by policy, so a broker user can still write one info line per stop
+  message. That is the price of never throttling the stop.
 - **SEC-26 (verified).** Notification action tokens (`suncore/notify/actions.py`):
   - each is a 128-bit random token (`:85`) stored as a SHA-256 digest;
   - it is bound to one proposal and its expiry (`:103-105`);

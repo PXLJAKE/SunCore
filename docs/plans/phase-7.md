@@ -997,10 +997,21 @@ and the tests are in the review under each finding. Decisions:
   safe state only, and it must work from any client, also one older than the check. Clearing
   it gives control back and is never exempt. The middleware covers every path, not only
   `/api/v1`, so a later write route outside the prefix fails closed.
-- **SEC-15.** One stop task per session; messages during a run set `stop_again`, which runs the
-  stop once more after the run. A valid press is never replaced by garbage.
+- **SEC-15.** Messages during a run set `stop_again`, which runs the stop once more after the
+  run, but only while the gate's stop flag is set. A valid press is never replaced by garbage.
 - **SEC-16.** `RefusalLogThrottle`: the first refusal per entity and reason in full, then
-  `mqtt.command_refused_summary` every 60 s; at most 64 pairs, the rest under `*`.
+  `mqtt.command_refused_summary` every 60 s; at most 64 pairs, the rest under `*`, and unknown
+  object ids always under `*`.
+- **Independent review of `e6617d0`: conditional approval, fixed in `7ee77ae`.**
+  - F1 (Medium): a stop pressed after a clear waited behind the older run for up to
+    `release_deadline_s`, with the gate not stopped meanwhile. Now coalescing needs the stop
+    flag (`CommandPort.stored_emergency_active`, via `Runtime.emergency_stop_active`); with the
+    flag cleared a new run starts at once. Backstop `MAX_STOP_TASKS` = 4.
+  - F2 (Low): the session teardown cancelled a stop run and could drop its repeat. Now it waits
+    for the runs, at most `STOP_DRAIN_S` = 65 s, then cancels with a warning.
+  - F3 (Low): invented object ids could fill the 64-pair cap. `unknown_entity` now always
+    counts under `*`.
+  - F6 (wording): "never rate-limited or refused by policy" in code and review.
 - **Deviation:** the service's `mqtt.command_refused` info line is removed; it duplicated the
   handler's `mqtt.command` warning, which is now the throttled line.
 - **Deviation:** the e2e spec is a new file (`frontend/e2e/security.spec.ts`) and
@@ -1013,24 +1024,27 @@ and the tests are in the review under each finding. Decisions:
 |---|---|---|
 | Netzbezug nie über dem Limit | bestanden (unberührt) | kein Pfad in `controller/` oder `safety/` geändert; `tests/safety`, `tests/controller` grün |
 | Batterie nie unter die Reserve | bestanden (unberührt) | wie oben |
-| Min-Lauf-/Pausenzeiten, Schaltungen pro Stunde | bestanden (unberührt) | wie oben; ein wiederholter Not-Aus ruft nur das idempotente `gate.emergency_stop()` auf, die Läufe überlappen nie |
+| Min-Lauf-/Pausenzeiten, Schaltungen pro Stunde | bestanden (unberührt) | wie oben; ein wiederholter Not-Aus ruft nur das idempotente `gate.emergency_stop()` auf; Läufe überlappen nur nach einem Aufheben (F1) und tun dann dasselbe |
 | Komfortgrenzen | bestanden (unberührt) | wie oben |
 | Rate-Limits, Schreiben nur bei Änderung, Read-back | bestanden (unberührt) | MQTT-Rate-Limits unverändert (`test_the_throttle_changes_no_verdict`); Geräteschreibvorgänge nur im Gate |
 | Veraltete/fehlende Eingaben -> sicherer Zustand | bestanden (unberührt) | wie oben |
 | Shadow/assistiert/automatisch, manuelle Übersteuerung | bestanden | Hochstufen über HTTP braucht jetzt zusätzlich die Kopfzeile; über MQTT weiterhin `allow_mode_raise`; Verdikte gleich |
-| Not-Aus "zurück auf normal" aus jedem Zustand | bestanden | HTTP: Setzen ohne Kopfzeile möglich (`test_a_stale_client_can_always_set_the_stop`, e2e `security.spec.ts`); Aufheben nie ausgenommen (`test_clearing_the_stop_is_never_exempt`). MQTT: erster Not-Aus sofort, nie verworfen (`test_a_stop_flood_runs_one_task_and_repeats_once`), ein Fehler blockiert den nächsten nicht |
+| Not-Aus "zurück auf normal" aus jedem Zustand | bestanden | HTTP: Setzen ohne Kopfzeile möglich (`test_a_stale_client_can_always_set_the_stop`, e2e `security.spec.ts`); Aufheben nie ausgenommen (`test_clearing_the_stop_is_never_exempt`). MQTT: erster Not-Aus sofort, nie verworfen (`test_a_stop_flood_runs_one_task_and_repeats_once`); ein Not-Aus nach dem Aufheben wartet nie auf einen älteren Lauf (`test_a_stop_after_a_clear_never_waits_behind_an_older_run`, F1); ein Fehler oder ein unlesbarer Zustand blockiert den nächsten nicht |
 | Nur `safety/` ruft `apply()` | bestanden | kein neuer Aufruf; `tests/safety/test_boundary.py` grün |
-| Fail-safe: Shutdown, Crash, Verbindungsverlust | bestanden | Shutdown bricht einen laufenden MQTT-Not-Aus-Task ab (`test_stopping_the_service_cancels_a_stop_in_flight`); der Gate-Flag ist zu diesem Zeitpunkt schon gesetzt und persistiert |
+| Fail-safe: Shutdown, Crash, Verbindungsverlust | bestanden | Session-Ende (Neukonfiguration, Shutdown) lässt einen laufenden Not-Aus samt Wiederholung zu Ende laufen (`test_a_session_restart_lets_a_stop_and_its_repeat_finish`, F2), höchstens 65 s, dann Abbruch (`test_stopping_the_service_waits_for_a_stop_then_gives_up`); der Gate-Flag ist im ersten Schritt gesetzt und persistiert |
 | Keine Oszillation | nicht betroffen | keine Hysterese geändert |
 
 Zusammenfassung: SEC-13 schützt jede schreibende Anfrage mit einer eigenen Kopfzeile, die eine
 fremde Seite ohne CORS-Preflight nicht setzen kann. Ausgenommen ist nur das Auslösen des
 Not-Aus, weil es SunCore ausschließlich in den sicheren Zustand bringt und von jedem, auch einem
 veralteten Client, erreichbar bleiben muss; das Aufheben braucht die Kopfzeile immer. SEC-15
-begrenzt MQTT-Not-Aus-Nachrichten auf einen Task und höchstens eine Wiederholung je Lauf, ohne
-den ersten Not-Aus zu verzögern. SEC-16 drosselt nur das Log. Keine Invariante wird geschwächt,
-jeder Geräteschreibvorgang läuft weiter über `safety/`. Nicht live geprüft: die Weitergabe der
-Kopfzeile durch Ingress (nur Quelltext gelesen) und Reverse-Proxys vor HA.
+fasst MQTT-Not-Aus-Nachrichten nur zusammen, solange der Not-Aus wirkt: eine Flut kostet einen
+Task und eine Wiederholung je Lauf, der erste Not-Aus und ein Not-Aus nach dem Aufheben starten
+sofort, und das Ende einer Session bricht keinen Not-Aus mehr ab. Die bedingte Freigabe des
+unabhängigen Reviews (F1 bis F3, F6) ist umgesetzt. SEC-16 drosselt nur das Log. Keine
+Invariante wird geschwächt, jeder Geräteschreibvorgang läuft weiter über `safety/`. Nicht live
+geprüft: die Weitergabe der Kopfzeile durch Ingress (nur Quelltext gelesen) und Reverse-Proxys
+vor HA.
 
 #### UNVERIFIED (7-O)
 

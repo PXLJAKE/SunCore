@@ -61,9 +61,13 @@ Carried to Phase 7: see "Open - Phase 7".
       `api.error.request_header_missing`), the SPA always sends it; only *setting* the
       emergency stop is exempt, clearing it never is; both ingress hops forward the header
       (source read, `UNVERIFIED` on a live system);
-    - SEC-15: one MQTT emergency-stop task at a time, a flood during a run collapses into one
-      repeat, the first stop is never delayed;
-    - SEC-16: the first refusal per entity and reason is logged, then a count every 60 s.
+    - SEC-15: MQTT emergency-stop messages coalesce into the run in flight only while the stop
+      is in effect, so a flood costs one repeat; a stop after a clear starts its own run at once,
+      and a session teardown waits for a stop run instead of cancelling it (review F1, F2);
+    - SEC-16: the first refusal per entity and reason is logged, then a count every 60 s;
+      unknown object ids share one bucket (review F3).
+    - The independent `control-safety` review approved with conditions F1 to F3 (and wording
+      F6); all are fixed.
   - Open after 1.0: CSP, a non-root user, an own AppArmor profile, image digests (`BUILD_FROM`,
     `uv`) and ECharts 6. The verification window is pending 7-J.
   - Questions 23 to 28 are in plan section 10; deviations and `UNVERIFIED` are in plan section 8
