@@ -14,7 +14,7 @@ Outputs (relative to `--out`):
 
 - `db/suncore_v<N>.sql`: `iterdump` of `suncore.db` plus `PRAGMA user_version`, N from the DB;
 - `release/export_<version>.json`: the body of `GET /api/v1/config/export`;
-- `release/MANIFEST.json`: tag, commit, SHA-256 of every migration file of the tag.
+- `release/MANIFEST_<tag>.json`: tag, commit, SHA-256 of every migration file of the tag.
 
 Only released tags can be frozen. A schema version that no tag ever shipped (suncore.db v2..v6,
 timeseries.db v1..v3 are unreleased on 2026-11-25) has no fixture here; the tests build those
@@ -189,8 +189,10 @@ def main(argv: list[str] | None = None) -> int:
         "suncore_db_schema": out["user_version"],
         "migrations_sha256": migrations,
     }
-    (args.out / "release" / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(f"wrote {dump.relative_to(ROOT)}, {export.relative_to(ROOT)}, MANIFEST.json")
+    (args.out / "release" / f"MANIFEST_{args.tag}.json").write_text(
+        json.dumps(manifest, indent=2) + "\n"
+    )
+    print(f"wrote {dump.relative_to(ROOT)}, {export.relative_to(ROOT)}, manifest")
     return 0
 
 

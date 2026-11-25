@@ -5,8 +5,8 @@ What is frozen and where it comes from:
 
 - `tests/fixtures/db/suncore_v1.sql` and `tests/fixtures/release/export_0.2.0.json` are produced
   by `scripts/gen_release_fixtures.py` from the tag `v0.2.0` (seeded through the released API),
-  never by hand. `MANIFEST.json` records the tag, the commit and the SHA-256 of every migration
-  file of the tag.
+  never by hand. `MANIFEST_<tag>.json` records the tag, the commit and the SHA-256 of every
+  migration file of the tag.
 - No other tag exists. `suncore.db` v2 ... v6 and `timeseries.db` v1 ... v3 were never released,
   so they have no frozen dump: the tests for them build the old schema from the shipped
   migration files (`tests/storage/test_phase5_storage.py`) and this file only adds the
@@ -51,7 +51,9 @@ from suncore.storage.summaries import DaySummaryStore
 from suncore.storage.timeseries import timeseries_migrations
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-MANIFEST: dict[str, Any] = json.loads((FIXTURES / "release" / "MANIFEST.json").read_text("utf-8"))
+MANIFEST: dict[str, Any] = json.loads(
+    (FIXTURES / "release" / "MANIFEST_v0.2.0.json").read_text("utf-8")
+)
 EXPORT_020: dict[str, Any] = json.loads(
     (FIXTURES / "release" / f"export_{MANIFEST['app_version']}.json").read_text("utf-8")
 )
@@ -91,12 +93,19 @@ def test_manifest_matches_the_released_schema() -> None:
     assert EXPORT_020["app_version"] == MANIFEST["app_version"] == "0.2.0"
 
 
-@pytest.mark.parametrize("name", sorted(MANIFEST["migrations_sha256"]))
-def test_released_migration_files_are_unchanged(name: str) -> None:
+_RELEASED_MIGRATIONS = [
+    (m["tag"], name, digest)
+    for path in sorted((FIXTURES / "release").glob("MANIFEST_*.json"))
+    for m in [json.loads(path.read_text("utf-8"))]
+    for name, digest in m["migrations_sha256"].items()
+]
+
+
+@pytest.mark.parametrize(("tag", "name", "digest"), _RELEASED_MIGRATIONS)
+def test_released_migration_files_are_unchanged(tag: str, name: str, digest: str) -> None:
     """A migration that shipped must never be edited: a new file is added instead."""
     shipped = next(m for m in load_migrations() if m.name == name)
-    digest = hashlib.sha256(shipped.sql.encode("utf-8")).hexdigest()
-    assert digest == MANIFEST["migrations_sha256"][name]
+    assert hashlib.sha256(shipped.sql.encode("utf-8")).hexdigest() == digest, tag
 
 
 def test_frozen_dump_is_a_schema_1_database(tmp_path: Path) -> None:

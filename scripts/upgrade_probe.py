@@ -23,6 +23,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 BASE = "http://127.0.0.1:8099"
@@ -42,11 +43,11 @@ SITE_V1: dict[str, Any] = {
 
 def call(base: str, method: str, path: str, body: object | None = None) -> tuple[int, Any]:
     data = None if body is None else json.dumps(body).encode()
-    request = urllib.request.Request(  # noqa: S310 - fixed http scheme, loopback
+    request = urllib.request.Request(
         base + path, data=data, method=method, headers={"Content-Type": "application/json"}
     )
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=10) as response:
             status, raw = response.status, response.read()
     except urllib.error.HTTPError as err:  # /health answers 503 while HA is unreachable
         status, raw = err.code, err.read()
@@ -56,7 +57,9 @@ def call(base: str, method: str, path: str, body: object | None = None) -> tuple
 def contains(new: Any, old: Any) -> bool:
     """`new` holds everything in `old` (dicts may have gained keys, lists keep their length)."""
     if isinstance(old, dict):
-        return isinstance(new, dict) and all(k in new and contains(new[k], v) for k, v in old.items())
+        return isinstance(new, dict) and all(
+            k in new and contains(new[k], v) for k, v in old.items()
+        )
     if isinstance(old, list):
         return (
             isinstance(new, list)
@@ -104,8 +107,24 @@ def seed(base: str) -> dict[str, Any]:
     }
 
 
+def site_problems(site: dict[str, Any] | None, old: dict[str, Any]) -> list[str]:
+    """What changed in the stored site; schema 2 names the PV arrays, nothing else may move."""
+    if site is None:
+        return ["GET /config/site answered nothing"]
+    problems = []
+    if not contains(site["grid"], old["grid"]):
+        problems.append(f"grid changed: {site['grid']}")
+    if [a["power"]["entity_id"] for a in site["pv"]] != [r["entity_id"] for r in old["pv"]]:
+        problems.append(f"pv changed: {site['pv']}")
+    if not contains(site["battery"], old["battery"]):
+        problems.append(f"battery changed: {site['battery']}")
+    if not contains(site["house"], old["house"]):
+        problems.append(f"house changed: {site['house']}")
+    return problems
+
+
 def verify(base: str, seed_file: str) -> dict[str, Any]:
-    seeded = json.loads(open(seed_file, encoding="utf-8").read())  # noqa: SIM115, PTH123
+    seeded = json.loads(Path(seed_file).read_text(encoding="utf-8"))
     health = wait(base, 90)
     problems: list[str] = []
     if not health["db_ok"]:
@@ -116,19 +135,8 @@ def verify(base: str, seed_file: str) -> dict[str, Any]:
     if info["demo"]:
         problems.append("the candidate runs in demo mode")
     status, site = call(base, "GET", "/api/v1/config/site")
-    if status != 200 or site is None:
-        problems.append(f"GET /config/site -> {status}")
-    else:
-        old = seeded["site"]
-        # schema 2 names the PV arrays; every entity of the seeded site must be kept
-        if site["grid"] != old["grid"] and not contains(site["grid"], old["grid"]):
-            problems.append(f"grid changed: {site['grid']}")
-        if [a["power"]["entity_id"] for a in site["pv"]] != [r["entity_id"] for r in old["pv"]]:
-            problems.append(f"pv changed: {site['pv']}")
-        if not contains(site["battery"], old["battery"]):
-            problems.append(f"battery changed: {site['battery']}")
-        if not contains(site["house"], old["house"]):
-            problems.append(f"house changed: {site['house']}")
+    problems += [f"GET /config/site -> {status}"] if status != 200 else []
+    problems += site_problems(site, seeded["site"]) if status == 200 else []
     status, export = call(base, "GET", "/api/v1/config/export")
     if status != 200 or "site" not in export.get("sections", {}):
         problems.append(f"the export lost the site section: {status}")
