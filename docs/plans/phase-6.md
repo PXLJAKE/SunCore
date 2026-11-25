@@ -1679,3 +1679,162 @@ Adapter.
    braucht ein Feld im Steuerungszustand. **Empfehlung:** ja, zusammen mit der Modellgüte.
 4. **Bundle:** Der Erstaufbau liegt bei 123,5 von 125 kB. Soll das Budget auf 130 kB steigen
    oder sollen Wizard-Schritte weiter ausgelagert werden? **Empfehlung:** auslagern.
+
+## 9. Acceptance criteria: status and evidence (6-N, 2026-11-25)
+
+Status key: **met** (automated evidence), **partly** (what is missing is named), **UNVERIFIED
+(hardware)** (needs the maintainer's system or a device that was not available). Test names are
+under `tests/`; scenario tests run with `-m simulator`. The aarch64 and memory budgets are not
+measured. Nothing below has run against real hardware.
+
+| # | Criterion (section 1) | Status | Evidence |
+|---|---|---|---|
+| 1a | MQTT discovery: site device, one device per configured device, entities, last will, birth | partly | `tests/ha/mqtt/test_discovery.py`, `test_client.py::test_last_will_is_published_when_the_connection_drops`, `test_service.py::test_birth_message_republishes_configs_and_states`. Announced today: status, mode, available surplus, healthy, shadow, emergency stop, events, and per device mode, power, last decision (`SUPPORTED`). Not announced: battery device, grid, costs, EV, program and heat pump entities (Phase 7). **UNVERIFIED (hardware)** against a real HA and Mosquitto |
+| 1b | HA commands act like the panel; raising refused unless enabled | met for modes, emergency stop, overrides, replan | `tests/ha/mqtt/test_commands.py`, `test_service_commands.py`, `test_boundary.py::test_commands_reach_the_system_only_through_the_command_port`; control-safety table S1-S11 (section 8, 6-D). The "config history author `mqtt`" part does not apply: no config change is offered from HA (question 17, decision: modes and emergency stop only) |
+| 1c | Without a broker SunCore works and the panel says why | met | `test_service.py::test_no_broker_status_and_retry_until_one_appears`, `test_broker.py::test_no_broker_app_gives_no_broker_with_reason`; Playwright `phase6.spec.ts` "Home Assistant entities: status, hint without a broker, mode-raise opt-in" |
+| 2 | Notifications: errors, safety, proposals, programs, cheap windows, summary; language, rate limit, quiet hours, per category and target | partly | `tests/notify/` (rules, rate limiter, action tokens, boundary, service), `tests/sim/test_fake_notify.py`; Playwright "Notifications: categories, a push target, quiet hours and the test message". **Not wired:** island and §14a pushes (the rule exists, `test_island_and_para14a_are_announced_on_the_edges_only_when_a_source_exists`, but the application passes no island or §14a state) and "EV target at risk" (no producer). The MQTT event per notification is only produced for a switched device, a proposal and an error. Buttons: **UNVERIFIED (hardware)** (Companion app, Supervisor token) |
+| 3a | Wallbox/EV: generic template, modes, 6 A floor, hysteresis, 1/3 phases, SoC, losses | met in the simulator | `tests/sim/test_ev_scenarios.py` (`test_pv_only_follows_the_surplus_and_never_imports_for_the_car`, `test_min_pv_holds_the_minimum_and_adds_surplus`, `test_phases_switch_only_paused_and_within_the_limit`, `test_the_house_battery_never_discharges_into_the_car`), `tests/controller/test_ev.py`, `tests/safety/test_ev_gate.py`, `test_flex.py` (E1-E9), `tests/scenarios/device/generic.wallbox.yaml`. "At least one integration template verified from source" is **not met**: only the generic template exists (the `wallbox` integration source could not be read). **UNVERIFIED (hardware)** |
+| 3b | "Car arrives late" meets its target at the planned cheapest windows | met, with a gap | `tests/sim/test_ev_scenarios.py::test_the_late_car_reaches_its_target_in_the_cheap_hours`; the target ends at about 77 % of 80 % (question 6e below). The demo mode has no EV |
+| 3c | evcc as actor sets mode, limit, max current, released when evcc goes silent | met on a fake evcc | `tests/sim/test_evcc_scenario.py` (`test_a_silent_evcc_is_never_written_and_the_release_is_retried_with_backoff`, `test_only_mode_max_current_and_limit_of_the_loadpoint_are_ever_sent`, `test_r1_flicker_near_the_threshold_switches_a_bounded_number_of_times`), `tests/safety/test_evcc_gate.py`, `test_evcc_invariants.py` (L1-L5). A vehicle plan is not written (clearing is unverified). **UNVERIFIED (hardware)**: a running evcc. Residual risks: `smart` reacts to the import limit after about a minute; liveness depends on evcc's publication interval |
+| 4 | Heat pump: SG-Ready 2/3 (4 opt-in, 1 never), set-point lift, learned RC model and COP, §14a respected | met in the simulator | `tests/sim/test_heat_pump_scenarios.py` (`test_sg_ready_never_writes_block_or_forced_and_keeps_the_comfort_maximum`, `test_sg_ready_cloud_and_unknown_probe_return_to_state_2`, `test_dhw_lift_stays_between_the_user_target_and_the_comfort_maximum`, `test_learned_model_from_simulator_history_drives_the_plan`), `tests/safety/test_heatpump.py` (H1-H5), `tests/controller/test_heat_pump.py`. Pre-heating with cheap grid power is planned (6-H) but **not executed**. **UNVERIFIED (hardware)** |
+| 5 | Shiftable programs: arm with "finished by", planner picks the start, plug, remote or "start now", never interrupted, crash while waiting starts it | met in the simulator; arming from HA not available | `tests/sim/test_program_scenarios.py` (`test_plug_program_is_powered_down_at_arming_and_started_once_at_the_latest_start`, `test_the_planner_picks_the_window_and_the_program_starts_in_it`, `test_the_crash_recovery_switches_the_plug_on_and_the_program_runs`, `test_notify_program_is_never_written_and_asks_once`), `tests/safety/test_program_gate.py`, `test_programs.py` (P1-P6), Playwright "program card arms a job and warns before cancelling it". Arming works in the panel (API) only: no HA button or text entity yet. A `button` remote start is not supported. **UNVERIFIED (hardware)** |
+| 6a | Grid: peak shaving, monthly peak, shed order, §14a, island | met in the simulator | `tests/sim/test_grid_scenarios.py` (`test_fuse_shed_order_and_min_run_waiver`, `test_peak_shaving_sheds_without_waiving_min_run`, `test_month_peak_resets_at_local_midnight`, `test_para14a_budget_holds_under_flicker`, `test_para14a_shadow_says_would_dim`, `test_island_sheds_keeps_and_raises_nothing`, `test_unknown_backup_state_counts_as_connected`), `tests/safety/test_grid_invariants.py` (G1-G6). **UNVERIFIED (hardware)**: fuse, peak tariff, control box, backup switch |
+| 6b | Export chain with inverter limit, capped at assisted until verified | met in the simulator; verification path missing | `tests/sim/test_export_scenarios.py` (`test_zero_export_curtails_only_after_devices_and_battery`, `test_negative_price_without_verification_never_curtails`, `test_crash_stops_the_heartbeat_and_the_restart_releases`), `tests/safety/test_inverter_invariants.py`, `test_inverter_gate.py` (X1-X6). The panel has no verification test, so no limit is ever written from the panel. **UNVERIFIED (hardware)**: register 533, `Inverter:ActivePowerLimitation` |
+| 6c | Every simulator scenario of WP12 passes in CI (`-m simulator`) | met at the tip of 6-M per the PR reports; 6-N re-ran the fast subset only (`FAST=1`, excluding `slow`) | scenario files under `tests/sim/` (grid, export, ev, evcc, heat pump, program) and conformance scenarios under `tests/scenarios/device/` and `tests/scenarios/inverter/` |
+| 7a | Cross-cutting: invariants with property tests, scenarios and a `control-safety` sign-off table per PR | met | the sign-off tables of section 8 (6-D, 6-E, 6-F, 6-G, 6-I, 6-J, 6-K, 6-L), the review conditions and the re-review of 6-J; `tests/safety/` |
+| 7b | New reason keys en/de | met | `scripts/check_reasons.py` (620 backend keys in en and de), `scripts/gen_backend_catalogue.py --check`, frontend en and de with the same 2214 keys (6-N check) |
+| 7c | Pi 4 budgets: RSS below 300 MB with MQTT and notifications; planner at most 10 s with the full house | partly | planner full house 0.22 s solve and 0.26 s run on amd64 (`scripts/bench_planner.py`, `tests/planner/test_gil.py`). **UNVERIFIED (hardware)**: aarch64 timing and resident memory with MQTT and notifications running |
+| 7d | `reviewer` sign-off per PR and a final review | per PR: see the PR threads; final review: open | to be done on the stack 6-A to 6-N |
+| Exit | Maintainer: Mosquitto and one phone notification; "arrives late" and washing machine in the demo; grid section read | open | needs the maintainer. The demo house has no EV or program device; both exist as simulator scenarios only |
+
+## 10. Consolidated questions for the maintainer (Fragen an den Maintainer)
+
+Zusammenfassung aller offenen Fragen aus §6 und §8 (6-C bis 6-M plus eine neue aus 6-N),
+ohne Doppelungen, mit einer Empfehlung je Punkt. **Bis zu deiner Antwort gilt jeweils die
+Empfehlung** (sie ist auch der gebaute Standard). Erledigte Fragen (6-I Nr. 4, 6-J Nr. 7) sind
+nicht mehr aufgeführt.
+
+1. **MQTT-Broker und Einrichtung.** Ist Mosquitto installiert, und zeigt evcc (falls du es
+   nutzt) auf denselben Broker? Die Broker-Suche läuft über den Supervisor ohne `hassio_api`
+   (nur `services: mqtt:want`); die evcc-Anbindung nutzt denselben `mqtt`-Abschnitt wie die
+   Entitäten (ohne den Abschnitt keine evcc-Anbindung). Ein manueller Broker ist nur über die
+   Konfiguration einstellbar. **Empfehlung:** so lassen; ein eigener `evcc`-Abschnitt und
+   Eingabefelder im Panel erst, wenn du sie brauchst.
+2. **Modus aus Home Assistant anheben.** Darf ein Schalter in HA ein Gerät auf „Automatisch“
+   stellen oder den Not-Aus aufheben? Und soll „Fortsetzen“ eine im Panel pausierte Karte auch
+   ohne diese Freigabe zurückgeben? **Empfehlung:** Anheben nein (Standard aus, in den
+   Einstellungen einschaltbar); Absenken, Not-Aus und Pause immer; „Fortsetzen“ ja, ohne
+   Freigabe.
+3. **Texte und Sprache der HA-Entitäten.** Aufzählungs-Sensoren zeigen den übersetzten Text
+   („Automatisch“) als Zustand; Automationen hängen dann an der Sprache. Bei „Sprache:
+   automatisch“ nimmt SunCore die HA-Sprache (`language` aus `get_config`, ungeprüft).
+   **Empfehlung:** so lassen (ADR-0016); die Region-Einstellung hat Vorrang. Alternative: feste
+   englische Zustände plus übersetzte Namen.
+4. **Konfiguration aus HA ändern.** Batterie-Strategie, -Reserve und Abend-Ziel als HA-Entitäten
+   bräuchten einen Urheber `mqtt` im Konfigurationsverlauf (kleine Migration). **Empfehlung:**
+   vorerst nur Modi und Not-Aus aus HA; die Batterie-Einstellungen bleiben im Panel.
+5. **Benachrichtigungen.** (a) Ziele (z. B. `notify.mobile_app_<handy>`) trägst du in den
+   Einstellungen ein; die Liste der `notify`-Dienste liest SunCore nicht. (b) Buttons gibt es
+   nur für Companion-App-Dienste, nicht für `notify`-Entitäten. (c) Vorschläge in der Ruhezeit
+   (22-7 Uhr) werden verworfen, nicht am Morgen nachgereicht. (d) Das „Jetzt starten“ eines
+   Programms kommt auch im Schattenmodus. (e) **Neu (6-N):** Insel- und §14a-Pushes sowie
+   „E-Auto-Ziel in Gefahr“ sind noch nicht angeschlossen, und der Hinweistext zu den Ruhezeiten
+   sagt, Programme würden nie zurückgehalten, obwohl „fertig“ und „verpasst“ in der Ruhezeit
+   warten. **Empfehlung:** (a) bis (d) so lassen; (e) in Phase 7 anschließen und den Hinweistext
+   an die Regel angleichen. Welche Ziele und Kategorien willst du? Standard: Fehler und
+   Sicherheitsereignisse persistent, Push erst nach Zielwahl, günstige Fenster aus, Ruhezeit
+   22-7 Uhr, höchstens 20 Push-Meldungen pro Tag.
+6. **Wallbox und E-Auto.** (a) Welche Wallbox (Hersteller/Integration, evcc ja/nein)? Eine
+   Integrations-Vorlage folgt, sobald der Quellcode der Integration gelesen werden kann.
+   (b) Standard: Modus „Nur PV“, 6 A Minimum, Phasenumschaltung nur wenn angeboten (höchstens 4
+   pro Stunde, 2 min Pause), Zielladung darf in den geplanten günstigsten Stunden aus dem Netz
+   laden. (c) Solange SunCore die Hausbatterie nicht steuern darf (Schatten), lädt das Auto auch
+   in „Sofort“ und „Min+PV“ nur aus Überschuss. (d) Eine Entladesperre kostet Hausbezug (das Netz
+   deckt dann auch die Hauslast). (e) Das Ziel „Auto kommt spät“ endet bei etwa 77 % statt 80 %:
+   soll ein Ziel bis zur Abfahrt hart gelten, auch zu teureren Preisen? (f) Während §14a dimmt,
+   wird eine freigegebene Wallbox nur pausiert und bekommt ihren alten Zustand erst danach
+   zurück; beendet sich SunCore währenddessen, bleibt sie pausiert, bis SunCore wieder läuft.
+   **Empfehlung:** (b) bis (d), (f) so lassen und im UI erklären; (e) ja, harte Frist, Prüfung
+   in Phase 7 (QA).
+7. **evcc.** (a) SunCore setzt nur Ladepunkt-Modus, Ziel, Limit und Maximalstrom, nie die
+   evcc-Batterie-Einstellungen, und schreibt keinen Fahrzeugplan (Löschen über MQTT ungeprüft);
+   deine evcc-Batterieregeln sollten neutral sein, sonst kann evcc selbst aus dem Hausakku ins
+   Auto entladen. (b) „Min+PV“ wird `smart` ohne 6-A-Mindestleistung. (c) Beim Abstecken setzt
+   evcc den Modus zurück; SunCore liest das als Übernahme und pausiert bis 04:00 Uhr.
+   (d) Ladepunkt-ID und Topic-Präfix (Standard 1 und `evcc`) haben noch kein Panel-Feld; welche
+   evcc-Version nutzt du? (e) Restrisiko: `smart` reagiert auf die Bezugsgrenze erst nach etwa
+   einer Minute. **Empfehlung:** (a), (b), (e) so lassen; (c) erst mit einem echten evcc
+   messen; (d) Felder im Geräte-Editor ergänzen (Phase 7).
+8. **Wärmepumpe.** (a) Hast du eine Wärmepumpe? SG-Ready nur Zustand 2/3, Zustand 4 nur nach
+   Freigabe, Zustand 1 nie; Vorheizen nur mit Überschuss, mit Netzstrom nur nach `grid_preheat`
+   (der Planer plant es, die Steuerung führt es noch nicht aus). (b) Kontaktbelegung des
+   generischen Templates: normal 00, verstärkt 01, Zwang 11, Sperre 10 (A zuerst). (c) Die
+   Vorlage `generic.heat_pump_select` (SG-Ready über eine Select-Entität) fehlt. (d)
+   Standardwerte: Wiedereinschalt-Hysterese 3 K, Verweildauer 600 s, Mindestlaufzeit 1200 s,
+   Mindestpause 600 s, 3 Schaltungen pro Stunde. (e) Das RC-Modell lernt Verluste gegen die
+   Außentemperatur; kleine, schnelle Speicher bleiben energie-only. (f) Eine Sollwert-Anhebung
+   bei unbekannter Temperatur hat keinen eigenen Fail-safe (der Sollwert ist begrenzt).
+   **Empfehlung:** (a), (d) bis (f) so lassen; (b) gegen die Anleitung deiner Wärmepumpe prüfen;
+   (c) ganz streichen, bis es jemand braucht; Netz-Vorheizen mit dem generischen
+   Import-Mechanismus nachziehen, wenn gewünscht.
+9. **Verschiebbare Programme.** (a) Start per Steckdose nur nach deiner Bestätigung, dass das
+   Gerät nach Stromrückkehr weiterläuft; ein laufendes Programm wird nie unterbrochen. (b) Der
+   sichere Zustand der Steckdose ist **an**: Sensorausfall, Absturz, „Zurück zu normal“ und ein
+   verpasster Auftrag starten die wartende Maschine sofort („lieber zu früh als nie“). Läuft
+   SunCore gar nicht, schaltet niemand ein: Die Nutzerdoku empfiehlt eine HA-Automation
+   „Steckdose länger als X h aus, dann an“. Soll SunCore sie später selbst anlegen? (c)
+   Fernstart per `button` wird nicht unterstützt, nur ein `switch`; welche Geräte planst du?
+   (d) Vormerken geht nur im Panel (API), nicht aus HA. (e) Die Steckdose wird nur in den ersten
+   10 Minuten nach dem Vormerken ausgeschaltet. **Empfehlung:** (a), (b), (e) so lassen;
+   Automation nicht automatisch anlegen (Doku genügt); (c) Hersteller nennen, dann Quelltext
+   prüfen; (d) mit der Begleit-Integration nachziehen.
+10. **§14a EnWG.** Du hast keine Steuerbox. SunCore *respektiert* das Signal (4,2 kW oder der
+    Wert des Netzbetreibers), ist aber **nicht** der zertifizierte Steuerweg; im Schatten wird
+    nur „hätte gedimmt“ protokolliert. Ohne Signal-Entität zählt §14a als „nicht aktiv“; beim
+    Zahlensignal bedeutet 0 W „nicht gedimmt“. **Empfehlung:** §14a bei dir auf „nicht aktiv“
+    lassen; sonst Steuerbox nennen, die das Signal anders meldet. Die Markierung `para14a` je
+    Gerät hat noch kein Panel-Feld (Phase 7).
+11. **Notstrom (Insel).** Welche Entität und welche Zustände zeigen beim Kostal BackUp Switch G3
+    den Inselbetrieb? **Empfehlung:** Erkennung nur über eine von dir zugeordnete Entität; ohne
+    Zuordnung bleibt die Funktion aus. Die Behalte-Liste und die Abwurf-Rangfolge je Gerät haben
+    noch kein Panel-Feld.
+12. **Lastabwurf über der Anschlussgrenze.** Über der Sicherungs-/Anschlussgrenze schaltet
+    SunCore nicht-thermische Geräte auch vor Ablauf der Mindestlaufzeit und trotz Schaltlimit
+    ab (Wärmepumpen/Klimageräte nie, ein laufendes Programm nie). **Empfehlung:** so lassen.
+13. **Spitzenlast (Leistungspreis).** **Empfehlung:** aus (in Deutschland meist nicht relevant);
+    die Hausanschluss-/Sicherungsgrenze bleibt immer aktiv.
+14. **Einspeisebegrenzung und Wechselrichter-Limit.** (a) Deine 13,5 kW bleiben im
+    Wechselrichter (`enforce_static` aus); SunCore schreibt nur darunter (dynamisch oder
+    Null-Einspeisung), und erst nach dem Verifikationstest, bis dahin höchstens „Assistiert“;
+    Null-Einspeisung aus, Abregelung bei negativen Preisen nur mit geprüftem Adapter. (b) Darf
+    ich den Test (Limit unter die Einspeisung setzen, Einspeisung folgt, Freigabe stellt deinen
+    Wert wieder her) mit dir im Assistiert-Modus auf deinem Plenticore durchgehen, bevor
+    `limit_verified` gesetzt wird, und soll er später ein Endpunkt mit Dialog im Panel werden?
+    (c) Kannst du einen Modbus-Sensor auf Register 533 anlegen und prüfen, ob er den
+    geschriebenen Wert zeigt (sonst gibt es den Modbus-Adapter nicht)? (d) Hält dein
+    Wechselrichter die abgeregelte PV-Leistung exakt konstant (löst „PV eingefroren“ aus)?
+    (e) Begrenzt `Inverter:ActivePowerLimitation` die Einspeisung oder die AC-Leistung, und
+    übersteht der Wert einen Neustart? (f) Register 533 hat keinen dokumentierten Timeout: fällt
+    SunCore aus, bleibt ein AC-Limit stehen; gibt es eine Kommunikations-Timeout-Einstellung?
+    **Empfehlung:** (a) so lassen; (b) Test mit dir, Endpunkt in einem eigenen PR nach der
+    Abnahme; (c) bis (e) erst im Schattenlauf beobachten; (f) bis zur Klärung das
+    Einspeiselimit (REST-Zahl) statt Register 533 nehmen.
+15. **Oberfläche (6-M).** (a) Abfrageintervall der Karten 10 s (EV/Programme) und 15 s
+    (Netz-Badges) statt eines `flex`-Blocks im Live-Feed. (b) COP beim aktuellen Wetter auf der
+    Wärmepumpen-Karte braucht ein Feld im Steuerungszustand. (c) Das Bundle-Budget für den
+    Erstaufbau liegt bei 123,5 von 125 kB. **Empfehlung:** (a) erst bei Bedarf; (b) ja, mit der
+    Modellgüte; (c) Wizard-Schritte weiter auslagern statt das Budget anzuheben.
+16. **Aufgeschobene Punkte.** Eingebaute PV-/Preis-Fallbacks, Kalibrierladung im Planer,
+    Schieflastgrenzen je Phase, V2H, mehrere Fahrzeuge je Wallbox. **Empfehlung:** nicht in
+    Phase 6; nach 1.0, außer du willst sie vorher.
+17. **Datenbank-Migrationen** (`suncore.db` 5 auf 6, `timeseries.db` 2 auf 3): danach ist ein
+    Downgrade nicht möglich. **Empfehlung:** wie in Phase 5 mit dem Hinweis „vor dem Update
+    exportieren“ (steht in den Nutzer-Guides und der App-Beschreibung).
+18. **Modellwahl.** **Empfehlung:** Sonnet für Routine, Haiku für Übersetzungen, das stärkere
+    Modell für Verträge/Invarianten, Planer und die Abschlussprüfung.
+19. **Neu (6-N): Dokumentation und Demo.** Die neuen Anleitungen entstanden aus Code und
+    Katalogen und wurden auf keinem echten Home Assistant nachvollzogen; Screenshots der neuen
+    Ansichten fehlen, und die Demo hat kein E-Auto und keine Waschmaschine. **Empfehlung:**
+    Screenshots, Demo-Geräte und die Dokumentationsseite in Phase 7; du folgst vorher dem
+    Schnellstart und den Anleitungen zu Netzgrenzen und Benachrichtigungen und meldest
+    Abweichungen.

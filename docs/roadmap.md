@@ -115,7 +115,11 @@ Plan: [`plans/phase-5.md`](plans/phase-5.md) (stacked PRs 5-A…5-L).
 ## Phase 6 – HA integration surface and remaining devices 🔨
 
 Planned: [`plans/phase-6.md`](plans/phase-6.md) (stacked PRs 6-A…6-N; ADR-0016, ADR-0017,
-ADR-0018), proceeding on the plan's defaults until the maintainer decides.
+ADR-0018), proceeding on the plan's defaults until the maintainer decides. **Built** (6-A to
+6-N) and waiting for review; acceptance on real hardware is open (plan §9 lists status and
+evidence per criterion, §10 the questions). Left for Phase 7: island and §14a push notifications,
+HA entities for grid, EV, program and heat pump, the inverter verification dialog, panel fields
+for a few per-device grid settings (see `STATUS.md`, "Open - Phase 7").
 
 | Milestone | Acceptance |
 |---|---|
@@ -134,5 +138,6 @@ ADR-0018), proceeding on the plan's defaults until the maintainer decides.
 | Weblate | project live, badge in README |
 | Community files complete | templates, discussions, compatibility list generated |
 | Lovelace cards | energy flow, plan mini, device control, compact mode |
+| Carried over from Phase 6 | wiring of the remaining entities and notifications, inverter verification dialog, screenshots of the Phase 6 views, hardware acceptance (`STATUS.md`) |
 | Standalone container (optional) | Direct transport with token, own UI auth |
 | 1.0 | stable app channel, release notes, security review |

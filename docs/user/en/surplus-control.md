@@ -203,6 +203,7 @@ actions:
 ```
 
 Replace the entity id with your plug and choose the hours to fit your longest "finished by".
+More about programs in [Programs](programs.md).
 
 ### evcc loadpoint (MQTT)
 
@@ -220,6 +221,8 @@ settings and never writes a vehicle plan. Things to know:
   switches it off) when the measured grid import is over your limit while the car charges. It
   reacts after a few seconds, so a short overshoot is possible. To avoid flapping it switches
   off only after a minute over the limit and back on only after five minutes with some room.
+- Setup, modes and the residual risks of the evcc path are in
+  [EV charging](ev-charging.md#5-evcc-as-actor).
 - **Home battery:** in `smart` SunCore has **no discharge lock** for the home battery: evcc's own
   battery rules (for example the buffer SoC) can discharge it into the car. Keep them neutral
   in evcc. Only `now` and planned grid charging wait for SunCore's lock.
@@ -351,22 +354,27 @@ day with sun. The window of a few days is the point: you decide on evidence, not
   assumptions.
 - **The plan is new.** Forecasts, tariffs, the planner and battery control exist now
   ([Planning and battery control](planning-and-battery.md)), but have never run against real
-  hardware either. SunCore does not shift device load to cheaper hours, does not pre-heat for the
-  weather and models no thermal behaviour of devices. Without a plan the goals *battery target*
+  hardware either. Apart from the EV, shiftable programs and the heat pump
+  ([EV charging](ev-charging.md), [Programs](programs.md), [Heat pump](heat-pump.md)), SunCore
+  does not shift device load to cheaper hours, and it models no thermal behaviour of air
+  conditioners and water heaters. Without a plan the goals *battery target*
   and *climate before export* only decide whether the battery's charging power counts as surplus,
   and the target's time is not evaluated.
 - **Time windows and quiet hours** are honoured by the controller but cannot be edited in the
   panel yet (templates and imported configuration only).
 - A removed or re-mapped device that cannot be given back (for example after a crash) is
   reported ("please check it by hand"), not retried forever.
-- **Downgrade**: this version stores its data in database schema 4, which earlier versions cannot
-  open. Export the configuration before updating.
+- **Downgrade**: this version stores its data in database schema 6 (`timeseries.db` schema 3),
+  which earlier versions cannot open. Export the configuration before updating.
 - **Compared with evcc, EMHASS and Predbat**: evcc is the better choice for charge points and
-  has years of hardware experience; SunCore has no wallbox control yet. EMHASS and Predbat
+  has years of hardware experience; SunCore's wallbox control is new and simulator-only. EMHASS and Predbat
   optimise the battery over time with years of field experience; SunCore's planner is new and
   unproven on hardware. What SunCore adds is one app with a safety layer, shadow mode and a reason
   for every decision; see the [roadmap](../../roadmap.md).
 
 See also: [Quick start](quick-start.md), [Planning and battery control](planning-and-battery.md),
+[Home Assistant entities](home-assistant-entities.md), [Notifications](notifications.md),
+[Grid limits](grid-limits.md), [EV charging](ev-charging.md), [Heat pump](heat-pump.md),
+[Programs](programs.md),
 [Contribute a device template](device-templates.md),
 [compatibility list](../compatibility.md).

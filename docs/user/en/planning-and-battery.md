@@ -171,7 +171,8 @@ the two German rates up to and above 10 kWp, and the last tier must cover the wh
 region profile does not carry the official table yet) or **none**. **Negative-price rule:** in a
 region where feed-in is not remunerated at negative prices (profile `de`), the plan values export
 at zero in those intervals and prefers to put the surplus into the battery and consumers instead.
-Actual curtailment of the inverter is not controlled yet.
+Curtailing the inverter is a separate, opt-in feature that stays off until the inverter
+adapter is verified (see [Grid limits](grid-limits.md#inverter-limit-and-the-verification-test)).
 
 Tomorrow's day-ahead prices are expected from 13:00 local time; until they arrive, later hours
 without a price are filled with the median and marked ("planned with the median price"), and
@@ -585,15 +586,16 @@ measurements.
   tomorrow's prices (13:00) is assumed; Nord Pool's configuration entry id must be entered by hand;
   the official German feed-in tier table is not built in.
 - **Not modelled:** thermal behaviour of air conditioners and water heaters in the plan (they
-  only get the surplus), export limiting through the inverter (curtailment is shown, not
-  controlled), peak shaving, wallbox, heat pump, shiftable programs.
-- **No history, no what-if.** The plan view is minimal; the full chart, history and analysis
-  follow in Phase 5.
+  only get the surplus). Export limiting through the inverter, peak shaving, the wallbox, the
+  heat pump and shiftable programs are planned and controlled by separate features: see
+  [Grid limits](grid-limits.md), [EV charging](ev-charging.md), [Heat pump](heat-pump.md) and
+  [Programs](programs.md).
+- **History:** the plan view, the history view and the analysis exist since Phase 5.
 - **After a restart** the first plan is computed from scratch (stored plans are not read back).
 - **Time series** (`timeseries.db`) are not part of the app backup; SunCore rebuilds 28 days of
   quarter-hour history from Home Assistant's statistics. The learnt corrections need new days.
-- **Downgrade:** this version stores its data in database schema 4, which earlier versions
-  cannot open. Export the configuration before updating.
+- **Downgrade:** this version stores its data in database schema 6 (`timeseries.db` schema 3),
+  which earlier versions cannot open. Export the configuration before updating.
 - **Compared with EMHASS and Predbat:** both are far more mature optimisers with years of
   field experience; SunCore's planner is new and unproven on hardware. What SunCore adds is one
   app with forecasts, plan, battery control, a safety layer, shadow mode and a reason for every

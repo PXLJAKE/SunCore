@@ -67,7 +67,9 @@ the step.
 Choose **One signed sensor** or **Separate import and export sensors**.
 Optional: a house consumption sensor (otherwise it is calculated from grid,
 solar and battery), limits for import and feed-in, and the grid operator
-signal for section 14a EnWG (Germany).
+signal for section 14a EnWG (Germany). You can also switch on peak shaving, zero
+export, "0 W at negative export prices" and a backup-power (island) entity here. All of
+it is optional and explained in [Grid limits](grid-limits.md).
 
 The **Check the sign** panel asks, for example, "The grid connection is importing
 … right now. Is that correct?" Answer **Yes, correct** or **No, invert the
@@ -151,6 +153,11 @@ with the same device name; if you renamed one of the devices in Home Assistant
 ![System check warning](../../assets/screenshots/wizard-summary-duplicate-tablet-light-en.png)
 
 ![Step Devices](../../assets/screenshots/wizard-devices-tablet-light-en.png)
+
+The gallery also has a wallbox ([EV charging](ev-charging.md)), an evcc loadpoint, a heat pump
+([Heat pump](heat-pump.md)) and shiftable programs ([Programs](programs.md)). Devices of
+these kinds run at most in assisted mode until you tick the box that confirms you checked
+their behaviour.
 
 Is your device missing? See
 [Contribute a device template](device-templates.md) and the generated
@@ -277,17 +284,21 @@ summary and an **Open** link to the matching step.
 
 ## What SunCore cannot do yet
 
-Be aware before you rely on it. SunCore now has forecasts, tariffs, a 48 hour
-planner and battery control, but **none of it has ever run against real
-hardware**: that is what your shadow-mode run is for. The battery starts in
-shadow mode, and until the inverter's fallback timer has been measured on your
-system a Kostal Modbus battery is capped at assisted mode. Kostal Plenticore
-cannot be told to charge from the grid. There are no history charts or what-if
-analysis yet (the plan view is minimal), no thermal models for air conditioners
-and water heaters in the plan, no charge point (wallbox) control and no Home
-Assistant entities. Compared with evcc (charge points and heaters), EMHASS and
-Predbat (battery optimisation), SunCore's planner is new and unproven, while
-its surplus control and safety layer are its strengths. The list of open points
+Be aware before you rely on it. SunCore now has forecasts, tariffs, a 48 hour planner,
+battery control, EV charging (directly or through evcc), heat pump and shiftable-program
+control, grid limits and entities in Home Assistant, but **none of it has ever run against
+real hardware**: that is what your shadow-mode run is for. Every device starts in shadow
+mode. A Kostal Modbus battery is capped at assisted mode until the inverter's fallback timer
+has been measured, and the inverter limit stays off until it has been verified (the panel has no
+verification dialog yet). Kostal Plenticore cannot be told to charge from the grid. Island and
+section 14a events are shown in the panel but not pushed as notifications yet, the EV, program
+and heat pump entities are not announced in Home Assistant yet, and there is no companion
+integration, no Lovelace card and no documentation site (all planned for Phase 7).
+
+Compared with evcc (charge points, years of hardware experience), EMHASS and Predbat (battery
+optimisation), SunCore's planner and its wallbox control are new and unproven. Its strengths are
+one app with a safety layer, shadow mode and a reason for every decision; it can also work
+together with evcc (see [EV charging](ev-charging.md#5-evcc-as-actor)). The list of open points
 is in [Known limitations](planning-and-battery.md#10-known-limitations-and-unverified)
 and in [Surplus control](surplus-control.md#known-limitations-and-unverified);
 the [roadmap](../../roadmap.md) shows when each part arrives.

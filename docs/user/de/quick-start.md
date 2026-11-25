@@ -72,7 +72,9 @@ Wähle **Ein Sensor mit Vorzeichen** oder **Getrennte Bezugs- und
 Einspeise-Sensoren**. Optional: ein Sensor für den Hausverbrauch (sonst
 wird er aus Netz, PV und Batterie berechnet), Grenzen für Bezug und
 Einspeisung und das Signal des Netzbetreibers nach § 14a EnWG
-(Deutschland).
+(Deutschland). Hier kannst du auch Spitzenkappung, Nulleinspeisung, „0 W bei negativen
+Einspeisepreisen“ und eine Ersatzstrom-Entität (Inselbetrieb) einschalten. Alles ist optional und
+steht in den [Netzgrenzen](grid-limits.md).
 
 Der Bereich **Vorzeichen prüfen** fragt zum Beispiel, ob der Netzanschluss gerade
 Bezug oder Einspeisung zeigt, und ob das stimmt. Antworte **Ja, stimmt**
@@ -161,6 +163,11 @@ Hinweis und Warnung stumm.
 ![Warnung der Systemprüfung](../../assets/screenshots/wizard-summary-duplicate-tablet-light-de.png)
 
 ![Schritt Verbraucher](../../assets/screenshots/wizard-devices-tablet-light-de.png)
+
+Die Galerie hat auch eine Wallbox ([E-Auto laden](ev-charging.md)), einen evcc-Ladepunkt, eine
+Wärmepumpe ([Wärmepumpe](heat-pump.md)) und verschiebbare Programme
+([Programme](programs.md)). Geräte dieser Arten laufen höchstens assistiert, bis du das
+Kontrollkästchen setzt, mit dem du bestätigst, dass du ihr Verhalten geprüft hast.
 
 Fehlt dein Gerät? Siehe
 [Gerätevorlage beitragen](device-templates.md) und die generierte
@@ -298,18 +305,23 @@ einem Link **Öffnen** zum passenden Schritt.
 
 ## Was SunCore noch nicht kann
 
-Bedenke das, bevor du dich darauf verlässt. SunCore hat jetzt Prognosen, Tarife,
-einen 48-Stunden-Planer und Akkusteuerung, aber **nichts davon ist je an echter
-Hardware gelaufen**: Dafür ist dein Schattenlauf da. Der Akku startet im
-Schattenmodus, und bis der Rückfall-Timer des Wechselrichters an deiner Anlage
-gemessen ist, bleibt ein Kostal-Modbus-Akku auf den assistierten Modus
-begrenzt. Kostal Plenticore lässt sich nicht zum Laden aus dem Netz
-auffordern. Es gibt noch keine Verlaufsdiagramme und keine Was-wäre-wenn-Analyse
-(die Planansicht ist minimal), keine thermischen Modelle für Klimageräte und
-Warmwasserbereiter im Plan, keine Wallbox-Steuerung und keine
-Home-Assistant-Entitäten. Verglichen mit evcc (Ladepunkte und Heizstäbe), EMHASS
-und Predbat (Batterieoptimierung) ist SunCores Planer neu und unerprobt;
-Überschusssteuerung und Sicherheitsschicht sind seine Stärken. Die Liste der
+Bedenke das, bevor du dich darauf verlässt. SunCore hat jetzt Prognosen, Tarife, einen
+48-Stunden-Planer, Akkusteuerung, E-Auto-Laden (direkt oder über evcc), Wärmepumpen- und
+Programmsteuerung, Netzgrenzen und Entitäten in Home Assistant, aber **nichts davon ist je an
+echter Hardware gelaufen**: Dafür ist dein Schattenlauf da. Jedes Gerät startet im
+Schattenmodus. Ein Kostal-Modbus-Akku bleibt auf assistiert begrenzt, bis der Rückfall-Timer des
+Wechselrichters gemessen ist, und das Wechselrichter-Limit bleibt aus, bis es geprüft ist (das
+Panel hat noch keinen Prüfdialog). Kostal Plenticore lässt sich nicht zum Laden aus dem Netz
+auffordern. Insel- und §14a-Ereignisse zeigt das Panel, sie werden aber noch nicht als
+Benachrichtigung gepusht, die Entitäten für E-Auto, Programme und Wärmepumpe werden in Home
+Assistant noch nicht angemeldet, und es gibt noch keine Begleit-Integration, keine Lovelace-Karte
+und keine Dokumentationsseite (alles für Phase 7 geplant).
+
+Verglichen mit evcc (Ladepunkte, Jahre an Hardware-Erfahrung), EMHASS und Predbat
+(Batterieoptimierung) sind SunCores Planer und seine Wallbox-Steuerung neu und unerprobt. Seine
+Stärken sind eine App mit Sicherheitsschicht, Schattenmodus und einer Begründung zu jeder
+Entscheidung; es kann auch mit evcc zusammenarbeiten (siehe
+[E-Auto laden](ev-charging.md#5-evcc-als-akteur)). Die Liste der
 offenen Punkte steht in den
 [Bekannten Grenzen](planning-and-battery.md#10-bekannte-grenzen-und-unverified)
 und in der [Überschusssteuerung](surplus-control.md#bekannte-grenzen-und-unverified);

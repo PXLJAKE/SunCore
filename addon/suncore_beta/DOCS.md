@@ -97,7 +97,7 @@ Supported architectures: `amd64` and `aarch64`.
 the assistant; **Earlier versions** restores a previous save; **Export
 configuration** and **Import configuration** back up everything as a file.
 The settings are stored in the app's `/data` folder and are part of the app
-backup. This version uses database schema 4, which earlier versions cannot open:
+backup. This version uses database schema 6, which earlier versions cannot open:
 export the configuration before updating. Measurements, forecasts and prices
 live in a separate `timeseries.db`, which is left out of the app backup; SunCore
 rebuilds its quarter-hour history from Home Assistant's statistics when the file
@@ -143,20 +143,28 @@ Short version: leave everything in shadow mode first, read the **Decision log**
 for a day, then switch **one** device to automatic. Surplus control has never
 run against real hardware yet; the guide lists what is unverified.
 
-## Home Assistant entities
+## Home Assistant entities, notifications and the other Phase 6 features
 
 SunCore shows its status in Home Assistant as devices and entities (the site, one
-device per configured device): status, operating mode, emergency stop, available
-surplus, and per device mode, power and last decision, plus an event entity for
-switching and proposals. They are published through MQTT discovery, so they need
-the **Mosquitto broker** app (Settings → Apps → App store). SunCore finds the
-broker through the Supervisor by itself (the app needs no extra permission for
-that) and looks again every minute until one is installed. Without a broker
-everything else in SunCore works; the **Home Assistant entities** line of the
-system check says so. These entities do not replace the Energy dashboard: there
-are no energy counters among them. Names and states follow the language of your
-region setting (or of Home Assistant). This version only reads; commands from
-Home Assistant follow later.
+device per configured device) and accepts a few commands from Home Assistant: emergency
+stop, pause, boost, resume, replan, and lowering an operating mode. They are published
+through MQTT discovery, so they need the **Mosquitto broker** app (Settings → Apps → App
+store). SunCore finds the broker through the Supervisor by itself and looks again every
+minute until one is installed. The app needs no `hassio_api` permission for this: it asks
+for the MQTT service only (`services: mqtt:want`) and calls one Supervisor path, the MQTT
+service lookup. Without a broker everything else in SunCore works; the **Home Assistant
+entities** page in the settings and the system check say so. Raising a mode from Home
+Assistant is refused unless you allow it in the settings. Details:
+[Home Assistant entities](https://github.com/pxljake/suncore/blob/main/docs/user/en/home-assistant-entities.md).
+
+The other guides: [Notifications](https://github.com/pxljake/suncore/blob/main/docs/user/en/notifications.md),
+[Grid limits](https://github.com/pxljake/suncore/blob/main/docs/user/en/grid-limits.md)
+(peak shaving, section 14a, island, export limit),
+[EV charging and evcc](https://github.com/pxljake/suncore/blob/main/docs/user/en/ev-charging.md),
+[Heat pump](https://github.com/pxljake/suncore/blob/main/docs/user/en/heat-pump.md) and
+[Programs](https://github.com/pxljake/suncore/blob/main/docs/user/en/programs.md).
+All of them are German as well (replace `en` by `de`). Every new device starts in shadow mode
+and nothing in these guides has run on real hardware yet.
 
 ## Options
 
@@ -223,16 +231,16 @@ tried; off by default).
 
 ## What is not there yet
 
-Nothing of the planner and the battery control has run on real hardware yet.
-Kostal Plenticore cannot be told to charge from the grid (the plan only shows
-it), and a Kostal Modbus battery stays capped at assisted mode until you have
-measured the inverter's fallback timer. There are no history charts, what-if
-analysis or backtesting (the plan view is minimal), no machine-learning load
-model, no built-in internet fallbacks for solar forecasts and prices, no thermal
-models for air conditioners and water heaters in the plan, no export limiting
-through the inverter, no charge point (wallbox), heat pump or shiftable program
-control, and the Home Assistant entities are read-only so far (no buttons or
-switches yet). See the
+Nothing of the planner, the battery control, EV charging, heat pump and program
+control, the grid limits or the notifications has run on real hardware yet. Kostal
+Plenticore cannot be told to charge from the grid (the plan only shows it), a Kostal
+Modbus battery stays capped at assisted mode until you have measured the inverter's
+fallback timer, and the inverter limit stays off until it is verified (the panel has no
+verification dialog yet). Island and section 14a events are not pushed as notifications
+yet, the EV, program and heat pump entities are not announced in Home Assistant yet, and
+there is no built-in internet fallback for solar forecasts and prices. The companion
+integration, Lovelace cards, the documentation site and translations through Weblate
+follow in Phase 7. See the
 [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 ## Privacy

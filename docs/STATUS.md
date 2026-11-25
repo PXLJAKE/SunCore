@@ -3,15 +3,60 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-24 (Phase 6 PRs 6-C MQTT, 6-F import side, 6-G export chain,
-6-H planner flex, 6-I EV, 6-J evcc, 6-K heat pump, 6-L programs, 6-M frontend) · **Phase:** 5 started
-(plan `docs/plans/phase-5.md`, PR 5-A). Phase 4
-(4-A…4-I, #25–#36) and the DST test fix (#35) were merged on 2026-11-23 at the maintainer's request;
-the acceptance of Phases 3 and 4 on his system is still open (two stages, see "Next steps") ·
-**Branch:** `claude/project-thread-7gkqcr`
+**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M plus 6-N docs, translations, STATUS) ·
+**Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
+Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
+steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
+heat pump, §14a box or backup switch was available in the sessions ·
+**Branch:** `phase-6/n-docs` (stacked on `phase-6/m-frontend`)
+
+## Phase 6 at a glance
+
+What exists (all behind shadow mode, none of it has run on hardware):
+
+- **HA surface:** MQTT discovery with a command path (modes, emergency stop, overrides, replan;
+  raising refused by default) and notifications (persistent, push, confirm and reject buttons,
+  quiet hours, daily cap); backend ICU catalogue en/de.
+- **Grid:** one resolver for the import limit, export limit and §14a budget; peak shaving with a
+  monthly peak and a shed order; §14a and island caps; export chain with an inverter limit (capped
+  at assisted until `limit_verified`, which has no panel path yet).
+- **Devices:** wallbox/EV (modes `off`, `now`, `min_pv`, `pv`, `target`, phase switching), evcc as
+  actor, heat pump (SG-Ready 2/3, state 4 opt-in, set-point lift, RC model and COP), shiftable
+  programs (plug, remote switch, notify).
+- **Safety:** invariant families G1-G6, X1-X6, E1-E9, L1-L5, H1-H5, P1-P6 with property tests and
+  scenarios; `NOT_YET_SUPPORTED_KINDS` is empty; every PR has a `control-safety` sign-off table.
+- **Docs:** user guides en/de for entities, notifications, grid limits, EV and evcc, heat pump
+  and programs; architecture updated for Phases 5 and 6; acceptance table in plan §9.
+
+Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 6 - PR 6-N, WP14 docs, translations, STATUS (branch `phase-6/n-docs`, on 6-M;
+  `docs-writer`)** - docs only, no code and no safety path changed:
+  - User guides en and de: `home-assistant-entities.md`, `notifications.md`, `grid-limits.md`,
+    `ev-charging.md` (with evcc), `heat-pump.md`, `programs.md`. Each covers the setup in the
+    wizard, what SunCore does and never does, shadow and assisted behaviour, hand-back and the
+    emergency stop, and the known limits and `UNVERIFIED` items, including the residual risks of
+    the reviews (evcc `smart` reacts to the import limit only after about a minute, the program
+    plug's safe state is ON and the HA automation for a plug stuck off, evcc liveness caveats,
+    register 533 without a timeout).
+  - Existing pages extended, not duplicated: quick start (grid step, gallery, "cannot do yet"),
+    surplus control and planning (links, schema 6 and 3 instead of 4, stale "no wallbox"
+    statements), both `DOCS.md` (the MQTT service needs no `hassio_api`).
+  - `docs/architecture.md` brought up to date: Phase 5 and 6 modules, dependency rules (notify
+    and MQTT never write), grid chain and flexible loads, the HA surface, storage (schema 6 and
+    3, `flex_state`, `grid_event`, `grid_peak`), the process model (the planner runs in a daemon
+    thread, not a process pool), the frontend routes.
+  - Catalogues: frontend en/de (2214 keys) and backend en/de (683 keys) have the same keys and
+    placeholders; `check_reasons` passes; the addon translations cover every option of both app
+    folders. Four unused frontend keys removed (`plan.status.solve`, `plan.next.more`,
+    `fc.accuracy.title`, `bat.settings_title`). The generators (`gen_schemas`, `gen_compat`,
+    `gen_backend_catalogue`) produce no diff.
+  - Plan `docs/plans/phase-6.md`: acceptance table with evidence (section 9) and one consolidated
+    German list of the open questions (section 10).
+  - Not done: screenshots of the new views (they need the demo with a browser; carried to
+    Phase 7), a click-through of the new how-tos on a real Home Assistant.
 - **Phase 6 - PR 6-M, WP13 frontend (branch `phase-6/m-frontend`, on 6-L, 6-J, 6-K, 6-G;
   `frontend-engineer`)** - no safety path changed, shadow stays the default:
   - Backend (commit scope `api`, `suncore/api/flex.py`): `GET /devices/{id}/flex`,
@@ -1085,6 +1130,41 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
   - Beta version derivation in `build.yml` and the E2E/screenshot work were done
     in PR 2-D, see Open – Phase 1.
 
+## Open - Phase 7 (carried over from Phase 6)
+
+Phase 7 is the UI design pass, the documentation site (`mkdocs.yml`, `mkdocs build`), Weblate,
+the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 leaves for it:
+
+- **Maintainer acceptance, nothing of Phase 6 has run on hardware:** MQTT with the Mosquitto app
+  and one notification on the phone (stage A), then the grid section (static export limit shown,
+  §14a "not active", backup entity mapped or skipped), the simulated "car arrives late" and a
+  washing-machine job in the demo, later a real wallbox, heat pump, evcc and inverter limit.
+  The 16 questions of plan section 10 need answers or confirmation of the defaults.
+- **Wire what exists but is not fed:** island and §14a push notifications and "EV target at risk"
+  (rules and texts exist, the observation does not carry them); MQTT entities for the grid
+  (`grid_state`, `month_peak`, `para14a_active`, `island`), costs and savings, battery, EV,
+  program and heat pump (`SUPPORTED` in `suncore/app/ha_entities.py` lists what is announced);
+  the producers of the event types `island_*`, `para14a_*`, `program_*`, `cheap_window_*`,
+  `ev_target_at_risk`; HA commands for EV mode, target and program arming.
+- **Panel gaps:** inverter verification test as an endpoint with a dialog (without it
+  `limit_verified` stays false and no limit is ever written), per-device `para14a` flag,
+  `shed_rank` and the island keep list, evcc `loadpoint_id` and `topic_prefix`, a manual MQTT
+  broker, COP at the current weather on the heat pump card, bundle budget (first paint 123.5 of
+  125 kB: move more wizard steps out).
+- **Wording:** the notification hint says programs are never held back during quiet hours, but
+  the code holds back "finished" and "missed" (only "start now" and safety are exempt); align the
+  catalogue text (`notify.quiet_hint`) or the rule.
+- **Behaviour decisions deferred:** hard target at any price for the EV (the late-car scenario
+  stops at about 77 % of 80 %), grid pre-heating execution, `generic.heat_pump_select`, a
+  `button.press` remote start, a plan clear for evcc, resetting evcc's mode at unplugging.
+- **Budgets to measure:** resident memory below 300 MB with MQTT, notifications and a full plan,
+  planner at most 10 s on an aarch64 CI runner or Pi (amd64: 0.26 s for the full house).
+- **Docs:** screenshots of the new views through the `demo-screenshots` skill, a followed test of
+  every new how-to on Home Assistant OS, the docs site and the Weblate project (the translation
+  structure of `docs/user/en` and `docs/user/de` is identical).
+- Deferred past 1.0 unless asked: built-in PV and price fallbacks, calibration charging, per-phase
+  imbalance limits, V2H, several vehicles per charger, EEBus and the certified §14a path.
+
 ## Open – Phase 4
 
 - PR order (stacked, each on the previous, `phase-4/<letter>-<topic>`): 4-B storage/time series
@@ -1336,13 +1416,22 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 4. The questions of 4-A/4-B/4-C were answered with the defaults on 2026-10-19. Still open: what needs
    the maintainer's system or bills (VAT on negative spot prices, the EEG tiers, the Kostal fallback
    timer measurement, the publication time of next-day prices) and the 4-I questions (defaults built).
-5. Phase 5: plan `docs/plans/phase-5.md`, built on the defaults of its §6 while the maintainer is
-   away.
+5. Phases 5 and 6 were built on the defaults of their plans' §6 while the maintainer was away
+   (`docs/plans/phase-5.md`, `docs/plans/phase-6.md`). Review and merge the Phase 6 stack in
+   order (6-A ... 6-N), read the consolidated questions in `docs/plans/phase-6.md` section 10, and
+   do the acceptance listed under "Open - Phase 7". Then Phase 7 (plan to be written by the
+   architect).
 
 ## Known problems and `UNVERIFIED` items
 
 | Item | Where | Needed to resolve |
 |---|---|---|
+| Phase 6 residual risk (6-J): for evcc `smart` the import limit (G1) is checked reactively; evcc may import by its own plan until the controller saw the import and the cut was echoed, about 1 min (60-90 s with noisy import, scenario `evcc_plan`: 20 s over the limit); the gate only sees what evcc *may* do. Accepted, the fuse and the operator's limit stay the user's own protection | `suncore/controller/evcc.py`, `suncore/safety/evcc.py`, `docs/user/*/ev-charging.md` | a running evcc with a smart-cost limit or plan |
+| Phase 6 residual risk (6-J): evcc liveness is `<prefix>/updated` younger than 120 s; a quiet evcc that publishes less often trips falsely, and an evcc clock running ahead makes an old retained timestamp look fresh | `suncore/app/evcc_link.py`, `templates/device/evcc.loadpoint.yaml` | measure the publication interval of the user's evcc |
+| Phase 6 residual risk (6-L): the safe state of a program's plug is ON (a failed power sensor, a crash, "back to normal", a missed job release it and the machine starts early); if SunCore does not run while the plug is off nobody switches it on, so the guides recommend an HA automation "plug off longer than X h -> on" (SunCore does not create it) | `suncore/safety/programs.py`, `docs/user/*/programs.md`, `docs/user/*/surplus-control.md` | maintainer decides whether SunCore should create the automation (plan section 10) |
+| Phase 6 residual risk (6-G): a held AC limit in register 533 survives a crash or a lost connection without a documented timeout; when the house load rises above it the difference is imported | `suncore/devices/inverter/`, `docs/user/*/grid-limits.md` | the inverter's communication-timeout setting; until then prefer the REST export limit |
+| Phase 6 budgets: resident memory below 300 MB with MQTT, notifications and a full plan, and the planner at most 10 s on aarch64, were not measured (amd64: 0.26 s for the full house) | `scripts/smoke_image.sh`, `scripts/bench_planner.py` | CI arm runner or a Pi 4 |
+| The Phase 6 user guides (6-N) are written from the code and the catalogues; their set-up steps and the UI names were not followed on a real Home Assistant, and the new views have no screenshots yet | `docs/user/*/home-assistant-entities.md`, `notifications.md`, `grid-limits.md`, `ev-charging.md`, `heat-pump.md`, `programs.md` | maintainer follows them; screenshots through `demo-screenshots` (Phase 7) |
 | 6-D MQTT commands: default payloads of the MQTT `switch` (`ON`/`OFF`), `button` (`PRESS`) and the `number` keys `min`, `max`, `step`, `mode` (HA source was not reachable in the session; used as documented); that HA sends commands with retain off | `research/mqtt-discovery.md`, `suncore/ha/mqtt/commands.py`, `discovery.py` | maintainer's HA: press the buttons, set the switches and the boost duration, see the true state come back |
 | 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); the unit rule of `monetary` sensors; TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
 | Kostal §3.4 set-point timeout and how external battery management is enabled (register map itself is verified from KOSTAL rev 2.9) | `research/kostal-plenticore-modbus.md` | Phase 4 measurement on the maintainer's inverter |
@@ -1388,7 +1477,7 @@ the acceptance of Phases 3 and 4 on his system is still open (two stages, see "N
 | Heat pump (6-K): SG-Ready contact mapping of the generic template (normal 00, intensified 01, forced 11, block 10); which integrations expose a heat pump's hot water as `water_heater` and how fast they apply a target; template defaults (dwell 600 s, min run 1200 s, min pause 600 s, 3/h, comfort 45-55 °C, restart 3 K); grid pre-heat planned but not executed; simulator only, no heat pump in the session | `templates/device/generic.heat_pump_*.yaml`, `suncore/core/sgready.py`, plan section 8 (6-K) | a user's heat pump with its manual; 6-I import mechanism |
 | RC learner (6-K): losses fitted against the outdoor series (stores indoors lose to the room); small fast stores miss the quality threshold on 15-minute data and stay energy-only | `suncore/forecast/thermal.py` | 14+ days of a real heat pump's probe, power and weather |
 | SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
-| evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
+| evcc REST API paths | `research/competitors.md` | not needed: the MQTT API is verified from source and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
 | Open-Meteo Solar Forecast: translation key assumed equal to the description key (the CC BY 4.0 attribution is shown in the plan view since 4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration |
 | Forecast.Solar `wh_hours`/`watt_hours_period` keys read as period *start* (vendor API unreachable) | `templates/forecast/forecast_solar.pv.yaml`, `suncore/forecast/pv/parsing.py` | live comparison with the integration's sensors |
