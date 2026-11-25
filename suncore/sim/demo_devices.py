@@ -53,6 +53,7 @@ from suncore.sim.devices import (
     SimClimate,
     SimDevice,
     SimDeviceSet,
+    SimProgram,
     SimSwitchLoad,
     SwitchParams,
     WaterHeaterParams,
@@ -329,6 +330,9 @@ class DemoDevices:
                     self.apply_now(ac, "set_temperature", 24.0)
                 else:
                     self.apply_now(ac, "turn_off", None)
+        washer = self.devices.devices.get("washer")
+        if self.flex and isinstance(washer, SimProgram) and washer.runs > 0 and not washer.loaded:
+            self.apply_now(washer, "turn_on", None)  # the next load of laundry
         pool = self.devices.devices.get(POOL_DEVICE_ID)
         if isinstance(pool, SimSwitchLoad):
             wants = self.pool_on(state)

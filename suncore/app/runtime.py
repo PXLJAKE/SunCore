@@ -6,7 +6,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import tempfile
-from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Collection,
+    Coroutine,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from pathlib import Path
@@ -290,6 +298,9 @@ class Runtime:
     _unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _tempdir: tempfile.TemporaryDirectory[str] | None = None
     _prune_task: asyncio.Task[None] | None = None
+    demo_user: Callable[[Runtime], Coroutine[Any, Any, None]] | None = None
+    """Demo only: a coroutine that plays the user (arms jobs); set by the demo seeding."""
+    _demo_user_task: asyncio.Task[None] | None = None
     _flush_task: asyncio.Task[None] | None = None
     _maintenance_task: asyncio.Task[None] | None = None
     _history_task: asyncio.Task[None] | None = None
@@ -378,6 +389,10 @@ class Runtime:
         self.stack.start_ticking()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
         self._prune_task = asyncio.create_task(self._prune_loop(), name="suncore-prune")
+        if self.demo_user is not None:
+            self._demo_user_task = asyncio.create_task(
+                self.demo_user(self), name="suncore-demo-user"
+            )
         self._start_pv_task()
         self._start_load_task()
         self._start_tariff()
@@ -1545,6 +1560,7 @@ class Runtime:
             self._accuracy_task,
             self._tariff_task,
             self._planning_task,
+            self._demo_user_task,
         )
         for task in (*control_tasks, *storage_tasks):
             if task is not None:
@@ -1558,6 +1574,7 @@ class Runtime:
         self._pv_task = self._load_task = None
         self._tariff_task = None
         self._planning_task = None
+        self._demo_user_task = None
         # Hardware release comes first: a running downsample or retention statement keeps the
         # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
         # The storage tasks are awaited only after the devices are released.

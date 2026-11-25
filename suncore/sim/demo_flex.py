@@ -10,8 +10,9 @@ generic templates, so the Phase 6 cards and views have something to show:
   30 %, charging stopped; the runtime EV state asks for 80 % by 07:00 the next morning (the
   numbers of the ``ev_arrives_late`` scenario). In shadow the car does not charge: the cards
   show what SunCore *would* do;
-* ``washer`` (``generic.program_plug``): a programme of two hours, loaded at 10:30; an armed job
-  asks for "finished by 17:00";
+* ``washer`` (``generic.program_plug``): a programme of two hours, loaded at 10:30 and again
+  whenever it has finished (laundry mountain); the demo user arms a job "finished in six hours"
+  for every load (``suncore.app.main.demo_flex_user``), so the card always has a job;
 * ``heat_pump`` (``generic.heat_pump_sg_ready``): SG-Ready contacts, store probe (48.5 degrees at
   midnight, comfort 45-55) and a power sensor.
 
@@ -47,7 +48,7 @@ CAR_SOC_PCT: Final = 30.0
 CAR_TARGET_SOC_PCT: Final = 80.0
 CAR_TARGET_HOUR: Final = 7
 WASHER_LOADED_S: Final = 10 * 3600 + 30 * 60
-WASHER_DEADLINE_HOUR: Final = 17
+WASHER_DEADLINE_AHEAD: Final = timedelta(hours=6)
 HEAT_PUMP_COMFORT_C: Final = (45.0, 55.0)
 
 _WASHER_PROFILE_W: Final = (2000.0, 480.0, 240.0, 240.0, 240.0, 240.0, 1000.0, 480.0)
@@ -169,5 +170,6 @@ def demo_ev_target(now: datetime) -> tuple[EvMode, EvTarget]:
 
 
 def demo_washer_deadline(now: datetime) -> datetime:
-    """ "Finished by" of the armed washing job: the next 17:00."""
-    return next_local_time(now, WASHER_DEADLINE_HOUR)
+    """ "Finished by" of the armed washing job: :data:`WASHER_DEADLINE_AHEAD` from ``now``
+    (relative, so every cycle of the demo user is valid whatever time of day it starts)."""
+    return now + WASHER_DEADLINE_AHEAD

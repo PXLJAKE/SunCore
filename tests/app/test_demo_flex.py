@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -62,10 +62,31 @@ async def test_the_demo_has_the_flexible_devices_in_shadow(flex_runtime: Runtime
         washer = (await client.get(f"/api/v1/devices/{WASHER_ID}/flex")).json()
         assert washer["ev"] is None
         assert washer["job"]["device_id"] == WASHER_ID
-        # the deadline lies ahead of the demo clock, at 17:00 local time
+        # the deadline lies ahead of the demo clock (relative, not a fixed time of day)
         deadline = datetime.fromisoformat(washer["job"]["deadline"])
-        assert deadline > flex_runtime.clock()
-        assert deadline.astimezone(flex_runtime.timezone()).hour == 17
+        assert flex_runtime.clock() < deadline <= flex_runtime.clock() + timedelta(hours=7)
+
+
+async def test_every_load_of_the_washer_gets_a_job(tmp_path: Path) -> None:
+    """The demo user loads the washing machine again after each programme and arms a job for it,
+    so the card does not run out of jobs while the accelerated demo day goes on."""
+    # no injected connection: the real demo wiring (accelerated scenario clock for everything)
+    runtime = await build_runtime(
+        demo_settings(tmp_path, demo_flex=True, demo_speed=30_000.0), env={}
+    )
+    await runtime.start()
+    try:
+        seen: set[str] = set()
+        for _ in range(3000):
+            job = runtime.program_jobs.current(WASHER_ID)
+            if job is not None:
+                seen.add(job.id)
+            if len(seen) >= 2:
+                break
+            await asyncio.sleep(0.02)
+        assert len(seen) >= 2
+    finally:
+        await runtime.stop()
 
 
 async def test_the_default_demo_has_no_flexible_devices(demo_runtime: Runtime) -> None:
@@ -93,7 +114,7 @@ def test_the_flexible_devices_have_plausible_state_at_midday() -> None:
     assert car.soc_pct == pytest.approx(30.0)
     # the washer was loaded at 10:30 and, nobody holding the plug, runs its programme
     assert washer.started_at
-    assert washer.loaded or washer.runs == 1
+    assert washer.loaded or washer.runs >= 1
     # the heat pump's store is between its cold start and the hard limit
     assert 35.0 <= pump.temp_c <= pump.p.max_temp_c
     states = {s.entity_id: s for s in demo.devices.states(state.time)}
