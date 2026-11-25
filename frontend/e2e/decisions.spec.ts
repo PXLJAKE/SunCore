@@ -40,7 +40,8 @@ test.describe('decision log', () => {
     await page.goto('/#/decisions');
     await firstRow(page);
     const all = (await (await request.get('/api/v1/decisions?limit=200')).json()) as Row[];
-    const id = [...new Set(all.map((d) => d.intent.asset_id))][0]!;
+    // a device with a card (the log also holds the battery's and the inverter's decisions)
+    const id = all.map((d) => d.intent.asset_id).find((a) => a in NAMES)!;
 
     await page.getByTestId('filter-device').selectOption(id);
     await expect(page).toHaveURL(new RegExp(`#/decisions\\?device=${id}$`));
@@ -111,7 +112,7 @@ test.describe('decision log', () => {
   test('"Why?" explains a decision, by keyboard, and links to plan and device', async ({
     page,
   }) => {
-    await page.goto('/#/decisions');
+    await page.goto('/#/decisions?device=pool_pump');
     await firstRow(page);
     const button = page.getByTestId('why-button').first();
     await button.focus();

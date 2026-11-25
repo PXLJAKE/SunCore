@@ -31,9 +31,9 @@ async function seedDevices(request: APIRequestContext): Promise<void> {
         },
         {
           ...base,
-          id: 'washer',
+          id: 'dryer',
           template_id: 'generic.program_plug',
-          name: 'Washer',
+          name: 'Dryer',
           kind: 'program',
           entities: { switch: ref('switch.sim_pool_pump') },
           control: { kind: 'on_off', role: 'switch' },
@@ -170,15 +170,15 @@ test.describe('Phase 6 cards', () => {
     await resetDemo(request);
     await seedDevices(request);
     await page.goto('/');
-    const section = page.getByTestId('program-section-washer');
+    const section = page.getByTestId('program-section-dryer');
     await expect(section).toBeVisible();
     await section.getByTestId('program-arm').click();
     await expect(section.getByTestId('program-job-state')).toBeVisible();
-    const flex = await (await request.get('/api/v1/devices/washer/flex')).json();
+    const flex = await (await request.get('/api/v1/devices/dryer/flex')).json();
     expect(flex.job).not.toBeNull();
 
     await section.getByTestId('program-cancel').click();
-    const dialog = page.getByTestId('program-cancel-dialog-washer');
+    const dialog = page.getByTestId('program-cancel-dialog-dryer');
     await expect(dialog.getByTestId('program-cancel-warning')).toContainText('starts immediately');
     await expectNoAxeViolations(page);
     await dialog.getByRole('button', { name: 'Cancel job' }).click();

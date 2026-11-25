@@ -143,6 +143,6 @@ test.describe('finishing, leaving and running the setup again', () => {
     const wizard = await (await request.get('/api/v1/config/wizard')).json();
     expect(wizard).toMatchObject({ completed: false, completed_steps: [] });
     // the stored configuration stays
-    expect((await (await request.get('/api/v1/config/devices')).json()).devices).toHaveLength(3);
+    expect((await (await request.get('/api/v1/config/devices')).json()).devices).toHaveLength(6);
   });
 });

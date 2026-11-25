@@ -213,9 +213,11 @@ mode", and nothing from your installation is used or modified. The demo
 includes simulated prices, solar forecasts and a plan. Use it to look around,
 to take screenshots or to report a UI problem. Switch it off again and restart
 to see your own data. Experts can also set `SUNCORE_DEMO_START_TIME` (time of
-day the demo starts, default `10:00`) and `SUNCORE_DEMO_BATTERY_CONTROL=1`
+day the demo starts, default `10:00`), `SUNCORE_DEMO_BATTERY_CONTROL=1`
 (gives the simulated house a controllable inverter, so the battery card can be
-tried; off by default).
+tried; off by default) and `SUNCORE_DEMO_FLEX=1` (adds an electric car on a
+wallbox, a washing machine and a heat pump, all in shadow mode, so the cards of
+the flexible loads can be tried; off by default).
 
 ## Troubleshooting
 

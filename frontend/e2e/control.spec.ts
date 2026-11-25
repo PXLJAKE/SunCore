@@ -21,7 +21,8 @@ test.describe('Now view: devices', () => {
   test('a card per controlled device with state, power and the reasons', async ({ page }) => {
     await openNow(page);
     const cards = page.getByTestId('device-cards').locator('article');
-    await expect(cards).toHaveCount(3);
+    // pool pump, AC, heating rod and the demo's flexible loads (wallbox, washer, heat pump)
+    await expect(cards).toHaveCount(6);
     const pump = card(page, 'pool_pump');
     await expect(pump.getByRole('heading', { name: 'Pool pump' })).toBeVisible();
     await expect(pump.getByTestId('power')).toContainText('≈');
@@ -30,14 +31,39 @@ test.describe('Now view: devices', () => {
     await expect(pump.getByTestId('mode-shadow')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('site-summary')).toContainText('Free surplus');
     await expect(page.getByTestId('site-summary')).toContainText('Deficit');
-    // Everything is in shadow: virtual levels are shown as "would run", not as running load
-    await expect(page.getByTestId('site-would-run')).toBeVisible();
-    await expect(card(page, 'heating_rod').getByTestId('would-run')).toContainText('not switched');
+    // Everything is in shadow. (With the flexible loads the plan gives the battery the surplus
+    // first, so "would run" levels are covered by the component tests, not by this demo.)
+    await expect(page.getByTestId('site-running')).toBeVisible();
+    await expect(card(page, 'heating_rod').getByTestId('effective-mode')).toHaveText('Shadow mode');
 
     // the reasons are rendered through the catalogue, never as raw keys
     await pump.getByText('Why?').click();
     await expect(pump.getByTestId('why')).not.toContainText('controller.');
     await expect(pump.getByTestId('why').locator('li').first()).not.toBeEmpty();
+  });
+
+  test('the demo shows the flexible loads: car, washing machine and heat pump', async ({
+    page,
+  }) => {
+    await openNow(page);
+    const car = card(page, 'wallbox');
+    await expect(car.getByRole('heading', { name: 'Garage wallbox' })).toBeVisible();
+    await expect(car.getByTestId('effective-mode')).toHaveText('Shadow mode');
+    await expect(car.getByTestId('ev-section-wallbox')).toBeVisible();
+    await expect(car.getByTestId('ev-soc')).toContainText('30');
+    await expect(car.getByTestId('ev-mode-target')).toHaveAttribute('aria-pressed', 'true');
+    await expect(car.getByTestId('ev-target')).toContainText('80');
+
+    const washer = card(page, 'washer');
+    await expect(washer.getByRole('heading', { name: 'Washing machine' })).toBeVisible();
+    await expect(washer.getByTestId('program-job-state')).toBeVisible();
+    await expect(washer.getByTestId('program-deadline')).toBeVisible();
+
+    const pump = card(page, 'heat_pump');
+    await expect(pump.getByRole('heading', { name: 'Heat pump', level: 3 })).toBeVisible();
+    await expect(pump.getByTestId('hp-section-heat_pump')).toBeVisible();
+    await expect(pump.getByTestId('effective-mode')).toHaveText('Shadow mode');
+    await expectNoAxeViolations(page);
   });
 
   test('switching one device to automatic asks first and then takes effect', async ({ page }) => {

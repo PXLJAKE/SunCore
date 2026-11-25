@@ -5,13 +5,14 @@ ADRs relevant to your task. Keep it short; history lives in git.
 
 **Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps) ·
 **Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
-PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line.
+PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line. PR 7-C adds the demo
+flexible loads (`SUNCORE_DEMO_FLEX=1`: EV on a wallbox, washing machine, heat pump; shadow).
 Bundle budget split pending maintainer decision; option A implemented (standard path 250 kB,
 expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-7/b-phase5-tail` (on `phase-7/a-plan` and `phase-5/l-docs`)
+**Branch:** `phase-7/c-demo-flex` (on `phase-7/b-phase5-tail`)
 
 ## Phase 6 at a glance
 

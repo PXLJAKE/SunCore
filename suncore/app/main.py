@@ -93,7 +93,11 @@ def _demo_wiring(settings: Settings) -> DemoWiring:
     offset_s = (begin - start).total_seconds() % scenario.duration_s
     clock = DemoClock(start + timedelta(seconds=offset_s), settings.demo_speed)
     connection = FakeHAConnection(
-        scenario, clock=clock, speed=settings.demo_speed, start_offset_s=offset_s
+        scenario,
+        clock=clock,
+        speed=settings.demo_speed,
+        start_offset_s=offset_s,
+        demo_flex=settings.demo_flex,
     )
     tick_s = demo_tick_s(settings.controller_interval_s, settings.demo_speed)
     return DemoWiring(
@@ -101,8 +105,33 @@ def _demo_wiring(settings: Settings) -> DemoWiring:
         clock=clock,
         control_sleep=clock.sleep,
         control_settings=ControlSettings(tick_s=tick_s),
-        cadences=DemoDevices(scenario).devices.heartbeats(),
+        cadences=DemoDevices(scenario, flex=settings.demo_flex).devices.heartbeats(),
     )
+
+
+async def seed_demo_flex_state(runtime: Runtime) -> None:
+    """The runtime state of the demo's flexible loads: the car's target and the armed washing job.
+
+    Written to ``flex_state`` of the demo's throw-away database, like the API would (nothing
+    reaches a device, the demo stays in shadow). Times follow the demo clock, so the demo is
+    the same whatever the wall clock says. Without ``SUNCORE_DEMO_FLEX`` (and outside the demo)
+    nothing happens.
+    """
+    if not (runtime.demo and runtime.settings.demo_flex):
+        return
+    from suncore.sim.demo_flex import (  # noqa: PLC0415
+        WALLBOX_ID,
+        WASHER_ID,
+        demo_ev_target,
+        demo_washer_deadline,
+    )
+
+    now = runtime.clock()
+    tz = runtime.timezone()
+    local = now.astimezone(tz)
+    mode, target = demo_ev_target(local)
+    await runtime.set_ev_state(WALLBOX_ID, mode, target)
+    await runtime.arm_program(WASHER_ID, demo_washer_deadline(local))
 
 
 async def build_runtime(  # noqa: PLR0915 - the composition root
@@ -158,7 +187,10 @@ async def build_runtime(  # noqa: PLR0915 - the composition root
 
             await config.put_site(demo_site_config())
             await seed_demo_config(
-                config, template_catalog, battery_control=settings.demo_battery_control
+                config,
+                template_catalog,
+                battery_control=settings.demo_battery_control,
+                flex=settings.demo_flex,
             )
             if wiring is not None and settings.demo_history_days > 0 and timeseries is not None:
                 from suncore.sim.demo_history import (  # noqa: PLC0415
@@ -202,6 +234,7 @@ async def build_runtime(  # noqa: PLR0915 - the composition root
             runtime.extra_cadences = wiring.cadences
         runtime._tempdir = tempdir
         await runtime.prepare()
+        await seed_demo_flex_state(runtime)
     except BaseException:
         if timeseries_db is not None:
             await timeseries_db.close()
