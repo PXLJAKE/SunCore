@@ -5,18 +5,19 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from suncore.api import create_app
-from suncore.app.main import build_runtime
+from suncore.app.main import build_runtime, demo_flex_user_tick
 from suncore.app.runtime import Runtime
 from suncore.core.devices import DeviceKind
 from suncore.sim.demo_devices import DemoDevices, default_demo_devices
-from suncore.sim.demo_flex import HEAT_PUMP_ID, WALLBOX_ID, WASHER_ID
-from suncore.sim.devices import SimHeatPump, SimProgram, SimWallbox
+from suncore.sim.demo_flex import HEAT_PUMP_ID, WALLBOX_ID, WASHER_DEADLINE_AHEAD, WASHER_ID
+from suncore.sim.devices import ProgramParams, SimHeatPump, SimProgram, SimWallbox
 from suncore.sim.scenario import load_scenario
 from tests.api.conftest import client_for
 from tests.app.conftest import RecordingConnection, demo_settings
@@ -67,26 +68,82 @@ async def test_the_demo_has_the_flexible_devices_in_shadow(flex_runtime: Runtime
         assert flex_runtime.clock() < deadline <= flex_runtime.clock() + timedelta(hours=7)
 
 
-async def test_every_load_of_the_washer_gets_a_job(tmp_path: Path) -> None:
-    """The demo user loads the washing machine again after each programme and arms a job for it,
-    so the card does not run out of jobs while the accelerated demo day goes on."""
-    # no injected connection: the real demo wiring (accelerated scenario clock for everything)
-    runtime = await build_runtime(
-        demo_settings(tmp_path, demo_flex=True, demo_speed=30_000.0), env={}
+class _Jobs:
+    def __init__(self) -> None:
+        self.open: str | None = None
+
+    def current(self, device_id: str) -> str | None:
+        assert device_id == WASHER_ID
+        return self.open
+
+
+class _FakeRuntime:
+    """What ``demo_flex_user_tick`` uses of the runtime, with a clock the test advances."""
+
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+        self.program_jobs = _Jobs()
+        self.armed: list[tuple[str, datetime]] = []
+
+    def clock(self) -> datetime:
+        return self.now
+
+    async def arm_program(self, device_id: str, deadline: datetime) -> None:
+        job_id = f"{device_id}-{len(self.armed)}"
+        self.armed.append((job_id, deadline))
+        self.program_jobs.open = job_id
+
+
+async def test_every_load_of_the_washer_gets_a_new_job() -> None:
+    """The demo user arms a job for each load of the washing machine, after each finished
+    programme: a different job with a deadline relative to the (scenario) clock. No sleeping."""
+    start = datetime(2026, 6, 21, 10, 0, tzinfo=UTC)
+    runtime = _FakeRuntime(start)
+    washer = SimProgram(
+        WASHER_ID,
+        ProgramParams(profile_w=(2000.0, 480.0), slot_s=900.0, lag_s=0.0, loaded_at_s=None),
     )
-    await runtime.start()
-    try:
-        seen: set[str] = set()
-        for _ in range(3000):
-            job = runtime.program_jobs.current(WASHER_ID)
-            if job is not None:
-                seen.add(job.id)
-            if len(seen) >= 2:
-                break
-            await asyncio.sleep(0.02)
-        assert len(seen) >= 2
-    finally:
-        await runtime.stop()
+    fake: Any = runtime
+
+    async def tick() -> bool:
+        return await demo_flex_user_tick(fake, washer)
+
+    washer.advance(start, 20.0)
+    assert not await tick()  # not loaded: nothing to arm
+
+    washer.manual("turn_on", None).steps[0].change()  # the user loads it
+    assert washer.loaded
+    assert await tick()
+    assert not await tick()  # one job per load
+    first_id, first_deadline = runtime.armed[0]
+    assert first_deadline == start + WASHER_DEADLINE_AHEAD
+
+    # the programme (two 15 min slots) runs and finishes, the job is done
+    for minutes in (15, 30, 31):
+        runtime.now = start + timedelta(minutes=minutes)
+        washer.advance(runtime.now, 20.0)
+    assert washer.runs == 1
+    assert not washer.loaded
+    runtime.program_jobs.open = None
+    assert not await tick()  # nothing loaded, nothing armed
+
+    # the next load of laundry gets its own job, relative to the later clock
+    washer.manual("turn_on", None).steps[0].change()
+    assert await tick()
+    second_id, second_deadline = runtime.armed[1]
+    assert second_id != first_id
+    assert second_deadline == runtime.now + WASHER_DEADLINE_AHEAD > first_deadline
+
+
+def test_the_sim_user_loads_the_washer_again_after_each_programme() -> None:
+    scenario = load_scenario("summer_day")
+    house = scenario.build_house()
+    demo = DemoDevices(scenario, flex=True)
+    for _ in range(18 * 60):  # until 18:00 scenario time, one minute per step
+        demo.step(house.step(demo.devices_power_w()))
+    washer = demo.devices.devices[WASHER_ID]
+    assert isinstance(washer, SimProgram)
+    assert washer.runs >= 2  # loaded at 10:30, then again after every two-hour programme
 
 
 async def test_the_default_demo_has_no_flexible_devices(demo_runtime: Runtime) -> None:
