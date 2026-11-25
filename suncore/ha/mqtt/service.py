@@ -52,6 +52,7 @@ from suncore.ha.mqtt.discovery import (
     render_state,
 )
 from suncore.ha.mqtt.states import MIN_INTERVAL_S, StateItem, StatePublisher
+from suncore.ha.websocket import Backoff
 from suncore.i18n import load_catalogue
 
 log = structlog.get_logger(__name__)
@@ -116,6 +117,9 @@ class _Session:
     allow_mode_raise: bool = False
     queue: asyncio.Queue[tuple[str, str, bytes, bool]] | None = None
     priority_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    announce_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    """Serialises announcing against the goodbye (no discovery config after its removal)."""
+    closing: bool = False
 
 
 class HaEntityService:
@@ -130,6 +134,7 @@ class HaEntityService:
         on_refusal: Callable[[str, Reason], None] | None = None,
         client_factory: Callable[..., Any] | None = None,
         retry_s: float = RETRY_S,
+        backoff: Callable[[], Backoff] | None = None,
         poll_s: float = SYNC_POLL_S,
         birth_delay: tuple[float, float] = BIRTH_DELAY_S,
         min_interval_s: float = MIN_INTERVAL_S,
@@ -144,6 +149,7 @@ class HaEntityService:
         self._on_refusal = on_refusal
         self._client_factory = client_factory
         self._retry_s = retry_s
+        self._backoff = backoff
         self._poll_s = poll_s
         self._birth_delay = birth_delay
         self._min_interval_s = min_interval_s
@@ -259,6 +265,7 @@ class HaEntityService:
                 session, topic, payload, retain
             ),
             on_link=lambda link, reason: self._link(session, lookup, link, reason),
+            backoff=None if self._backoff is None else self._backoff(),
             **factory,
         )
         session.client = client
@@ -299,15 +306,19 @@ class HaEntityService:
                     return
 
     async def _goodbye(self, session: _Session) -> None:
+        session.closing = True  # an announce that has not started yet will not start
         if not session.client.connected:
             return
         current = await self._load_config() or MqttConfig()
-        if not current.enabled:
-            for object_id in sorted(session.published):
-                await session.client.publish(session.topics.config(object_id), "", 1, False)
-            session.published.clear()
-            await self._save(session)
-        await session.client.publish(session.topics.status, PAYLOAD_OFFLINE, 1, True)
+        # The lock waits for an announce that is still publishing, so every config it
+        # published is in ``session.published`` and removed here (not announced after).
+        async with session.announce_lock:
+            if not current.enabled:
+                for object_id in sorted(session.published):
+                    await session.client.publish(session.topics.config(object_id), "", 1, False)
+                session.published.clear()
+                await self._save(session)
+            await session.client.publish(session.topics.status, PAYLOAD_OFFLINE, 1, True)
 
     # --- callbacks -------------------------------------------------------------------
 
@@ -426,6 +437,12 @@ class HaEntityService:
         )
 
     async def _announce(self, session: _Session) -> None:
+        async with session.announce_lock:
+            if session.closing:
+                return
+            await self._announce_locked(session)
+
+    async def _announce_locked(self, session: _Session) -> None:
         topology = self._topology(session)
         language = self._source.language()
         catalogue = load_catalogue(language)
@@ -437,6 +454,9 @@ class HaEntityService:
                 (e.spec, e.object_id) for d in devices for e in d.entities if e.spec.command
             )
         session.fingerprint = self._fingerprint(topology, language)
+        # Record what is about to go out before it does: a goodbye (or a crash) in the middle
+        # of the announcement must still know every config that may be on the broker.
+        session.published |= {d.object_id for d in devices}
         for device in devices:
             payload = device_payload(session.iid, device, session.topics, topology, render)
             await session.client.publish(

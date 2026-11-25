@@ -14,6 +14,7 @@ from suncore.app.ha_entities import SUPPORTED
 from suncore.core.config import MqttConfig
 from suncore.core.decisions import OperatingMode
 from suncore.ha.mqtt import BrokerState, HaEntityService
+from suncore.ha.websocket import Backoff
 
 from .stub_broker import Message, StubBroker
 from .support import FakeSource, MemoryStore, topology
@@ -37,6 +38,7 @@ class Harness:
             services=Services(broker),
             commands=self.port,
             retry_s=0.1,
+            backoff=lambda: Backoff(initial=0.0, jitter=0.0),  # no real-time reconnect delay
             poll_s=0.05,
             birth_delay=(0.0, 0.0),
             min_interval_s=0.0,
@@ -199,7 +201,7 @@ async def test_a_retained_command_is_ignored_and_removed(opted_in: Harness) -> N
     opted_in.broker.retained[topic] = Message(topic, b"PRESS", 0, True)
     await opted_in.broker.drop_connections()
     await opted_in.broker.wait_for(lambda: topic not in opted_in.broker.retained)
-    await settle()
+    # The removal is published after the handler ran, so no extra wait is needed here.
     assert opted_in.port.calls == []
     assert any(m.topic == topic and m.payload == b"" for m in opted_in.broker.published)
 
