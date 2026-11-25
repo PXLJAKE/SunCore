@@ -260,20 +260,20 @@ ausprobieren.
 
 ## 6. Später ändern
 
-Öffne **Einstellungen**. Dort stehen alle Bereiche deiner Einrichtung
-(**Region**, **Anlage (Netz, PV, Batterie)**, **Tarif**, **PV-Prognose**,
-**Akku (Steuerung und Planung)**, **Verbraucher**, **Ziele**,
-**Betriebsmodus**) mit einer Kurzfassung und
-einem Link **Öffnen** zum passenden Schritt.
+Öffne **Einstellungen**. Sie haben fünf Seiten: **Deine Anlage** (Region, Netz,
+PV, Akku und Tarif), **Geräte**, **Ziele und Betriebsart**, **Home Assistant**
+(Entitäten über MQTT und Benachrichtigungen) und **Erweitert** (Expertenmodus,
+frühere Versionen, Sicherung, Diagnose, Info). Jeder Bereich zeigt eine
+Kurzfassung und einen Link zum passenden Schritt des Assistenten.
 
 ![Einstellungen als Übersicht](../assets/screenshots/settings-tablet-light-de.png)
 
-- **Einrichtung erneut durchlaufen** startet den Assistenten mit deinen
-  aktuellen Werten neu.
-- **Frühere Versionen**: Jedes Speichern behält die vorige Version. Mit
+- **Einrichtung erneut durchlaufen** (auf **Deine Anlage**) startet den
+  Assistenten mit deinen aktuellen Werten neu.
+- **Frühere Versionen** (auf **Erweitert**): Jedes Speichern behält die vorige Version. Mit
   **Versionen anzeigen** und **Wiederherstellen** machst du eine Änderung
   rückgängig.
-- **Sicherung**: **Konfiguration exportieren** speichert alles als Datei,
+- **Sicherung** (auf **Erweitert**): **Konfiguration exportieren** speichert alles als Datei,
   **Konfiguration importieren** lädt eine. Nutze das vor Experimenten und
   beim Umzug auf eine neue Installation.
 - Ungespeicherte Änderungen sind geschützt: Beim Verlassen einer Seite wird

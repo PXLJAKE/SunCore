@@ -6,8 +6,9 @@ The defaults are the behaviour described in the other guides.
 
 ## 1. Turn it on
 
-Use the **Expert mode** switch in the header. The choice is stored per browser. With it on,
-**Settings** shows the **Expert settings** area, and the **What-if** link appears in the header.
+Use the **Expert mode** switch in **Settings → Advanced**. The choice is stored per browser.
+With it on, the same page shows the **Expert settings** area, and **Analysis** gets the
+**What-if** tab.
 
 ## 2. Change a parameter
 

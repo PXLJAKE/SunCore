@@ -6,7 +6,7 @@ die du wählst, und vergleicht das Ergebnis mit dem, was wirklich geschah. So ka
 schreibt nichts an deine Geräte und lässt deine gespeicherten Einstellungen unverändert.
 
 Es ist eine Experten-Funktion: Schalte den [Expertenmodus](expert-mode.md) ein, dann erscheint
-der Link **Was-wäre-wenn** in der Kopfzeile (`#/whatif`). Bei ausgeschaltetem Expertenmodus zeigt
+unter **Analyse** der Reiter **Was-wäre-wenn** (`#/whatif`). Bei ausgeschaltetem Expertenmodus zeigt
 ein Deep-Link nur einen Hinweis.
 
 ![Was-wäre-wenn auf einem Tablet](../assets/screenshots/whatif-tablet-light-de.png)

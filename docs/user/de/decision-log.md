@@ -1,7 +1,7 @@
 # Entscheidungen und "Warum?"
 
 Jedes Mal, wenn SunCore ein Gerät schaltet, hält oder nicht schaltet, schreibt es eine
-Entscheidung mit ihren Gründen. Die Ansicht **Entscheidungen** in der Kopfzeile listet sie auf,
+Entscheidung mit ihren Gründen. **Analyse → Entscheidungen** listet sie auf,
 und **Warum?** erklärt eine Entscheidung zusammen mit dem, was das System in dem Moment wusste.
 Das funktioniert auch im Schattenmodus: Die Einträge sagen dann, was SunCore getan *hätte*.
 

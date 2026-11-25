@@ -7,9 +7,9 @@ beschreiben.
 
 ## 1. Einschalten
 
-Nutze den Schalter **Expertenmodus** in der Kopfzeile. Die Wahl wird pro Browser gespeichert.
-Eingeschaltet zeigen die **Einstellungen** den Bereich **Experten-Einstellungen**, und in der
-Kopfzeile erscheint der Link **Was-wäre-wenn**.
+Nutze den Schalter **Expertenmodus** unter **Einstellungen → Erweitert**. Die Wahl wird pro
+Browser gespeichert. Eingeschaltet zeigt dieselbe Seite den Bereich **Experten-Einstellungen**,
+und **Analyse** bekommt den Reiter **Was-wäre-wenn**.
 
 ## 2. Einen Parameter ändern
 

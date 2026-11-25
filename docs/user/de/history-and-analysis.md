@@ -9,7 +9,7 @@ Geräten.
 
 ## 1. Zeitraum wählen
 
-Öffne **Verlauf** in der Kopfzeile. Wähle **Tag**, **Woche**, **Monat** oder **Jahr** und
+Öffne **Analyse → Verlauf**. Wähle **Tag**, **Woche**, **Monat** oder **Jahr** und
 wechsle mit **Zurück**, **Weiter** und **Heute** oder mit **Zu Datum springen**. Der Zeitraum
 steht in der Adresse (`#/history?period=week&date=2026-06-10`), du kannst also ein Lesezeichen
 setzen oder den Link teilen.

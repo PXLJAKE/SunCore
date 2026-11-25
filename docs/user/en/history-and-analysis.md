@@ -8,7 +8,7 @@ in shadow mode too. It never changes anything on your devices.
 
 ## 1. Choose a period
 
-Open **History** in the header. Pick **Day**, **Week**, **Month** or **Year** and move with
+Open **Analysis → History**. Pick **Day**, **Week**, **Month** or **Year** and move with
 **Previous**, **Next** and **Today**, or jump with **Go to date**. The period is part of the
 address (`#/history?period=week&date=2026-06-10`), so you can bookmark or share a link.
 

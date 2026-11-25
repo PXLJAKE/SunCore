@@ -5,8 +5,8 @@ compares the result with what really happened. Use it to ask "would a larger bat
 different reserve have paid off?" before you change anything. It writes nothing to your devices
 and keeps your saved settings as they are.
 
-It is an expert feature: turn on [Expert mode](expert-mode.md) to get the **What-if** link in the
-header (`#/whatif`). With expert mode off, a deep link shows only a hint.
+It is an expert feature: turn on [Expert mode](expert-mode.md) to get the **What-if** tab under
+**Analysis** (`#/whatif`). With expert mode off, a deep link shows only a hint.
 
 ![What-if view on a tablet](../assets/screenshots/whatif-tablet-light-en.png)
 

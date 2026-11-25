@@ -245,17 +245,18 @@ Once data has collected, **History** shows what the house did and what it saved:
 
 ## 6. Change things later
 
-Open **Settings**. It lists every section of your setup (**Region**,
-**Site (grid, solar, battery)**, **Tariff**, **PV forecast**, **Battery
-(control and planning)**, **Devices**, **Goals**, **Operating mode**) with a short
-summary and an **Open** link to the matching step.
+Open **Settings**. It has five pages: **Your system** (region, grid, solar,
+battery and tariff), **Devices**, **Goals and operating mode**, **Home
+Assistant** (entities over MQTT and notifications) and **Advanced** (expert
+mode, earlier versions, backup, diagnostics, about). Each section shows a short
+summary and a link to the matching step of the assistant.
 
 ![Settings overview](../assets/screenshots/settings-tablet-light-en.png)
 
-- **Run setup again** restarts the assistant with your current values.
-- **Earlier versions**: every save keeps the previous version. Use **Show
-  versions** and **Restore** if a change did not work out.
-- **Backup**: **Export configuration** saves everything as a file,
+- **Run setup again** (on **Your system**) restarts the assistant with your current values.
+- **Earlier versions** (on **Advanced**): every save keeps the previous version. Use
+  **Show versions** and **Restore** if a change did not work out.
+- **Backup** (on **Advanced**): **Export configuration** saves everything as a file,
   **Import configuration** loads one. Use it before experiments and when
   you move to a new installation.
 - Unsaved edits are guarded: leaving a page asks before they are discarded.

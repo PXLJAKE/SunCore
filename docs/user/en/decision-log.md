@@ -1,7 +1,7 @@
 # Decision log and "Why?"
 
 Every time SunCore switches a device, holds it, or refuses to, it writes a decision with its
-reasons. The **Decision log** in the header lists them, and **Why?** explains one decision
+reasons. **Analysis → Decision log** lists them, and **Why?** explains one decision
 together with what the system knew at that moment. This works in shadow mode as well: the
 entries then say what SunCore *would* have done.
 
