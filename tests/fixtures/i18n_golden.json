@@ -8629,6 +8629,30 @@
  },
  {
   "lang": "en",
+  "key": "safety.verification_not_assisted",
+  "args": {},
+  "expected": "The verification test needs the inverter limit in assisted mode."
+ },
+ {
+  "lang": "en",
+  "key": "safety.verification_window_busy",
+  "args": {},
+  "expected": "Another verification test is running."
+ },
+ {
+  "lang": "en",
+  "key": "safety.verification_window_closed",
+  "args": {},
+  "expected": "The verification test is over: SunCore gives the inverter its own limit back."
+ },
+ {
+  "lang": "en",
+  "key": "safety.verification_window_invalid",
+  "args": {},
+  "expected": "The verification window is not open now; nothing was written."
+ },
+ {
+  "lang": "en",
   "key": "safety.watchdog_balance",
   "args": {
    "entity_id": "abc"
@@ -17368,6 +17392,30 @@
   "key": "safety.unknown_device",
   "args": {},
   "expected": "Das Gerät ist nicht konfiguriert."
+ },
+ {
+  "lang": "de",
+  "key": "safety.verification_not_assisted",
+  "args": {},
+  "expected": "Der Verifikationstest braucht die Wechselrichter-Begrenzung im Modus Assistiert."
+ },
+ {
+  "lang": "de",
+  "key": "safety.verification_window_busy",
+  "args": {},
+  "expected": "Ein anderer Verifikationstest läuft."
+ },
+ {
+  "lang": "de",
+  "key": "safety.verification_window_closed",
+  "args": {},
+  "expected": "Der Verifikationstest ist vorbei: SunCore gibt dem Wechselrichter sein eigenes Limit zurück."
+ },
+ {
+  "lang": "de",
+  "key": "safety.verification_window_invalid",
+  "args": {},
+  "expected": "Das Testfenster ist gerade nicht offen; nichts wurde geschrieben."
  },
  {
   "lang": "de",

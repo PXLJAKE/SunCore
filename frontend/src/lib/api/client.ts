@@ -46,6 +46,8 @@ import type {
   TemplateKind,
   TemplateList,
   ValidationIssue,
+  Reason,
+  VerificationView,
 } from './types';
 
 export const API_PREFIX = 'api/v1/';
@@ -196,6 +198,51 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fragment),
     }),
+};
+
+/** Answer of a verification command: the new view, or the reasons it was refused (409). */
+export type VerificationAnswer =
+  { ok: true; view: VerificationView } | { ok: false; reasons: Reason[] };
+
+async function verificationCommand(path: string): Promise<VerificationAnswer> {
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), { method: 'POST', headers: { Accept: 'application/json' } });
+  } catch {
+    throw new ApiError(0, 'api.error.network');
+  }
+  if (res.status === 409) {
+    let reasons: Reason[] = [];
+    try {
+      const body = (await res.json()) as { reasons?: unknown };
+      if (Array.isArray(body.reasons)) reasons = body.reasons as Reason[];
+    } catch {
+      // not JSON: no reasons to show
+    }
+    return { ok: false, reasons };
+  }
+  if (!res.ok) {
+    let key: string | null = null;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === 'string') key = body.detail;
+    } catch {
+      // not JSON
+    }
+    throw new ApiError(res.status, key);
+  }
+  return { ok: true, view: (await res.json()) as VerificationView };
+}
+
+/**
+ * The inverter limit verification (PR 7-J). No command carries a body: the server alone
+ * decides the test limit; every write goes through the safety gate as the user's intent.
+ */
+export const verificationApi = {
+  get: () => request<VerificationView>(`${API_PREFIX}inverter/verification`),
+  start: () => verificationCommand(`${API_PREFIX}inverter/verification`),
+  confirm: () => verificationCommand(`${API_PREFIX}inverter/verification/confirm`),
+  abort: () => verificationCommand(`${API_PREFIX}inverter/verification/abort`),
 };
 
 export const controlApi = {

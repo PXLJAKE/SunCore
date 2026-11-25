@@ -41,6 +41,17 @@ class PVParams(BaseModel):
     performance_ratio: float = Field(default=0.85, gt=0, le=1)
 
 
+class LoadEvent(BaseModel):
+    """PR 7-J: an extra house load ``extra_w`` during ``[from_s, to_s)`` after the start (a kettle
+    or an oven switched on in the middle of a test)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    from_s: int = Field(ge=0)
+    to_s: int = Field(gt=0)
+    extra_w: float = Field(ge=0, le=50_000)
+
+
 class LoadParams(BaseModel):
     """Base load: 24 hourly values (local clock of the start time) plus noise."""
 
@@ -50,6 +61,7 @@ class LoadParams(BaseModel):
         default=_DEFAULT_LOAD_PROFILE_W, min_length=24, max_length=24
     )
     noise_fraction: float = Field(default=0.0, ge=0, le=1)
+    events: tuple[LoadEvent, ...] = ()
 
     @model_validator(mode="after")
     def _non_negative(self) -> LoadParams:
@@ -221,10 +233,13 @@ class House:
 
     def _load_w(self, when: datetime) -> float:
         p = self.params.load
+        offset = (when - self.start).total_seconds()
+        extra = sum(e.extra_w for e in p.events if e.from_s <= offset < e.to_s)
         base = p.hourly_w[when.hour]
         if p.noise_fraction == 0:
-            return base
-        return max(0.0, base * (1 + self._rng.uniform(-p.noise_fraction, p.noise_fraction)))
+            return base + extra
+        noisy = base * (1 + self._rng.uniform(-p.noise_fraction, p.noise_fraction))
+        return max(0.0, noisy) + extra
 
     def _dispatch(self, surplus_w: float) -> float:
         """Battery AC power (+ = charging) absorbing surplus / covering deficit."""

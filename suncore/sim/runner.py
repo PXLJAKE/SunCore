@@ -627,18 +627,23 @@ class ScenarioRunner:
             return None
         limiter = self.export_limiter
         assert limiter is not None
-        return InverterConfig(
+        config = InverterConfig(
             adapter=params.adapter,
             capability=limiter.capability,
             limit_entity=EntityRef(entity_id=limiter.limit_entity),
             nominal_ac_w=params.nominal_ac_w,
-            limit_verified=control.verified,
             enforce_static=control.enforce_static,
             modbus=InverterModbusLink(
                 hub=MODBUS_HUB, slave=MODBUS_SLAVE, heartbeat_s=control.heartbeat_s
             )
             if params.adapter == "kostal_modbus"
             else None,
+        )
+        if not control.verified:
+            return config
+        # PR 7-J: a verified limit is bound to the identity the test ran against.
+        return config.model_copy(
+            update={"limit_verified": True, "verified_identity": config.identity_token()}
         )
 
     def inverter_wiring(self) -> InverterWiring | None:

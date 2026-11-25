@@ -16,6 +16,7 @@ import pytest
 from suncore.core.config import (
     SECRET_MASK,
     InverterConfig,
+    InverterVerificationRecord,
     MqttConfig,
     MqttPasswordIsMaskError,
     OperationConfig,
@@ -252,6 +253,44 @@ async def test_import_never_carries_the_inverter_verification(db: Database) -> N
     assert loaded.mode_capped
 
 
+async def test_a_put_can_lower_but_never_raise_the_verification(db: Database) -> None:
+    """PR 7-J: only ``record_inverter_verification`` (the passed test) sets the flag."""
+    store = ConfigStore(db)
+    model = InverterConfig(
+        adapter="generic_number",
+        capability="export_limit",
+        limit_entity=EntityRef(entity_id="number.inverter_export_limit"),
+    )
+    token = model.identity_token()
+    assert token is not None
+    forged = model.model_copy(
+        update={
+            "limit_verified": True,
+            "verified_identity": token,
+            "verified_at": datetime.now(UTC),
+        }
+    )
+    raised = await store.put("inverter", forged)
+    assert isinstance(raised, InverterConfig)
+    assert raised.limit_verified is False
+    assert raised.verified_identity is None
+    assert not raised.verified
+    record = InverterVerificationRecord(
+        outcome="passed", semantics="export_limit", identity=token, at=datetime.now(UTC)
+    )
+    assert await store.record_inverter_verification(record, verified=True) is not None
+    stored = await store.get("inverter")
+    assert isinstance(stored, InverterConfig)
+    assert stored.verified
+    lowered = await store.put("inverter", stored.model_copy(update={"limit_verified": False}))
+    assert isinstance(lowered, InverterConfig)
+    assert not lowered.verified
+    # Lowered once, a put cannot bring it back either.
+    again = await store.put("inverter", stored)
+    assert isinstance(again, InverterConfig)
+    assert not again.verified
+
+
 async def test_a_new_inverter_adapter_is_unverified_and_back_in_shadow(db: Database) -> None:
     """PR 6-G: a changed adapter identity resets ``limit_verified`` and the inverter mode."""
     store = ConfigStore(db)
@@ -259,14 +298,25 @@ async def test_a_new_inverter_adapter_is_unverified_and_back_in_shadow(db: Datab
         adapter="generic_number",
         capability="export_limit",
         limit_entity=EntityRef(entity_id="number.inverter_export_limit"),
-        limit_verified=True,
     )
     await store.put("inverter", first)
+    # PR 7-J: only a passed verification sets the flag.
+    token = first.identity_token()
+    assert token is not None
+    record = InverterVerificationRecord(
+        outcome="passed", semantics="export_limit", identity=token, at=datetime.now(UTC)
+    )
+    assert await store.record_inverter_verification(record, verified=True) is not None
     await store.put("operation", OperationConfig(inverter_mode=OperatingMode.ASSISTED))
-    # The same adapter (a setting changed): verification and mode stay.
-    same = await store.put("inverter", first.model_copy(update={"enforce_static": True}))
+    # The same adapter (a setting changed, the client sends back what it read): verification and
+    # mode stay.
+    stored = await store.get("inverter")
+    assert isinstance(stored, InverterConfig)
+    assert stored.verified
+    same = await store.put("inverter", stored.model_copy(update={"enforce_static": True}))
     assert isinstance(same, InverterConfig)
     assert same.limit_verified
+    assert same.verified
     kept = await store.get("operation")
     assert isinstance(kept, OperationConfig)
     assert kept.inverter_mode is OperatingMode.ASSISTED

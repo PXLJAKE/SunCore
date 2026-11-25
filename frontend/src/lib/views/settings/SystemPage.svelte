@@ -5,6 +5,7 @@
   import { router, stepHash } from '../../router.svelte';
   import { pageRows } from '../../settings/summary';
   import { wizard } from '../../stores/wizard.svelte';
+  import InverterVerify from '../../components/InverterVerify.svelte';
   import Icon from '../../ui/Icon.svelte';
   import StepRows from './StepRows.svelte';
 
@@ -52,6 +53,8 @@
 {/if}
 
 <StepRows {rows} />
+
+<InverterVerify />
 
 <style>
   .status {

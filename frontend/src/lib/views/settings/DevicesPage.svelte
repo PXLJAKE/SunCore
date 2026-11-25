@@ -1,5 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
+  import DeviceGridSettings from '../../components/DeviceGridSettings.svelte';
+  import IslandKeepSettings from '../../components/IslandKeepSettings.svelte';
   import { t, tDynamic } from '../../i18n/index.svelte';
   import { pageRows } from '../../settings/summary';
   import { wizard } from '../../stores/wizard.svelte';
@@ -28,6 +30,8 @@
     </ul>
   </section>
 {/if}
+<DeviceGridSettings />
+<IslandKeepSettings />
 <p class="hint">{t('devices.shadow_note')}</p>
 
 <style>

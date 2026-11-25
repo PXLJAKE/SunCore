@@ -957,6 +957,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inverter/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verification
+         * @description The procedure's state: phase, the reasons it waits or ended, the baseline and the
+         *     proposed test limit, live export, house load and battery, the last stored outcome.
+         */
+        get: operations["verification_api_v1_inverter_verification_get"];
+        put?: never;
+        /**
+         * Start Verification
+         * @description Start the test (the inverter asset must be assisted). 409 lists the reasons.
+         */
+        post: operations["start_verification_api_v1_inverter_verification_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inverter/verification/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abort Verification
+         * @description Stop the test; a held test limit is given back through the gate at once.
+         */
+        post: operations["abort_verification_api_v1_inverter_verification_abort_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inverter/verification/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Verification
+         * @description Confirm the proposed test limit: it goes to the safety gate as the user's intent.
+         */
+        post: operations["confirm_verification_api_v1_inverter_verification_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications/settings": {
         parameters: {
             query?: never;
@@ -4015,6 +4080,7 @@ export interface components {
              * @default false
              */
             enforce_static: boolean;
+            last_verification?: components["schemas"]["InverterVerificationRecord"] | null;
             limit_entity?: components["schemas"]["EntityRef"] | null;
             /**
              * Limit Verified
@@ -4031,6 +4097,10 @@ export interface components {
             schema_version: number;
             /** Template Id */
             template_id?: string | null;
+            /** Verified At */
+            verified_at?: string | null;
+            /** Verified Identity */
+            verified_identity?: string | null;
         };
         /**
          * InverterControlState
@@ -4191,6 +4261,31 @@ export interface components {
              * @default false
              */
             volatile: boolean;
+        };
+        /**
+         * InverterVerificationRecord
+         * @description The outcome of the last finished verification test (PR 7-J, ADR-0018 addendum).
+         *
+         *     Written only by the verification procedure (``ConfigStore.record_inverter_verification``);
+         *     a ``PUT`` of the section keeps the stored record, an identity change drops it.
+         */
+        InverterVerificationRecord: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Identity */
+            identity: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "passed" | "failed";
+            /** Reason */
+            reason?: string | null;
+            /** Semantics */
+            semantics?: ("export_limit" | "ac_limit") | null;
         };
         /**
          * JobState
@@ -6814,6 +6909,78 @@ export interface components {
             loc: (string | number)[];
         };
         /**
+         * VerificationPhase
+         * @description Where the verification procedure is (``suncore.app.verification``).
+         * @enum {string}
+         */
+        VerificationPhase: "idle" | "checking" | "ready" | "writing" | "observing" | "releasing" | "passed" | "failed" | "aborted";
+        /**
+         * VerificationRefusedOut
+         * @description 409 of the inverter limit verification (PR 7-J): why it cannot start or go on.
+         */
+        VerificationRefusedOut: {
+            /** Detail */
+            detail: string;
+            /** Reasons */
+            reasons: components["schemas"]["Reason"][];
+        };
+        /**
+         * VerificationView
+         * @description The procedure as the dialog shows it (``GET /api/v1/inverter/verification``).
+         */
+        VerificationView: {
+            /**
+             * Adapter
+             * @default false
+             */
+            adapter: boolean;
+            baseline?: components["schemas"]["InverterLimitAction"] | null;
+            /** Battery W */
+            battery_w?: number | null;
+            /** Capability */
+            capability?: ("export_limit" | "ac_limit") | null;
+            /** Confirm By */
+            confirm_by?: string | null;
+            /** Export Before W */
+            export_before_w?: number | null;
+            /** Export During W */
+            export_during_w?: number | null;
+            /** Export W */
+            export_w?: number | null;
+            /** House W */
+            house_w?: number | null;
+            last?: components["schemas"]["InverterVerificationRecord"] | null;
+            /** @default idle */
+            phase: components["schemas"]["VerificationPhase"];
+            /**
+             * Reasons
+             * @default []
+             */
+            reasons: components["schemas"]["Reason"][];
+            /** Semantics */
+            semantics?: ("export_limit" | "ac_limit") | null;
+            /**
+             * Stable Needed S
+             * @default 0
+             */
+            stable_needed_s: number;
+            /**
+             * Stable S
+             * @default 0
+             */
+            stable_s: number;
+            test_limit?: components["schemas"]["InverterLimitAction"] | null;
+            /** Test Limit W */
+            test_limit_w?: number | null;
+            /**
+             * Verified
+             * @default false
+             */
+            verified: boolean;
+            /** Window Expires At */
+            window_expires_at?: string | null;
+        };
+        /**
          * WeeklySchedule
          * @description Union of weekly windows (grid-charge schedule, HT/NT windows, §14a module 3).
          */
@@ -8999,6 +9166,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InfoOut"];
+                };
+            };
+        };
+    };
+    verification_api_v1_inverter_verification_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationView"];
+                };
+            };
+        };
+    };
+    start_verification_api_v1_inverter_verification_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationView"];
+                };
+            };
+            /** @description Preconditions not met */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationRefusedOut"];
+                };
+            };
+        };
+    };
+    abort_verification_api_v1_inverter_verification_abort_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationView"];
+                };
+            };
+        };
+    };
+    confirm_verification_api_v1_inverter_verification_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationView"];
+                };
+            };
+            /** @description Preconditions not met */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationRefusedOut"];
                 };
             };
         };

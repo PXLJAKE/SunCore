@@ -7062,6 +7062,16 @@
             "title": "Enforce Static",
             "type": "boolean"
           },
+          "last_verification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterVerificationRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "limit_entity": {
             "anyOf": [
               {
@@ -7117,6 +7127,31 @@
               }
             ],
             "title": "Template Id"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
+          "verified_identity": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Identity"
           }
         },
         "title": "InverterConfig",
@@ -7516,6 +7551,66 @@
           "driver"
         ],
         "title": "InverterTemplate",
+        "type": "object"
+      },
+      "InverterVerificationRecord": {
+        "additionalProperties": false,
+        "description": "The outcome of the last finished verification test (PR 7-J, ADR-0018 addendum).\n\nWritten only by the verification procedure (``ConfigStore.record_inverter_verification``);\na ``PUT`` of the section keeps the stored record, an identity change drops it.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "identity": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Identity",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 96,
+                "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "semantics": {
+            "anyOf": [
+              {
+                "enum": [
+                  "export_limit",
+                  "ac_limit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantics"
+          }
+        },
+        "required": [
+          "outcome",
+          "identity",
+          "at"
+        ],
+        "title": "InverterVerificationRecord",
         "type": "object"
       },
       "JobState": {
@@ -13704,6 +13799,235 @@
         "title": "ValidationIssueOut",
         "type": "object"
       },
+      "VerificationPhase": {
+        "description": "Where the verification procedure is (``suncore.app.verification``).",
+        "enum": [
+          "idle",
+          "checking",
+          "ready",
+          "writing",
+          "observing",
+          "releasing",
+          "passed",
+          "failed",
+          "aborted"
+        ],
+        "title": "VerificationPhase",
+        "type": "string"
+      },
+      "VerificationRefusedOut": {
+        "additionalProperties": false,
+        "description": "409 of the inverter limit verification (PR 7-J): why it cannot start or go on.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail",
+          "reasons"
+        ],
+        "title": "VerificationRefusedOut",
+        "type": "object"
+      },
+      "VerificationView": {
+        "additionalProperties": false,
+        "description": "The procedure as the dialog shows it (``GET /api/v1/inverter/verification``).",
+        "properties": {
+          "adapter": {
+            "default": false,
+            "title": "Adapter",
+            "type": "boolean"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterLimitAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "battery_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery W"
+          },
+          "capability": {
+            "anyOf": [
+              {
+                "enum": [
+                  "export_limit",
+                  "ac_limit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability"
+          },
+          "confirm_by": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm By"
+          },
+          "export_before_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Before W"
+          },
+          "export_during_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export During W"
+          },
+          "export_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export W"
+          },
+          "house_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "House W"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterVerificationRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/VerificationPhase",
+            "default": "idle"
+          },
+          "reasons": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "semantics": {
+            "anyOf": [
+              {
+                "enum": [
+                  "export_limit",
+                  "ac_limit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantics"
+          },
+          "stable_needed_s": {
+            "default": 0.0,
+            "title": "Stable Needed S",
+            "type": "number"
+          },
+          "stable_s": {
+            "default": 0.0,
+            "title": "Stable S",
+            "type": "number"
+          },
+          "test_limit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InverterLimitAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "test_limit_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Limit W"
+          },
+          "verified": {
+            "default": false,
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "window_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Expires At"
+          }
+        },
+        "title": "VerificationView",
+        "type": "object"
+      },
       "WeeklySchedule": {
         "additionalProperties": false,
         "description": "Union of weekly windows (grid-charge schedule, HT/NT windows, §14a module 3).",
@@ -16872,6 +17196,100 @@
           }
         },
         "summary": "Info"
+      }
+    },
+    "/api/v1/inverter/verification": {
+      "get": {
+        "description": "The procedure's state: phase, the reasons it waits or ended, the baseline and the\nproposed test limit, live export, house load and battery, the last stored outcome.",
+        "operationId": "verification_api_v1_inverter_verification_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Verification"
+      },
+      "post": {
+        "description": "Start the test (the inverter asset must be assisted). 409 lists the reasons.",
+        "operationId": "start_verification_api_v1_inverter_verification_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationRefusedOut"
+                }
+              }
+            },
+            "description": "Preconditions not met"
+          }
+        },
+        "summary": "Start Verification"
+      }
+    },
+    "/api/v1/inverter/verification/abort": {
+      "post": {
+        "description": "Stop the test; a held test limit is given back through the gate at once.",
+        "operationId": "abort_verification_api_v1_inverter_verification_abort_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Abort Verification"
+      }
+    },
+    "/api/v1/inverter/verification/confirm": {
+      "post": {
+        "description": "Confirm the proposed test limit: it goes to the safety gate as the user's intent.",
+        "operationId": "confirm_verification_api_v1_inverter_verification_confirm_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationRefusedOut"
+                }
+              }
+            },
+            "description": "Preconditions not met"
+          }
+        },
+        "summary": "Confirm Verification"
       }
     },
     "/api/v1/notifications/settings": {

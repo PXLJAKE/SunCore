@@ -63,6 +63,7 @@ from suncore.api.models import (
     TemplateDetailOut,
     TemplateListOut,
     ValidationErrorOut,
+    VerificationRefusedOut,
     template_list,
 )
 from suncore.api.params import PARAMS_MAX_BYTES, guard_expert_document, register_params
@@ -104,6 +105,7 @@ from suncore.core.controlstate import (
 )
 from suncore.core.decisions import Decision
 from suncore.core.site import SiteConfig
+from suncore.core.verification_view import VerificationRefusedError, VerificationView
 from suncore.core.wizard import PreviewTooLargeError
 from suncore.forecast.views import (
     MAX_VIEW_HOURS,
@@ -153,6 +155,7 @@ ERR_TARIFF_NOT_CONFIGURED: Final = "api.error.tariff_not_configured"
 ERR_PLANNING_UNAVAILABLE: Final = "api.error.planning_unavailable"
 ERR_BATTERY_NOT_CONTROLLABLE: Final = "api.error.battery_not_controllable"
 ERR_INVERTER_NOT_CONTROLLABLE: Final = "api.error.inverter_not_controllable"
+ERR_VERIFICATION_REFUSED: Final = "api.error.verification_refused"
 BODY_MAX_BYTES: Final = 64 * 1024
 """Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
 SECTION_MAX_BYTES: Final = 256 * 1024
@@ -217,6 +220,7 @@ def _register_http(app: FastAPI, services: Services) -> None:
     _register_history(app, services)
     _register_control(app, services)
     _register_inverter_mode(app, services)
+    _register_inverter_verification(app, services)
     _register_forecast(app, services)
     register_decisions(app, services)
 
@@ -644,6 +648,52 @@ def _register_inverter_mode(app: FastAPI, services: Services) -> None:
             raise HTTPException(status_code=404, detail=ERR_INVERTER_NOT_CONTROLLABLE) from exc
         except DeviceIdentityChangedError as exc:
             raise HTTPException(status_code=409, detail=ERR_DEVICE_IDENTITY_CHANGED) from exc
+
+
+def _refused(exc: VerificationRefusedError) -> JSONResponse:
+    body = VerificationRefusedOut(detail=ERR_VERIFICATION_REFUSED, reasons=list(exc.reasons))
+    return JSONResponse(body.model_dump(mode="json"), status_code=409)
+
+
+def _register_inverter_verification(app: FastAPI, services: Services) -> None:
+    """The inverter limit verification (PR 7-J, plan phase 7 WP8, ADR-0018 addendum).
+
+    The procedure proposes; every write goes through the safety gate as the user's intent. No
+    body: nothing the client sends can choose a limit, a window or a duration.
+    """
+    path = f"{API_PREFIX}/inverter/verification"
+    refused: dict[int | str, dict[str, Any]] = {
+        409: {"model": VerificationRefusedOut, "description": "Preconditions not met"}
+    }
+
+    @app.get(path, response_model=VerificationView)
+    async def verification() -> VerificationView:
+        """The procedure's state: phase, the reasons it waits or ended, the baseline and the
+        proposed test limit, live export, house load and battery, the last stored outcome."""
+        return services.inverter_verification()
+
+    @app.post(path, response_model=VerificationView, responses=refused)
+    async def start_verification() -> Response:
+        """Start the test (the inverter asset must be assisted). 409 lists the reasons."""
+        try:
+            view = await services.start_inverter_verification()
+        except VerificationRefusedError as exc:
+            return _refused(exc)
+        return JSONResponse(view.model_dump(mode="json"))
+
+    @app.post(f"{path}/confirm", response_model=VerificationView, responses=refused)
+    async def confirm_verification() -> Response:
+        """Confirm the proposed test limit: it goes to the safety gate as the user's intent."""
+        try:
+            view = await services.confirm_inverter_verification()
+        except VerificationRefusedError as exc:
+            return _refused(exc)
+        return JSONResponse(view.model_dump(mode="json"))
+
+    @app.post(f"{path}/abort", response_model=VerificationView)
+    async def abort_verification() -> VerificationView:
+        """Stop the test; a held test limit is given back through the gate at once."""
+        return await services.abort_inverter_verification()
 
 
 def _register_sections(app: FastAPI, services: Services) -> None:

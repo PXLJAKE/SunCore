@@ -16,11 +16,12 @@ first paint 118.9 kB, standard path 243.7 kB). PR 7-E rebuilds the Now view and 
 (`docs/design/review-7e.md`; first paint 120.5 kB, standard path 245.8 kB). PR 7-F does the
 same for Plan and Analysis (`docs/design/review-7f.md`; first paint 122.6 kB, standard path
 249.6 kB). PR 7-G does Settings and the setup wizard and is **review stop 2**
-(`docs/design/review-7g.md`; first paint 121.4 kB, standard path 244.1 kB).
+(`docs/design/review-7g.md`; first paint 121.4 kB, standard path 244.1 kB). PR 7-J adds the
+inverter limit verification test (**CS**; on 7-G, awaiting the `control-safety` review).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-7/m-weblate` (on `phase-7/g-settings` with `phase-7/l-docs-site` merged)
+**Branch:** `phase-7/p-release` (integration of all Phase 7 branches on `phase-7/n-hygiene`)
 
 ## Phase 6 at a glance
 
@@ -32,7 +33,7 @@ What exists (all behind shadow mode, none of it has run on hardware):
   §14a and EV target at risk); backend ICU catalogue en/de.
 - **Grid:** one resolver for the import limit, export limit and §14a budget; peak shaving with a
   monthly peak and a shed order; §14a and island caps; export chain with an inverter limit (capped
-  at assisted until `limit_verified`, which has no panel path yet).
+  at assisted until `limit_verified`; since 7-J set only by the verification test).
 - **Devices:** wallbox/EV (modes `off`, `now`, `min_pv`, `pv`, `target`, phase switching), evcc as
   actor, heat pump (SG-Ready 2/3, state 4 opt-in, set-point lift, RC model and COP), shiftable
   programs (plug, remote switch, notify).
@@ -74,6 +75,64 @@ Carried to Phase 7: see "Open - Phase 7".
   - `UNVERIFIED` until the first Weblate pull request: the workflow itself (never run), JSON
     umlauts unescaped, key order of new strings, that Weblate's `yaml` keeps Home Assistant's
     layout (`App lint`), the free Libre plan, the exact menus. `WEBLATE_SYNC_TOKEN` is optional.
+- **Phase 7 - PR 7-Q, Phase 6 fields in Settings (frontend only; branch
+  `phase-7/q-phase6-fields`, on 7-J; `frontend-engineer`, **CS** read of the field semantics)** -
+  no backend change, the fields and ranges are the backend's own:
+  - Settings -> Devices: per device `para14a` (checkbox) and `shed_rank` (integer 0-10,000, empty =
+    reverse priority) in one card, saved with the whole `devices` section (`PUT`); the island keep
+    list (`grid.backup.keep_devices`) as a checkbox list, saved with the `site` section, only
+    while a backup entity is configured.
+  - Settings -> Home Assistant: the manual MQTT broker (`broker`, `host`, `port` 1-65,535, `tls`,
+    `username`, `password`); the password is write-only (never filled from the API, an empty
+    field sends the mask so the stored secret is kept, "Remove" sends none).
+  - Validation errors of the backend (422) show at the field; strings in `p6.*` (en, de).
+  - Bundle: standard path 247.5 -> 252.4 kB, **over the 250 kB budget by 2.4 kB** (see plan
+    section 8, 7-Q); first paint 122.7 -> 123.8 kB, expert extras unchanged.
+  - Review fixes: shared lock and fresh read for the two MQTT saves, keep list pruned when a
+    device is deleted (and unknown ids removable), corrected shed and §14a texts (plan section 8,
+    7-Q).
+  - Screenshots `docs/assets/screenshots/7q/`; user pages `grid-limits.md` and
+    `home-assistant-entities.md` (en, de) updated.
+- **Phase 7 - PR 7-J, inverter limit verification (WP8, ADR-0018 addendum; branch
+  `phase-7/j-inverter-verify`, on 7-G; `control-safety`, **CS**)** - no new writer:
+  - `core/verification.py`: `VerificationWindow` (id, opened, expiry at most 600 s, lowest
+    limit), the only way to waive X3. `GateInputs.verification_window` (additive) is filled by
+    the gate from its own register; a provider value is ignored.
+  - `safety/`: `window_waives_chain` (only an active window, only `Origin.USER`, only intents
+    `verify:<window id>:...`, only at or above `lowest`; X1, X2, X4, X5, X6 never waived). The
+    gate opens and closes the window (only while the inverter is effectively assisted, no
+    emergency stop, an actuator exists), releases a limit written under it when it closes or
+    expires (`safety.verification_window_closed`) and clears it on emergency stop, recover
+    (restart), shutdown, handover and connection loss.
+  - `app/verification.py`: the procedure (preconditions, 2 min stable sunshine, proposal,
+    one confirmed USER write, observe and classify export or AC semantics, release and read-back,
+    recovery check). It only calls `gate.submit`, `gate.release_device` and the window methods;
+    an AST test keeps it so. While it runs the export chain waits (`verify.running`).
+  - `limit_verified`: set only by the procedure (`ConfigStore.record_inverter_verification`),
+    bound to the adapter identity (`verified_identity`); a PUT cannot raise it, an import resets
+    it; a failed test with evidence (semantics mismatch, export not following, read-back
+    mismatch, baseline not restored) resets it. The last outcome is stored in
+    `inverter.last_verification`.
+  - API `GET/POST /api/v1/inverter/verification`, `POST .../confirm`, `POST .../abort` (409 with
+    reason keys). Panel: `InverterVerify` card and dialog in setup step 5 and Settings, Your
+    system; closing the dialog while the test runs aborts it.
+  - Simulator: limiter with physical export/AC semantics and an inert mode, load events;
+    scenarios `inverter_verify_rest`, `inverter_verify_modbus`; 14 scenario tests (pass,
+    mismatch, inert, read-back failure, load rise, disconnect, emergency stop, restart, abort,
+    window expiry). Deviations in plan section 8 (7-J).
+  - Review fixes (CS F1-F4): a re-test judges X2 as for an unverified limit while the window
+    is open or its limit is held; `confirm` stops when something else ended the procedure
+    during the write and `_finish` is idempotent; the export chain waits only from the write
+    on; a window cannot be re-opened (no extension past 600 s).
+  - **Behaviour change (for the release notes, plan WP15):** a stored `inverter` section with
+    `limit_verified: true` but no `verified_identity` (written by a hand edit or an import
+    before 7-J; the panel never set it) counts as **unverified** after the update, so the
+    inverter limit is capped at assisted until the verification test passes. Release notes
+    text: en "Inverter limit: run the verification test again after updating; a flag set by
+    hand is no longer trusted and the limit runs at most in assisted mode until the test
+    passes." de "Wechselrichter-Limit: Führe nach dem Update den Verifikationstest erneut aus;
+    ein von Hand gesetztes Flag gilt nicht mehr, und das Limit läuft höchstens assistiert, bis
+    der Test bestanden ist."
 - **Phase 7 - PR 7-G, Settings and wizard (frontend; branch `phase-7/g-settings`, on 7-F;
   `frontend-engineer`)** - review stop 2; stores, API calls, validation and step ids unchanged:
   - Settings: an index of five groups (Your system, Devices, Goals and operating mode, Home
@@ -87,7 +146,7 @@ Carried to Phase 7: see "Open - Phase 7".
   - Bundle: one lazy chunk per wizard stage instead of per step, the settings pages in the one
     Settings chunk, backend-only messages left out of the browser catalogues
     (`scripts/backend-only.mjs`). Phase 6 panel fields (`para14a`, `shed_rank`, island keep
-    list, manual broker) are not in this PR (question 2 in `review-7g.md`).
+    list, manual broker) are not in this PR (question 2 in `review-7g.md`); 7-Q adds them.
   - Screenshots `docs/assets/screenshots/{before-7g,after-7g}/`; deviations in plan section 8
     (7-G); six questions in `review-7g.md`.
 - **Phase 7 - PR 7-F, Plan and Analysis (frontend; branch `phase-7/f-plan-analysis`, on 7-E;
@@ -1454,11 +1513,10 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   HA **commands** for EV mode, target, program arming, comfort band and the battery settings
   (with the author `mqtt` in the config history; needs a `control-safety` review, plan section 8,
   6-O); a push for a target the plan meets but the controller later misses.
-- **Panel gaps:** inverter verification test as an endpoint with a dialog (without it
-  `limit_verified` stays false and no limit is ever written), per-device `para14a` flag,
-  `shed_rank` and the island keep list, evcc `loadpoint_id` and `topic_prefix`, a manual MQTT
-  broker, COP at the current weather on the heat pump card, bundle budget (first paint 123.5 of
-  125 kB: move more wizard steps out).
+- **Panel gaps:** COP at the current weather on the heat pump card, bundle budget (7-Q: standard
+  path 252.4 of 250 kB, needs a maintainer decision or savings elsewhere). The per-device
+  `para14a` flag, `shed_rank`, the island keep list and the manual MQTT broker are in the panel
+  since 7-Q.
 - **Behaviour decisions deferred:** hard target at any price for the EV (the late-car scenario
   stops at about 77 % of 80 %), grid pre-heating execution, `generic.heat_pump_select`, a
   `button.press` remote start, a plan clear for evcc, resetting evcc's mode at unplugging.
@@ -1810,7 +1868,8 @@ Each was built with the proposed default; the answer may change that default.
 | Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (`power_update_s` is in the device editor since WP10) |
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
 | §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed; 0 W cannot be a legal dimming value given the 4.2 kW minimum, a positive value is used as min(value, limit)) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018, plan section 8 (6-F) | a grid operator's control box / documentation |
-| Kostal register 533: readable back (Kostal lists only FC 0x06), whether it includes battery discharge, the reset behaviour (volatile per rev 2.9, re-written every heartbeat); `Inverter:ActivePowerLimitation` semantics (export or AC limit), whether the REST value survives an inverter restart, out-of-range handling | `suncore/devices/inverter/drivers.py`, `templates/inverter/`, `research/kostal-plenticore-modbus.md` | maintainer's inverter: the verification test before `limit_verified` |
+| Kostal register 533: readable back (Kostal lists only FC 0x06), whether it includes battery discharge, the reset behaviour (volatile per rev 2.9, re-written every heartbeat); `Inverter:ActivePowerLimitation` semantics (export or AC limit), whether the REST value survives an inverter restart, out-of-range handling | `suncore/devices/inverter/drivers.py`, `templates/inverter/`, `research/kostal-plenticore-modbus.md` | maintainer's inverter: the verification test (7-J, plan H9) |
+| 7-J verification classification: export semantics = export settles at the limit, AC semantics = at limit − house (DC-coupled battery charges before the AC output) or limit − house − battery charging (AC-coupled); tolerance max(150 W, 5 %) held 20 s; observed only in the simulator | `suncore/app/verification.py` (`classify`), `suncore/sim/limiter.py` | H9 on the maintainer's inverter |
 | Export chain tuning (curtail delay 120 s, AC hysteresis 3 %, lease at half the 500 W margin, device headroom >= 100 W) and the simulator's 0-8 W regulation jitter below an AC limit (keeps the watchdog's frozen-PV check quiet) | `suncore/controller/export.py`, `suncore/safety/inverter.py`, `suncore/sim/limiter.py` | shadow run on the maintainer's system with surplus |
 | Backup-switch island state names (simulator: `island`/`on_grid`; Kostal BackUp Switch G3 entity and states unknown) | `suncore/core/grid.py` `BackupConfig`, `suncore/sim/fake_ha.py` | maintainer maps the entity (question 10) |
 | Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |

@@ -24,10 +24,14 @@ knows none; the page says why and how to fix it), **Connecting**, **Error** (wro
 password, TLS failure, broker did not answer; the page names the reason). The system check at the
 end of the setup assistant has a line for this as well.
 
-A broker that is not the Mosquitto app (or one outside Home Assistant OS) can be set up with
-`broker: manual` (host, port, TLS, user name, password) in the `mqtt` section of the
-configuration. The panel has no fields for it yet (see the limits below). The password is
-stored as a secret and is masked in the API, in exports and in the configuration history.
+A broker that is not the Mosquitto app (or one outside Home Assistant OS) is set up under
+**Settings → Home Assistant → MQTT broker**: choose **My own broker** and enter host, port
+(1 to 65,535), TLS, user name and password. A manual broker needs a host, and a password needs
+a user name; otherwise the page shows the refusal and nothing is saved. The password is write-only:
+the page never shows it. Leave the field empty to keep the stored one, type a new one to replace
+it, or tick **Remove the stored password**. Switching back to the automatic broker deletes the
+stored password. It is stored as a secret and is masked in the API, in
+exports and in the configuration history.
 The **Publish again** button announces all entities again.
 
 Entities go to `unavailable` when SunCore stops (the broker publishes SunCore's last will) and
@@ -107,7 +111,6 @@ Safeguards, all tested:
   The event entity only fires for a switched device, a proposal and an error.
   Config changes from Home Assistant (so no "author `mqtt`" in the configuration history) are
   not offered.
-- A manual broker cannot be entered in the panel yet; use the `mqtt` configuration section.
 - A device raise from Home Assistant carries the device's current identity token, so the
   protection against a re-mapped device does not apply to it. Only the opt-in does.
 - Anyone with broker credentials can stop SunCore, pause devices and lower modes. This is by

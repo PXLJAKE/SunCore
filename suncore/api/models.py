@@ -171,6 +171,13 @@ class ErrorOut(_Model):
     detail: str
 
 
+class VerificationRefusedOut(_Model):
+    """409 of the inverter limit verification (PR 7-J): why it cannot start or go on."""
+
+    detail: str
+    reasons: list[Reason]
+
+
 # --- control (Phase 3 WP9) -----------------------------------------------------
 
 

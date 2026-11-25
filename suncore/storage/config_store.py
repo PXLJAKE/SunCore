@@ -20,6 +20,7 @@ from suncore.core.config import (
     ForecastConfig,
     GoalsConfig,
     InverterConfig,
+    InverterVerificationRecord,
     MqttConfig,
     NotificationsConfig,
     OperationConfig,
@@ -336,9 +337,8 @@ class ConfigStore:
         )
         stored = self._try_parse("inverter", row)
         before = stored.identity_token() if isinstance(stored, InverterConfig) else None
+        model = _guard_verification(model, stored if isinstance(stored, InverterConfig) else None)
         if model.identity_token() != before:
-            if model.limit_verified:
-                model = model.model_copy(update={"limit_verified": False})
             op_row = await tx.fetchone(
                 "SELECT schema_version, body FROM config_doc WHERE section = 'operation'"
             )
@@ -348,6 +348,38 @@ class ConfigStore:
                 if cleaned is not operation:
                     await self._write(tx, "operation", cleaned, now)
         await self._write(tx, "inverter", model, now)
+        return model
+
+    async def record_inverter_verification(
+        self, record: InverterVerificationRecord, *, verified: bool | None
+    ) -> InverterConfig | None:
+        """Store the outcome of the verification procedure (PR 7-J; the only writer of
+        ``limit_verified = true``).
+
+        Applied only when the stored adapter still has ``record.identity`` (a test of an adapter
+        that changed meanwhile proves nothing): ``verified`` sets ``limit_verified`` with the
+        identity and the time, ``False`` resets it, ``None`` keeps it (a failure that is no
+        evidence against the adapter, e.g. a rising house load). Returns the stored section,
+        ``None`` when nothing was written (no adapter or another identity).
+        """
+        async with self._db.transaction() as tx:
+            row = await tx.fetchone(
+                "SELECT schema_version, body FROM config_doc WHERE section = 'inverter'"
+            )
+            stored = self._try_parse("inverter", row)
+            if not isinstance(stored, InverterConfig) or stored.identity_token() != record.identity:
+                return None
+            update: dict[str, object] = {"last_verification": record}
+            if verified is True:
+                update |= {
+                    "limit_verified": True,
+                    "verified_identity": record.identity,
+                    "verified_at": record.at,
+                }
+            elif verified is False:
+                update |= {"limit_verified": False, "verified_identity": None, "verified_at": None}
+            model = InverterConfig.model_validate({**stored.model_dump(), **update})
+            await self._write(tx, "inverter", model, self._clock().isoformat())
         return model
 
     # --- battery identity (ADR-0013 decision 6) -----------------------------------------
@@ -736,9 +768,9 @@ class ConfigStore:
                     prev_mqtt if isinstance(prev_mqtt, MqttConfig) else None
                 )
             inverter = validated.get("inverter")
-            if isinstance(inverter, InverterConfig) and inverter.limit_verified:
+            if isinstance(inverter, InverterConfig):
                 # Like the battery (ADR-0013): an import never carries the verification over.
-                validated["inverter"] = inverter.model_copy(update={"limit_verified": False})
+                validated["inverter"] = _guard_verification(inverter, None)
             await self._save_identities(tx, record, now)
             await self._save_battery_record(tx, None, now)
             stored = {name: self._dump(model) for name, model in validated.items()}
@@ -756,3 +788,36 @@ class ConfigStore:
                     (name, self._spec(name).current_version, body, now),
                 )
         return sorted(validated)
+
+
+def _guard_verification(model: InverterConfig, stored: InverterConfig | None) -> InverterConfig:
+    """PR 7-J (plan phase 7 §1 criterion 4): ``limit_verified`` comes only from a passed test.
+
+    A put can never raise ``limit_verified``: the verified identity and time always come from
+    the stored version, and only while both the body and the stored version say verified.
+    Lowering by a put stays possible (the safe direction; e.g. restoring an older version). A
+    changed adapter (or nothing stored, or an import) is never verified and has no record.
+    """
+    same = (
+        stored is not None
+        and stored.identity_token() is not None
+        and stored.identity_token() == model.identity_token()
+    )
+    if not same or stored is None:
+        update: dict[str, object] = {
+            "limit_verified": False,
+            "verified_identity": None,
+            "verified_at": None,
+            "last_verification": None,
+        }
+    else:
+        keep = model.limit_verified and stored.limit_verified
+        update = {
+            "limit_verified": keep,
+            "verified_identity": stored.verified_identity if keep else None,
+            "verified_at": stored.verified_at if keep else None,
+            "last_verification": stored.last_verification,
+        }
+    if all(getattr(model, k) == v for k, v in update.items()):
+        return model
+    return InverterConfig.model_validate({**model.model_dump(), **update})

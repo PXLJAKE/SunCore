@@ -43,8 +43,13 @@ non-thermal devices before their minimum run time ends and despite the switch li
 and air conditioners are never cut this way. A running shiftable program is never switched off
 (see [Programs](programs.md)). Reductions are always allowed; only increases are checked.
 
-The shed rank per device has no field in the panel yet; set `shed_rank` in the device
-configuration (import) if you need it.
+Set the order per device under **Settings → Devices → Grid protection per device**, field
+**Switch-off order (shed rank)**: a whole number from 0 to 10,000, the lowest number goes first.
+Above the import limit or the monthly peak the order is: continuous loads first, then devices
+with a rank (lowest number first), then devices without a rank in reverse priority, so they go
+last. In island operation the rank does not matter: every device that is not on the keep list is
+switched off at once. A wrong value (for example above 10,000) is refused with
+a message at the field and nothing is saved.
 
 ### Section 14a EnWG (Germany)
 
@@ -54,8 +59,10 @@ signal is active the devices that are flagged for section 14a share the allowed 
 **4200 W**, the legal reference) in priority order. SunCore logs, shows the **§14a limit active**
 badge and keeps the flagged devices below the budget.
 
-- A device takes part only when it is flagged with `para14a` in its configuration. The device
-  editor has no checkbox for this yet.
+- A device takes part only when it is flagged: **Settings → Devices → Grid protection per
+  device**, tick **Controllable consumer under §14a EnWG** (wallbox, heat pump or air conditioner
+  above 4.2 kW that your grid operator may dim). With an unknown signal flagged devices are
+  frozen, and they stay held for a while after the signal ends.
 - **Unknown signal** (the entity is unavailable): flagged devices are frozen, nothing is
   raised. **No signal entity** counts as "not active" with a note.
 - After the reduction ends there is a cool-down (120 s) before anything is raised again.
@@ -76,7 +83,11 @@ island operation** exactly as the entity reports them. `unavailable` and `unknow
   and never charges the battery from the grid. After the grid is back there is the same 120 s
   cool-down.
 - An unavailable entity counts as **grid connected** and the panel shows "Grid state unknown".
-- The keep list (`keep_devices`) has no field in the panel yet.
+- The keep list is under **Settings → Devices → Devices kept during backup power**. It needs
+  the backup state entity above; without it the page says so. Kept devices are not switched off by
+  SunCore and are held at their current level; they can drain the battery below the reserve.
+  Only keep what really needs power in a blackout. Deleting a device also removes it from this
+  list.
 - `UNVERIFIED`: which entity and states a Kostal BackUp Switch G3 shows. The simulator uses
   `island` and `on_grid`.
 
@@ -107,13 +118,34 @@ An inverter adapter writes the limit. Templates: `kostal.plenticore_power_limit`
 `Inverter:ActivePowerLimitation`, an export limit in W), `kostal.plenticore_g3_modbus_limit`
 (register 533, an AC output limit in %) and `generic.inverter_limit` (a number entity).
 
-- The inverter asset starts in shadow and stays **at most assisted until `limit_verified` is
-  true.** **SunCore never writes a limit before that.** The setup step shows the block
-  disabled with the reason: the panel has no verification dialog yet, so in this version the
-  inverter limit cannot be activated from the panel.
-- The intended test, to be done with you in assisted mode before the flag is set: set a limit
-  below the current export, the export follows, and "back to normal" restores your own value.
-  Do not set `limit_verified` yourself in the configuration before you have done this.
+- The inverter asset starts in shadow and stays **at most assisted until the limit is
+  verified.** Unverified, SunCore never writes a limit on its own (automatic mode); it only
+  proposes. Only the verification test sets the flag; saving the configuration or importing
+  a file cannot set it (an import resets it). The flag belongs to one adapter: changing the
+  template or its entity, register or capability makes the limit unverified again. A flag
+  set by hand in an older version is not trusted: after the update, run the test again.
+- **Running the test.** Open the block in setup step 5 or under Settings, *Your system*, and
+  choose *Run the verification test*. Set the inverter asset to **assisted** first. The test:
+  1. waits until the sunshine is steady: at least 1 kW export and 1.5 kW above house load plus
+     battery charging, within a 1 kW band for 2 minutes (up to 15 minutes);
+  2. shows the proposed test limit, `max(house + battery charging + 700 W, export − 1 kW)`,
+     next to your own limit. **Nothing is written until you confirm** (within 2 minutes);
+  3. writes the test limit once, through the safety layer, as your own action, and watches the
+     export for about a minute: an export limit shows up as export ≈ limit, an AC output limit
+     as export ≈ limit − house load (− battery charging);
+  4. restores your own limit, reads it back and checks the export comes back.
+- The test passes when the observed behaviour matches the configured capability and your limit
+  is back. Then the limit is verified and automatic mode becomes possible. A mismatch, an
+  export that does not follow, a failed read-back or a limit that does not come back mark the
+  limit **unverified**; the reason is shown in the block.
+- The test ends at once and restores your limit when you close the dialog, press the
+  emergency stop, the connection to Home Assistant is lost, SunCore stops or restarts, the
+  house load rises so far that the limit would cause grid import, or its time window
+  (at most 10 minutes) expires. Meanwhile SunCore proposes no other inverter limit.
+- The test is the only place where SunCore lowers the limit below the current export while
+  devices or the battery could still take the surplus. That exception holds only inside the
+  test's time window, only for the one write you confirmed, and never against the other
+  rules (no grid import, the range of the adapter, at most every few seconds).
 - An AC limit (register 533) keeps house load plus battery charging plus 500 W free so that
   the limit itself never causes grid import.
 - **Register 533 has no documented timeout.** If SunCore stops or loses the connection, an AC

@@ -26,6 +26,7 @@ from suncore.core.detection import DetectedEntity, EnergySuggestions
 from suncore.core.flex import EvMode, EvState, EvTarget, ProgramJob
 from suncore.core.haentities import HaEntitiesStatus
 from suncore.core.site import SiteConfig
+from suncore.core.verification_view import VerificationView
 from suncore.core.wizard import CheckItem, PreviewItem
 from suncore.forecast.views import (
     ForecastAccuracyView,
@@ -340,6 +341,25 @@ class Services(Protocol):
         """Set the inverter limit's mode (PR 6-G). Raising it above shadow needs the adapter's
         current identity token (``InverterControlState.identity``): raises
         :class:`InverterNotControllableError` (no adapter), :class:`DeviceIdentityChangedError`."""
+        ...
+
+    # --- inverter limit verification (PR 7-J, plan phase 7 WP8) ----------------------------
+
+    def inverter_verification(self) -> VerificationView:
+        """The verification procedure's state (``idle`` when none ran since the start)."""
+        ...
+
+    async def start_inverter_verification(self) -> VerificationView:
+        """Start the test; raises ``VerificationRefusedError`` with the reasons it cannot."""
+        ...
+
+    async def confirm_inverter_verification(self) -> VerificationView:
+        """The user confirmed the proposed test limit: it goes to the gate as their intent;
+        raises ``VerificationRefusedError`` when nothing waits for a confirmation."""
+        ...
+
+    async def abort_inverter_verification(self) -> VerificationView:
+        """Stop the test; a held test limit is released through the gate at once."""
         ...
 
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:

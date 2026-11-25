@@ -569,6 +569,7 @@ Frontend PRs attach before/after screenshots.
 | 7-N `test,ci` release readiness | WP13 | 7-C; final runs after 7-J | `qa-engineer`, `ha-integration` (Sonnet) | – |
 | 7-O `docs(security)` security review and fixes | WP14 | 7-E … 7-N | `reviewer` (Fable), `control-safety` | **CS** for command-path fixes |
 | 7-P `docs` screenshots, STATUS, final review, release | WP15 | all, acceptance §6 | `docs-writer`, `reviewer` (Fable), maintainer | final CS read of 7-J, 7-K |
+| 7-Q `feat(frontend)` Phase-6 fields in Settings | WP5 follow-up (question 2 of review-7g) | 7-J | `frontend-engineer` (Sonnet) | CS read (fields feeding G1–G6) |
 
 ```text
 7-A ─► 7-B ─► 7-C ─► 7-D ─┬► 7-E ─┐
@@ -1280,6 +1281,111 @@ Part 2 (community hygiene) is below; the final runs after 7-I and 7-J are still 
   screenshots of 7-E/F/G stay under `docs/assets/screenshots/{before,after}-*` (the review pages
   link them); 7-L's moved set is `docs/user/assets/screenshots/`. STATUS and plan section 8
   were merged from both sides.
+### 7-J
+
+- Based on `phase-7/g-settings`. Built as the ADR-0018 addendum says, with these deviations:
+- **Four endpoints, not three:** `GET` and `POST /api/v1/inverter/verification` (view, start),
+  `POST .../confirm` (the one write) and `POST .../abort`. None takes a body: the server alone
+  computes the test limit, so the panel cannot choose a value. A refusal is 409
+  `api.error.verification_refused` with reason keys.
+- **The user confirms the write, not the release.** The addendum says "the user confirms each
+  write"; the procedure writes once (the test limit, confirmed in the dialog within 2 min) and
+  releases on its own (`gate.release_device` with `Origin.USER`). Asking to confirm the way
+  back would keep a test limit in place while the user is away; the release only moves towards
+  the user's own value. H9 step 1 ("confirm each step") reads accordingly.
+- **Who fills the window field:** `GateInputs.verification_window` exists as the addendum
+  says, but the gate overwrites it with the window it holds in memory (`open_verification_window`
+  / `close_verification_window`); a value from the inputs provider is ignored. So no provider,
+  test fixture or future code path can grant the waiver by putting a window into the inputs. The
+  procedure calls the gate's window methods directly (it is in `app/`, next to the stack), not
+  through `api/services.py`; the services layer only starts, confirms and aborts.
+- **The waiver is narrower than the addendum:** besides an active window, `Origin.USER`, the
+  inverter asset and `≥ lowest`, the intent id must be `verify:<window id>:...`, so a manual
+  USER limit from elsewhere during the window is still judged by X3. The window opens only
+  while the inverter is effectively assisted, without an emergency stop and with an actuator,
+  and at most one at a time.
+- **Expiry releases.** When the window closes or expires while a limit written under it is
+  held, the gate's `poll` releases that limit (`safety.verification_window_closed`); the
+  procedure's own deadline (settle + 60 s) is shorter, the window (≤ 600 s) is the backstop.
+  The window is also cleared on connection loss, shutdown and handover (the addendum names
+  pass, fail, abort, emergency stop, restart and expiry).
+- **A fail with evidence resets the flag.** The addendum says "a fail stores a reason key;
+  nothing else changes". Here a semantics mismatch, an export that does not follow, a read-back
+  mismatch or a baseline that is not restored set `limit_verified = false` (an earlier pass is
+  no longer trusted); interruptions (load rise, disconnect, emergency stop, abort, timeouts)
+  leave it as it was. Aborts and runs that never wrote are not stored.
+- **No author column:** the config history has no author field, so the pass is a normal
+  `inverter` section version written by `ConfigStore.record_inverter_verification`. A `PUT
+  /config/inverter` cannot raise `limit_verified` (`_guard_verification` keeps the stored
+  value), an import resets it, and the effective `InverterConfig.verified` also needs
+  `verified_identity` to equal the adapter's current identity token.
+- **Fail records:** stored in `inverter.last_verification` (outcome, reason key, semantics,
+  identity, time), shown in the card.
+- **View model in `core/verification_view.py`** (pydantic, for the API and the OpenAPI types);
+  `core/verification.py` imports only `core.decisions` and `core.inverter`, so `safety/` does
+  not reach `core.config` through it.
+- **Classification:** export semantics when the export settles at the limit; AC semantics when
+  it settles at limit − house (DC-coupled battery) or limit − house − battery charging
+  (AC-coupled); tolerance `max(150 W, 5 %)`, held 20 s; both near (small house load) =
+  `verify.semantics_unclear` (failed without evidence, flag unchanged). `UNVERIFIED` on
+  hardware (STATUS).
+- **While the test runs** the export chain proposes nothing for the inverter
+  (`verify.running`), so the controller cannot write over the test limit.
+- **Panel:** no Grid page exists in Settings, so the card sits in setup step 5 (where the
+  disabled Phase 6 block was) and under Settings, Your system. Without an adapter the card says
+  so and the button is disabled. Closing the dialog or pressing Escape while the test runs
+  aborts it.
+- **Review fixes (CS, approved with conditions):** F1 the gate judges X2 as for an unverified
+  limit while a window is open or a limit written under it is held (a re-test questions the
+  stored semantics; write and lease); F2 `confirm` returns when the procedure was ended during
+  the gate's await, and `_finish` is idempotent (one record, no spurious reset); F3 the export
+  chain waits only from the write on (`holds_inverter`), not while checking or waiting for the
+  confirmation; F4 a window cannot be re-opened, also not with the same id; F6 the behaviour
+  change for stored flags without `verified_identity` is in STATUS for the release notes.
+- **Simulator:** the limiter got physical semantics (an export limit caps export, an AC limit
+  caps the AC output, so export = AC − house − AC-coupled charging) and an `inert` mode; the
+  house model got timed load events. Two bundled scenarios, 14 scenario tests.
+
+### 7-Q Phase-6 fields
+
+- Based on `phase-7/j-inverter-verify`. Frontend only; answers question 2 of `review-7g.md`
+  (7-G left these fields out because they feed G1-G6).
+- **Fields exactly as the backend models them:** `DeviceConfig.para14a` (bool, default false),
+  `DeviceConfig.shed_rank` (int 0-10,000 or none = reverse priority, ADR-0018 decision 2),
+  `BackupConfig.keep_devices` (device ids, unique, not reference-checked by the backend) and
+  `MqttConfig` (`broker` supervisor or manual, `host`, `port` 1-65,535 default 1883, `tls`,
+  `username`, `password`). Nothing was added to the backend or the API.
+- **Where the writes go:** devices and keep list through the existing `PUT` of the whole
+  `devices` and `site` sections (the stored section with only these fields changed, so the
+  config store validates and versions as always); MQTT through `PUT /config/mqtt`. A change of
+  `para14a` or `shed_rank` is not part of the device identity: the mode of a device stays.
+- **The island keep list belongs to `grid.backup`:** without a backup entity there is nothing to
+  attach it to, so the card explains that and offers no save. Ids of devices that no longer exist
+  stay in a stored list untouched (the card does not list them and cannot drop them).
+- **Password is write-only:** the API returns the mask `**********`; the form never takes the
+  stored value. Empty field = send the mask (the backend keeps the secret), typed = replace,
+  "Remove the stored password" = send none. The page and the saved form hold no secret
+  (e2e checks the page content).
+- **Supervisor broker:** saving it sends no host, user or password (the backend refuses extras).
+- **Dropped for the budget:** a live preview of the resulting shed order and the listing of
+  unknown keep ids.
+- **Bundle: over budget.** Standard path 247.5 -> 252.4 kB (budget 250), first paint 122.7 ->
+  123.8 kB, expert extras 25.5 kB unchanged. The new code is about 3.4 kB gzip in the Settings
+  chunk and 1.0 kB in the German catalogue; it cannot go into a lazy chunk because the standard
+  path counts every chunk. Options for the maintainer: raise the standard budget by 5 kB, or
+  free 2.4 kB elsewhere. The budget script is unchanged in this PR.
+- **Safety review conditions (F1-F5, F7a):**
+  - F1: one lock (`settings/mqttSave.svelte.ts`) for the broker save and the `allow_mode_raise`
+    save; each `PUT` is built from a fresh `GET` of the section, so a broker save never writes an
+    old `allow_mode_raise` back.
+  - F2: the `shed_rank` help and the user pages now state what `shed_key` does (continuous, then
+    ranked, then unranked in reverse priority; island sheds all but the keep list at once).
+  - F3: `wizard.saveDevices` prunes the keep list (ids not in the device list before and after
+    the change), and the keep card lists unknown ids with a remove button.
+  - F4, F5: keep-list and `para14a` texts say what the controller does (held level, battery
+    reserve; frozen on an unknown signal, held after it ends; no claim about grid charging).
+  - F7a: a warning when switching from a manual broker with a stored password to the Supervisor.
+- **UNVERIFIED:** nothing new; the §14a limit and signal convention stay as in 6-F.
 
 ## 9. Follow-ups per agent
 

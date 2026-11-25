@@ -16,6 +16,7 @@ from typing import Annotated, Any, Final, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -816,6 +817,27 @@ class InverterModbusLink(_Frozen):
     heartbeat_s: Annotated[float, Field(ge=10, le=3600)] = 60.0
 
 
+VERIFY_REASON_PATTERN: Final = r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$"
+VerifyReasonKey = Annotated[str, StringConstraints(pattern=VERIFY_REASON_PATTERN, max_length=96)]
+
+
+class InverterVerificationRecord(_Frozen):
+    """The outcome of the last finished verification test (PR 7-J, ADR-0018 addendum).
+
+    Written only by the verification procedure (``ConfigStore.record_inverter_verification``);
+    a ``PUT`` of the section keeps the stored record, an identity change drops it.
+    """
+
+    outcome: Literal["passed", "failed"]
+    reason: VerifyReasonKey | None = None
+    """The catalogue key of a failure (``verify.*`` or a ``safety.*`` key of the gate)."""
+    semantics: Literal["export_limit", "ac_limit"] | None = None
+    """What the written value limited, as observed (``None`` = not classified)."""
+    identity: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    """``InverterConfig.identity_token()`` of the adapter that was tested."""
+    at: AwareDatetime
+
+
 class InverterConfig(_Frozen):
     """The inverter limit adapter (ADR-0018 decision 3; writes since PR 6-G).
 
@@ -843,6 +865,12 @@ class InverterConfig(_Frozen):
     """The ``inverter`` template the roles were resolved from (informational, identity)."""
     modbus: InverterModbusLink | None = None
     enforce_static: bool = False
+    # PR 7-J (additive): who verified the limit, and the last test's outcome. Set only by the
+    # verification procedure; ``ConfigStore`` keeps the stored values on every other put.
+    verified_identity: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
+    """The adapter identity token the passed test ran against."""
+    verified_at: AwareDatetime | None = None
+    last_verification: InverterVerificationRecord | None = None
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -851,6 +879,8 @@ class InverterConfig(_Frozen):
                 self.capability is not None
                 or self.limit_entity is not None
                 or self.limit_verified
+                or self.verified_identity is not None
+                or self.last_verification is not None
                 or self.modbus is not None
                 or self.template_id is not None
             ):
@@ -882,9 +912,16 @@ class InverterConfig(_Frozen):
         return self
 
     @property
+    def verified(self) -> bool:
+        """The limit was verified for **this** adapter (PR 7-J): ``limit_verified`` and the
+        identity the passed test ran against is the adapter's current identity."""
+        token = self.identity_token()
+        return self.limit_verified and token is not None and self.verified_identity == token
+
+    @property
     def mode_capped(self) -> bool:
         """X6: at most assisted until the limit is verified."""
-        return self.adapter != "none" and not self.limit_verified
+        return self.adapter != "none" and not self.verified
 
     def entity_refs(self) -> list[EntityRef]:
         return [self.limit_entity] if self.limit_entity is not None else []

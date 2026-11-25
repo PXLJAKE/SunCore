@@ -9,6 +9,7 @@
     TemplateSummary,
   } from '../../api/types';
   import { FormError } from '../../api/errors';
+  import InverterVerify from '../../components/InverterVerify.svelte';
   import NumberField from '../../components/NumberField.svelte';
   import RolePicker from '../../components/RolePicker.svelte';
   import SignCheck from '../../components/SignCheck.svelte';
@@ -464,20 +465,5 @@
     </fieldset>
   {/if}
 
-  <fieldset class="card" disabled data-testid="inverter-limit">
-    <legend>{t('inverter.title')}</legend>
-    <p class="hint">{t('inverter.hint')}</p>
-    <div class="field">
-      <label for="{uid}-inv">{t('inverter.adapter')}</label>
-      <select id="{uid}-inv" class="input" aria-describedby="{uid}-inv-why" disabled>
-        <option>{t('inverter.adapter.none')}</option>
-      </select>
-    </div>
-    <button type="button" class="btn secondary" disabled aria-describedby="{uid}-inv-why">
-      {t('inverter.verify')}
-    </button>
-    <p class="notice warn" id="{uid}-inv-why" data-testid="inverter-why">
-      {t('inverter.unavailable')}
-    </p>
-  </fieldset>
+  <InverterVerify />
 </WizardShell>
