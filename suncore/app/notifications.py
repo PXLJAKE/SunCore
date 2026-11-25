@@ -19,11 +19,14 @@ from suncore.core.battery import BATTERY_ASSET_ID
 from suncore.core.config import NotificationsConfig
 from suncore.core.controlstate import UnknownProposalError
 from suncore.core.decisions import DecisionKind, OperatingMode
+from suncore.core.flex import EvMode
+from suncore.core.grid import GridState, Para14aStatus
 from suncore.core.haentities import BrokerState
 from suncore.i18n import resolve_language
 from suncore.notify import (
     ConfirmOutcome,
     DeviceObs,
+    EvTargetObs,
     NotificationService,
     Observation,
     ProposalObs,
@@ -33,12 +36,34 @@ from suncore.notify import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from suncore.app.grid import GridMonitor
     from suncore.app.runtime import Runtime
+    from suncore.core.control import PlanInterval
 
 log = structlog.get_logger(__name__)
 
 PRICE_REFRESH_S: Final = 300.0
 WATCHDOG_PREFIX: Final = "safety.watchdog"
+EV_SHORTFALL_KEY: Final = "planner.ev.target_shortfall"
+"""Reason key of the planner (``suncore.planner.reasons.EV_TARGET_SHORTFALL``): the deadline slot
+of a target the plan cannot deliver. Kept as text here so ``app`` reads the plan's public reasons
+without importing the planner's internals."""
+
+
+def grid_flags(monitor: GridMonitor | None) -> tuple[bool | None, bool | None]:
+    """``(island, section 14a active)`` from the grid monitor; ``None`` = no usable source.
+
+    A backup entity that is configured but unavailable (``UNKNOWN``) and an unreadable §14a
+    signal are no information, not "grid is back": the rules then neither start nor end an event.
+    """
+    if monitor is None:
+        return None, None
+    grid, para = monitor.grid_state, monitor.para14a_status
+    island = None if grid is None or grid is GridState.UNKNOWN else grid is GridState.ISLAND
+    flagged = (
+        None if para is None or para is Para14aStatus.UNKNOWN else para is Para14aStatus.ACTIVE
+    )
+    return island, flagged
 
 
 class RuntimeProposalPort:
@@ -119,6 +144,8 @@ class RuntimeObservationSource:
             if p.kind is DecisionKind.PROPOSED and p.expires_at is not None
         ]
         mqtt = rt.ha_entities_status().state
+        stack = rt.stack
+        island, para14a = grid_flags(None if stack is None else stack.grid_monitor)
         return Observation(
             now=local,
             emergency_stop=state.emergency_stop,
@@ -129,7 +156,51 @@ class RuntimeObservationSource:
             mqtt_enabled=mqtt in (BrokerState.CONNECTING, BrokerState.CONNECTED, BrokerState.ERROR),
             mqtt_connected=mqtt is BrokerState.CONNECTED,
             prices=self._price_slots(now),
+            island=island,
+            para14a=para14a,
+            ev_targets=self._ev_targets(now, names),
         )
+
+    def _ev_targets(self, now: datetime, names: dict[str, str]) -> list[EvTargetObs]:
+        """Chargers in mode ``target`` with their deadline and whether the newest plan, made
+        after the target was set, reports a shortfall for it."""
+        rt = self._rt
+        states = rt.ev_state_snapshot()
+        plan = None if rt.planning is None else rt.planning.plan
+        out: list[EvTargetObs] = []
+        for device_id, state in states.items():
+            target = state.target
+            if state.mode is not EvMode.TARGET or target is None or target.by <= now:
+                continue
+            shortfall: tuple[float | None, float | None] | None = None
+            made = None if plan is None else plan.created_at
+            if plan is not None and made is not None and made >= state.updated_at:
+                shortfall = self._shortfall(plan.intervals, device_id)
+            out.append(
+                EvTargetObs(
+                    device_id,
+                    names.get(device_id, device_id),
+                    target.by,
+                    shortfall is not None,
+                    None if shortfall is None else shortfall[0],
+                    None if shortfall is None else shortfall[1],
+                )
+            )
+        return out
+
+    @staticmethod
+    def _shortfall(
+        intervals: Sequence[PlanInterval], device_id: str
+    ) -> tuple[float | None, float | None] | None:
+        for interval in intervals:
+            for reason in interval.reasons:
+                if reason.key == EV_SHORTFALL_KEY and reason.args.get("device") == device_id:
+                    need, planned = reason.args.get("need_kwh"), reason.args.get("planned_kwh")
+                    return (
+                        float(need) if isinstance(need, int | float) else None,
+                        float(planned) if isinstance(planned, int | float) else None,
+                    )
+        return None
 
     def _planner_failing(self, now: datetime) -> float | None:
         planning = self._rt.planning

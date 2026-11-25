@@ -13,6 +13,7 @@ from suncore.notify.ratelimit import NotifyLimiter, in_quiet_hours
 from suncore.notify.rules import (
     DeviceObs,
     Evaluation,
+    EvTargetObs,
     Observation,
     ProposalObs,
     RuleEngine,
@@ -36,6 +37,7 @@ __all__ = [
     "ConfirmOutcome",
     "Consumed",
     "DeviceObs",
+    "EvTargetObs",
     "Evaluation",
     "NotificationService",
     "NotifyEvent",

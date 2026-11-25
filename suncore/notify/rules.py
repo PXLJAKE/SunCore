@@ -24,6 +24,12 @@ FAILED_WRITES: Final = 3
 PLANNER_FAILED_S: Final = 3600.0
 MQTT_LOST_S: Final = 900.0
 SUMMARY_HOUR: Final = 20
+FLAG_END_STABLE_S: Final = 120.0
+"""An island or section 14a flag must stay off this long before the "ended" message: a flickering
+signal then gives one start and one end instead of a message per edge."""
+EV_RISK_HOLD_S: Final = 600.0
+"""The planner must report a missed EV target for this long before the user is told (one
+cloudy forecast revision is not a warning)."""
 WINDOW_MIN_SLOTS: Final = 4
 """A cheap window lasts at least 1 h (four 15-minute slots)."""
 WINDOW_HORIZON: Final = timedelta(hours=24)
@@ -49,6 +55,20 @@ class DeviceObs:
 
 
 @dataclass(frozen=True, slots=True)
+class EvTargetObs:
+    """An EV charge target of a charger in mode ``target`` and what the planner says about it."""
+
+    device_id: str
+    name: str
+    by: datetime
+    """The target's deadline."""
+    shortfall: bool
+    """The newest plan (made after the target was set) cannot deliver the target by ``by``."""
+    need_kwh: float | None = None
+    planned_kwh: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Observation:
     now: datetime
     """Timezone-aware, in the site's local zone (the summary hour and window labels use it)."""
@@ -65,6 +85,8 @@ class Observation:
     para14a: bool | None = None
     prices: Sequence[tuple[datetime, float | None]] = ()
     """Import price per 15-minute slot start (``None`` = unknown)."""
+    ev_targets: Sequence[EvTargetObs] = ()
+    """Open EV targets (mode ``target``, deadline in the future)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +158,11 @@ class RuleEngine:
         self._tripped: set[str] | None = None
         self._emergency: bool | None = None
         self._flags: dict[str, bool | None] = {"island": None, "para14a": None}
+        """Announced state per flag: ``True`` from the start message until the end message."""
         self._flag_counts: dict[str, int] = {"island": 0, "para14a": 0}
+        self._flag_off_since: dict[str, datetime | None] = {"island": None, "para14a": None}
+        self._ev_risk_since: dict[str, datetime] = {}
+        self._ev_announced: set[str] = set()
         self._mqtt_lost_since: datetime | None = None
         self._active: set[str] = set()
         """Persistent error keys currently raised (planner, MQTT): only these get resolved."""
@@ -151,6 +177,7 @@ class RuleEngine:
         self._devices(obs, acc)
         self._safety(obs, acc)
         self._errors(obs, acc)
+        self._ev_targets(obs, acc)
         self._cheap(obs, acc)
         self._summary(obs, acc)
         return Evaluation(tuple(acc.events), tuple(acc.resolved))
@@ -259,34 +286,83 @@ class RuleEngine:
         self._flag(obs, acc, "para14a", obs.para14a)
 
     def _flag(self, obs: Observation, acc: _Acc, name: str, value: bool | None) -> None:
+        """Island and section 14a: the start at once, the end only after the flag stayed off for
+        :data:`FLAG_END_STABLE_S` (flicker rejection); a start while the end is pending is the
+        same event."""
         if value is None:
             return
-        before = self._flags[name]
-        self._flags[name] = value
-        if before is None or value == before:
+        announced = self._flags[name]
+        if announced is None:  # first observation: the baseline, nothing is announced
+            self._flags[name] = value
             return
         if value:
-            self._flag_counts[name] += 1
-            acc.events.append(
-                _event(
-                    Category.SAFETY,
-                    f"{name}:{self._flag_counts[name]}",
-                    f"notify.safety.{name}_start",
-                    obs.now,
+            self._flag_off_since[name] = None
+            if not announced:
+                self._flags[name] = True
+                self._flag_counts[name] += 1
+                acc.events.append(
+                    _event(
+                        Category.SAFETY,
+                        f"{name}:{self._flag_counts[name]}",
+                        f"notify.safety.{name}_start",
+                        obs.now,
+                    )
                 )
+            return
+        if not announced:
+            return
+        since = self._flag_off_since[name]
+        if since is None:
+            self._flag_off_since[name] = obs.now
+            since = obs.now
+        if (obs.now - since).total_seconds() < FLAG_END_STABLE_S:
+            return
+        self._flags[name] = False
+        self._flag_off_since[name] = None
+        count = self._flag_counts[name]
+        acc.resolved.append(f"{name}:{count}")
+        acc.events.append(
+            _event(
+                Category.SAFETY,
+                f"{name}_end:{count}",
+                f"notify.safety.{name}_end",
+                obs.now,
+                persist=False,
             )
-        else:
-            count = self._flag_counts[name]
-            acc.resolved.append(f"{name}:{count}")
+        )
+
+    # --- EV target at risk --------------------------------------------------------------------
+
+    def _ev_targets(self, obs: Observation, acc: _Acc) -> None:
+        """One message per target (device and deadline) once the planner has said for
+        :data:`EV_RISK_HOLD_S` that it cannot be met; a new target is a new key."""
+        live: set[str] = set()
+        for target in obs.ev_targets:
+            key = f"ev_target:{target.device_id}:{target.by.isoformat()}"
+            if target.by <= obs.now or not target.shortfall:
+                self._ev_risk_since.pop(key, None)
+                continue
+            live.add(key)
+            since = self._ev_risk_since.setdefault(key, obs.now)
+            if key in self._ev_announced or (obs.now - since).total_seconds() < EV_RISK_HOLD_S:
+                continue
+            if len(self._ev_announced) > 64:
+                self._ev_announced.clear()
+            self._ev_announced.add(key)
+            zone = obs.now.tzinfo
+            args: dict[str, str | int | float] = {
+                "device": target.name,
+                "time": target.by.astimezone(zone).strftime("%H:%M"),
+            }
+            if target.need_kwh is not None and target.planned_kwh is not None:
+                args["need_kwh"] = target.need_kwh
+                args["planned_kwh"] = target.planned_kwh
+            text = "notify.ev_target.at_risk" if len(args) > 2 else "notify.ev_target.at_risk_short"
             acc.events.append(
-                _event(
-                    Category.SAFETY,
-                    f"{name}_end:{count}",
-                    f"notify.safety.{name}_end",
-                    obs.now,
-                    persist=False,
-                )
+                NotifyEvent(Category.EV_TARGET, key, Reason(key=text, args=args), obs.now)
             )
+        for gone in set(self._ev_risk_since) - live:
+            del self._ev_risk_since[gone]
 
     # --- errors: planner, MQTT ----------------------------------------------------------------
 

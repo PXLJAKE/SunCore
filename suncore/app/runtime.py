@@ -1844,6 +1844,10 @@ class Runtime:
             raise UnknownDeviceError(device_id)
         return device
 
+    def ev_state_snapshot(self) -> dict[str, EvState]:
+        """The runtime EV mode and target of every charger (a copy; read only)."""
+        return dict(self._ev_states)
+
     async def flex_view(self, device_id: str) -> tuple[EvState | None, ProgramJob | None]:
         self._device_config(device_id)
         return self._ev_states.get(device_id), self.program_jobs.current(device_id)

@@ -129,3 +129,47 @@ def test_the_remembered_keys_are_bounded() -> None:
         limiter.commit(event(key=f"k{n}"), NOON, BERLIN, pushed=False)
     assert not limiter.is_duplicate(event(key="k0"), NOON)  # the oldest were dropped
     assert limiter.is_duplicate(event(key="k599"), NOON)
+
+
+def test_the_quiet_hours_hint_says_what_the_rules_do() -> None:
+    """The settings text (``notify.quiet_hint``) must match the verdicts (6-O: it once said
+    programs are never held back, while "finished" and "could not start" are)."""
+    import json  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    from suncore.app.programs import program_notice  # noqa: PLC0415
+    from suncore.controller.programs import ProgramEvent  # noqa: PLC0415
+    from suncore.core.flex import JobState, ProgramJob  # noqa: PLC0415
+
+    night = datetime(2026, 11, 24, 23, 0, tzinfo=BERLIN)
+    limiter = NotifyLimiter()
+    cfg = config()
+    armed = ProgramJob(
+        id="j1", device_id="washer", deadline=night + timedelta(hours=8), armed_at=night
+    )
+    done = armed.model_copy(
+        update={"state": JobState.DONE, "started_at": night, "finished_at": night}
+    )
+    verdicts = {}
+    for kind in ("start_now", "done", "missed"):
+        notice = program_notice(ProgramEvent(kind, "washer", done, night), lambda _: "W", BERLIN)  # type: ignore[arg-type]
+        assert notice is not None
+        verdicts[kind] = limiter.judge_push(notice, cfg, night, BERLIN)
+    assert verdicts == {
+        "start_now": Verdict.SEND,
+        "done": Verdict.QUIET_HOURS,
+        "missed": Verdict.QUIET_HOURS,
+    }
+    kinds = {c: limiter.judge_push(event(c), cfg, night, BERLIN) for c in Category}
+    held = {c for c, v in kinds.items() if v is Verdict.QUIET_HOURS}
+    assert held == {Category.PROPOSAL, Category.EV_TARGET, Category.CHEAP_WINDOW}
+
+    root = Path(__file__).resolve().parents[2]
+    en = json.loads((root / "suncore/i18n/catalogue/en.json").read_text("utf-8"))
+    de = json.loads((root / "suncore/i18n/catalogue/de.json").read_text("utf-8"))
+    hint_en, hint_de = en["notify.quiet_hint"], de["notify.quiet_hint"]
+    for word in ("proposals", "charging targets", "cheap windows", "finished", "start now"):
+        assert word in hint_en, word
+    for word in ("Vorschläge", "Ladeziele", "günstige Fenster", "fertig", "Jetzt starten"):
+        assert word in hint_de, word
+    assert "programs are not held back" not in hint_en

@@ -31,6 +31,7 @@ from suncore.notify import (
     ActionsState,
     Category,
     ConfirmOutcome,
+    EvTargetObs,
     NotificationService,
     NotifyEvent,
     Observation,
@@ -117,6 +118,9 @@ class Source:
         self.proposals: list[ProposalObs] = []
         self.emergency = False
         self.planner_failing_s: float | None = None
+        self.island: bool | None = None
+        self.para14a: bool | None = None
+        self.ev_targets: list[EvTargetObs] = []
 
     def observe(self, now: datetime) -> Observation:
         return Observation(
@@ -125,6 +129,9 @@ class Source:
             global_mode="assisted",
             proposals=self.proposals,
             planner_failing_s=self.planner_failing_s,
+            island=self.island,
+            para14a=self.para14a,
+            ev_targets=self.ev_targets,
         )
 
     def language(self) -> str:
@@ -457,6 +464,79 @@ async def test_quiet_hours_drop_a_proposal_but_not_an_error(rig: Rig) -> None:
     await rig.tick()
     assert not [p for p in rig.conn.pushes() if "confirm" in p["title"]]
     assert [p for p in rig.conn.pushes("mobile_app_phone") if "no plan" in p["title"]]
+
+
+async def test_island_and_para14a_push_in_quiet_hours_and_past_the_cap() -> None:
+    config = NotificationsConfig(targets=(SERVICE,), daily_push_cap=1)
+    r = await started(config)
+    r.clock.now = datetime(2026, 11, 24, 23, 0, tzinfo=UTC)  # inside 22:00-07:00
+    r.propose("i1")
+    r.source.island, r.source.para14a = False, False
+    await r.tick()  # baseline; the proposal is dropped in the quiet hours
+    r.source.island = True
+    await r.tick()
+    r.source.para14a = True
+    await r.tick()
+    titles = [p["title"] for p in r.conn.pushes("mobile_app_phone")]
+    assert titles == ["SunCore: island operation", "SunCore: grid operator limit (§14a)"]
+    # the same state seen again, or a flicker, adds nothing
+    for _ in range(3):
+        r.clock.now += timedelta(seconds=5)
+        await r.tick()
+    r.source.para14a = False
+    await r.tick()
+    r.source.para14a = True
+    await r.tick()
+    assert len(r.conn.pushes("mobile_app_phone")) == 2
+    assert len(r.conn.persistents("create")) == 2
+    await r.service.stop()
+
+
+async def test_an_ev_target_at_risk_is_held_back_in_quiet_hours_and_by_the_cap() -> None:
+    config = NotificationsConfig(targets=(SERVICE,), daily_push_cap=1)
+    r = await started(config)
+    by = datetime(2026, 11, 25, 6, 0, tzinfo=UTC)
+    risk = EvTargetObs("wb", "Garage charger", by, True, 20.0, 14.5)
+
+    async def hold_and_tick(now: datetime) -> None:
+        r.clock.now = now
+        r.source.ev_targets = [risk]
+        await r.tick()
+        r.clock.now = now + timedelta(minutes=11)
+        await r.tick()
+
+    await hold_and_tick(datetime(2026, 11, 24, 23, 0, tzinfo=UTC))  # quiet hours
+    assert r.conn.pushes() == []
+    # outside the quiet hours the cap decides: one push used up elsewhere
+    r.propose("i1")
+    r.clock.now = datetime(2026, 11, 25, 8, 0, tzinfo=UTC)
+    await r.tick()
+    assert len(r.conn.pushes()) == 1
+    by2 = datetime(2026, 11, 26, 6, 0, tzinfo=UTC)
+    risk2 = EvTargetObs("wb", "Garage charger", by2, True, 20.0, 14.5)
+    r.source.ev_targets = [risk2]
+    await r.tick()
+    r.clock.now += timedelta(minutes=11)
+    await r.tick()
+    assert len(r.conn.pushes()) == 1  # over the daily cap
+    await r.service.stop()
+
+
+async def test_an_ev_target_at_risk_is_pushed_once_with_its_text() -> None:
+    r = await started(NotificationsConfig(targets=(SERVICE,)))
+    by = datetime(2026, 11, 24, 18, 0, tzinfo=UTC)
+    r.source.ev_targets = [EvTargetObs("wb", "Garage charger", by, True, 20.0, 14.5)]
+    await r.tick()
+    r.clock.now += timedelta(minutes=11)
+    await r.tick()
+    r.clock.now += timedelta(minutes=30)
+    await r.tick()
+    [push] = r.conn.pushes("mobile_app_phone")
+    assert push["title"] == "SunCore: charging target at risk"
+    assert "Garage charger" in push["message"]
+    assert "18:00" in push["message"]
+    assert "14.5 of 20" in push["message"]
+    await r.service.stop()
 
 
 async def test_the_daily_cap_limits_push_but_never_starves_a_safety_event() -> None:

@@ -2558,6 +2558,48 @@
  },
  {
   "lang": "en",
+  "key": "mqtt.entity.ev_mode_state.name",
+  "args": {},
+  "expected": "Charging mode"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.entity.ev_phases.name",
+  "args": {},
+  "expected": "Charging phases"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.entity.ev_plugged.name",
+  "args": {},
+  "expected": "Plugged in"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.entity.ev_target_energy_state.name",
+  "args": {},
+  "expected": "Target energy"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.entity.ev_target_soc_state.name",
+  "args": {},
+  "expected": "Target charge"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.entity.ev_target_time_state.name",
+  "args": {},
+  "expected": "Target time"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.entity.ev_vehicle_soc.name",
+  "args": {},
+  "expected": "Vehicle charge"
+ },
+ {
+  "lang": "en",
   "key": "mqtt.entity.events.name",
   "args": {},
   "expected": "Events"
@@ -2579,6 +2621,18 @@
   "key": "mqtt.entity.healthy.name",
   "args": {},
   "expected": "Healthy"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.entity.hp_lift.name",
+  "args": {},
+  "expected": "Set-point lift"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.entity.hp_sg_state.name",
+  "args": {},
+  "expected": "SG-Ready state"
  },
  {
   "lang": "en",
@@ -2834,6 +2888,36 @@
  },
  {
   "lang": "en",
+  "key": "mqtt.state.ev_mode.min_pv",
+  "args": {},
+  "expected": "Min + PV"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.ev_mode.now",
+  "args": {},
+  "expected": "Now"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.ev_mode.off",
+  "args": {},
+  "expected": "Off"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.ev_mode.pv",
+  "args": {},
+  "expected": "PV only"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.ev_mode.target",
+  "args": {},
+  "expected": "Target"
+ },
+ {
+  "lang": "en",
   "key": "mqtt.state.grid_state.island",
   "args": {},
   "expected": "Island operation"
@@ -2897,6 +2981,30 @@
   "key": "mqtt.state.mode.shadow",
   "args": {},
   "expected": "Shadow"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.sg_state.1",
+  "args": {},
+  "expected": "1: utility block"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.sg_state.2",
+  "args": {},
+  "expected": "2: normal"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.sg_state.3",
+  "args": {},
+  "expected": "3: raised"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.state.sg_state.4",
+  "args": {},
+  "expected": "4: forced"
  },
  {
   "lang": "en",
@@ -3034,7 +3142,7 @@
   "lang": "en",
   "key": "notify.cat.ev_target",
   "args": {},
-  "expected": "Charging target missed or reached"
+  "expected": "Charging target at risk"
  },
  {
   "lang": "en",
@@ -3384,6 +3492,124 @@
  },
  {
   "lang": "en",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "planned_kwh": 0,
+   "need_kwh": 0
+  },
+  "expected": "abc will probably not reach its charging target by abc: the plan covers 0 of 0 kWh. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "planned_kwh": 1,
+   "need_kwh": 1
+  },
+  "expected": "42 will probably not reach its charging target by 42: the plan covers 1 of 1 kWh. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "planned_kwh": 2,
+   "need_kwh": 2
+  },
+  "expected": "abc will probably not reach its charging target by abc: the plan covers 2 of 2 kWh. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "planned_kwh": 5,
+   "need_kwh": 5
+  },
+  "expected": "42 will probably not reach its charging target by 42: the plan covers 5 of 5 kWh. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "planned_kwh": 21,
+   "need_kwh": 21
+  },
+  "expected": "abc will probably not reach its charging target by abc: the plan covers 21 of 21 kWh. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "planned_kwh": 1234.5,
+   "need_kwh": 1234.5
+  },
+  "expected": "42 will probably not reach its charging target by 42: the plan covers 1,234.5 of 1,234.5 kWh. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "planned_kwh": -3.25,
+   "need_kwh": -3.25
+  },
+  "expected": "abc will probably not reach its charging target by abc: the plan covers -3.25 of -3.25 kWh. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "planned_kwh": 0.125,
+   "need_kwh": 0.125
+  },
+  "expected": "42 will probably not reach its charging target by 42: the plan covers 0.125 of 0.125 kWh. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk.title",
+  "args": {},
+  "expected": "SunCore: charging target at risk"
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk_short",
+  "args": {
+   "device": "abc",
+   "time": "abc"
+  },
+  "expected": "abc will probably not reach its charging target by abc. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk_short",
+  "args": {
+   "device": 42,
+   "time": 42
+  },
+  "expected": "42 will probably not reach its charging target by 42. Plug in earlier, lower the target or choose the mode Now."
+ },
+ {
+  "lang": "en",
+  "key": "notify.ev_target.at_risk_short.title",
+  "args": {},
+  "expected": "SunCore: charging target at risk"
+ },
+ {
+  "lang": "en",
   "key": "notify.intro",
   "args": {},
   "expected": "SunCore tells you about errors, safety events and proposals. Persistent notifications in Home Assistant are always possible; push messages need a target."
@@ -3723,7 +3949,7 @@
   "lang": "en",
   "key": "notify.quiet_hint",
   "args": {},
-  "expected": "Proposals, charging targets and cheap windows wait. Errors, safety events, programs and the daily summary are not held back."
+  "expected": "During quiet hours these are not sent (and not delivered later): proposals, charging targets, cheap windows and the messages that a program is finished or could not start. Errors, safety events, \"start now\" and the daily summary are not held back."
  },
  {
   "lang": "en",
@@ -11074,6 +11300,48 @@
  },
  {
   "lang": "de",
+  "key": "mqtt.entity.ev_mode_state.name",
+  "args": {},
+  "expected": "Lademodus"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.entity.ev_phases.name",
+  "args": {},
+  "expected": "Ladephasen"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.entity.ev_plugged.name",
+  "args": {},
+  "expected": "Angesteckt"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.entity.ev_target_energy_state.name",
+  "args": {},
+  "expected": "Zielenergie"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.entity.ev_target_soc_state.name",
+  "args": {},
+  "expected": "Ziel-Ladestand"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.entity.ev_target_time_state.name",
+  "args": {},
+  "expected": "Zielzeit"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.entity.ev_vehicle_soc.name",
+  "args": {},
+  "expected": "Ladestand des Fahrzeugs"
+ },
+ {
+  "lang": "de",
   "key": "mqtt.entity.events.name",
   "args": {},
   "expected": "Ereignisse"
@@ -11095,6 +11363,18 @@
   "key": "mqtt.entity.healthy.name",
   "args": {},
   "expected": "In Ordnung"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.entity.hp_lift.name",
+  "args": {},
+  "expected": "Sollwert-Anhebung"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.entity.hp_sg_state.name",
+  "args": {},
+  "expected": "SG-Ready-Zustand"
  },
  {
   "lang": "de",
@@ -11350,6 +11630,36 @@
  },
  {
   "lang": "de",
+  "key": "mqtt.state.ev_mode.min_pv",
+  "args": {},
+  "expected": "Min + PV"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.ev_mode.now",
+  "args": {},
+  "expected": "Sofort"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.ev_mode.off",
+  "args": {},
+  "expected": "Aus"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.ev_mode.pv",
+  "args": {},
+  "expected": "Nur PV"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.ev_mode.target",
+  "args": {},
+  "expected": "Ziel"
+ },
+ {
+  "lang": "de",
   "key": "mqtt.state.grid_state.island",
   "args": {},
   "expected": "Inselbetrieb"
@@ -11413,6 +11723,30 @@
   "key": "mqtt.state.mode.shadow",
   "args": {},
   "expected": "Schatten"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.sg_state.1",
+  "args": {},
+  "expected": "1: EVU-Sperre"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.sg_state.2",
+  "args": {},
+  "expected": "2: Normal"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.sg_state.3",
+  "args": {},
+  "expected": "3: Erhöht"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.state.sg_state.4",
+  "args": {},
+  "expected": "4: Forciert"
  },
  {
   "lang": "de",
@@ -11550,7 +11884,7 @@
   "lang": "de",
   "key": "notify.cat.ev_target",
   "args": {},
-  "expected": "Ladeziel verfehlt oder erreicht"
+  "expected": "Ladeziel in Gefahr"
  },
  {
   "lang": "de",
@@ -11900,6 +12234,124 @@
  },
  {
   "lang": "de",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "planned_kwh": 0,
+   "need_kwh": 0
+  },
+  "expected": "abc erreicht sein Ladeziel bis abc Uhr voraussichtlich nicht: der Plan deckt 0 von 0 kWh. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "planned_kwh": 1,
+   "need_kwh": 1
+  },
+  "expected": "42 erreicht sein Ladeziel bis 42 Uhr voraussichtlich nicht: der Plan deckt 1 von 1 kWh. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "planned_kwh": 2,
+   "need_kwh": 2
+  },
+  "expected": "abc erreicht sein Ladeziel bis abc Uhr voraussichtlich nicht: der Plan deckt 2 von 2 kWh. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "planned_kwh": 5,
+   "need_kwh": 5
+  },
+  "expected": "42 erreicht sein Ladeziel bis 42 Uhr voraussichtlich nicht: der Plan deckt 5 von 5 kWh. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "planned_kwh": 21,
+   "need_kwh": 21
+  },
+  "expected": "abc erreicht sein Ladeziel bis abc Uhr voraussichtlich nicht: der Plan deckt 21 von 21 kWh. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "planned_kwh": 1234.5,
+   "need_kwh": 1234.5
+  },
+  "expected": "42 erreicht sein Ladeziel bis 42 Uhr voraussichtlich nicht: der Plan deckt 1.234,5 von 1.234,5 kWh. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": "abc",
+   "time": "abc",
+   "planned_kwh": -3.25,
+   "need_kwh": -3.25
+  },
+  "expected": "abc erreicht sein Ladeziel bis abc Uhr voraussichtlich nicht: der Plan deckt -3,25 von -3,25 kWh. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk",
+  "args": {
+   "device": 42,
+   "time": 42,
+   "planned_kwh": 0.125,
+   "need_kwh": 0.125
+  },
+  "expected": "42 erreicht sein Ladeziel bis 42 Uhr voraussichtlich nicht: der Plan deckt 0,125 von 0,125 kWh. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk.title",
+  "args": {},
+  "expected": "SunCore: Ladeziel in Gefahr"
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk_short",
+  "args": {
+   "device": "abc",
+   "time": "abc"
+  },
+  "expected": "abc erreicht sein Ladeziel bis abc Uhr voraussichtlich nicht. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk_short",
+  "args": {
+   "device": 42,
+   "time": 42
+  },
+  "expected": "42 erreicht sein Ladeziel bis 42 Uhr voraussichtlich nicht. Früher anstecken, das Ziel senken oder den Modus „Sofort“ wählen."
+ },
+ {
+  "lang": "de",
+  "key": "notify.ev_target.at_risk_short.title",
+  "args": {},
+  "expected": "SunCore: Ladeziel in Gefahr"
+ },
+ {
+  "lang": "de",
   "key": "notify.intro",
   "args": {},
   "expected": "SunCore meldet Fehler, Sicherheitsereignisse und Vorschläge. Dauerhafte Benachrichtigungen in Home Assistant sind immer möglich; Push-Nachrichten brauchen ein Ziel."
@@ -12239,7 +12691,7 @@
   "lang": "de",
   "key": "notify.quiet_hint",
   "args": {},
-  "expected": "Vorschläge, Ladeziele und günstige Fenster warten. Fehler, Sicherheitsereignisse, Programme und die Tageszusammenfassung werden nicht zurückgehalten."
+  "expected": "In der Ruhezeit werden diese Meldungen nicht gesendet (und auch nicht später nachgeholt): Vorschläge, Ladeziele, günstige Fenster sowie „Programm fertig“ und „Programm nicht gestartet“. Fehler, Sicherheitsereignisse, „Jetzt starten“ und die Tageszusammenfassung werden nicht zurückgehalten."
  },
  {
   "lang": "de",

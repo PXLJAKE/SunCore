@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from suncore.notify.model import Category
 from suncore.notify.rules import (
     DeviceObs,
+    EvTargetObs,
     Observation,
     ProposalObs,
     RuleEngine,
@@ -147,10 +148,98 @@ def test_island_and_para14a_are_announced_on_the_edges_only_when_a_source_exists
     engine.evaluate(obs(island=False, para14a=False))
     assert keys(engine, obs(island=True, para14a=False)) == ["island:1"]
     assert keys(engine, obs(island=True, para14a=True)) == ["para14a:1"]
-    end = engine.evaluate(obs(island=False, para14a=True))
+    assert keys(engine, obs(T0 + timedelta(seconds=5), island=False, para14a=True)) == []
+    end = engine.evaluate(obs(T0 + timedelta(seconds=200), island=False, para14a=True))
     assert [e.key for e in end.events] == ["island_end:1"]
     assert "island:1" in end.resolved
     assert keys(engine, obs(island=None, para14a=True)) == []  # source gone: no event
+
+
+def test_a_flickering_flag_gives_one_start_and_one_end() -> None:
+    engine = RuleEngine()
+    engine.evaluate(obs(para14a=False))
+    announced: list[str] = []
+    for second, value in enumerate([True, False, True, False, True, False, True]):
+        announced += keys(engine, obs(T0 + timedelta(seconds=10 * second), para14a=value))
+    assert announced == ["para14a:1"]
+    # it stays off long enough: now the end, once
+    off = [keys(engine, obs(T0 + timedelta(seconds=60 + 50 * i), para14a=False)) for i in range(6)]
+    assert [k for ks in off for k in ks] == ["para14a_end:1"]
+    # a later, separate activation is a new event
+    assert keys(engine, obs(T0 + timedelta(minutes=30), para14a=True)) == ["para14a:2"]
+
+
+def test_a_flag_that_is_on_at_start_is_a_baseline_and_ends_normally() -> None:
+    engine = RuleEngine()
+    assert keys(engine, obs(island=True)) == []
+    assert keys(engine, obs(T0 + timedelta(seconds=10), island=False)) == []
+    assert keys(engine, obs(T0 + timedelta(seconds=300), island=False)) == ["island_end:0"]
+
+
+# --- EV target at risk -------------------------------------------------------------------------
+
+
+def ev_target(
+    *, shortfall: bool = True, by: datetime | None = None, device_id: str = "wb"
+) -> EvTargetObs:
+    return EvTargetObs(
+        device_id,
+        "Garage charger",
+        by if by is not None else T0 + timedelta(hours=8),
+        shortfall,
+        need_kwh=20.0,
+        planned_kwh=14.5,
+    )
+
+
+def test_an_ev_target_at_risk_is_announced_once_after_the_hold_time() -> None:
+    engine = RuleEngine()
+    risk = [ev_target()]
+    assert keys(engine, obs(T0, ev_targets=risk)) == []
+    assert keys(engine, obs(T0 + timedelta(minutes=5), ev_targets=risk)) == []
+    [event] = engine.evaluate(obs(T0 + timedelta(minutes=11), ev_targets=risk)).events
+    assert event.category is Category.EV_TARGET
+    assert event.key == f"ev_target:wb:{risk[0].by.isoformat()}"
+    assert event.reason.key == "notify.ev_target.at_risk"
+    assert event.reason.args == {
+        "device": "Garage charger",
+        "time": "20:00",
+        "need_kwh": 20.0,
+        "planned_kwh": 14.5,
+    }
+    assert keys(engine, obs(T0 + timedelta(minutes=30), ev_targets=risk)) == []
+
+
+def test_an_ev_target_that_recovers_in_time_is_never_announced() -> None:
+    engine = RuleEngine()
+    keys(engine, obs(T0, ev_targets=[ev_target()]))
+    keys(engine, obs(T0 + timedelta(minutes=8), ev_targets=[ev_target(shortfall=False)]))
+    # the clock restarts when the shortfall comes back
+    assert keys(engine, obs(T0 + timedelta(minutes=9), ev_targets=[ev_target()])) == []
+    assert keys(engine, obs(T0 + timedelta(minutes=15), ev_targets=[ev_target()])) == []
+    assert len(keys(engine, obs(T0 + timedelta(minutes=20), ev_targets=[ev_target()]))) == 1
+
+
+def test_a_new_ev_target_is_a_new_message_and_a_passed_deadline_is_not() -> None:
+    engine = RuleEngine()
+    first = ev_target()
+    keys(engine, obs(T0, ev_targets=[first]))
+    assert len(keys(engine, obs(T0 + timedelta(minutes=11), ev_targets=[first]))) == 1
+    second = ev_target(by=T0 + timedelta(days=1))
+    keys(engine, obs(T0 + timedelta(minutes=12), ev_targets=[second]))
+    assert len(keys(engine, obs(T0 + timedelta(minutes=23), ev_targets=[second]))) == 1
+    late = ev_target(by=T0 + timedelta(minutes=1))
+    keys(engine, obs(T0 + timedelta(minutes=30), ev_targets=[late]))
+    assert keys(engine, obs(T0 + timedelta(minutes=50), ev_targets=[late])) == []
+
+
+def test_without_the_planned_energy_the_short_text_is_used() -> None:
+    engine = RuleEngine()
+    bare = EvTargetObs("wb", "Garage charger", T0 + timedelta(hours=8), True)
+    keys(engine, obs(T0, ev_targets=[bare]))
+    [event] = engine.evaluate(obs(T0 + timedelta(minutes=11), ev_targets=[bare])).events
+    assert event.reason.key == "notify.ev_target.at_risk_short"
+    assert event.reason.args == {"device": "Garage charger", "time": "20:00"}
 
 
 # --- cheap windows and the summary -------------------------------------------------------------
