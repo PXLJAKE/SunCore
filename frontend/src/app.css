@@ -211,6 +211,37 @@ fieldset.card > legend + * {
   color: var(--sc-text-muted);
   font-size: var(--sc-font-sm);
 }
+/* --- facts: label and value pairs on cards (devices, battery, EV, heat pump, programs) --- */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: var(--sc-space-2) var(--sc-space-4);
+  margin: 0;
+}
+.facts > div {
+  min-width: 0;
+}
+.facts dt {
+  font-size: var(--sc-font-xs);
+  color: var(--sc-text-muted);
+}
+.facts dd {
+  margin: 0;
+  font-weight: var(--sc-weight-strong);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+/* A small all-caps label above a group (a card section, the surplus figures); also as a heading. */
+.kicker,
+main .card .kicker,
+main section .kicker {
+  margin: 0;
+  font-size: var(--sc-font-xs);
+  font-weight: var(--sc-weight-strong);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sc-text-muted);
+}
 .field {
   display: grid;
   gap: var(--sc-space-1);

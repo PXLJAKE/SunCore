@@ -22,6 +22,7 @@
   import { t, tDateTime, tDynamic, tNumber, tPercent, type MessageKey } from '../i18n/index.svelte';
   import { flex } from '../stores/flex.svelte';
   import { live } from '../stores/live.svelte';
+  import ToggleGroup from '../ui/ToggleGroup.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
 
   interface Props {
@@ -96,6 +97,8 @@
     }
   });
 
+  const evOptions = $derived(EV_MODES.map((m) => ({ value: m, label: t(MODE_LABEL[m]) })));
+
   function chooseMode(m: EvMode): void {
     if (busy) return;
     if (m === 'target') {
@@ -149,7 +152,7 @@
 
 {#if kind === 'ev'}
   <section class="flex" aria-labelledby="{uid}-ev" data-testid="ev-section-{id}">
-    <h4 id="{uid}-ev">{t('ev.title')}</h4>
+    <h4 id="{uid}-ev" class="kicker">{t('ev.title')}</h4>
     <dl class="facts">
       <div>
         <dt>{t('ev.plug')}</dt>
@@ -170,19 +173,15 @@
         </dd>
       </div>
     </dl>
-    <div role="group" aria-label={t('ev.mode', { name: device.name })}>
-      <div class="seg">
-        {#each EV_MODES as m (m)}
-          <button
-            type="button"
-            class="seg-btn"
-            aria-pressed={mode === m}
-            disabled={busy}
-            data-testid="ev-mode-{m}"
-            onclick={() => chooseMode(m)}>{t(MODE_LABEL[m])}</button
-          >
-        {/each}
-      </div>
+    <div class="mode">
+      <ToggleGroup
+        label={t('ev.mode', { name: device.name })}
+        options={evOptions}
+        value={mode}
+        disabled={busy}
+        onselect={chooseMode}
+        testid="ev-mode"
+      />
       <p class="hint">{t(`ev.mode.${mode}_hint`)}</p>
     </div>
     {#if mode === 'target' && stored && !targetOpen}
@@ -257,7 +256,7 @@
   </section>
 {:else if kind === 'heat_pump'}
   <section class="flex" aria-labelledby="{uid}-hp" data-testid="hp-section-{id}">
-    <h4 id="{uid}-hp">{t('hp.title')}</h4>
+    <h4 id="{uid}-hp" class="kicker">{t('hp.title')}</h4>
     <dl class="facts">
       {#if config?.control.kind === 'sg_ready'}
         <div>
@@ -303,7 +302,7 @@
   </section>
 {:else if kind === 'program'}
   <section class="flex" aria-labelledby="{uid}-pg" data-testid="program-section-{id}">
-    <h4 id="{uid}-pg">{t('program.title')}</h4>
+    <h4 id="{uid}-pg" class="kicker">{t('program.title')}</h4>
     {#if open && job}
       <dl class="facts">
         <div>
@@ -379,71 +378,24 @@
 {/if}
 
 <style>
+  /* A kind-specific block of a device card: same facts and controls as the card itself. */
   .flex {
     display: grid;
-    gap: 10px;
-    padding-top: 10px;
-    border-top: 1px solid var(--divider-color);
+    gap: var(--sc-space-3);
     min-width: 0;
   }
-  h4 {
-    margin: 0;
-  }
-  .facts {
+  .mode {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-    gap: 8px 16px;
-    margin: 0;
-  }
-  dt {
-    color: var(--secondary-text-color);
-    font-size: 0.875rem;
-  }
-  dd {
-    margin: 0;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .seg {
-    display: flex;
-    flex-wrap: wrap;
-    border: 1px solid var(--primary-color);
-    border-radius: 22px;
-    overflow: hidden;
-  }
-  .seg-btn {
-    flex: 1 1 0;
-    min-width: 4.5rem;
-    min-height: 44px;
-    padding: 0 6px;
-    font: inherit;
-    font-size: 0.875rem;
-    border: 0;
-    border-inline-start: 1px solid var(--primary-color);
-    background: transparent;
-    color: var(--primary-color);
-    cursor: pointer;
-  }
-  .seg-btn:first-child {
-    border-inline-start: 0;
-  }
-  .seg-btn[aria-pressed='true'] {
-    background: var(--primary-color);
-    color: var(--text-primary-color);
-    font-weight: 700;
-  }
-  .seg-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+    gap: var(--sc-space-1);
   }
   .row {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sc-space-2);
   }
   .err {
     margin: 0;
-    color: var(--error-color);
-    font-size: 0.875rem;
+    color: var(--sc-error);
+    font-size: var(--sc-font-sm);
   }
 </style>

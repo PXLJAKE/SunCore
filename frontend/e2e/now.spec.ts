@@ -4,19 +4,54 @@ import { expect, test } from '@playwright/test';
 test.describe('Now view', () => {
   test('renders all four nodes, banner, badge and live status', async ({ page }) => {
     await page.goto('/');
+    // Each value is shown once: in the energy-flow card, not again in separate tiles.
     for (const id of ['pv', 'grid', 'battery', 'house']) {
-      await expect(page.getByTestId(`node-${id}`)).toBeVisible();
+      await expect(page.getByTestId(`flow-${id}`)).toHaveCount(1);
       await expect(page.getByTestId(`flow-${id}`)).toBeVisible();
     }
+    await expect(page.getByTestId('flow-battery').getByTestId('flow-soc')).toContainText('%');
     await expect(page.getByTestId('demo-banner')).toBeVisible();
     await expect(page.getByTestId('mode-badge')).toHaveText('Shadow mode');
     await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
     await expect(page.getByRole('list', { name: 'Current power values' })).toBeVisible();
   });
 
+  test('calm layout: equal card rows, one shared decision note, explanations behind toggles', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
+    const cards = page.getByTestId('device-cards').locator('article');
+    await expect(cards.first()).toBeVisible();
+    // Cards in one grid row have the same height.
+    const boxes = await Promise.all((await cards.all()).map((c) => c.boundingBox()));
+    const rows = new Map<number, number[]>();
+    for (const b of boxes)
+      rows.set(Math.round(b!.y), [...(rows.get(Math.round(b!.y)) ?? []), b!.height]);
+    for (const heights of rows.values()) {
+      expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1);
+    }
+    // "Why?" and "Take over manually" are quiet toggles; their panels open on demand.
+    const pump = page.getByTestId('device-pool_pump');
+    const why = pump.getByRole('button', { name: 'Why?' });
+    await expect(why).toHaveAttribute('aria-expanded', 'false');
+    await expect(pump.getByTestId('why')).toBeHidden();
+    await why.click();
+    await expect(pump.getByTestId('why')).toBeVisible();
+    // The surplus explanation is collapsed when there is one.
+    const explain = page.getByTestId('site-explain');
+    if (await explain.count()) await expect(explain).not.toHaveAttribute('open', '');
+    // Latest decisions: at most four, the shadow note said once.
+    const recent = page.getByTestId('now-decisions');
+    await expect(recent.getByTestId('decision-item').first()).toBeVisible({ timeout: 30_000 });
+    expect(await recent.getByTestId('decision-item').count()).toBeLessThanOrEqual(4);
+    await expect(recent.getByText('nothing was switched')).toHaveCount(1);
+    await expect(recent.getByRole('link', { name: 'Open the decision log' })).toBeVisible();
+  });
+
   test('values update over time', async ({ page }) => {
     await page.goto('/');
-    const house = page.getByTestId('flow-house').locator('.val');
+    const house = page.getByTestId('flow-house').getByTestId('flow-value');
     await expect(house).toHaveText(/\d/);
     const seen = new Set<string>();
     await expect
@@ -47,7 +82,7 @@ test.describe('Now view', () => {
     const ctx = await browser.newContext({ locale: 'de-DE' });
     const page = await ctx.newPage();
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Jetzt' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Jetzt', level: 2 })).toBeVisible();
     await expect(page.getByTestId('mode-badge')).toHaveText('Schattenmodus');
     await expect(page.getByTestId('demo-banner')).toContainText('Demo-Modus');
     await ctx.close();
@@ -84,8 +119,8 @@ test.describe('Now view', () => {
     await expect(page.getByTestId('flow-pv')).toContainText('1.5');
     await expect(page.getByTestId('flow-house')).toContainText('Invalid value');
     await expect(page.getByTestId('flow-battery')).toContainText('Charging');
-    await expect(page.getByTestId('node-grid')).toHaveClass(/bad/);
-    await expect(page.getByTestId('node-pv')).toHaveClass(/stale/);
+    await expect(page.getByTestId('flow-grid')).toHaveAttribute('data-quality', 'unavailable');
+    await expect(page.getByTestId('flow-pv')).toHaveAttribute('data-quality', 'stale');
   });
 
   test('shows offline when the socket drops and recovers on reconnect', async ({ page }) => {

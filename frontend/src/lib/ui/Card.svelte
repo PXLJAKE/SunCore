@@ -21,6 +21,12 @@
     /** Buttons or links at the end of the header. */
     actions?: Snippet;
     footer?: Snippet;
+    /** An `article` (a self-contained item in a grid, e.g. a device) instead of a `section`. */
+    article?: boolean;
+    /** Element id, e.g. a scroll and focus target (`#/?device=`); the card gets tabindex -1. */
+    id?: string;
+    /** Further attributes of the root element (`data-*`). */
+    [attr: `data-${string}`]: string | undefined;
     children: Snippet;
   }
   let {
@@ -35,14 +41,21 @@
     status,
     actions,
     footer,
+    article = false,
+    id,
     children,
+    ...data
   }: Props = $props();
 
   const uid = $props.id();
   const expanded = $derived(!collapsible || open);
 </script>
 
-<section
+<svelte:element
+  this={article ? 'article' : 'section'}
+  {...data}
+  {id}
+  tabindex={id ? -1 : undefined}
   class="card sc-card {variant} {density}"
   aria-labelledby={title ? `${uid}-title` : undefined}
   data-testid={testid}
@@ -77,11 +90,13 @@
   {#if footer && expanded}
     <footer class="foot">{@render footer()}</footer>
   {/if}
-</section>
+</svelte:element>
 
 <style>
+  /* A column: in a grid of cards each card stretches to the row and the footer sits at the end. */
   .sc-card {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: var(--sc-space-4);
     min-width: 0;
   }
@@ -159,6 +174,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--sc-space-2);
+    margin-top: auto;
     padding-top: var(--sc-space-3);
     border-top: 1px solid var(--sc-outline);
   }

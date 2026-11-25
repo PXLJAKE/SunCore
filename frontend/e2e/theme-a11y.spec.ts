@@ -85,7 +85,8 @@ test('diagram has a text alternative listing every flow', async ({ page }) => {
   await page.goto('/');
   const figure = page.getByRole('figure', { name: 'Energy flow diagram' });
   await expect(figure).toBeVisible();
-  await expect(figure.locator('svg')).toHaveAttribute('aria-hidden', 'true');
-  const items = page.getByRole('list', { name: 'Current power values' }).getByRole('listitem');
+  // The diagram's nodes are the text: one list item per flow, the lines are decoration.
+  const items = figure.getByRole('list', { name: 'Current power values' }).getByRole('listitem');
   await expect(items).toHaveCount(4);
+  await expect(items.first()).toContainText('Solar');
 });

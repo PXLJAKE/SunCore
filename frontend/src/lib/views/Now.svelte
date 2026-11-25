@@ -6,10 +6,10 @@
   import GridBadges from '../components/GridBadges.svelte';
   import DeviceCard from '../components/DeviceCard.svelte';
   import ProposalList from '../components/ProposalList.svelte';
-  import SiteSummary from '../components/SiteSummary.svelte';
-  import EnergyFlow from '../components/EnergyFlow.svelte';
-  import FlowList from '../components/FlowList.svelte';
   import PlannedActions from '../components/PlannedActions.svelte';
+  import EnergyNow from '../components/EnergyNow.svelte';
+  import Card from '../ui/Card.svelte';
+  import SectionHeader from '../ui/SectionHeader.svelte';
   import { nameMap } from '../control/present';
   import { onMount, tick } from 'svelte';
   import { t } from '../i18n/index.svelte';
@@ -54,7 +54,7 @@
     });
   });
   const upcoming = $derived(
-    plannedActions(windowIntervals(plan.view, 24, new Date(plan.nowMs)), new Date(plan.nowMs), 4),
+    plannedActions(windowIntervals(plan.view, 24, new Date(plan.nowMs)), new Date(plan.nowMs), 3),
   );
   /** Unit of an adjustable load's value, from its configured control. */
   const unitOf = (id: string): string | undefined => {
@@ -77,41 +77,33 @@
     </div>
   {:else}
     <GridBadges />
-    <div class="card diagram">
-      <EnergyFlow flows={live.flows} {hasBattery} />
-    </div>
-    <FlowList flows={live.flows} {hasBattery} />
+    <EnergyNow flows={live.flows} {hasBattery} site={live.control?.site ?? null} {devices} />
   {/if}
 
   <ConfirmResult {names} />
 
   <ProposalList proposals={live.control?.proposals ?? []} {names} />
 
-  {#if live.control?.site}<SiteSummary site={live.control.site} {devices} />{/if}
-
-  {#if battery}
-    <section aria-labelledby="battery-title" class="batt">
-      <h3 id="battery-title" class="sr-only">{t('battery.title')}</h3>
-      <BatteryCard {battery} {socPct} powerW={batteryW} />
-    </section>
-  {/if}
-
-  {#if plan.view && !plan.unavailable}
-    <section class="card next" aria-labelledby="next-title" data-testid="now-next-actions">
-      <div class="head">
-        <h3 id="next-title">{t('plan.next.title')}</h3>
-        <a href="#/plan">{t('plan.next.open')}</a>
-      </div>
-      {#if plan.outdated}
-        <p class="notice warn" data-testid="now-plan-outdated">{t('plan.now_outdated')}</p>
-      {:else}
-        <PlannedActions actions={upcoming} testid="now-planned-actions" />
+  {#if battery || (plan.view && !plan.unavailable)}
+    <div class="pair">
+      {#if battery}
+        <BatteryCard {battery} {socPct} powerW={batteryW} />
       {/if}
-    </section>
+      {#if plan.view && !plan.unavailable}
+        <Card title={t('plan.next.title')} testid="now-next-actions">
+          {#snippet actions()}<a href="#/plan">{t('plan.next.open')}</a>{/snippet}
+          {#if plan.outdated}
+            <p class="notice warn" data-testid="now-plan-outdated">{t('plan.now_outdated')}</p>
+          {:else}
+            <PlannedActions actions={upcoming} testid="now-planned-actions" />
+          {/if}
+        </Card>
+      {/if}
+    </div>
   {/if}
 
   <section aria-labelledby="devices-title" class="devices">
-    <h3 id="devices-title">{t('now.devices')}</h3>
+    <SectionHeader title={t('now.devices')} id="devices-title" />
     {#if devices.length === 0}
       <p class="hint" data-testid="no-devices">{t('now.no_devices')}</p>
     {:else}
@@ -127,55 +119,41 @@
     {/if}
   </section>
 
-  <div class="card">
-    <div class="head">
-      <h3>{t('decisions.title')}</h3>
-      <a href="#/decisions">{t('decisions.open_log')}</a>
-    </div>
+  <Card title={t('decisions.title')} testid="now-decisions">
+    {#snippet actions()}<a href="#/decisions">{t('decisions.open_log')}</a>{/snippet}
     <DecisionList decisions={live.decisions} {names} />
-  </div>
+  </Card>
 </section>
 
 <style>
   .now {
     display: grid;
-    gap: var(--sc-gap);
+    gap: var(--sc-space-5);
+    min-width: 0;
   }
-  .diagram {
-    padding: 8px;
+  .pair {
+    display: grid;
+    gap: var(--sc-space-4);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
   }
-  h3 {
-    font-size: 1rem;
-    margin-bottom: 8px;
+  .devices {
+    display: grid;
+    gap: var(--sc-space-3);
   }
   .devices .grid {
     display: grid;
-    gap: var(--sc-gap);
+    gap: var(--sc-space-4);
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
-    align-items: start;
-  }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 4px 12px;
   }
   .empty {
     display: grid;
-    gap: 12px;
+    gap: var(--sc-space-3);
     justify-items: start;
   }
   .empty p {
     margin: 0;
   }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    text-decoration: none;
-  }
   .notice.error {
     margin: 0;
-    color: var(--error-color);
   }
 </style>

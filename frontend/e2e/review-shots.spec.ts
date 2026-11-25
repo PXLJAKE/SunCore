@@ -8,6 +8,8 @@ import { expect, test, type Page } from '@playwright/test';
 
 const dir = process.env.REVIEW_SHOTS_DIR;
 test.skip(!dir, 'set REVIEW_SHOTS_DIR to take review screenshots');
+// Optional comma-separated subset of the views, e.g. REVIEW_SHOTS_VIEWS=now (one view PR).
+const only = process.env.REVIEW_SHOTS_VIEWS?.split(',').map((v) => v.trim());
 
 const SIZES = [
   { size: 'phone', viewport: { width: 390, height: 844 }, mobile: true },
@@ -41,6 +43,7 @@ for (const s of SIZES) {
     for (const v of VIEWS) {
       test(`review ${v.view} ${s.size} ${scheme}`, async ({ browser }, info) => {
         test.skip(info.project.name !== 'desktop', 'one project is enough (own viewports)');
+        test.skip(!!only && !only.includes(v.view), 'not in REVIEW_SHOTS_VIEWS');
         const ctx = await browser.newContext({
           colorScheme: scheme,
           locale: 'en-US',
@@ -69,6 +72,14 @@ for (const s of SIZES) {
             fullPage: true,
             animations: 'disabled',
           });
+          // The device cards on their own (the Now view's grid), for a closer look.
+          if (v.view === 'now') {
+            await page.addStyleTag({ content: '.appbar { position: static !important; }' });
+            await page.getByTestId('device-cards').screenshot({
+              path: `${dir}/now-devices-${s.size}-${scheme}.png`,
+              animations: 'disabled',
+            });
+          }
         } finally {
           await ctx.close();
         }

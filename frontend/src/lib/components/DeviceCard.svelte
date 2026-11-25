@@ -2,7 +2,15 @@
 <script lang="ts">
   import type { DeviceConfig, DeviceControlState, OperatingMode } from '../api/types';
   import { startsOnRelease } from '../flex/present';
-  import { holdDay, MODE_ORDER, qualityKey, stateView, virtualDraw } from '../control/present';
+  import {
+    holdDay,
+    MODE_KEY,
+    MODE_ORDER,
+    MODE_SHORT_KEY,
+    qualityKey,
+    stateView,
+    virtualDraw,
+  } from '../control/present';
   import {
     t,
     tDateTime,
@@ -17,6 +25,10 @@
   import FlexSection from './FlexSection.svelte';
   import OverrideForm from './OverrideForm.svelte';
   import ReasonList from './ReasonList.svelte';
+  import Card from '../ui/Card.svelte';
+  import CardFooter from '../ui/CardFooter.svelte';
+  import Chip from '../ui/Chip.svelte';
+  import ToggleGroup from '../ui/ToggleGroup.svelte';
 
   interface Props {
     device: DeviceControlState;
@@ -29,12 +41,9 @@
   }
   let { device, now, unit, config }: Props = $props();
 
-  const uid = $props.id();
-  const MODE_LABEL: Record<OperatingMode, MessageKey> = {
-    shadow: 'mode.shadow',
-    assisted: 'mode.assisted',
-    automatic: 'mode.automatic',
-  };
+  const modeOptions = $derived(
+    MODE_ORDER.map((m) => ({ value: m, label: t(MODE_SHORT_KEY[m]), name: t(MODE_KEY[m]) })),
+  );
   const KIND_LABEL: Record<string, MessageKey> = {
     accepted: 'decision.kind.accepted',
     rejected: 'decision.kind.rejected',
@@ -121,23 +130,40 @@
   }
 </script>
 
-<article
+{#snippet whyPanel()}
+  {#if device.reasons.length > 0}
+    <ReasonList reasons={device.reasons} />
+  {:else}
+    <p class="hint">{t('card.why_none')}</p>
+  {/if}
+  {#if device.last_decision}
+    {@const d = device.last_decision}
+    <p class="last">
+      <strong>{t('card.last_decision')}</strong>
+      <time datetime={d.ts}>{tTime(new Date(d.ts))}</time>
+      {t(KIND_LABEL[d.kind] ?? 'reason.unknown')}
+    </p>
+    <ReasonList reasons={d.reasons} />
+  {/if}
+{/snippet}
+
+{#snippet manualPanel()}
+  <OverrideForm {device} onresume={requestResume} />
+{/snippet}
+
+<Card
+  article
   id="device-card-{device.device_id}"
-  tabindex="-1"
-  class="card dev"
-  class:held={device.held}
-  aria-labelledby="{uid}-name"
-  data-testid="device-{device.device_id}"
+  title={device.name}
+  testid="device-{device.device_id}"
   data-mode={device.effective_mode}
+  data-held={device.held ? 'true' : undefined}
 >
-  <header>
-    <h3 id="{uid}-name">{device.name}</h3>
-    <span
-      class="chip-tag"
-      class:warn={device.effective_mode === 'automatic'}
-      data-testid="effective-mode">{t(MODE_LABEL[device.effective_mode])}</span
+  {#snippet status()}
+    <Chip tone={device.effective_mode === 'automatic' ? 'warn' : 'neutral'} testid="effective-mode"
+      >{t(MODE_KEY[device.effective_mode])}</Chip
     >
-  </header>
+  {/snippet}
 
   <dl class="facts">
     <div>
@@ -201,29 +227,22 @@
 
   <FlexSection {device} {config} {now} />
 
-  <div class="modes" role="group" aria-labelledby="{uid}-modes">
-    <span id="{uid}-modes" class="label">{t('card.mode', { name: device.name })}</span>
-    <div class="seg">
-      {#each MODE_ORDER as m (m)}
-        <button
-          type="button"
-          class="seg-btn"
-          aria-pressed={device.device_mode === m}
-          disabled={busy}
-          data-testid="mode-{m}"
-          onclick={() => choose(m)}>{t(MODE_LABEL[m])}</button
-        >
-      {/each}
-    </div>
-    {#if limitedByGlobal}
-      <p class="hint" data-testid="mode-limited">
-        {t('card.mode_limited', {
-          effective: t(MODE_LABEL[device.effective_mode]),
-          global: t(MODE_LABEL[device.global_mode]),
-        })}
-      </p>
-    {/if}
-  </div>
+  <ToggleGroup
+    label={t('card.mode', { name: device.name })}
+    options={modeOptions}
+    value={device.device_mode}
+    disabled={busy}
+    onselect={choose}
+    testid="mode"
+  />
+  {#if limitedByGlobal}
+    <p class="hint" data-testid="mode-limited">
+      {t('card.mode_limited', {
+        effective: t(MODE_KEY[device.effective_mode]),
+        global: t(MODE_KEY[device.global_mode]),
+      })}
+    </p>
+  {/if}
 
   {#if error}
     <p class="err" role="alert" data-testid="card-error">
@@ -231,29 +250,15 @@
     </p>
   {/if}
 
-  <details class="why" data-testid="why">
-    <summary>{t('card.why')}</summary>
-    {#if device.reasons.length > 0}
-      <ReasonList reasons={device.reasons} />
-    {:else}
-      <p class="hint">{t('card.why_none')}</p>
-    {/if}
-    {#if device.last_decision}
-      {@const d = device.last_decision}
-      <p class="last">
-        <strong>{t('card.last_decision')}</strong>
-        <time datetime={d.ts}>{tTime(new Date(d.ts))}</time>
-        {t(KIND_LABEL[d.kind] ?? 'reason.unknown')}
-      </p>
-      <ReasonList reasons={d.reasons} />
-    {/if}
-  </details>
-
-  <details class="manual">
-    <summary>{t('card.manual')}</summary>
-    <OverrideForm {device} onresume={requestResume} />
-  </details>
-</article>
+  {#snippet footer()}
+    <CardFooter
+      items={[
+        { id: 'why', label: t('card.why'), testid: 'why', panel: whyPanel },
+        { id: 'manual', label: t('card.manual'), panel: manualPanel },
+      ]}
+    />
+  {/snippet}
+</Card>
 
 <ConfirmDialog
   open={resumeAsk}
@@ -280,47 +285,14 @@
   testid="auto-dialog-{device.device_id}"
 >
   <p>{t('card.auto_text', { name: device.name })}</p>
-  <p>{t('card.auto_global', { global: t(MODE_LABEL[device.global_mode]) })}</p>
+  <p>{t('card.auto_global', { global: t(MODE_KEY[device.global_mode]) })}</p>
 </ConfirmDialog>
 
 <style>
-  .dev {
-    display: grid;
-    gap: 12px;
-    align-content: start;
-    min-width: 0;
-  }
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  h3 {
-    overflow-wrap: anywhere;
-  }
-  .facts {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-    gap: 8px 16px;
-    margin: 0;
-  }
-  .facts div {
-    min-width: 0;
-  }
-  dt {
-    color: var(--secondary-text-color);
-    font-size: 0.875rem;
-  }
-  dd {
-    margin: 0;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
   .virtual {
-    font-weight: 400;
-    font-size: 0.875rem;
-    color: var(--secondary-text-color);
+    font-weight: var(--sc-weight-regular);
+    font-size: var(--sc-font-xs);
+    color: var(--sc-text-muted);
   }
   .badges {
     list-style: none;
@@ -328,65 +300,16 @@
     padding: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--sc-space-1);
   }
   .resume {
-    justify-self: start;
-  }
-  .label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 6px;
-  }
-  .seg {
-    display: flex;
-    border: 1px solid var(--primary-color);
-    border-radius: 22px;
-    overflow: hidden;
-  }
-  .seg-btn {
-    flex: 1 1 0;
-    min-height: 44px;
-    padding: 0 6px;
-    font: inherit;
-    font-size: 0.875rem;
-    border: 0;
-    border-inline-start: 1px solid var(--primary-color);
-    background: transparent;
-    color: var(--primary-color);
-    cursor: pointer;
-  }
-  .seg-btn:first-child {
-    border-inline-start: 0;
-  }
-  .seg-btn[aria-pressed='true'] {
-    background: var(--primary-color);
-    color: var(--text-primary-color);
-    font-weight: 700;
-  }
-  .seg-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .modes .hint {
-    margin-top: 6px;
+    align-self: flex-start;
   }
   .err {
     margin: 0;
-    color: var(--error-color);
-  }
-  summary {
-    cursor: pointer;
-    min-height: 32px;
-    display: flex;
-    align-items: center;
-    font-weight: 600;
-    color: var(--primary-color);
-  }
-  details > :global(*:not(summary)) {
-    margin-top: 8px;
+    color: var(--sc-error);
   }
   .last {
-    margin: 8px 0 4px;
+    margin: 0;
   }
 </style>

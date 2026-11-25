@@ -26,6 +26,10 @@ export const ICONS = {
   warn: 'M12 3.5 2.5 20h19Z M12 10v4.5 M12 17.3h.01',
   error: `${CIRCLE} M12 7v6.5 M12 16.5h.01`,
   chevron: 'M6 9l6 6 6-6',
+  /** Energy nodes of the Now view. */
+  house: 'M3.5 11 12 4l8.5 7 M6 9.5V20h12V9.5 M10 20v-5h4v5',
+  battery: 'M3 7.5h15v9H3Z M18 10.5h2.5v3H18 M6.5 10.5v3 M10 10.5v3',
+  grid: 'M9 3v5 M15 3v5 M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0Z M12 17v4',
   empty: 'M3 13.5h5l1.5 3h5l1.5-3h5 M5.5 5h13l2.5 8.5V19H3v-5.5Z',
 } as const;
 

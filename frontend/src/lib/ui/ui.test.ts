@@ -16,6 +16,8 @@ import Loading from './Loading.svelte';
 import SectionHeader from './SectionHeader.svelte';
 import SegmentedControl from './SegmentedControl.svelte';
 import Stat from './Stat.svelte';
+import CardFooter from './CardFooter.svelte';
+import ToggleGroup from './ToggleGroup.svelte';
 
 const text = (s: string) => createRawSnippet(() => ({ render: () => `<span>${s}</span>` }));
 
@@ -201,5 +203,64 @@ describe('small components', () => {
       expect(svg.querySelector('path')?.getAttribute('d')).toMatch(/^M/);
       cleanup();
     }
+  });
+});
+
+describe('ToggleGroup', () => {
+  const options = [
+    { value: 'shadow', label: 'Shadow', name: 'Shadow mode' },
+    { value: 'automatic', label: 'Automatic', name: 'Automatic mode' },
+  ] as const;
+
+  it('is a named group of toggle buttons with the full name as accessible name', () => {
+    render(ToggleGroup, {
+      props: { label: 'Mode of Pump', options, value: 'shadow', onselect: () => {}, testid: 'm' },
+    });
+    expect(screen.getByRole('group', { name: 'Mode of Pump' })).toBeTruthy();
+    const pressed = screen.getByRole('button', { name: 'Shadow mode' });
+    expect(pressed.getAttribute('aria-pressed')).toBe('true');
+    expect(pressed.textContent).toBe('Shadow');
+    expect(screen.getByTestId('m-automatic').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('reports every press and leaves the choice to the caller; disabled stops presses', async () => {
+    const onselect = vi.fn();
+    render(ToggleGroup, { props: { label: 'Mode', options, value: 'shadow', onselect } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Automatic mode' }));
+    expect(onselect).toHaveBeenCalledWith('automatic');
+    // No selection by itself: the pressed option is still the one the caller passed.
+    expect(screen.getByRole('button', { name: 'Shadow mode' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    cleanup();
+    render(ToggleGroup, {
+      props: { label: 'Mode', options, value: 'shadow', onselect, disabled: true },
+    });
+    expect(
+      (screen.getByRole('button', { name: 'Automatic mode' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+});
+
+describe('CardFooter', () => {
+  it('shows each panel on its toggle and keeps closed panels in the DOM', async () => {
+    render(CardFooter, {
+      props: {
+        items: [
+          { id: 'why', label: 'Why?', testid: 'why', panel: text('Because') },
+          { id: 'manual', label: 'Take over manually', testid: 'manual', panel: text('Form') },
+        ],
+      },
+    });
+    const why = screen.getByRole('button', { name: 'Why?' });
+    const panel = screen.getByTestId('why');
+    expect(why.getAttribute('aria-expanded')).toBe('false');
+    expect(why.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.hidden).toBe(true);
+    expect(panel.textContent).toContain('Because');
+    await fireEvent.click(why);
+    expect(why.getAttribute('aria-expanded')).toBe('true');
+    expect(panel.hidden).toBe(false);
+    expect(screen.getByTestId('manual').hidden).toBe(true);
   });
 });

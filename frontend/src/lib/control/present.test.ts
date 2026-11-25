@@ -9,9 +9,11 @@ import {
   openProposals,
   qualityKey,
   secondsLeft,
+  splitSharedReasons,
   stateView,
   virtualDraw,
 } from './present';
+import { proposal } from './fixtures';
 
 describe('holdDay', () => {
   const now = new Date(2026, 5, 21, 23, 0);
@@ -153,5 +155,32 @@ describe('batteryParts', () => {
     expect(batteryParts({ kind: 'battery', max_discharge_w: 800, grid_charge_w: 0 }, w)).toEqual([
       { key: 'action.battery.max_discharge', args: { power: '800 W' } },
     ]);
+  });
+});
+
+describe('splitSharedReasons', () => {
+  const shadow = { key: 'safety.shadow_mode', args: {} };
+  const own = (w: number) => ({ key: 'controller.surplus_on', args: { need_w: w, surplus_w: 1 } });
+
+  it('pulls a note every entry carries out of the lines, once', () => {
+    const list = [
+      proposal('a', null, { reasons: [own(100), shadow] }),
+      proposal('b', null, { reasons: [shadow] }),
+      proposal('c', null, { reasons: [shadow, own(200)] }),
+    ];
+    const r = splitSharedReasons(list);
+    expect(r.shared).toEqual([shadow]);
+    expect(r.own).toEqual([[own(100)], [], [own(200)]]);
+  });
+
+  it('compares the arguments too and shares nothing for a single entry', () => {
+    const r = splitSharedReasons([
+      proposal('a', null, { reasons: [own(100)] }),
+      proposal('b', null, { reasons: [own(200)] }),
+    ]);
+    expect(r.shared).toEqual([]);
+    expect(r.own).toEqual([[own(100)], [own(200)]]);
+    expect(splitSharedReasons([proposal('a', null, { reasons: [shadow] })]).shared).toEqual([]);
+    expect(splitSharedReasons([])).toEqual({ shared: [], own: [] });
   });
 });

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Pure helpers that turn the control state into what the cards show.
-import type { Decision, DeviceControlState, OperatingMode } from '../api/types';
+import type { Decision, DeviceControlState, OperatingMode, Reason } from '../api/types';
 
 export const MODE_ORDER: readonly OperatingMode[] = ['shadow', 'assisted', 'automatic'];
 
@@ -93,4 +93,42 @@ export function qualityKey(
   if (q === 'unavailable') return 'quality.unavailable';
   if (q === 'invalid') return 'quality.invalid';
   return null;
+}
+
+/** Catalogue keys of the operating modes: full name and the short label of a mode switch. */
+export const MODE_KEY = {
+  shadow: 'mode.shadow',
+  assisted: 'mode.assisted',
+  automatic: 'mode.automatic',
+} as const satisfies Record<OperatingMode, string>;
+export const MODE_SHORT_KEY = {
+  shadow: 'mode.short.shadow',
+  assisted: 'mode.short.assisted',
+  automatic: 'mode.short.automatic',
+} as const satisfies Record<OperatingMode, string>;
+
+const reasonId = (r: Reason): string => `${r.key}\u0000${JSON.stringify(r.args ?? {})}`;
+
+/**
+ * Splits the reasons of a short decision list into those every entry carries (same key and
+ * arguments, e.g. "Shadow mode: calculated only") and the rest per entry, so the shared note is
+ * shown once instead of on every line. With fewer than two entries nothing is shared.
+ */
+export function splitSharedReasons(decisions: readonly Decision[]): {
+  shared: Reason[];
+  own: Reason[][];
+} {
+  const first = decisions[0];
+  if (decisions.length < 2 || !first) {
+    return { shared: [], own: decisions.map((d) => [...d.reasons]) };
+  }
+  const common = new Set(first.reasons.map(reasonId));
+  for (const d of decisions.slice(1)) {
+    const ids = new Set(d.reasons.map(reasonId));
+    for (const id of common) if (!ids.has(id)) common.delete(id);
+  }
+  return {
+    shared: first.reasons.filter((r) => common.has(reasonId(r))),
+    own: decisions.map((d) => d.reasons.filter((r) => !common.has(reasonId(r)))),
+  };
 }
