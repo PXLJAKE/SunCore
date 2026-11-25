@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Tiny hash router (`#/`, `#/plan`, `#/settings`, `#/decisions`, `#/history`, `#/whatif`, `#/setup[/<step>]`): independent of the ingress base path.
+// Tiny hash router (`#/`, `#/plan`, `#/settings[/<page>]`, `#/decisions`, `#/history`, `#/whatif`, `#/setup[/<step>]`): independent of the ingress base path.
 import { SvelteURLSearchParams } from 'svelte/reactivity';
 import { isStepId, type StepId } from './wizard/steps';
 
@@ -25,10 +25,20 @@ export function destinationOf(route: Route): Destination {
   }
 }
 
+/** The sub-pages of *Settings* (`#/settings/<page>`), plan phase-7 WP5. */
+export const SETTINGS_PAGES = ['system', 'devices', 'goals', 'ha', 'advanced'] as const;
+export type SettingsPage = (typeof SETTINGS_PAGES)[number];
+
+export function isSettingsPage(value: string): value is SettingsPage {
+  return (SETTINGS_PAGES as readonly string[]).includes(value);
+}
+
 export interface Location {
   route: Route;
   /** Only for `setup`: the step, `null` for `#/setup` (resume where the user stopped). */
   step: StepId | null;
+  /** Only for `settings`: the sub-page, `null` for the index (`#/settings`). */
+  page?: SettingsPage | null;
 }
 
 export function parseLocation(hash: string): Location {
@@ -37,7 +47,13 @@ export function parseLocation(hash: string): Location {
   if (path === '/history') return { route: 'history', step: null };
   if (path === '/whatif') return { route: 'whatif', step: null };
   if (path === '/decisions') return { route: 'decisions', step: null };
-  if (path === '/settings') return { route: 'settings', step: null };
+  if (path === '/settings' || path === '/settings/') {
+    return { route: 'settings', step: null, page: null };
+  }
+  if (path.startsWith('/settings/')) {
+    const id = path.slice('/settings/'.length).replace(/\/$/, '');
+    return { route: 'settings', step: null, page: isSettingsPage(id) ? id : null };
+  }
   if (path === '/setup' || path === '/setup/') return { route: 'setup', step: null };
   if (path.startsWith('/setup/')) {
     const id = path.slice('/setup/'.length).replace(/\/$/, '');
@@ -51,6 +67,9 @@ export function hashQuery(hash: string): URLSearchParams {
   const i = hash.indexOf('?');
   return new SvelteURLSearchParams(i < 0 ? '' : hash.slice(i + 1));
 }
+
+/** The hash of a settings sub-page. */
+export const settingsHash = (page: SettingsPage): string => `#/settings/${page}`;
 
 /** The hash that opens a step. */
 export const stepHash = (id: StepId): string => `#/setup/${id}`;
@@ -72,6 +91,11 @@ class Router {
 
   get step(): StepId | null {
     return this.current.step;
+  }
+
+  /** The settings sub-page, `null` on the index and outside *Settings*. */
+  get page(): SettingsPage | null {
+    return this.current.page ?? null;
   }
 
   listen(): () => void {

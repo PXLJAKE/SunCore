@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // PR 6-M: grid chain in the wizard, Phase 6 templates, EV and program cards, settings sections.
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { expectNoAxeViolations, openStep, resetDemo } from './helpers';
+import { expectNoAxeViolations, openDisclosure, openStep, resetDemo } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -110,6 +110,7 @@ test.describe('Phase 6 wizard', () => {
   }) => {
     await resetDemo(request, { wizardDone: false });
     await openStep(page, 'grid');
+    await openDisclosure(page, 'grid-operator');
     await page.getByLabel('Keep the monthly grid peak low').check();
     await page.getByLabel('Peak floor').fill('3000');
     await page.getByLabel('Zero export').check();
@@ -194,7 +195,7 @@ test.describe('Phase 6 settings', () => {
     request,
   }) => {
     await resetDemo(request);
-    await page.goto('/#/settings');
+    await page.goto('/#/settings/ha');
     const box = page.getByTestId('ha-entities');
     await expect(box.getByTestId('ha-status')).toBeVisible();
     await expect(box.getByTestId('ha-republish')).toBeDisabled();
@@ -212,7 +213,7 @@ test.describe('Phase 6 settings', () => {
     request,
   }) => {
     await resetDemo(request);
-    await page.goto('/#/settings');
+    await page.goto('/#/settings/ha');
     const box = page.getByTestId('notifications');
     await expect(box.getByTestId('notify-status')).toBeVisible();
     await box.getByTestId('notify-test').click();

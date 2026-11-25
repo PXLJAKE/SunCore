@@ -46,7 +46,11 @@ for (const scheme of ['light', 'dark'] as const) {
 
     for (const [name, hash] of [
       ['now', '#/'],
-      ['settings', '#/settings'],
+      ['settings', '#/settings/system'],
+      ['settings index', '#/settings'],
+      ['settings devices', '#/settings/devices'],
+      ['settings goals', '#/settings/goals'],
+      ['settings advanced', '#/settings/advanced'],
       ['decisions', '#/decisions'],
     ] as const) {
       test(`${name} view has no axe violations`, async ({ page }) => {

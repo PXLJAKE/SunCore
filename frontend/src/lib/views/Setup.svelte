@@ -4,21 +4,14 @@
   import { tDynamic, t } from '../i18n/index.svelte';
   import { router, stepHash } from '../router.svelte';
   import { wizard } from '../stores/wizard.svelte';
-  import { firstIncompleteStep, type StepId } from '../wizard/steps';
+  import { firstIncompleteStep, stageOf, type StepId } from '../wizard/steps';
+  import { STAGE_LOADERS } from './steps/stages';
 
-  // One chunk per step: the wizard is not part of the first paint of the Now view.
-  const LOADERS: Record<StepId, () => Promise<{ default: Component }>> = {
-    region: () => import('./steps/RegionStep.svelte'),
-    energy: () => import('./steps/EnergyStep.svelte'),
-    grid: () => import('./steps/GridStep.svelte'),
-    pv: () => import('./steps/PvStep.svelte'),
-    battery: () => import('./steps/BatteryStep.svelte'),
-    tariff: () => import('./steps/TariffStep.svelte'),
-    devices: () => import('./steps/DevicesStep.svelte'),
-    priorities: () => import('./steps/PrioritiesStep.svelte'),
-    mode: () => import('./steps/ModeStep.svelte'),
-    summary: () => import('./steps/SummaryStep.svelte'),
-  };
+  // One chunk per stage: the wizard is not part of the first paint of the Now view.
+  async function load(step: StepId): Promise<Component> {
+    const mod = await STAGE_LOADERS[stageOf(step).id]();
+    return mod[step]!;
+  }
 
   $effect(() => {
     void wizard.ensureLoaded();
@@ -43,8 +36,7 @@
     <p class="hint" role="status">{t('wizard.loading')}</p>
   {:else if router.step}
     {#key router.step}
-      {#await LOADERS[router.step]() then mod}
-        {@const Step = mod.default}
+      {#await load(router.step) then Step}
         <Step />
       {/await}
     {/key}

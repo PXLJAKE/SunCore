@@ -39,6 +39,10 @@ export const ICONS = {
   house: 'M3.5 11 12 4l8.5 7 M6 9.5V20h12V9.5 M10 20v-5h4v5',
   battery: 'M3 7.5h15v9H3Z M18 10.5h2.5v3H18 M6.5 10.5v3 M10 10.5v3',
   grid: 'M9 3v5 M15 3v5 M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0Z M12 17v4',
+  /** Settings groups (7-G): devices, goals, Home Assistant (notifications). */
+  plug: 'M5.5 3h13v18h-13Z M5.5 7.5h13 M15.5 14a3.5 3.5 0 1 1-7 0a3.5 3.5 0 1 1 7 0Z M8.5 5.25h.01',
+  target: `${CIRCLE} M17 12a5 5 0 1 1-10 0a5 5 0 1 1 10 0Z M12 12h.01`,
+  bell: 'M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15Z M10 20.5h4',
   empty: 'M3 13.5h5l1.5 3h5l1.5-3h5 M5.5 5h13l2.5 8.5V19H3v-5.5Z',
 } as const;
 

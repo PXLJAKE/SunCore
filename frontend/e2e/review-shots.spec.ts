@@ -24,7 +24,16 @@ const VIEWS = [
   { view: 'decisions', path: '/#/decisions' },
   { view: 'whatif', path: '/#/whatif' },
   { view: 'settings', path: '/#/settings' },
+  // 7-G: the settings sub-pages (after only) and the wizard steps, one per stage and the summary.
+  { view: 'settings-system', path: '/#/settings/system' },
+  { view: 'settings-devices', path: '/#/settings/devices' },
+  { view: 'settings-ha', path: '/#/settings/ha' },
+  { view: 'settings-advanced', path: '/#/settings/advanced' },
+  { view: 'wizard-region', path: '/#/setup/region' },
+  { view: 'wizard-grid', path: '/#/setup/grid' },
   { view: 'wizard-pv', path: '/#/setup/pv' },
+  { view: 'wizard-devices', path: '/#/setup/devices' },
+  { view: 'wizard-summary', path: '/#/setup/summary' },
 ] as const;
 
 async function ready(page: Page, view: (typeof VIEWS)[number]['view']): Promise<void> {
@@ -38,9 +47,13 @@ async function ready(page: Page, view: (typeof VIEWS)[number]['view']): Promise<
   if (view === 'analysis') {
     await expect(page.getByTestId('chart-energy').locator('canvas').first()).toBeVisible();
   }
-  if (view === 'settings') await expect(page.getByTestId('overview')).toBeVisible();
-  if (view === 'wizard-pv')
-    await expect(page.getByTestId('wizard')).toHaveAttribute('data-step', 'pv');
+  if (view === 'settings') await expect(page.getByRole('heading', { level: 2 })).toBeVisible();
+  if (view.startsWith('settings-')) await expect(page.getByTestId('settings-page')).toBeVisible();
+  if (view.startsWith('wizard-')) {
+    const step = view.slice('wizard-'.length);
+    await expect(page.getByTestId('wizard')).toHaveAttribute('data-step', step);
+    if (step === 'summary') await expect(page.getByTestId('plan-preview')).toBeVisible();
+  }
 }
 
 for (const s of SIZES) {

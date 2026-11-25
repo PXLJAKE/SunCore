@@ -91,7 +91,10 @@
   </header>
 
   {#if !expert.enabled}
-    <p class="card notice info" data-testid="whatif-expert-off">{t('whatif.expert_off')}</p>
+    <p class="card notice info" data-testid="whatif-expert-off">
+      {t('whatif.expert_off')}
+      <a href="#/settings/advanced">{t('whatif.expert_open')}</a>
+    </p>
   {:else if store.unavailable}
     <p class="card notice error" role="alert" data-testid="whatif-unavailable">
       {t('whatif.unavailable')}

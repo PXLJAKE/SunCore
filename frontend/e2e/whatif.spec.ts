@@ -40,7 +40,15 @@ test.describe('What-if view', () => {
     await page.goto('/#/whatif');
     await expect(page.getByTestId('whatif-expert-off')).toBeVisible();
     await expect(page.getByTestId('whatif-form')).toHaveCount(0);
+    // The hint leads to the switch in Settings, Advanced (7-G).
+    await page
+      .getByTestId('whatif-expert-off')
+      .getByRole('link', { name: 'Open Advanced settings' })
+      .click();
+    await expect(page).toHaveURL(/#\/settings\/advanced$/);
     await page.getByRole('switch', { name: 'Expert mode' }).click();
+    await page.goBack();
+    await expect(page).toHaveURL(/#\/whatif$/);
     await expect(page.getByTestId('whatif-form')).toBeVisible();
     await expect(page.getByRole('link', { name: 'What-if' })).toBeVisible();
   });

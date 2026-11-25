@@ -2,7 +2,7 @@
 import { expect, test } from '@playwright/test';
 
 test('no horizontal scroll and the diagram fits the viewport', async ({ page }) => {
-  for (const hash of ['#/', '#/settings']) {
+  for (const hash of ['#/', '#/settings', '#/settings/system', '#/settings/ha', '#/setup/grid']) {
     await page.goto(`/${hash}`);
     await expect(page.getByTestId('connection')).toBeVisible();
     const { scroll, client } = await page.evaluate(() => ({

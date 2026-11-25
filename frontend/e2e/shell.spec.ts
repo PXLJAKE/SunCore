@@ -47,8 +47,12 @@ test('Analysis has tabs for history and decisions; what-if only in expert mode',
   // URL instead.
   await expect(page).toHaveURL(/#\/history\?period=week$/);
   await expect(page.getByRole('heading', { name: 'History', level: 2 })).toBeVisible();
+  // Expert mode lives in Settings, Advanced (7-G; it was a switch in the top bar).
+  await page.goto('/#/settings/advanced');
   await page.getByRole('switch', { name: 'Expert mode' }).click();
+  await page.goto('/#/history');
   await expect(tabs.getByRole('link')).toHaveText(['History', 'Decision log', 'What-if']);
+  await page.goto('/#/settings/advanced');
   await page.getByRole('switch', { name: 'Expert mode' }).click();
   // Not on the other destinations.
   await page.goto('/#/plan');

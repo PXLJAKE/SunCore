@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
+import { backendOnlyKeys } from './scripts/backend-only.mjs';
 
 // `base: './'` keeps every asset URL relative so the Home Assistant ingress
 // base path (dynamic, set by the Supervisor) never matters.
 export default defineConfig({
   base: './',
-  plugins: [svelte()],
+  plugins: [backendOnlyKeys(), svelte()],
   build: {
     target: 'es2022',
     sourcemap: false,

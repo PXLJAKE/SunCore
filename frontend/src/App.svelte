@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { i18n, t, type MessageKey } from './lib/i18n/index.svelte';
   import type { OperatingMode } from './lib/api/types';
   import { destinationOf, router, type Destination } from './lib/router.svelte';
@@ -83,16 +83,19 @@
     if (router.route === 'now') router.replace('#/setup');
   });
 
-  // Move focus to the page content after navigation (keyboard and screen reader users).
+  // Move focus to the page content after navigation (keyboard and screen reader users). Only a
+  // change of the route counts: a new query or settings page keeps the focus where the view put
+  // it (the derived only notifies when the route itself changes).
+  const route = $derived(router.route);
   $effect(() => {
-    void router.route;
-    if (router.route === 'setup') return; // the wizard moves the focus to its own heading
+    const current = route;
+    if (current === 'setup') return; // the wizard moves the focus to its own heading
     if (firstRoute) {
       firstRoute = false;
       return;
     }
     // A link to a device card (`#/?device=`) focuses that card instead.
-    if (router.route === 'now' && router.query.has('device')) return;
+    if (current === 'now' && untrack(() => router.query.has('device'))) return;
     void tick().then(() => main?.focus());
   });
 </script>
@@ -132,18 +135,6 @@
       <span class="dot" aria-hidden="true"></span>
       <span class="conn-text">{t(STATUS[live.status])}</span>
     </span>
-    <button
-      type="button"
-      role="switch"
-      class="expert-toggle"
-      aria-checked={expert.enabled}
-      data-testid="expert-toggle"
-      onclick={() => expert.set(!expert.enabled)}
-    >
-      <Icon name="expert" size={18} />
-      <span class="expert-text">{t('expert.toggle')}</span>
-      <span class="track" aria-hidden="true"></span>
-    </button>
   </div>
   <div class="estop">
     <EmergencyStop />
@@ -371,42 +362,6 @@
     white-space: nowrap;
   }
 
-  .expert-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sc-space-2);
-    min-width: var(--sc-target);
-    min-height: var(--sc-target);
-    padding: 0;
-    border: 0;
-    border-radius: var(--sc-radius-pill);
-    background: transparent;
-    color: var(--sc-text-muted);
-    font: inherit;
-    font-size: var(--sc-font-sm);
-    cursor: pointer;
-  }
-  .expert-toggle:hover {
-    color: var(--sc-text);
-  }
-  .expert-toggle[aria-checked='true'] {
-    background: var(--sc-accent-bg);
-    color: var(--sc-accent);
-  }
-  /* Phones show the icon only; the text stays the switch's accessible name. */
-  .expert-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-  .track {
-    display: none;
-  }
-
   .estop {
     display: flex;
     align-items: center;
@@ -526,42 +481,6 @@
     }
     .status {
       gap: var(--sc-space-3);
-    }
-    .expert-toggle {
-      padding: 0 var(--sc-space-3);
-    }
-    .expert-text {
-      position: static;
-      width: auto;
-      height: auto;
-      overflow: visible;
-      clip: auto;
-    }
-    .track {
-      display: inline-block;
-      position: relative;
-      width: 30px;
-      height: 18px;
-      border-radius: var(--sc-radius-pill);
-      background: var(--sc-outline-strong);
-      transition: background-color var(--sc-motion-fast) ease;
-    }
-    .track::after {
-      content: '';
-      position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: var(--sc-surface);
-      transition: transform var(--sc-motion-fast) ease;
-    }
-    .expert-toggle[aria-checked='true'] .track {
-      background: var(--sc-accent);
-    }
-    .expert-toggle[aria-checked='true'] .track::after {
-      transform: translateX(12px);
     }
     .banners {
       padding: var(--sc-space-4) var(--sc-space-5) 0;

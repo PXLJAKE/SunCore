@@ -5,7 +5,16 @@
   import { router, stepHash } from '../router.svelte';
   import { wizard, type SaveState } from '../stores/wizard.svelte';
   import { issueLocText } from '../wizard/issues';
-  import { nextStep, prevStep, STEPS, stepIndex, type StepId } from '../wizard/steps';
+  import Icon from '../ui/Icon.svelte';
+  import {
+    nextStep,
+    prevStep,
+    STAGES,
+    stageOf,
+    STEPS,
+    stepIndex,
+    type StepId,
+  } from '../wizard/steps';
 
   interface Props {
     step: StepId;
@@ -45,6 +54,8 @@
   const def = $derived(STEPS[index]!);
   const prev = $derived(prevStep(step));
   const next = $derived(nextStep(step));
+  const stage = $derived(stageOf(step));
+  const stageIndex = $derived(STAGES.indexOf(stage));
   // The summary counts as done once the whole setup is finished, so a finished wizard
   // reads "10 of 10" and matches "Step n of 10".
   const doneCount = $derived(
@@ -114,11 +125,23 @@
 </script>
 
 <section class="shell" aria-labelledby="wizard-title" data-testid="wizard" data-step={step}>
+  <!-- The four stages (plan phase-7 WP5); the ten steps keep their ids and links below. -->
+  <ol class="stages" aria-label={t('wizard.stage.label')} data-testid="wizard-stages">
+    {#each STAGES as st, i (st.id)}
+      <li
+        class:past={i < stageIndex}
+        class:current={i === stageIndex}
+        aria-current={i === stageIndex ? 'step' : undefined}
+        data-stage={st.id}
+      >
+        <span class="bar" aria-hidden="true"></span>
+        <span class="stage-name">{t(st.title)}</span>
+      </li>
+    {/each}
+  </ol>
+
   <aside class="progress" aria-label={t('wizard.progress.label')}>
     <div class="compact">
-      <p class="count" data-testid="wizard-count">
-        {t('wizard.progress.step', { n: index + 1, total: STEPS.length })}
-      </p>
       <progress
         max={STEPS.length}
         value={index + 1}
@@ -132,38 +155,48 @@
         aria-controls="wizard-steps"
         onclick={() => (listOpen = !listOpen)}
       >
+        <span class="chev" class:open={listOpen}><Icon name="chevron" size={18} /></span>
         {listOpen ? t('wizard.progress.hide') : t('wizard.progress.show')}
       </button>
     </div>
-    <ol id="wizard-steps" class="steps" class:open={listOpen}>
-      {#each STEPS as s, i (s.id)}
-        {@const done = wizard.completedSteps.includes(s.id)}
-        <li>
-          <a
-            href={stepHash(s.id)}
-            aria-current={s.id === step ? 'step' : undefined}
-            class:done
-            class:current={s.id === step}
-            onclick={() => (listOpen = false)}
-          >
-            <span class="marker" aria-hidden="true">{done ? '✓' : i + 1}</span>
-            <span class="label">{t(s.title)}</span>
-            {#if done}<span class="sr-only">{t('wizard.progress.done')}</span>{/if}
-          </a>
-        </li>
+    <div id="wizard-steps" class="steps" class:open={listOpen}>
+      {#each STAGES as st (st.id)}
+        <p class="kicker group">{t(st.title)}</p>
+        <ol>
+          {#each st.steps as id (id)}
+            {@const done = wizard.completedSteps.includes(id)}
+            <li>
+              <a
+                href={stepHash(id)}
+                aria-current={id === step ? 'step' : undefined}
+                class:done
+                class:current={id === step}
+                onclick={() => (listOpen = false)}
+              >
+                <span class="marker" aria-hidden="true">{done ? '✓' : stepIndex(id) + 1}</span>
+                <span class="label">{t(STEPS[stepIndex(id)]!.title)}</span>
+                {#if done}<span class="sr-only">{t('wizard.progress.done')}</span>{/if}
+              </a>
+            </li>
+          {/each}
+        </ol>
       {/each}
-    </ol>
-    <p class="done-count">
-      {t('wizard.progress.done_count', { done: doneCount, total: STEPS.length })}
-    </p>
+      <p class="done-count">
+        {t('wizard.progress.done_count', { done: doneCount, total: STEPS.length })}
+      </p>
+    </div>
   </aside>
 
   <div class="body card">
     <header>
-      <h2 id="wizard-title" tabindex="-1" bind:this={heading}>
-        <span class="num">{index + 1}.</span>
-        {t(def.title)}
-      </h2>
+      <p class="kicker" data-testid="wizard-count">
+        {t('wizard.stage.position', {
+          stage: t(stage.title),
+          n: index + 1,
+          total: STEPS.length,
+        })}
+      </p>
+      <h2 id="wizard-title" tabindex="-1" bind:this={heading}>{t(def.title)}</h2>
       <p class="intro">{intro}</p>
     </header>
 
@@ -225,8 +258,9 @@
       </p>
     {/if}
 
+    <!-- One sticky footer on every step: leave at the start, Back, Skip and Next at the end. -->
     <footer class="actions">
-      <button type="button" class="btn secondary" onclick={leave}>{t('wizard.leave')}</button>
+      <button type="button" class="btn ghost" onclick={leave}>{t('wizard.leave')}</button>
       <span class="spacer"></span>
       {#if prev}
         <button type="button" class="btn secondary" data-testid="wizard-back" onclick={onBack}
@@ -234,7 +268,7 @@
         >
       {/if}
       {#if skippable && next}
-        <button type="button" class="btn secondary" data-testid="wizard-skip" onclick={onSkip}
+        <button type="button" class="btn ghost" data-testid="wizard-skip" onclick={onSkip}
           >{t('action.skip')}</button
         >
       {/if}
@@ -253,172 +287,256 @@
 </section>
 
 <style>
+  /*
+   * Phone and tablet: the stage bar, a compact progress row with the step list behind a toggle,
+   * then the step. Desktop (>= 1024 px): the step list as a sticky side column, grouped by stage.
+   */
   .shell {
     display: grid;
-    gap: var(--sc-gap);
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sc-space-4);
     align-items: start;
   }
-  .progress {
+
+  /* --- stages --- */
+  .stages {
     display: grid;
-    gap: 8px;
-  }
-  .compact {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 6px 12px;
-  }
-  .count {
-    margin: 0;
-    font-weight: 600;
-  }
-  progress {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    width: 100%;
-    height: 8px;
-    accent-color: var(--primary-color);
-  }
-  .toggle {
-    font: inherit;
-    min-height: 44px;
-    padding: 0 12px;
-    background: transparent;
-    border: 1px solid var(--divider-color);
-    border-radius: 22px;
-    color: var(--primary-color);
-    cursor: pointer;
-  }
-  .steps {
-    display: none;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--sc-space-2);
     margin: 0;
     padding: 0;
     list-style: none;
   }
+  .stages li {
+    display: grid;
+    gap: var(--sc-space-1);
+    min-width: 0;
+    color: var(--sc-text-muted);
+    font-size: var(--sc-font-xs);
+    font-weight: var(--sc-weight-strong);
+  }
+  .bar {
+    height: 4px;
+    border-radius: var(--sc-radius-pill);
+    background: var(--sc-outline-strong);
+  }
+  .stages .past .bar {
+    background: var(--sc-ok);
+  }
+  .stages .current {
+    color: var(--sc-text);
+  }
+  .stages .current .bar {
+    background: var(--sc-accent);
+  }
+  .stage-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* --- step list --- */
+  .progress {
+    display: grid;
+    gap: var(--sc-space-2);
+    min-width: 0;
+  }
+  .compact {
+    display: flex;
+    align-items: center;
+    gap: var(--sc-space-3);
+  }
+  progress {
+    flex: 1;
+    min-width: 0;
+    height: 6px;
+    accent-color: var(--sc-accent);
+  }
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sc-space-1);
+    min-height: var(--sc-target);
+    padding: 0 var(--sc-space-2);
+    border: 0;
+    border-radius: var(--sc-radius-pill);
+    background: transparent;
+    color: var(--sc-accent);
+    font: inherit;
+    font-size: var(--sc-font-sm);
+    font-weight: var(--sc-weight-strong);
+    cursor: pointer;
+  }
+  .chev {
+    display: inline-flex;
+    transform: rotate(-90deg);
+    transition: transform var(--sc-motion-fast) ease;
+  }
+  .chev.open {
+    transform: none;
+  }
+  .steps {
+    display: none;
+    padding: var(--sc-space-2);
+    border: 1px solid var(--sc-outline);
+    border-radius: var(--sc-radius-lg);
+    background: var(--sc-surface);
+  }
   .steps.open {
     display: grid;
+    gap: var(--sc-space-1);
+  }
+  .steps ol {
+    display: grid;
     gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .group {
+    padding: var(--sc-space-2) var(--sc-space-2) 0;
   }
   .steps a {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 44px;
-    padding: 0 10px;
-    border-radius: 8px;
+    gap: var(--sc-space-3);
+    min-height: var(--sc-target);
+    padding: 0 var(--sc-space-2);
+    border-radius: var(--sc-radius-md);
+    color: var(--sc-text);
+    font-size: var(--sc-font-sm);
     text-decoration: none;
-    color: var(--primary-text-color);
+  }
+  .steps a:hover {
+    background: var(--sc-surface-sunken);
   }
   .steps a.current {
-    background: color-mix(in srgb, var(--primary-color) 16%, transparent);
-    font-weight: 700;
+    background: var(--sc-accent-bg);
+    color: var(--sc-accent);
+    font-weight: var(--sc-weight-strong);
   }
   .marker {
     flex: none;
     display: inline-grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
-    border: 2px solid var(--divider-color);
-    font-size: 0.8125rem;
-    font-weight: 700;
-  }
-  .steps a.current .marker {
-    border-color: var(--primary-color);
-    background: var(--primary-color);
-    color: var(--text-primary-color);
+    border: 2px solid var(--sc-outline-strong);
+    color: var(--sc-text-muted);
+    font-size: var(--sc-font-xs);
+    font-weight: var(--sc-weight-strong);
   }
   .steps a.done .marker {
-    border-color: var(--success-color);
-    color: var(--success-color);
+    border-color: var(--sc-ok);
+    color: var(--sc-ok);
+  }
+  /* After .done: the current step is marked as current even when it is done. */
+  .steps a.current .marker {
+    border-color: var(--sc-accent);
+    background: var(--sc-accent);
+    color: var(--sc-accent-fg);
   }
   .done-count {
-    margin: 0;
-    color: var(--secondary-text-color);
-    font-size: 0.875rem;
+    margin: var(--sc-space-2) var(--sc-space-2) 0;
+    color: var(--sc-text-muted);
+    font-size: var(--sc-font-xs);
   }
+
+  /* --- the step --- */
   .body {
     display: grid;
-    gap: var(--sc-gap);
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sc-space-4);
     min-width: 0;
+    padding-bottom: 0;
   }
   header {
     display: grid;
-    gap: 6px;
+    gap: var(--sc-space-1);
+  }
+  h2 {
+    font-size: var(--sc-font-xl);
   }
   h2:focus {
     outline: none;
   }
-  .num {
-    color: var(--primary-color);
-  }
   .intro {
     margin: 0;
-    color: var(--secondary-text-color);
+    max-width: 44rem;
+    color: var(--sc-text-muted);
   }
   .content {
     display: grid;
-    gap: var(--sc-gap);
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sc-space-4);
     min-width: 0;
   }
-  .notice {
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: 1px solid currentColor;
+  /* Sections inside a step are flat (app.css); the first needs no divider under the intro. */
+  .content > :global(.card:first-child) {
+    padding-top: 0;
+    border-top: 0;
   }
-  .notice p {
-    margin: 0;
-  }
-  .notice ul {
-    margin: 6px 0 0;
-    padding-left: 20px;
-  }
-  .notice.error {
-    color: var(--error-color);
-  }
-  .notice.warn p {
-    color: var(--primary-text-color);
+  .loc {
+    font-weight: var(--sc-weight-strong);
+    margin-inline-end: var(--sc-space-2);
   }
   .confirm-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
+    gap: var(--sc-space-2);
+    margin-top: var(--sc-space-2);
   }
-  .loc {
-    font-weight: 600;
-    margin-inline-end: 6px;
-  }
+  /* The footer spans the card and stays above the phone's bottom bar while the step scrolls. */
   .actions {
+    position: sticky;
+    bottom: var(--sc-sticky-bottom, 0px);
+    z-index: 2;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
-    position: sticky;
-    bottom: var(--sc-sticky-bottom, 0px);
-    padding: 10px 0;
-    background: var(--card-background-color);
-    border-top: 1px solid var(--divider-color);
+    gap: var(--sc-space-2);
+    margin: 0 calc(-1 * var(--sc-space-4));
+    padding: var(--sc-space-3) var(--sc-space-4);
+    border-top: 1px solid var(--sc-outline);
+    border-radius: 0 0 var(--sc-radius-lg) var(--sc-radius-lg);
+    background: var(--sc-surface);
   }
   .spacer {
     flex: 1;
   }
 
-  @media (min-width: 900px) {
+  @media (min-width: 600px) {
+    .actions {
+      margin: 0 calc(-1 * var(--sc-space-5));
+      padding: var(--sc-space-3) var(--sc-space-5);
+    }
+  }
+
+  @media (min-width: 1024px) {
     .shell {
-      grid-template-columns: 250px minmax(0, 1fr);
+      grid-template-columns: 15rem minmax(0, 1fr);
+      column-gap: var(--sc-space-6);
+    }
+    .stages,
+    .body {
+      grid-column: 2;
     }
     .progress {
+      grid-column: 1;
+      grid-row: 1 / span 2;
       position: sticky;
-      top: calc(var(--sc-sticky-top, 0px) + 8px);
+      top: calc(var(--sc-sticky-top, 0px) + var(--sc-space-3));
     }
     .compact {
       display: none;
     }
     .steps {
       display: grid;
-      gap: 2px;
+      gap: var(--sc-space-1);
+      padding: 0;
+      border: 0;
+      background: none;
     }
   }
 </style>

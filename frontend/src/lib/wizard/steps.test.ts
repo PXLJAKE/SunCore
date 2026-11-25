@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
 import { issuesAt, locPath, scopeIssues, unclaimed } from './issues';
-import { firstIncompleteStep, nextStep, prevStep, STEPS, STEP_IDS, withCompleted } from './steps';
+import {
+  firstIncompleteStep,
+  nextStep,
+  prevStep,
+  STAGES,
+  stageOf,
+  STEPS,
+  STEP_IDS,
+  withCompleted,
+} from './steps';
 
 describe('steps', () => {
   it('lists every step once and in order', () => {
@@ -15,6 +24,12 @@ describe('steps', () => {
     expect(firstIncompleteStep(['region', 'energy', 'grid'])).toBe('pv');
     expect(firstIncompleteStep(['region', 'grid'])).toBe('energy');
     expect(firstIncompleteStep([...STEP_IDS])).toBe('summary');
+  });
+  it('groups the ten steps into four stages, in order, each step once', () => {
+    expect(STAGES.map((s) => s.id)).toEqual(['basics', 'system', 'goals', 'finish']);
+    expect(STAGES.flatMap((s) => s.steps)).toEqual([...STEP_IDS]);
+    expect(stageOf('tariff').id).toBe('system');
+    expect(stageOf('summary').id).toBe('finish');
   });
   it('keeps completed steps ordered and drops unknown ones', () => {
     expect(withCompleted(['grid', 'bogus'], 'region')).toEqual(['region', 'grid']);

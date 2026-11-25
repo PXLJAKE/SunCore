@@ -18,7 +18,7 @@ test.describe('Expert mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await resetDemo(request);
     await resetParams(request);
-    await page.goto('/#/settings');
+    await page.goto('/#/settings/advanced');
     await expect(page.getByRole('heading', { name: 'Settings', level: 2 })).toBeVisible();
   });
   test.afterAll(async ({ request }) => {
@@ -26,7 +26,7 @@ test.describe('Expert mode', () => {
     await resetDemo(request);
   });
 
-  test('is off by default, the header switch reveals the area and is remembered', async ({
+  test('is off by default, the switch in Advanced reveals the area and is remembered', async ({
     page,
   }) => {
     await expect(page.getByTestId('expert-area')).toHaveCount(0);
@@ -117,7 +117,7 @@ test.describe('Expert mode', () => {
     test(`has no axe violations (${scheme})`, async ({ browser }) => {
       const ctx = await browser.newContext({ colorScheme: scheme });
       const page = await ctx.newPage();
-      await page.goto('/#/settings');
+      await page.goto('/#/settings/advanced');
       await page.getByRole('switch', { name: 'Expert mode' }).click();
       await expect(row(page, 'controller.smoothing_s')).toBeVisible();
       await page.getByTestId('debug-load').click();

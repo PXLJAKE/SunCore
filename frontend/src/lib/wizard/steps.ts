@@ -37,6 +37,30 @@ export const STEPS: readonly StepDef[] = [
   { id: 'summary', title: 'wizard.step.summary', skippable: false },
 ];
 
+/**
+ * The four stages the wizard shows (plan phase-7 WP5): the ten step ids stay as they are, the
+ * stages only group them for the progress indicator.
+ */
+export type StageId = 'basics' | 'system' | 'goals' | 'finish';
+
+export interface StageDef {
+  id: StageId;
+  title: MessageKey;
+  steps: readonly StepId[];
+}
+
+export const STAGES: readonly StageDef[] = [
+  { id: 'basics', title: 'wizard.stage.basics', steps: ['region', 'energy'] },
+  { id: 'system', title: 'wizard.stage.system', steps: ['grid', 'pv', 'battery', 'tariff'] },
+  { id: 'goals', title: 'wizard.stage.goals', steps: ['devices', 'priorities'] },
+  { id: 'finish', title: 'wizard.stage.finish', steps: ['mode', 'summary'] },
+];
+
+/** The stage a step belongs to. */
+export function stageOf(id: StepId): StageDef {
+  return STAGES.find((s) => s.steps.includes(id))!;
+}
+
 export function isStepId(value: string): value is StepId {
   return (STEP_IDS as readonly string[]).includes(value);
 }

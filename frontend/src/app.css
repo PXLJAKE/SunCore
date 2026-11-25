@@ -206,6 +206,18 @@ fieldset.card > legend {
 fieldset.card > legend + * {
   clear: both;
 }
+/* No card inside a card (7-G): a nested form section is flat, a divider and a heading. */
+.card :is(fieldset, section).card:not(.sc-card) {
+  padding: var(--sc-space-4) 0 0;
+  border: 0;
+  border-top: 1px solid var(--sc-outline);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.card fieldset.card > legend {
+  font-size: var(--sc-font-md);
+}
 .hint {
   margin: 0;
   color: var(--sc-text-muted);
