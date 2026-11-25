@@ -22,7 +22,7 @@ import asyncio
 import math
 import random
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from pathlib import Path
 from typing import Final
@@ -444,18 +444,27 @@ async def seed_demo_decisions(
 async def seed_demo_plans(plans: PlanSnapshotStore, *, now: datetime, count: int = 3) -> int:
     """A few plan snapshots of the planner's reference scenario (one per recent day).
 
-    They come from ``planner_scenarios.reference_situation`` (the maintainer's house, not the
-    demo's own devices): the plan chart needs real, solved plans to show. Each run is short
-    (budget 1 s) and runs in a worker thread.
+    They come from ``planner_scenarios.reference_situation`` (the maintainer's house): the plan
+    chart needs real, solved plans to show. Its two climate devices are replaced by the demo's
+    own air conditioner, so the stored plans name a device the demo configures (the panel shows
+    its name, not an unknown id). Each run is short (budget 1 s) and runs in a worker thread.
     """
     from suncore.planner.run import plan  # noqa: PLC0415
-    from suncore.sim.planner_scenarios import reference_situation, situation_inputs  # noqa: PLC0415
+    from suncore.sim.demo_devices import AC_DEVICE_ID  # noqa: PLC0415
+    from suncore.sim.planner_scenarios import (  # noqa: PLC0415
+        climate,
+        reference_situation,
+        situation_inputs,
+    )
 
     written = 0
     base = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
     for k in range(count, 0, -1):
         at = base - timedelta(days=k, hours=-1)
-        built = await asyncio.to_thread(plan, situation_inputs(reference_situation(now=at)), 1.0)
+        situation = replace(
+            reference_situation(now=at), devices=(climate(AC_DEVICE_ID, 1500.0, value=0.12),)
+        )
+        built = await asyncio.to_thread(plan, situation_inputs(situation), 1.0)
         await plans.save(
             built.model_dump(mode="json"),
             source=built.source,

@@ -151,6 +151,9 @@ test.describe('Plan view', () => {
     await page.goto('/#/plan');
     await page.getByTestId('range-day').click();
     await expect(page).toHaveURL(/#\/plan\?day=/);
+    // Today keeps "Look back and compare" closed; a past day opens it.
+    await expect(page.getByTestId('day-prev')).toBeHidden();
+    await openCard(page, 'plan-lookback');
     await page.getByTestId('day-prev').click();
     await expect(page).toHaveURL(/#\/plan\?day=2026-06-20/);
     await expect(page.getByTestId('day-input')).toHaveValue('2026-06-20');

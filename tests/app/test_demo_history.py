@@ -157,6 +157,9 @@ async def test_demo_decisions_and_plans(tmp_path: Path) -> None:
         newest = await plans.latest()
         assert newest is not None
         assert newest.payload["intervals"]
+        # The stored plans name the demo's own air conditioner, a device the demo configures.
+        planned = {d for i in newest.payload["intervals"] for d in (i.get("devices") or {})}
+        assert planned == {"living_room_ac"}
 
 
 async def test_the_demo_runtime_seeds_its_throw_away_database(tmp_path: Path) -> None:

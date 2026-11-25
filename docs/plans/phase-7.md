@@ -993,6 +993,13 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   widened the card and the page on a 375 px phone (Chrome then zoomed out and the clicks missed).
   Both now use one `minmax(0, 1fr)` column; the plan spec checks for no sideways scroll with
   the forecast cards open.
+- **After the coordinator's review:** the demo's stored plans came from the planner's reference
+  house (`ac_living`, `ac_bedroom`), devices the demo does not configure, so the Gantt lanes,
+  the schedule table and the tooltip showed raw ids. `seed_demo_plans` now replaces those two by
+  the demo's own air conditioner (`living_room_ac`); the plan panel resolves names like
+  `tReason` (configured name, then the live feed's name, then the id of a device no longer
+  configured). "Look back and compare" starts collapsed and opens only for a link to a past
+  day, a time or a comparison (today, also via the range switch, keeps it closed).
 - Merged `origin/phase-7/e-now` at `1b2eeb4` (deterministic demo washer test) before the final
   checks.
 - `review-shots.spec.ts` gained the views `plan-live`, `decisions` and `whatif` (expert mode via

@@ -27,7 +27,8 @@
   import { buildChartData, targetLines, type ChartData } from '../plan/model';
   import { parseTime, targetHash, targetWindow, todayOf, type PlanTarget } from '../plan/target';
   import { localInputValue, parseLocalInput, zonedMs } from '../plan/zone';
-  import { app } from '../stores/app.svelte';
+  import { deviceName as configuredName } from '../control/reasonText';
+  import { live as liveFeed } from '../stores/live.svelte';
   import { PlanChartStore, type ChartRequest } from '../stores/planChart.svelte';
   import { plan } from '../stores/plan.svelte';
   import { router } from '../router.svelte';
@@ -110,8 +111,16 @@
     };
   });
 
-  const deviceName = (id: string): string =>
-    app.devices?.devices?.find((d) => d.id === id)?.name ?? id;
+  /**
+   * Display name of a device in the lanes, the schedule table, the tooltip and the comparison:
+   * the configured name (as in the reasons, `tReason`), else the name the live feed reports,
+   * else the id (a device that is no longer configured).
+   */
+  const deviceName = (id: string): string => {
+    const name = configuredName(id);
+    if (name !== id) return name;
+    return liveFeed.control?.devices.find((d) => d.device_id === id)?.name ?? id;
+  };
   const refMs = $derived(referenceTime(target, win, nowMs));
   const multiDay = $derived(win.toMs - win.fromMs > 26 * 3_600_000);
   const when = (ms: number): string => (multiDay ? tDateTime(new Date(ms)) : tTime(new Date(ms)));
@@ -166,6 +175,11 @@
     if (ms !== null) router.go(targetHash(target, ms));
   };
   const live = (): void => router.go('#/plan');
+  // Collapsed by default, so the chart comes first; a link to a past day, a time or a comparison
+  // opens it (today, also through the range switch, keeps it closed).
+  const lookbackOpen = $derived(
+    target.kind === 'at' || (target.kind === 'day' && target.day < today) || compareMs !== null,
+  );
 
   // --- text alternatives ------------------------------------------------------------------
 
@@ -222,7 +236,7 @@
 <Card
   title={t('plan.lookback.title')}
   collapsible
-  open={target.kind !== 'live' || compareMs !== null}
+  open={lookbackOpen}
   density="compact"
   testid="plan-lookback"
 >
