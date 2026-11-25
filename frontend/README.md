@@ -38,7 +38,8 @@ function (`plan/chartOption.ts`), the data series, the next-actions list and the
 come from `plan/model.ts`. "Now" is the plan's hand-over time. The Now view shows the battery
 card and the next planned actions; the wizard steps 4, 5, 6, 8 and 10 carry the Phase 4 forms
 (`wizard/batteryForm.ts`, `tariffForm.ts`, `scheduleForm.ts`, `forecastForm.ts`). The demo battery
-adapter for Playwright and screenshots is switched on with `SUNCORE_DEMO_BATTERY_CONTROL=1`.
+adapter for Playwright and screenshots is switched on with `SUNCORE_DEMO_BATTERY_CONTROL=1`; the
+Phase 6 flexible loads (EV on a wallbox, washing machine, heat pump) with `SUNCORE_DEMO_FLEX=1`.
 
 ## Setup wizard (Phase 2)
 

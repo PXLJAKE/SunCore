@@ -267,6 +267,7 @@ class FakeHAConnection:
         sim_clock: Callable[[], datetime] | None = None,
         autorun: bool = True,
         write_limiter: RateLimiter | None = None,
+        demo_flex: bool = False,
     ) -> None:
         if speed <= 0:
             msg = "speed must be positive"
@@ -275,6 +276,7 @@ class FakeHAConnection:
             msg = "start_offset_s must lie within the scenario"
             raise ValueError(msg)
         self._scenario = scenario
+        self._demo_flex = demo_flex
         self._clock = clock
         self._sleep = sleep
         self._speed = speed
@@ -359,7 +361,7 @@ class FakeHAConnection:
         self._step_index = 0
         self._published = {}
         self._events = []
-        self._demo = DemoDevices(self._scenario)
+        self._demo = DemoDevices(self._scenario, flex=self._demo_flex)
         self._heartbeats = self._demo.devices.heartbeats()
         for event in self._scenario.manual:
             self._at(
@@ -425,17 +427,17 @@ class FakeHAConnection:
     async def entity_registry_list_for_display(self) -> dict[str, Any]:
         """Payload of ``config/entity_registry/list_for_display``."""
         self._require_registry()
-        return registry.entity_registry_list_for_display()
+        return registry.entity_registry_list_for_display(flex=self._demo_flex)
 
     async def entity_registry_list(self) -> list[dict[str, Any]]:
         """Payload of ``config/entity_registry/list``."""
         self._require_connected()
-        return registry.entity_registry_list()
+        return registry.entity_registry_list(flex=self._demo_flex)
 
     async def device_registry_list(self) -> list[dict[str, Any]]:
         """Payload of ``config/device_registry/list``."""
         self._require_registry()
-        return registry.device_registry_list()
+        return registry.device_registry_list(flex=self._demo_flex)
 
     async def area_registry_list(self) -> list[dict[str, Any]]:
         """Payload of ``config/area_registry/list``."""

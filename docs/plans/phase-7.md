@@ -918,6 +918,30 @@ after 7-I and 7-J) is still open.
 - **Not run in the session** (no Docker daemon, `actionlint` and `shellcheck` not installed):
   the three CI jobs. Checked instead: YAML parses, `bash -n`, the rehearsals above.
 
+### 7-C
+
+- Built as specified: `SUNCORE_DEMO_FLEX=1` (default off; on in `frontend/playwright.config.ts`)
+  adds `wallbox` (`generic.wallbox`), `washer` (`generic.program_plug`) and `heat_pump`
+  (`generic.heat_pump_sg_ready`) from `SimWallbox`, `SimProgram` and `SimHeatPump`
+  (`suncore/sim/demo_flex.py`); the configs come from `build_device_config`, like the scenarios.
+  All three run in shadow; nothing in `controller/` or `safety/` changed.
+- "Arrives late" is the *request*, not the arrival time: the car (60 kWh, 30 %) is plugged in at
+  08:00 scenario time, so it is connected at every demo start time, and the runtime EV state asks
+  for 80 % by the next 07:00 (numbers of `ev_arrives_late`). The washer is loaded at 10:30 with a
+  job armed at start (through `Runtime.arm_program`, in the throw-away database) with the
+  deadline six hours ahead. A one-shot job was gone after about 13:00 scenario time, so the
+  tablet run (the last project, hours of demo time later) found no job card: the sim user now
+  loads the machine again after each programme and `demo_flex_user` arms a job per load.
+  The heat pump's store starts at 48.5 degrees with an evening-only draw profile; with
+  the default morning draw it heated for hours before 09:30 and drained the demo battery.
+- Effect on the existing demo: the plan now gives the battery the surplus first (a plan band), so
+  the heating rod no longer shows "would run" at 09:30 and the e2e test of the site summary checks
+  "running 0" and the shadow badge instead. The demo's flex entities have registry devices
+  (`registry.*(flex=True)`) so the picker's "same device" rule keeps working.
+- E2E: device cards 3 to 6, wizard review keeps 6 devices, decisions specs pick a device with a
+  card, the Phase 6 spec's seeded washer became `dryer` (the demo owns `washer`); new spec
+  "the demo shows the flexible loads". Registry accessors and `RecordingConnection` take `flex`.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

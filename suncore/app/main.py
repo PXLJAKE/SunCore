@@ -93,7 +93,11 @@ def _demo_wiring(settings: Settings) -> DemoWiring:
     offset_s = (begin - start).total_seconds() % scenario.duration_s
     clock = DemoClock(start + timedelta(seconds=offset_s), settings.demo_speed)
     connection = FakeHAConnection(
-        scenario, clock=clock, speed=settings.demo_speed, start_offset_s=offset_s
+        scenario,
+        clock=clock,
+        speed=settings.demo_speed,
+        start_offset_s=offset_s,
+        demo_flex=settings.demo_flex,
     )
     tick_s = demo_tick_s(settings.controller_interval_s, settings.demo_speed)
     return DemoWiring(
@@ -101,8 +105,63 @@ def _demo_wiring(settings: Settings) -> DemoWiring:
         clock=clock,
         control_sleep=clock.sleep,
         control_settings=ControlSettings(tick_s=tick_s),
-        cadences=DemoDevices(scenario).devices.heartbeats(),
+        cadences=DemoDevices(scenario, flex=settings.demo_flex).devices.heartbeats(),
     )
+
+
+async def seed_demo_flex_state(runtime: Runtime) -> None:
+    """The runtime state of the demo's flexible loads: the car's target and the armed washing job.
+
+    Written to ``flex_state`` of the demo's throw-away database, like the API would (nothing
+    reaches a device, the demo stays in shadow). Times follow the demo clock, so the demo is
+    the same whatever the wall clock says. Without ``SUNCORE_DEMO_FLEX`` (and outside the demo)
+    nothing happens.
+    """
+    if not (runtime.demo and runtime.settings.demo_flex):
+        return
+    from suncore.sim.demo_flex import (  # noqa: PLC0415
+        WALLBOX_ID,
+        WASHER_ID,
+        demo_ev_target,
+        demo_washer_deadline,
+    )
+
+    now = runtime.clock()
+    tz = runtime.timezone()
+    local = now.astimezone(tz)
+    mode, target = demo_ev_target(local)
+    await runtime.set_ev_state(WALLBOX_ID, mode, target)
+    await runtime.arm_program(WASHER_ID, demo_washer_deadline(local))
+    runtime.demo_user = demo_flex_user
+
+
+async def demo_flex_user(runtime: Runtime) -> None:
+    """The demo's user arms a job for every load of the washing machine (as long as it runs).
+
+    The simulator loads the machine again whenever a programme has finished; without this the
+    demo would show a job for the first load only and none for the rest of the (accelerated)
+    day. Scenario time, no wall clock.
+    """
+    from suncore.sim.demo_flex import WASHER_ID, demo_washer_deadline  # noqa: PLC0415
+    from suncore.sim.devices import SimProgram  # noqa: PLC0415
+    from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
+
+    connection = runtime.connection
+    if not isinstance(connection, FakeHAConnection):
+        return
+    while True:
+        await runtime.control_sleep(60.0)
+        try:
+            demo = connection.demo
+        except AssertionError:  # not connected yet
+            continue
+        washer = demo.devices.devices.get(WASHER_ID)
+        if not isinstance(washer, SimProgram) or not washer.loaded:
+            continue
+        if runtime.program_jobs.current(WASHER_ID) is not None:
+            continue
+        with contextlib.suppress(Exception):
+            await runtime.arm_program(WASHER_ID, demo_washer_deadline(runtime.clock()))
 
 
 async def build_runtime(  # noqa: PLR0915 - the composition root
@@ -158,7 +217,10 @@ async def build_runtime(  # noqa: PLR0915 - the composition root
 
             await config.put_site(demo_site_config())
             await seed_demo_config(
-                config, template_catalog, battery_control=settings.demo_battery_control
+                config,
+                template_catalog,
+                battery_control=settings.demo_battery_control,
+                flex=settings.demo_flex,
             )
             if wiring is not None and settings.demo_history_days > 0 and timeseries is not None:
                 from suncore.sim.demo_history import (  # noqa: PLC0415
@@ -202,6 +264,7 @@ async def build_runtime(  # noqa: PLR0915 - the composition root
             runtime.extra_cadences = wiring.cadences
         runtime._tempdir = tempdir
         await runtime.prepare()
+        await seed_demo_flex_state(runtime)
     except BaseException:
         if timeseries_db is not None:
             await timeseries_db.close()

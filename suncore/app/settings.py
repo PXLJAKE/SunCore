@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     the loaded smoke test can exercise it against a manual broker (configured through the API
     into the throw-away database). Off by default and logged at start. MQTT commands then act
     on the demo runtime only; the demo never touches ``/data``. Not an app option."""
+    demo_flex: bool = False
+    """Demo only (env SUNCORE_DEMO_FLEX): the demo house also has the Phase 6 flexible loads (an
+    EV on a wallbox, a washing machine on a plug, a heat pump with SG-Ready; all in shadow), so
+    the UI can show their cards (used by the Playwright run and the screenshots). Off = the
+    default demo house."""
     demo_history_days: int = Field(default=90, ge=0, le=365)
     """Demo only (env SUNCORE_DEMO_HISTORY_DAYS): days of deterministic made-up history seeded
     into the demo's throw-away database (history view, plan chart, forecast skill); 0 = none."""
