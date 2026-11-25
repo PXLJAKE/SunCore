@@ -87,6 +87,14 @@ it in an app configuration. Settings are read from `/data/options.json`
 (or `$SUNCORE_OPTIONS_PATH`), then overridden by `SUNCORE_<FIELD>`
 environment variables.
 
+## Issues
+
+Use the issue forms (bug, feature, device template). A bug report should carry the diagnostics
+export (Settings → Advanced → Diagnostics, or the app log if your version has no panel yet).
+The labels the forms use are listed in [`.github/labels.yml`](.github/labels.yml). Security
+problems go through [`SECURITY.md`](SECURITY.md); conduct questions through
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
 ## Pull requests
 
 Use the PR template. Describe what, why, how it was tested, risks and open

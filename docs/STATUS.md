@@ -45,6 +45,16 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - 7-N part 2, community hygiene (branch `phase-7/n-hygiene`, on 7-M with 7-N part 1
+  merged; `docs-writer`)** - details: plan section 8 (7-N part 2):
+  - Merge: both branches added questions 23 to 25; the 7-N ones are now 25, 26, 27.
+  - Issue forms point to the diagnostics export, `.github/labels.yml`, `SECURITY.md` and
+    `CONTRIBUTING.md` aligned, README with badges, features and install steps, `stage:
+    experimental` removed from the stable app. Code of conduct, security policy and forms
+    already existed.
+  - `UNVERIFIED`: the diagnostics route and panel are 7-I and not on this branch; the
+    `my.home-assistant.io` badge URL; the docs site; `NOTICE` does not name echarts and
+    intl-messageformat and promises a third-party notice no script generates.
 - **Phase 7 - PR 7-M, WP12 Weblate onboarding, repository side (branch `phase-7/m-weblate`, on
   7-G with 7-L merged; `i18n-sync`)** - no app code changed; the Hosted Weblate project is the
   maintainer's (plan section 10, question 24, in German):
@@ -1764,7 +1774,7 @@ Each was built with the proposed default; the answer may change that default.
 | Budgets: resident memory is 136 MiB after 10 min with flex, MQTT and replans (x86_64, local, 7-N); the cgroup figure in the image and everything on aarch64 are not measured; the planner at most 10 s on aarch64 (amd64: 0.26 s for the full house) | `scripts/smoke_image.sh` (`LOADED=1`), `.github/workflows/bench-arm.yml`, `scripts/bench_planner.py` | first CI run on `main`; a Pi 4 (plan question 14) |
 | 7-N CI jobs (upgrade test, loaded smoke, arm benchmark) were written without a Docker daemon, `actionlint` or `shellcheck`; the pieces were rehearsed locally (real 0.2.0 code seeded over HTTP, current code verified, loaded API steps against the real app) | `scripts/upgrade_test.sh`, `scripts/upgrade_probe.py`, `scripts/smoke_image.sh`, `.github/workflows/` | first CI runs |
 | Digests pinned 2026-11-25 by lookup: `ghcr.io/pxljake/suncore` 0.2.0 index `sha256:05641188…3b32`; `eclipse-mosquitto:2.0.23` index `sha256:6a332cc7…2ad9` (verified against the manifest body hash) | `scripts/upgrade_test.sh`, `scripts/smoke_image.sh` | refresh at each release (skill `prepare-release`) |
-| `release-as` is deprecated in release-please's schema (a `Release-As:` footer replaces it) and not set yet; what `breaking_versions` does for installed versus store config is not verified; `stage` default `stable` verified in Supervisor source | `release-please-config.json`, `scripts/beta_version.py`, plan questions 25, 26 | maintainer decision; 7-N part 2 |
+| `release-as` is deprecated in release-please's schema (a `Release-As:` footer replaces it) and not set yet; what `breaking_versions` does for installed versus store config is not verified; `stage` default `stable` verified in Supervisor source | `release-please-config.json`, `scripts/beta_version.py`, plan questions 25, 26 | maintainer decision; `stage` line removed in 7-N part 2 |
 | The Phase 6 user guides (6-N) are written from the code and the catalogues; their set-up steps and the UI names were not followed on a real Home Assistant, and the new views have no screenshots yet | `docs/user/*/home-assistant-entities.md`, `notifications.md`, `grid-limits.md`, `ev-charging.md`, `heat-pump.md`, `programs.md` | maintainer follows them; screenshots through `demo-screenshots` (Phase 7) |
 | 6-D MQTT commands: default payloads of the MQTT `switch` (`ON`/`OFF`), `button` (`PRESS`) and the `number` keys `min`, `max`, `step`, `mode` (HA source was not reachable in the session; used as documented); that HA sends commands with retain off | `research/mqtt-discovery.md`, `suncore/ha/mqtt/commands.py`, `discovery.py` | maintainer's HA: press the buttons, set the switches and the boost duration, see the true state come back |
 | 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); the unit rule of `monetary` sensors; TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
