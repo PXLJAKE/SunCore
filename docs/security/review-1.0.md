@@ -19,7 +19,8 @@ secret or widens access after a plausible mistake or a first compromise. **Low**
 depth. **Info** needs no change.
 
 Status: **fixed** means fixed in this branch. **needs control-safety** means it touches a command
-path; a proposal is below and nothing was changed. **open** means a proposal for a later PR.
+path; a proposal is below and nothing was changed (SEC-13, SEC-15 and SEC-16 had this status and
+were then fixed with the `control-safety` sign-off in plan section 8, 7-O). **open** means a proposal for a later PR.
 **accepted** is explained in "Accepted risks". **verified** means it was checked and nothing was
 found.
 
@@ -39,10 +40,10 @@ found.
 | SEC-10 | Supply chain | CodeQL did not analyse the SPA (JavaScript/TypeScript). The job is skipped while the repository is private. | Low | fixed (language); private skip remains | 7-O, `fc6f080` |
 | SEC-11 | Supply chain | `pip-audit` found certifi PYSEC-2026-4320 (dev group only) and opentelemetry-api CVE-2026-126360 (runtime, not reachable). | Low | fixed | 7-O, `f604a8f` |
 | SEC-12 | API | Responses had no `X-Content-Type-Options` or `Referrer-Policy` header, and there is no CSP. | Low | fixed (headers); CSP open | 7-O, `1f31af8` |
-| SEC-13 | API | No CSRF token or custom-header check. State-changing routes without a body (emergency stop and clear, proposal confirm, replan, history restore, program cancel, backtest delete) accept any content type. Two things mitigate this: the `SameSite=Strict` ingress cookie and the random ingress path. | Low | needs control-safety | – |
+| SEC-13 | API | No CSRF token or custom-header check. State-changing routes without a body (emergency stop and clear, proposal confirm, replan, history restore, program cancel, backtest delete) accept any content type. Two things mitigate this: the `SameSite=Strict` ingress cookie and the random ingress path. | Low | fixed | 7-O, `e6617d0` |
 | SEC-14 | HA commands | Every broker user can send commands: all HA users, non-admins included, and every app through the `addons` user. The panel is admin-only. | Low | accepted (docs proposal) | – |
-| SEC-15 | HA commands | Each emergency-stop message gets its own task, with no bound and no coalescing. | Low | needs control-safety | – |
-| SEC-16 | HA commands | Every refused command is logged at info level, so a broker user can flood the app log. | Low | needs control-safety | – |
+| SEC-15 | HA commands | Each emergency-stop message gets its own task, with no bound and no coalescing. | Low | fixed | 7-O, `e6617d0` |
+| SEC-16 | HA commands | Every refused command is logged at info level, so a broker user can flood the app log. | Low | fixed | 7-O, `e6617d0` |
 | SEC-17 | App hardening | The process runs as root in the container. The Supervisor sets `seccomp=unconfined` for every app. | Low | open (after 1.0) | – |
 | SEC-18 | App hardening | There is no own AppArmor profile. With host AppArmor the Supervisor names none and Docker's default applies (security rating 7 of 8). | Low | accepted for 1.0 | – |
 | SEC-19 | Supply chain | The base image (`BUILD_FROM`) and the `uv` image are pinned by tag, not by digest. Dependabot does not follow an `ARG` in `FROM`. | Low | open | – |
@@ -140,6 +141,33 @@ found.
   SunCore answers none. The SPA's fetch helper sends the header. `control-safety` decides whether
   setting the emergency stop is exempt, so that an old client can always stop; clearing it is not
   exempt. This needs a frontend change and an e2e test, so it is not done here.
+
+  **Fixed (`control-safety`).** `RequireHeaderMiddleware` (`suncore/api/security.py`) sits
+  inside the peer check and refuses every HTTP request whose method is not GET, HEAD or OPTIONS
+  unless it carries `X-SunCore-Request: 1` (403 `api.error.request_header_missing`). It covers
+  every path, not only `/api/v1`; a guard test keeps all write routes below `/api/v1`. The SPA's
+  `fetchOk` always sends the header, after the caller's headers, so no call site can drop it.
+  - **Emergency-stop exemption.** Exactly `POST /api/v1/control/emergency-stop` (method and
+    path, no prefix match) works without the header. Setting the stop is the "back to normal"
+    action that must work from any state, also from a client older than this check (a cached
+    SPA, a script, a `rest_command`). It only moves SunCore towards the safe state: the gate
+    sets its flag before anything else, rejects every intent and releases devices to their
+    baseline. A forged stop costs optimisation, never hardware safety, and the same action is
+    open to every broker user anyway (SEC-14). **Clearing the stop is never exempt**: `/clear`,
+    a trailing slash and every other suffix need the header.
+  - **Ingress forwards the header.** HA Core's `homeassistant/components/hassio/ingress.py`
+    (`dev`, `d717320`) copies every request header except `INIT_HEADERS_FILTER` (length,
+    encodings, WebSocket handshake). The Supervisor's `supervisor/api/ingress.py` (`main`,
+    `270161f`) copies every header except `_REQUEST_HEADERS_FILTER` (the same plus its own
+    token and remote-user headers). Read from source, not run on a live system (`UNVERIFIED`
+    below). A reverse proxy in front of HA could strip it; the error text says so.
+  - Tests: `tests/api/test_security.py` (every write route refused without the header except
+    the stop, nothing reaches a service; the stop with no header and with a form body; clear
+    and its variants refused while the stop stays set; exact value; case-insensitive name; the
+    peer check runs first), `frontend/src/lib/api/client.test.ts` (every helper sends it, a
+    caller cannot override it), `frontend/e2e/security.spec.ts` (a header-less client can stop
+    but not clear; the SPA in a context without the config's header stops and clears).
+    `playwright.config.ts` sends the header for the specs' own setup calls.
 - **SEC-23 (accepted).** The live WebSocket (`api/app.py:861`) sends data only; it reads client
   messages and discards them. The peer check, the `SameSite=Strict` cookie and admin-only access
   apply to it as well.
@@ -170,9 +198,39 @@ found.
   unbounded. **Proposal:** while a priority task is in flight, a further stop message only sets a
   "again" flag. The running task then repeats the stop at most once. This still never drops the
   first stop.
+
+  **Fixed (`control-safety`).** The session holds at most one stop task (`stop_task`). The
+  first stop message starts it at once, exactly as before. A stop message that arrives while it
+  runs only records itself in `stop_again`; when the run ends, the stop runs once more and the
+  task ends. A flood during one run therefore costs one repeat, and the runs never overlap. A
+  valid `PRESS` in `stop_again` is never replaced by a later invalid payload
+  (`CommandHandler.is_valid_payload`, no rate-limit token taken). The gate sets its stop flag
+  before it awaits anything, so the coalesced message adds nothing but a second release pass.
+  An exception in a run is logged and does not wedge the next stop; stopping the session
+  cancels the task. A stuck MQTT stop does not block the UI stop, which is a separate path.
+  Tests in `tests/ha/mqtt/test_service_commands.py`: a flood of 500 stops during a held first
+  stop gives one task and exactly two port calls, the first before the flood; a single stop is
+  not repeated; garbage never replaces a pending press; a failing stop does not wedge the next
+  one; shutdown cancels a stop in flight.
 - **SEC-16 (needs control-safety).** `mqtt.command_refused` is logged at info level for every
   refused message (`service.py:393`), including rate-limited ones. **Proposal:** log the first
   refusal per entity and reason, then a count every 60 s. Nothing else changes.
+
+  **Fixed (`control-safety`).** The duplicate `mqtt.command_refused` line is gone; the handler's
+  `mqtt.command` line (warning) for a refusal now goes through `RefusalLogThrottle`
+  (`suncore/ha/mqtt/refusals.py`): the first refusal per entity and reason in full, the rest
+  counted, and `mqtt.command_refused_summary` with the counts every 60 s (checked after every
+  command and in the sync loop, and once at session end). A pair quiet for a whole interval is
+  forgotten, so its next refusal is logged in full again. Invented object ids beyond 64 pairs
+  are counted under `*`. Accepted commands are logged as before. The verdict, the republished
+  state and the refusal hook are unchanged. Tests in `tests/ha/mqtt/test_commands.py`: a flood
+  of 200 rate-limited and 50 invalid commands gives two full lines and one summary with the
+  exact count; the same message sequence gives identical results with and without the throttle;
+  a Hypothesis property that every refusal is either logged in full or counted in exactly one
+  summary, with a bounded number of full lines per interval. Residual: an accepted but
+  unchanged emergency stop (a settled stop) is still logged at info level per message; the
+  stop is never refused or rate-limited, so a broker user can still write one info line per
+  stop message. That is the price of never throttling the stop.
 - **SEC-26 (verified).** Notification action tokens (`suncore/notify/actions.py`):
   - each is a 128-bit random token (`:85`) stored as a SHA-256 digest;
   - it is bound to one proposal and its expiry (`:103-105`);
@@ -368,3 +426,6 @@ The German questions are in `docs/plans/phase-7.md` section 10, numbers 23 to 28
 - Keyless Cosign signing in `home-assistant/builder` `build-image`.
 - The SHA pins were not run in CI in this session; the first CI run of 7-O confirms them.
 - The Mosquitto ACL default is taken from the app's `DOCS.md`, not from its source.
+- SEC-13: that both ingress hops forward `X-SunCore-Request`. Read in the source (HA Core
+  `dev` `d717320`, Supervisor `main` `270161f`), not tested through a live ingress. A reverse
+  proxy or tunnel in front of HA is outside SunCore's control.

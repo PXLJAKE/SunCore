@@ -987,6 +987,51 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - Conflicts to expect on merge: the workflows and both `config.yaml` with 7-N (pins, map
   removal), and `docs/STATUS.md`.
 
+#### SEC-13, SEC-15, SEC-16 (`control-safety`)
+
+The three findings that touch a command path are fixed on this branch (`e6617d0`); the design
+and the tests are in the review under each finding. Decisions:
+
+- **SEC-13, emergency-stop exemption.** Only `POST /api/v1/control/emergency-stop` (exact method
+  and path) works without `X-SunCore-Request: 1`. Setting the stop moves SunCore towards the
+  safe state only, and it must work from any client, also one older than the check. Clearing
+  it gives control back and is never exempt. The middleware covers every path, not only
+  `/api/v1`, so a later write route outside the prefix fails closed.
+- **SEC-15.** One stop task per session; messages during a run set `stop_again`, which runs the
+  stop once more after the run. A valid press is never replaced by garbage.
+- **SEC-16.** `RefusalLogThrottle`: the first refusal per entity and reason in full, then
+  `mqtt.command_refused_summary` every 60 s; at most 64 pairs, the rest under `*`.
+- **Deviation:** the service's `mqtt.command_refused` info line is removed; it duplicated the
+  handler's `mqtt.command` warning, which is now the throttled line.
+- **Deviation:** the e2e spec is a new file (`frontend/e2e/security.spec.ts`) and
+  `playwright.config.ts` sends the header for the specs' own setup calls, so the parallel
+  frontend PRs keep merging cleanly.
+
+##### Safety self-review SEC-13/15/16 (control-safety)
+
+| Invariant | Ergebnis | Nachweis |
+|---|---|---|
+| Netzbezug nie über dem Limit | bestanden (unberührt) | kein Pfad in `controller/` oder `safety/` geändert; `tests/safety`, `tests/controller` grün |
+| Batterie nie unter die Reserve | bestanden (unberührt) | wie oben |
+| Min-Lauf-/Pausenzeiten, Schaltungen pro Stunde | bestanden (unberührt) | wie oben; ein wiederholter Not-Aus ruft nur das idempotente `gate.emergency_stop()` auf, die Läufe überlappen nie |
+| Komfortgrenzen | bestanden (unberührt) | wie oben |
+| Rate-Limits, Schreiben nur bei Änderung, Read-back | bestanden (unberührt) | MQTT-Rate-Limits unverändert (`test_the_throttle_changes_no_verdict`); Geräteschreibvorgänge nur im Gate |
+| Veraltete/fehlende Eingaben -> sicherer Zustand | bestanden (unberührt) | wie oben |
+| Shadow/assistiert/automatisch, manuelle Übersteuerung | bestanden | Hochstufen über HTTP braucht jetzt zusätzlich die Kopfzeile; über MQTT weiterhin `allow_mode_raise`; Verdikte gleich |
+| Not-Aus "zurück auf normal" aus jedem Zustand | bestanden | HTTP: Setzen ohne Kopfzeile möglich (`test_a_stale_client_can_always_set_the_stop`, e2e `security.spec.ts`); Aufheben nie ausgenommen (`test_clearing_the_stop_is_never_exempt`). MQTT: erster Not-Aus sofort, nie verworfen (`test_a_stop_flood_runs_one_task_and_repeats_once`), ein Fehler blockiert den nächsten nicht |
+| Nur `safety/` ruft `apply()` | bestanden | kein neuer Aufruf; `tests/safety/test_boundary.py` grün |
+| Fail-safe: Shutdown, Crash, Verbindungsverlust | bestanden | Shutdown bricht einen laufenden MQTT-Not-Aus-Task ab (`test_stopping_the_service_cancels_a_stop_in_flight`); der Gate-Flag ist zu diesem Zeitpunkt schon gesetzt und persistiert |
+| Keine Oszillation | nicht betroffen | keine Hysterese geändert |
+
+Zusammenfassung: SEC-13 schützt jede schreibende Anfrage mit einer eigenen Kopfzeile, die eine
+fremde Seite ohne CORS-Preflight nicht setzen kann. Ausgenommen ist nur das Auslösen des
+Not-Aus, weil es SunCore ausschließlich in den sicheren Zustand bringt und von jedem, auch einem
+veralteten Client, erreichbar bleiben muss; das Aufheben braucht die Kopfzeile immer. SEC-15
+begrenzt MQTT-Not-Aus-Nachrichten auf einen Task und höchstens eine Wiederholung je Lauf, ohne
+den ersten Not-Aus zu verzögern. SEC-16 drosselt nur das Log. Keine Invariante wird geschwächt,
+jeder Geräteschreibvorgang läuft weiter über `safety/`. Nicht live geprüft: die Weitergabe der
+Kopfzeile durch Ingress (nur Quelltext gelesen) und Reverse-Proxys vor HA.
+
 #### UNVERIFIED (7-O)
 
 See the list at the end of `docs/security/review-1.0.md`. In short:
@@ -998,6 +1043,8 @@ See the list at the end of `docs/security/review-1.0.md`. In short:
 - keyless Cosign in the HA builder;
 - the SHA pins in a real CI run;
 - the Mosquitto ACL default, which comes from its docs only.
+- that both ingress hops forward `X-SunCore-Request` (source read, not run through a live
+  ingress; SEC-13).
 
 ## 9. Follow-ups per agent
 

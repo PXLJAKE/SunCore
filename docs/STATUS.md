@@ -4,7 +4,7 @@ Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
 **Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps; 7-H HA surface;
-7-I diagnostics backend; 7-O security review) ·
+7-I diagnostics backend; 7-O security review with the SEC-13, SEC-15, SEC-16 fixes) ·
 **Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
 PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line.
 Bundle budget split pending maintainer decision; option A implemented (standard path 250 kB,
@@ -56,9 +56,14 @@ Carried to Phase 7: see "Open - Phase 7".
     - CodeQL covers JavaScript/TypeScript;
     - Dependabot watches npm;
     - certifi and opentelemetry-api are bumped, and `pip-audit` is clean.
-  - Needs `control-safety`: SEC-13 (CSRF header on writing routes), SEC-15 (coalesce
-    emergency-stop tasks from MQTT), SEC-16 (throttle the refused-command log). Proposals are in
-    the review.
+  - Fixed with the `control-safety` sign-off (plan section 8, 7-O):
+    - SEC-13: every write needs `X-SunCore-Request: 1` (403
+      `api.error.request_header_missing`), the SPA always sends it; only *setting* the
+      emergency stop is exempt, clearing it never is; both ingress hops forward the header
+      (source read, `UNVERIFIED` on a live system);
+    - SEC-15: one MQTT emergency-stop task at a time, a flood during a run collapses into one
+      repeat, the first stop is never delayed;
+    - SEC-16: the first refusal per entity and reason is logged, then a count every 60 s.
   - Open after 1.0: CSP, a non-root user, an own AppArmor profile, image digests (`BUILD_FROM`,
     `uv`) and ECharts 6. The verification window is pending 7-J.
   - Questions 23 to 28 are in plan section 10; deviations and `UNVERIFIED` are in plan section 8
@@ -1399,9 +1404,8 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   every new how-to on Home Assistant OS, the docs site and the Weblate project (the translation
   structure of `docs/user/en` and `docs/user/de` is identical).
 - **Security (7-O, `docs/security/review-1.0.md`):**
-  - for `control-safety`: SEC-13 (require `X-SunCore-Request` on writing API routes, the
-    frontend sends it; question 26), SEC-15 (coalesce MQTT emergency-stop tasks), SEC-16
-    (throttle `mqtt.command_refused`);
+  - SEC-13, SEC-15 and SEC-16 are fixed (question 26 is answered by the fix; a reverse proxy
+    in front of HA that strips custom headers would break writes, the error text says so);
   - review the 7-J verification window (SEC-24);
   - CSP after a browser check (`frontend-engineer`);
   - digests for `BUILD_FROM` and the `uv` image (question 28);
