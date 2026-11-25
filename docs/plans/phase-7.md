@@ -1006,6 +1006,73 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   local storage). Before: `docs/assets/screenshots/before-7f/` (7-E tip with only this spec
   change), after: `docs/assets/screenshots/after-7f/`; palette-quantised like 7-D and 7-E.
 
+### 7-G
+
+- Based on `phase-7/f-plan-analysis` (7-F with 7-C, 7-D and 7-E). Presentation and structure
+  only: stores, API calls, validation and the wizard step ids are unchanged.
+- **Wizard:** four stages (Basics: region, energy; Your system: grid, PV, battery, tariff;
+  Devices and goals: devices, priorities; Finish: mode, summary) in `wizard/steps.ts`
+  (`STAGES`, `stageOf`), shown as a four-part stage bar above the step and as group headings in
+  the step list (side column on desktop, behind "Show all steps" below 1024 px). The step
+  heading carries a kicker "Your system · step 3 of 10" (`wizard-count`); the "3." before the
+  title is gone. One sticky footer on every step: "Leave setup" (ghost) at the start, Back,
+  Skip (ghost, where allowed) and Next at the end, spanning the card.
+- **No card inside a card:** a `fieldset.card` or `section.card` inside a card is flat (a
+  divider and a heading; global rule in `app.css`). This calms every wizard step, the device
+  editor and the notification settings at once.
+- **Advanced fields behind `Disclosure`:** only the grid step so far ("Peak shaving, export
+  limits, §14a and backup power"; "Energy counters and house consumption (optional)"). Each
+  opens by itself when something in it is set or has a server issue. The other steps keep their
+  fields open; candidates for a follow-up are the battery model and the PV forecast sources.
+  E2E helper `openDisclosure`.
+- **Live preview "in the same place on every step"** (WP5) was not built: only the grid
+  (sign check) and the summary (plan preview) have a preview, and both sit where the user acts
+  on them. Moving them to a fixed slot would separate the check from its field.
+- **Settings:** an index with five groups (`#/settings/system|devices|goals|ha|advanced`,
+  `router.page`, `settingsHash`); desktop (≥ 1024 px) shows the index and the page side by side
+  and opens "Your system" for `#/settings`; phones and tablets show the index, then the page
+  alone with "‹ Settings" as the way back (the view's h2). Opening a page focuses its heading.
+  Your system: setup assistant status and "Run setup again", rows region … tariff. Devices: the
+  devices row and the configured devices (read-only). Goals and operating mode: priorities,
+  mode, summary. Home Assistant: entities (MQTT) and notifications. Advanced: expert mode,
+  (slot for the 7-I diagnostics panel), earlier versions, backup, about.
+- **Expert mode** moved from the top bar into *Settings → Advanced* (as 7-D planned); the
+  what-if hint links there. The top bar is now mark, destinations, status and the emergency
+  stop.
+- **About:** version from `/info`, demo or live data, licence and the project link
+  (`addon/suncore/config.yaml` `url`). No backend change.
+- **Phase 6 panel fields** (`para14a` and `shed_rank` per device, the island keep list, the
+  manual MQTT broker): not added in this PR. The evcc `loadpoint_id` and `topic_prefix` fields
+  exist already (6-x). Adding the others changes what feeds G1–G6 and needs the `control-safety`
+  read; they follow in their own PR on top of 7-G so the design review is not blocked on it
+  (question in `review-7g.md`).
+- **Bundle (the important deviation):** the standard path is the sum of all chunks, so splitting
+  more lazy chunks makes it *larger*: settings sub-pages as five lazy chunks took it from
+  249.6 to 258.8 kB (each chunk brings its own import list, CSS file and gzip overhead). Measured
+  instead:
+  - Settings pages ride in the one lazy `Settings` chunk (it was lazy already; first paint is
+    unaffected either way).
+  - Wizard steps: one lazy chunk per **stage** (`views/steps/stages.ts`) instead of one per step:
+    −8 kB on the standard path. The wizard was never part of the first paint.
+  - The build leaves the backend-only messages out of the browser catalogues
+    (`scripts/backend-only.mjs`: `mqtt.entity.*`, `mqtt.state.*` and the notification texts;
+    the backend catalogue is still generated from the full files). A test checks that no
+    frontend source uses one. −2.1 kB standard path, −2.0 kB first paint.
+  - Result: first paint 122.6 → 121.4 kB, standard path 249.6 → 244.1 kB, expert
+    extras 25.5 → 25.6 kB, ECharts unchanged.
+- New icons `plug` (an appliance), `target`, `bell` for the settings groups.
+- **Focus after navigation** (`App.svelte`): the shell moved the focus to `main` on every hash
+  change, also when only the query or the settings page changed (the effect read the whole
+  location). It now reacts to a change of the route only, so a settings page can focus its own
+  heading; found by the new index test.
+- E2E: settings specs open the sub-page they test (`#/settings/system`, `/ha`, `/advanced`); the
+  overview count of ten rows became 6 + 1 + 3 over the three pages; new tests for the index and
+  the way back, and for "about"; axe runs on the index and on every sub-page; the responsive
+  check covers the index, two sub-pages and the grid step.
+- `review-shots.spec.ts` gained the settings sub-pages and the wizard steps region, grid,
+  devices and summary. Before: `docs/assets/screenshots/before-7g/` (7-F tip with only this spec
+  change; the sub-pages did not exist), after: `docs/assets/screenshots/after-7g/`.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

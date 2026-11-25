@@ -13,11 +13,12 @@ PR 7-D adds the design system and the new shell (review stop 1: `docs/design/rev
 first paint 118.9 kB, standard path 243.7 kB). PR 7-E rebuilds the Now view and its cards
 (`docs/design/review-7e.md`; first paint 120.5 kB, standard path 245.8 kB). PR 7-F does the
 same for Plan and Analysis (`docs/design/review-7f.md`; first paint 122.6 kB, standard path
-249.6 kB).
+249.6 kB). PR 7-G does Settings and the setup wizard and is **review stop 2**
+(`docs/design/review-7g.md`; first paint 121.4 kB, standard path 244.1 kB).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-7/f-plan-analysis` (on `phase-7/e-now`)
+**Branch:** `phase-7/g-settings` (on `phase-7/f-plan-analysis`)
 
 ## Phase 6 at a glance
 
@@ -42,6 +43,22 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-G, Settings and wizard (frontend; branch `phase-7/g-settings`, on 7-F;
+  `frontend-engineer`)** - review stop 2; stores, API calls, validation and step ids unchanged:
+  - Settings: an index of five groups (Your system, Devices, Goals and operating mode, Home
+    Assistant, Advanced) with one page each (`#/settings/<page>`); two panes on desktop, index
+    then page on phones and tablets. Advanced holds expert mode (moved out of the top bar),
+    earlier versions, backup and "About SunCore" (version, data source, licence, link), and the
+    slot for the 7-I diagnostics panel.
+  - Wizard: the ten steps in four stages (stage bar, grouped step list, kicker "Your system ·
+    step 3 of 10"); one sticky footer; no card inside a card (global rule); the grid step's
+    optional parts behind two `Disclosure`s that open when something in them is set.
+  - Bundle: one lazy chunk per wizard stage instead of per step, the settings pages in the one
+    Settings chunk, backend-only messages left out of the browser catalogues
+    (`scripts/backend-only.mjs`). Phase 6 panel fields (`para14a`, `shed_rank`, island keep
+    list, manual broker) are not in this PR (question 2 in `review-7g.md`).
+  - Screenshots `docs/assets/screenshots/{before-7g,after-7g}/`; deviations in plan section 8
+    (7-G); six questions in `review-7g.md`.
 - **Phase 7 - PR 7-F, Plan and Analysis (frontend; branch `phase-7/f-plan-analysis`, on 7-E;
   `frontend-engineer`)** - presentation only (stores, API calls, routes, test ids unchanged):
   - Plan: one toolbar (24 h · 48 h · Today, replan, planner run line, "Why this plan?"), look
