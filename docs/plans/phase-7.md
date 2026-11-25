@@ -1827,8 +1827,9 @@ See the list at the end of `docs/security/review-1.0.md`. In short:
     6. Der Server liefert die statischen Dateien unter `/docs/suncore/` aus (TLS der Domain
        gilt schon). Das Portfolio darf diesen Pfad nicht mit eigenem Routing überschreiben. Der Job
        lief noch nie; bitte nach dem
-       ersten stabilen Release prüfen. Von Hand geht es auch: ZIP vom Release laden und in den
-       Dokumentenstamm entpacken.
+       ersten stabilen Release prüfen. Von Hand geht es auch, ganz ohne Secrets: ZIP vom Release
+       laden; darin liegt der Ordner `suncore/`, den du nach `<docroot>/docs/` kopierst. Er ist
+       für den Unterpfad `/docs/suncore/` gebaut (`scripts/build_docs_zip.sh`).
     **Empfehlung:** so einrichten. Außerdem: Der alte Pfad `docs/user/compatibility.md` ist ohne
     Weiterleitung entfallen (siehe §8, 7-L); wenn du externe Links darauf kennst, melde es.
 24. **Weblate-Projekt anlegen (Schritte von Hand, nur du kannst das).** Der Repository-Teil ist
