@@ -5,6 +5,26 @@ import { isStepId, type StepId } from './wizard/steps';
 
 export type Route = 'now' | 'plan' | 'settings' | 'setup' | 'decisions' | 'history' | 'whatif';
 
+/** The four destinations of the navigation (ADR-0019); several routes can share one. */
+export type Destination = 'now' | 'plan' | 'analysis' | 'settings';
+
+/** The destination a route belongs to: *Analysis* holds history, decisions and what-if. */
+export function destinationOf(route: Route): Destination {
+  switch (route) {
+    case 'plan':
+      return 'plan';
+    case 'history':
+    case 'decisions':
+    case 'whatif':
+      return 'analysis';
+    case 'settings':
+    case 'setup':
+      return 'settings';
+    default:
+      return 'now';
+  }
+}
+
 export interface Location {
   route: Route;
   /** Only for `setup`: the step, `null` for `#/setup` (resume where the user stopped). */

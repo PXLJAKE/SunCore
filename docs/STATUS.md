@@ -8,6 +8,8 @@ ADRs relevant to your task. Keep it short; history lives in git.
 PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line.
 Bundle budget split pending maintainer decision; option A implemented (standard path 250 kB,
 expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
+PR 7-D adds the design system and the new shell (review stop 1: `docs/design/review-7d.md`;
+first paint 118.9 kB, standard path 243.7 kB).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
@@ -36,6 +38,21 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-D, design system and shell (frontend; branch `phase-7/d-design-shell`, on
+  7-B; `frontend-engineer`)** - review stop 1, presentation only (stores, API calls, routes
+  unchanged):
+  - Tokens `frontend/src/lib/theme/tokens.css` (HA variables as input, semantic `--sc-*` tokens,
+    light and dark, `color-mix()` tints with static fallbacks), mirror `tokens.ts`; guard
+    `npm run check:tokens` (verify, `check.sh`, CI) and a contrast test of every pair.
+  - Components in `frontend/src/lib/ui/` (Card, SectionHeader, Stat, Chip, Button, FormRow,
+    EmptyState, Loading, Banner, SegmentedControl, Disclosure, Icon); global classes restyled on
+    the tokens.
+  - Shell: four destinations (Now, Plan, Analysis with tabs History, Decisions, What-if,
+    Settings), sticky top bar with the emergency stop on every size, bottom bar on phones; hash
+    routes unchanged. Chart theme `frontend/src/lib/charts/theme.ts`.
+  - Before/after screenshots and the German review page `docs/design/review-7d.md`;
+    deviations in plan section 8 (7-D). Bundle: first paint 118.9 kB, standard path 243.7 kB,
+    expert extras 25.4 kB.
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable
@@ -1656,7 +1673,6 @@ Each was built with the proposed default; the answer may change that default.
 | Nord Pool `config_entry` id source, sensor translation keys, publication time; Octopus/ENTSO-E/EPEX entity matchers (platform and unit only, no translation keys); `start`/`end` sent to `tibber.get_prices` as ISO with offset; negative-price rule proxy for all-in sources | `templates/tariff/*.yaml`, `suncore/tariff/pricing.py` | live check on a system with the integration |
 | VAT applied to negative spot prices | `suncore/core/tariff.py` | maintainer's bill / supplier terms |
 | KNN load model run time on aarch64 (amd64: training + 48 h prediction 30–50 ms for 30–90 days, `scripts/bench_load_ml.py`); its constants (K 24, slot window ±2, scales 4 K / 15 % level / 120 days age, 2 % margin) are reasoned, not fitted | plan WP12, `suncore/forecast/load_ml.py` | CI arm runner or a Pi; 30+ days of the maintainer's data in `shadow` |
-| Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
 | Registry and energy-prefs shapes on cores older than dev (single `config_entry_id` on devices, unified grid source); `unknown_command` code without the `energy` integration; Supervisor proxy passes registry commands | `research/ha-websocket-api.md` | first run on HA OS; parsers tolerate both shapes |

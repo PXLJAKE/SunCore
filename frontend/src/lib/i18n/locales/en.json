@@ -2414,5 +2414,9 @@
   "api.error.flex_store_failed": "The change could not be saved. Try again in a moment.",
   "api.error.program_deadline_far": "The finish time must be within the next 7 days.",
   "api.error.ev_target_past": "The charging target time must be in the future.",
-  "api.error.ev_target_far": "The charging target time must be within the next 7 days."
+  "api.error.ev_target_far": "The charging target time must be within the next 7 days.",
+  "nav.analysis": "Analysis",
+  "nav.analysis_label": "Analysis sections",
+  "estop.short": "Stop",
+  "ui.stat.stale": "(out of date)"
 }

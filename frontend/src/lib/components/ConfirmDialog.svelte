@@ -74,14 +74,15 @@
 <style>
   dialog {
     max-width: min(32rem, calc(100vw - 32px));
-    padding: var(--sc-gap);
-    border: 1px solid var(--divider-color);
-    border-radius: var(--sc-radius);
-    background: var(--card-background-color);
-    color: var(--primary-text-color);
+    padding: var(--sc-space-5);
+    border: 1px solid var(--sc-outline);
+    border-radius: var(--sc-radius-lg);
+    background: var(--sc-surface-raised);
+    color: var(--sc-text);
+    box-shadow: var(--sc-elev-2);
   }
   dialog::backdrop {
-    background: rgb(0 0 0 / 0.55);
+    background: var(--sc-scrim);
   }
   h2 {
     font-size: 1.125rem;
@@ -102,8 +103,8 @@
     margin-top: 16px;
   }
   .danger-fill {
-    background: var(--error-color);
-    border-color: var(--error-color);
-    color: var(--card-background-color);
+    background: var(--sc-error);
+    border-color: var(--sc-error);
+    color: var(--sc-error-fg);
   }
 </style>

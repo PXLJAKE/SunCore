@@ -315,7 +315,7 @@
   }
   .savebar {
     position: sticky;
-    bottom: 0;
+    bottom: var(--sc-sticky-bottom, 0px);
     display: flex;
     flex-wrap: wrap;
     align-items: center;

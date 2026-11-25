@@ -2,22 +2,11 @@
 <script lang="ts">
   import { t } from '../i18n/index.svelte';
   import { live } from '../stores/live.svelte';
+  import Banner from '../ui/Banner.svelte';
 </script>
 
 {#if live.control?.emergency_stop}
-  <div class="estop-banner" role="status" data-testid="estop-banner">
-    <strong>{t('estop.active')}</strong>
-    <span>{t('estop.active_text')}</span>
-  </div>
+  <Banner tone="error" title={t('estop.active')} testid="estop-banner"
+    >{t('estop.active_text')}</Banner
+  >
 {/if}
-
-<style>
-  .estop-banner {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    padding: 10px 16px;
-    background: var(--error-color);
-    color: var(--card-background-color);
-  }
-</style>

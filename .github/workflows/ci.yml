@@ -103,6 +103,9 @@ jobs:
       - name: API types up to date
         working-directory: frontend
         run: npm run gen:api:check
+      - name: No colour literals outside the design tokens
+        working-directory: frontend
+        run: npm run check:tokens
       - name: Lint
         working-directory: frontend
         run: npm run lint

@@ -837,6 +837,48 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   standard path 236.9 kB, expert extras 25.4 kB; ECharts chunks unchanged. Budgets for first
   paint and ECharts are unchanged.
 
+### 7-D
+
+- Based on `phase-7/b-phase5-tail`, not on 7-C (7-C runs in parallel on a sibling branch); the
+  after screenshots therefore lack the EV, washing machine and heat pump demo devices.
+- **Tints:** ADR-0019 asks for "a static fallback declaration in front of every use". That does
+  not work for custom properties (an unsupported `color-mix()` inside `var()` makes the use
+  invalid at computed-value time, it does not fall back to the previous declaration). The static
+  tints are declared per scheme instead and the `color-mix()` versions replace them inside
+  `@supports` (selector `:root:root:root` so it outranks the scheme blocks). The contrast test
+  checks both.
+- **Status tokens:** `--sc-<status>` is the base colour (text and icons on surfaces, text on its
+  own tint), `-bg` the tint, `-fg` the text on the solid base colour.
+- **Components:** `Card`, `SectionHeader`, `Stat`, `Chip`, `Button`, `FormRow`, `EmptyState`,
+  `Loading`, `Banner`, `SegmentedControl`, `Disclosure`, `Icon`. `Sheet` (and `ConfirmDialog` on
+  it) moves to 7-G, where the settings filters and the wizard need it; `ConfirmDialog` is restyled
+  on the tokens meanwhile. The shell uses `Button`, `Chip`, `Banner`, `Icon` and `Loading`; the
+  views keep the global classes, which are restyled on the tokens (cards, buttons, inputs,
+  notices, chips).
+- **Shell:** the top bar is sticky on every size, so the emergency stop is always in view. Phone:
+  mark, mode chip, connection dot (text only when not live), expert switch as an icon (the text
+  stays its accessible name) and the emergency stop with the short label "Stop"/"Not-Aus" (the
+  accessible name stays "Emergency stop", WCAG 2.5.3). Tablet: destinations in a second row.
+  The expert switch stays in the top bar until 7-G moves expert mode into *Settings → Advanced*.
+  Sticky bars inside views (wizard actions, parameter save bar) sit above the bottom bar through
+  `--sc-sticky-bottom`.
+- **Chart theme:** the plan and history/what-if charts read their colours from the tokens. The
+  house line is now the energy palette's slate (was the text colour) and the plan's device line
+  the device green (was the info blue). The legend stays at the top (the plan chart computes its
+  grid from the legend rows); moving it to the bottom belongs to 7-F.
+- **Icons:** own line drawings (Apache-2.0, `NOTICE`) instead of a third-party set, so no licence
+  question arises.
+- **Screenshots:** `e2e/review-shots.spec.ts` (`REVIEW_SHOTS_DIR`) takes the review set (Now,
+  Plan, Analysis, Settings, PV step; 390×844 and 1280×800; light and dark; English) at device
+  scale 2. Before: `docs/assets/screenshots/before/` (taken on the base commit with only this spec
+  added), after: `docs/assets/screenshots/after-7d/`; the PNGs are palette-quantised to keep the
+  repository small. The `SCREENSHOT_SET` switch of `screenshots.spec.ts` was not added; the
+  separate spec does the job without touching the docs set.
+- **Budgets:** first paint 113.2 → 118.9 kB (tokens and shell CSS +2.2 kB, `Button`, `Chip`,
+  `Banner`, `Icon`, `Loading` in the entry chunk), standard path 236.9 → 243.7 kB, expert extras
+  25.4 kB, ECharts chunks unchanged. Within the budgets (125 / 250 / 30 kB); the 115 kB target of
+  criterion 3 depends on the lazy wizard steps and settings sub-pages of 7-G.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

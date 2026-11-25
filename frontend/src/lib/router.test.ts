@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
-import { parseLocation, stepHash } from './router.svelte';
+import { destinationOf, parseLocation, stepHash } from './router.svelte';
+
+describe('destinationOf', () => {
+  it('groups the routes into the four destinations', () => {
+    expect(destinationOf('now')).toBe('now');
+    expect(destinationOf('plan')).toBe('plan');
+    expect(destinationOf('history')).toBe('analysis');
+    expect(destinationOf('decisions')).toBe('analysis');
+    expect(destinationOf('whatif')).toBe('analysis');
+    expect(destinationOf('settings')).toBe('settings');
+    expect(destinationOf('setup')).toBe('settings');
+  });
+});
 
 describe('parseLocation', () => {
   it('maps hashes to routes and defaults to now', () => {

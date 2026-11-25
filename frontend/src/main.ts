@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { mount } from 'svelte';
+import './lib/theme/tokens.css';
 import './app.css';
 import App from './App.svelte';
 import { preloadInitialLocale } from './lib/i18n/index.svelte';

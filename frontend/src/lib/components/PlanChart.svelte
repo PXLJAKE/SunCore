@@ -36,6 +36,7 @@
     type ChartColors,
     type ChartLabels,
   } from '../plan/chartOption';
+  import { planColors, readChartTheme, withChartTheme } from '../charts/theme';
   import type { CompareSeries } from '../plan/compare';
   import { BATTERY_LANE, segAt, deviceShareAt, type GanttLane, type SegKind } from '../plan/gantt';
   import { indexAt, type ChartData, type TargetLines } from '../plan/model';
@@ -119,26 +120,8 @@
   const zoomed = $derived(isZoomed(zoom));
   const visible = $derived(visibleSpan(win.fromMs, win.toMs, zoom));
 
-  function readColors(node: HTMLElement): ChartColors {
-    const css = getComputedStyle(node);
-    const v = (name: string, fallback: string): string =>
-      css.getPropertyValue(name).trim() || fallback;
-    return {
-      text: v('--primary-text-color', '#212121'),
-      textSecondary: v('--secondary-text-color', '#5f5f5f'),
-      divider: v('--divider-color', '#c9ccd1'),
-      card: v('--card-background-color', '#ffffff'),
-      pv: v('--energy-solar-color', '#c77700'),
-      load: v('--primary-text-color', '#212121'),
-      devices: v('--info-color', '#0b6fa4'),
-      battery: v('--energy-battery-in-color', '#00796b'),
-      batteryOut: v('--energy-battery-out-color', '#c2185b'),
-      gridImport: v('--energy-grid-consumption-color', '#2f6fa8'),
-      gridExport: v('--energy-grid-return-color', '#7040b8'),
-      target: v('--warning-color', '#8a5100'),
-      now: v('--secondary-text-color', '#5f5f5f'),
-    };
-  }
+  /** Colours from the design tokens (chart theme, ADR-0019). */
+  const readColors = (node: HTMLElement): ChartColors => planColors(readChartTheme(node));
 
   const dayFormat = (ms: number): string =>
     new Intl.DateTimeFormat(i18n.locale, {
@@ -330,9 +313,10 @@
   $effect(() => {
     void themeTick;
     if (!chart || !el) return;
-    const c = readColors(el);
+    const theme = readChartTheme(el);
+    const c = planColors(theme);
     colors = c;
-    const option = buildOption({
+    const built = buildOption({
       data,
       lines,
       nowMs,
@@ -344,7 +328,8 @@
       lanes,
       compare,
       marker,
-    }) as { dataZoom: Record<string, unknown>[] };
+    });
+    const option = withChartTheme(built, theme) as { dataZoom: Record<string, unknown>[] };
     const z = untrack(() => zoom);
     option.dataZoom[0] = { ...option.dataZoom[0], start: z.start, end: z.end };
     chart.setOption(option, { notMerge: true });

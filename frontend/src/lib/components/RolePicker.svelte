@@ -325,7 +325,7 @@
     border: 1px solid var(--secondary-text-color);
     border-radius: 8px;
     background: var(--card-background-color);
-    box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+    box-shadow: var(--sc-elev-2);
   }
   .listbox[hidden] {
     display: none;

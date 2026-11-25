@@ -27,6 +27,7 @@ if [ -d frontend/node_modules ]; then
   (
     cd frontend
     npm run --silent gen:api:check
+    npm run --silent check:tokens
     npm run --silent lint
     npm run --silent format:check
     npm run --silent check

@@ -17,6 +17,7 @@
   import { onMount } from 'svelte';
   import { t } from '../i18n/index.svelte';
   import type { HistoryColors } from '../history/chartOptions';
+  import { historyColors, readChartTheme, withChartTheme } from '../charts/theme';
 
   use([
     BarChart,
@@ -51,25 +52,8 @@
 
   const compact = $derived(width < 560);
 
-  function readColors(node: HTMLElement): HistoryColors {
-    const css = getComputedStyle(node);
-    const v = (name: string, fallback: string): string =>
-      css.getPropertyValue(name).trim() || fallback;
-    return {
-      text: v('--primary-text-color', '#212121'),
-      textSecondary: v('--secondary-text-color', '#5f5f5f'),
-      divider: v('--divider-color', '#c9ccd1'),
-      card: v('--card-background-color', '#ffffff'),
-      primary: v('--primary-color', '#0b6fa4'),
-      pv: v('--energy-solar-color', '#c77700'),
-      house: v('--primary-text-color', '#212121'),
-      gridImport: v('--energy-grid-consumption-color', '#2f6fa8'),
-      gridExport: v('--energy-grid-return-color', '#7040b8'),
-      battery: v('--energy-battery-in-color', '#00796b'),
-      batteryOut: v('--energy-battery-out-color', '#c2185b'),
-      warning: v('--warning-color', '#8a5100'),
-    };
-  }
+  /** Colours from the design tokens (chart theme, ADR-0019). */
+  const readColors = (node: HTMLElement): HistoryColors => historyColors(readChartTheme(node));
 
   onMount(() => {
     if (!el) return;
@@ -100,7 +84,10 @@
   $effect(() => {
     void themeTick;
     if (!chart || !el) return;
-    chart.setOption(build(readColors(el), compact), { notMerge: true });
+    const theme = readChartTheme(el);
+    chart.setOption(withChartTheme(build(historyColors(theme), compact), theme), {
+      notMerge: true,
+    });
   });
 
   function download(): void {

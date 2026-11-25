@@ -396,7 +396,7 @@
     align-items: center;
     gap: 8px;
     position: sticky;
-    bottom: 0;
+    bottom: var(--sc-sticky-bottom, 0px);
     padding: 10px 0;
     background: var(--card-background-color);
     border-top: 1px solid var(--divider-color);
@@ -411,7 +411,7 @@
     }
     .progress {
       position: sticky;
-      top: 8px;
+      top: calc(var(--sc-sticky-top, 0px) + 8px);
     }
     .compact {
       display: none;

@@ -364,7 +364,7 @@
   }
   .prio li.dragging {
     z-index: 2;
-    box-shadow: 0 6px 20px rgb(0 0 0 / 0.3);
+    box-shadow: var(--sc-elev-2);
     border-color: var(--primary-color);
     opacity: 0.95;
   }
