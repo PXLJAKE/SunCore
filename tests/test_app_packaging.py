@@ -48,6 +48,32 @@ def test_options_schema_and_translations_agree(app: str) -> None:
             assert entry.get("description"), f"{path}: {name} has no description"
 
 
+@pytest.mark.parametrize("app", APPS)
+def test_least_privilege_surface(app: str) -> None:
+    """Security review 1.0 (SEC-07, exposure table): ingress only, no host ports, no host
+    network, no Supervisor API, no privileges, no folder maps (SunCore reads nothing from the HA
+    configuration folder; only ``/data``, which the Supervisor always maps)."""
+    config = _config(app)
+    assert config["ingress"] is True
+    for key in (
+        "ports",
+        "host_network",
+        "hassio_api",
+        "hassio_role",
+        "privileged",
+        "map",
+        "full_access",
+        "docker_api",
+        "host_pid",
+        "devices",
+        "auth_api",
+    ):
+        assert key not in config, f"{app}: {key} widens the app's access"
+    assert config.get("panel_admin", True) is True  # Supervisor default: admins only
+    assert config["homeassistant_api"] is True  # Core WebSocket API (suncore/ha/transport.py)
+    assert config["services"] == ["mqtt:want"]
+
+
 def test_translations_identical_between_apps() -> None:
     for lang in LANGS:
         texts = [
