@@ -1900,9 +1900,12 @@ class Runtime:
         shaving = None if self.site is None else self.site.grid.peak_shaving
         state = None if monitor is None else monitor.grid_state
         para = None if monitor is None else monitor.para14a_status
+        # Not configured: nothing to show. Configured but no reading yet: unknown.
+        configured = self.site is not None and self.site.grid.para14a
+        para14a = "not_configured" if not configured else (para or Para14aStatus.UNKNOWN).value
         return GridStatus(
             state=(state or GridState.UNKNOWN).value,
-            para14a=(para or Para14aStatus.UNKNOWN).value,
+            para14a=para14a,
             month=month_key(now, tz),
             month_peak_w=peak,
             peak_limit_w=None if shaving is None else peak_limit_w(shaving, peak),

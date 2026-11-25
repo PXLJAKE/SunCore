@@ -30,7 +30,7 @@ class GridStatus:
     state: str
     """``connected``, ``island`` or ``unknown``."""
     para14a: str
-    """``inactive``, ``active`` or ``unknown``."""
+    """``not_configured``, ``inactive``, ``active`` or ``unknown`` (configured, no reading)."""
     month: str
     month_peak_w: float | None
     peak_limit_w: float | None

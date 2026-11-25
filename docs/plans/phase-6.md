@@ -1694,7 +1694,8 @@ Freigabe mit Auflagen, umgesetzt:
   `program_deadline_past/_far` und `ev_target_past/_far` (422).
 - **L2:** `EvStateRequest` nutzt `invalid("ev_mode_target_missing", ...)`.
 - **L3:** Speicherfehler geben 503 mit `api.error.flex_store_failed` (en/de).
-- **L4:** Ohne Monitor oder vor dem ersten Takt meldet `/grid/status` das §14a-Signal als
-  `unknown`. Folge: Direkt nach dem Start zeigt das Badge kurz "Signal nicht verfügbar", auch
-  ohne §14a-Konfiguration.
+- **L4:** `/grid/status` meldet das §14a-Signal als `not_configured`, wenn §14a nicht
+  konfiguriert ist (das Badge bleibt dann ganz weg), und nur als `unknown`, wenn es
+  konfiguriert ist, aber noch keine Messung vorliegt (kein Monitor oder vor dem ersten Takt).
+  Tests: Backend und Vitest.
 - Optional: `BODY_LIMITS` für `PUT /devices/{id}/ev` und `POST .../program/arm`.
