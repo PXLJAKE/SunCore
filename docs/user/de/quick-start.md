@@ -264,7 +264,8 @@ ausprobieren.
 PV, Akku und Tarif), **Geräte**, **Ziele und Betriebsart**, **Home Assistant**
 (Entitäten über MQTT und Benachrichtigungen) und **Erweitert** (Expertenmodus,
 frühere Versionen, Sicherung, Diagnose, Info). Jeder Bereich zeigt eine
-Kurzfassung und einen Link zum passenden Schritt des Assistenten.
+Kurzfassung und die Schaltfläche **Bearbeiten**, die den passenden Schritt des
+Assistenten öffnet.
 
 ![Einstellungen als Übersicht](../assets/screenshots/settings-tablet-light-de.png)
 

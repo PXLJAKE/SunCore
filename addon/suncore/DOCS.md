@@ -93,7 +93,7 @@ Supported architectures: `amd64` and `aarch64`.
 
 **Settings** has five pages: **Your system**, **Devices**, **Goals and
 operating mode**, **Home Assistant** and **Advanced**. Each section has a
-summary and a link to the matching assistant step. **Run setup again** (on
+summary and an **Edit** button for the matching assistant step. **Run setup again** (on
 **Your system**) restarts the assistant; **Advanced** has expert mode,
 **Earlier versions** (restore a previous save), **Export configuration** and
 **Import configuration** (back up everything as a file) and the diagnostics

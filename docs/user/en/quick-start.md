@@ -249,7 +249,7 @@ Open **Settings**. It has five pages: **Your system** (region, grid, solar,
 battery and tariff), **Devices**, **Goals and operating mode**, **Home
 Assistant** (entities over MQTT and notifications) and **Advanced** (expert
 mode, earlier versions, backup, diagnostics, about). Each section shows a short
-summary and a link to the matching step of the assistant.
+summary and an **Edit** button that opens the matching step of the assistant.
 
 ![Settings overview](../assets/screenshots/settings-tablet-light-en.png)
 
