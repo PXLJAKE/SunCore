@@ -21,6 +21,7 @@
   } from '../flex/present';
   import { t, tDateTime, tDynamic, tNumber, tPercent, type MessageKey } from '../i18n/index.svelte';
   import { flex } from '../stores/flex.svelte';
+  import { live } from '../stores/live.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
 
   interface Props {
@@ -37,7 +38,14 @@
   const view = $derived(flex.views[id]);
   const busy = $derived(flex.busy[id] ?? false);
   const error = $derived(flex.errors[id] ?? null);
-  const clock = () => now ?? new Date();
+  // The server judges "in the future" and "within 7 days" by its own clock (a demo or a skewed
+  // browser clock differs), so defaults and checks use the time of the last control state.
+  const clock = (): Date => {
+    if (now) return now;
+    const ts = live.control?.ts;
+    const server = ts ? new Date(ts) : null;
+    return server && !Number.isNaN(server.getTime()) ? server : new Date();
+  };
 
   const MODE_LABEL: Record<EvMode, MessageKey> = {
     off: 'ev.mode.off',
