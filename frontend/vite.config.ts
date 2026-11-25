@@ -10,6 +10,7 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: false,
+    manifest: true,
     rollupOptions: {
       output: {
         // The message catalogues and the ICU formatter change independently of the views: separate
@@ -55,7 +56,7 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.ts', 'eslint/**/*.test.js'],
+    include: ['src/**/*.test.ts', 'eslint/**/*.test.js', 'scripts/**/*.test.mjs'],
     globals: false,
     setupFiles: ['src/test-setup.ts'],
   },

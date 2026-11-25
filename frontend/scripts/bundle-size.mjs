@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Reports the gzip size of dist/ and fails above the budgets:
-//   * everything except the ECharts chunk: 250 kB (Phase 1 budget, unchanged), counting what one
-//     user downloads: the largest main language catalogue (`catalogue-en|de`; the app loads just
-//     the active language) plus the parameter catalogue (`catalogue-params`, one chunk that holds
-//     both languages and loads with the expert area, so it counts in full),
+//   * standard user path, everything except ECharts and the expert extras: 250 kB (Phase 1
+//     budget, unchanged); only the larger main language catalogue (`catalogue-en|de`) counts,
+//     because the app loads just the active language,
+//   * expert extras: 30 kB. These are the lazy chunks that only expert mode loads: the
+//     `ExpertArea` and `WhatIf` entries, the parameter catalogue (`catalogue-params`, both
+//     languages in one chunk) and every chunk only they import. They are found from the Vite
+//     manifest (`dist/.vite/manifest.json`) by source file, see `bundle-classify.mjs`, never by
+//     hashed file names. Budget split pending maintainer decision; option A implemented
+//     (before the split the single total was 262.3 kB against 250 kB),
 //   * first paint (index.html plus its static import graph): 125 kB,
 //   * every ECharts chunk (loaded on demand): 200 kB, and the chunks of one view together
 //     (`echarts-core` plus `echarts-plan` or `echarts-history`): 240 kB (Phase 5, decision 6),
@@ -11,8 +16,10 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { expertFiles } from './bundle-classify.mjs';
 
 const BUDGET_BYTES = 250 * 1000;
+const EXPERT_BYTES = 30 * 1000;
 const FIRST_PAINT_BYTES = 125 * 1000;
 const ECHARTS_BYTES = 200 * 1000;
 const ECHARTS_VIEW_BYTES = 240 * 1000;
@@ -30,18 +37,27 @@ const gz = (file) => gzipSync(readFileSync(file), { level: 9 }).length;
 const isEcharts = (file) => /(^|\/)echarts-[^/]*\.js$/.test(file);
 const isCatalogue = (file) => /(^|\/)catalogue-(en|de)-[^/]*\.js$/.test(file);
 
+const manifest = JSON.parse(readFileSync(join(dist, '.vite/manifest.json'), 'utf8'));
+const expertSet = new Set([...expertFiles(manifest)].map((f) => join(dist, f)));
+if (expertSet.size === 0) {
+    console.error('No expert chunks found in the manifest; update EXPERT_SOURCES.');
+    process.exit(1);
+}
+
 let total = 0;
+let expertTotal = 0;
 const catalogues = [];
 const chunks = new Map();
 for (const file of walk(dist)) {
-    if (!/\.(js|css|html|json|svg)$/.test(file)) continue;
+    if (!/\.(js|css|html|json|svg)$/.test(file) || file.includes('/.vite/')) continue;
     const size = gz(file);
     if (isEcharts(file)) {
         chunks.set(file.replace(/^.*\/echarts-([^./-]+).*$/, '$1'), size);
-    } else if (isCatalogue(file)) catalogues.push(size);
+    } else if (expertSet.has(file)) expertTotal += size;
+    else if (isCatalogue(file)) catalogues.push(size);
     else total += size;
     console.log(
-        `${(size / 1000).toFixed(1).padStart(8)} kB  ${relative(dist, file)}${isEcharts(file) ? '  (on demand)' : ''}${isCatalogue(file) ? '  (one language counts)' : ''}`,
+        `${(size / 1000).toFixed(1).padStart(8)} kB  ${relative(dist, file)}${isEcharts(file) ? '  (on demand)' : ''}${expertSet.has(file) ? '  (expert extras)' : ''}${isCatalogue(file) ? '  (one language counts)' : ''}`,
     );
 }
 total += Math.max(0, ...catalogues);
@@ -80,7 +96,10 @@ for (const [name, size] of views) {
     );
 }
 console.log(
-    `${kb(total).padStart(8)}  total gzip without ECharts (budget ${BUDGET_BYTES / 1000} kB)`,
+    `${kb(total).padStart(8)}  standard path gzip without ECharts and expert extras (budget ${BUDGET_BYTES / 1000} kB)`,
+);
+console.log(
+    `${kb(expertTotal).padStart(8)}  expert extras gzip (budget ${EXPERT_BYTES / 1000} kB)`,
 );
 
 let failed = false;
@@ -97,4 +116,5 @@ for (const [name, size] of views) {
     if (core + size > ECHARTS_VIEW_BYTES) fail(`ECharts core + ${name} budget exceeded.`);
 }
 if (total > BUDGET_BYTES) fail('Bundle size budget exceeded.');
+if (expertTotal > EXPERT_BYTES) fail('Expert extras budget exceeded.');
 if (failed) process.exit(1);

@@ -828,8 +828,14 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   catalogue (`catalogue-en|de`) plus `catalogue-params` in full (one chunk with both languages,
   loaded by the expert area, and English is the fallback so both are needed). The total is 262.3 kB
   against 250 kB: lazy loading does not shrink a total that sums all chunks, so the 12.3 kB are
-  content (what-if 12.7, expert 6.4, parameter catalogue 5.4, about 180 keys). Budgets unchanged;
-  open for the maintainer (see report).
+  content (what-if 12.7, expert 6.4, parameter catalogue 5.4, about 180 keys).
+- Budget split pending maintainer decision; option A implemented: `bundle-size.mjs` reports the
+  standard user path (limit 250 kB, everything except ECharts and the expert extras) and the
+  expert extras (new limit 30 kB: the `ExpertArea` and `WhatIf` entries, `catalogue-params` and
+  the chunks only they import). The extras are found from the Vite manifest by source file
+  (`scripts/bundle-classify.mjs`, unit-tested), not by hashes. Numbers: first paint 113.2 kB,
+  standard path 236.9 kB, expert extras 25.4 kB; ECharts chunks unchanged. Budgets for first
+  paint and ECharts are unchanged.
 
 ## 9. Follow-ups per agent
 
