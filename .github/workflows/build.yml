@@ -10,6 +10,12 @@
 # - release published: both architectures, pushed as the stable image, smoke test.
 # The smoke test (scripts/smoke_image.sh) starts the image in demo mode, waits
 # for /health, fails above 300 MiB after 60 s idle and checks the clean SIGTERM exit.
+# On pushes to main (and manual runs) the same script runs once more with LOADED=1: a pinned
+# Mosquitto container, the demo with flexible loads and MQTT on, a replan every minute for
+# 10 minutes, peak and final memory <= 300 MiB, on both architectures (WP13).
+# The upgrade test (scripts/upgrade_test.sh, every event) starts the released 0.2.0 image
+# (pinned by digest) on a volume, seeds it through its API, then starts the image just built
+# on the same volume and checks that the configuration, the mode and the log carry over.
 name: Build app image
 
 on:
@@ -22,6 +28,8 @@ on:
       - "uv.lock"
       - ".dockerignore"
       - "scripts/smoke_image.sh"
+      - "scripts/upgrade_test.sh"
+      - "scripts/upgrade_probe.py"
       - ".github/workflows/build.yml"
   push:
     branches: [main]
@@ -36,6 +44,8 @@ on:
       - "uv.lock"
       - ".dockerignore"
       - "scripts/smoke_image.sh"
+      - "scripts/upgrade_test.sh"
+      - "scripts/upgrade_probe.py"
       - ".github/workflows/build.yml"
   release:
     types: [published]
@@ -183,6 +193,16 @@ jobs:
       - name: Smoke test
         env:
           IMAGE_REF: ${{ matrix.image }}:${{ needs.prepare.outputs.version }}
+        run: ./scripts/smoke_image.sh "${IMAGE_REF}"
+      - name: Upgrade test (0.2.0 to this image)
+        env:
+          IMAGE_REF: ${{ matrix.image }}:${{ needs.prepare.outputs.version }}
+        run: ./scripts/upgrade_test.sh "${IMAGE_REF}"
+      - name: Loaded smoke test (10 min, MQTT on)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          IMAGE_REF: ${{ matrix.image }}:${{ needs.prepare.outputs.version }}
+          LOADED: "1"
         run: ./scripts/smoke_image.sh "${IMAGE_REF}"
 
   manifest:
