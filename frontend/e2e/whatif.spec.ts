@@ -26,6 +26,18 @@ async function oneDay(page: Page): Promise<void> {
   await page.getByTestId('whatif-start').fill(value);
 }
 
+/**
+ * Click "start" until the server has taken the run. It answers 409 while the planner itself is
+ * solving (and the view then shows `whatif-error`), so one click is not enough. A run that is
+ * accepted either shows its progress or, when it is done at once, its row in "Earlier runs".
+ */
+async function startAccepted(page: Page, accepted = 'whatif-run'): Promise<void> {
+  await expect(async () => {
+    await page.getByTestId('whatif-start-run').click();
+    await expect(page.getByTestId(accepted).first()).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
 test.describe('What-if view', () => {
   test.beforeEach(async ({ request }) => {
     await clearRuns(request);
@@ -77,7 +89,10 @@ test.describe('What-if view', () => {
     await oneDay(page);
     await page.getByLabel('Solver optimality gap').fill('0.02');
     await page.getByLabel('Battery capacity').fill('12');
-    await page.getByTestId('whatif-start-run').click();
+    // The server refuses (409) while the planner itself is solving or collecting inputs. The demo
+    // clock runs 60 times faster, so the planner is busy a few percent of the time (measured:
+    // 3 of 51 starts on a fresh server); ask again until the run is accepted.
+    await startAccepted(page);
     const result = page.getByTestId('whatif-result');
     await expect(result).toBeVisible({ timeout: 90_000 });
     await expect(page.getByTestId('whatif-verdict')).toContainText(/With these settings/);
@@ -102,11 +117,7 @@ test.describe('What-if view', () => {
     await expertOn(page);
     await page.goto('/#/whatif');
     await page.getByTestId('whatif-perfect').check();
-    // The server refuses (409) while the planner itself is solving: ask again until it takes it.
-    await expect(async () => {
-      await page.getByTestId('whatif-start-run').click();
-      await expect(page.getByTestId('whatif-progress')).toBeVisible({ timeout: 2_000 });
-    }).toPass({ timeout: 30_000 });
+    await startAccepted(page, 'whatif-progress');
     await expect(page.getByTestId('whatif-start-run')).toBeDisabled();
     await page.getByTestId('whatif-cancel').click();
     await expect(page.getByTestId('whatif-progress')).toHaveCount(0);
