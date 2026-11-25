@@ -18,8 +18,10 @@ from suncore.sim.scenario import load_scenario
 
 
 class RecordingConnection(FakeHAConnection):
-    def __init__(self, speed: float) -> None:
-        super().__init__(load_scenario("summer_day"), clock=utc_now, speed=speed)
+    def __init__(self, speed: float, *, demo_flex: bool = False) -> None:
+        super().__init__(
+            load_scenario("summer_day"), clock=utc_now, speed=speed, demo_flex=demo_flex
+        )
         self.subscriptions: list[frozenset[str]] = []
         self.subscribe_error: BaseException | None = None
         self.get_states_calls = 0

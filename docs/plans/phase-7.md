@@ -837,6 +837,27 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   standard path 236.9 kB, expert extras 25.4 kB; ECharts chunks unchanged. Budgets for first
   paint and ECharts are unchanged.
 
+### 7-C
+
+- Built as specified: `SUNCORE_DEMO_FLEX=1` (default off; on in `frontend/playwright.config.ts`)
+  adds `wallbox` (`generic.wallbox`), `washer` (`generic.program_plug`) and `heat_pump`
+  (`generic.heat_pump_sg_ready`) from `SimWallbox`, `SimProgram` and `SimHeatPump`
+  (`suncore/sim/demo_flex.py`); the configs come from `build_device_config`, like the scenarios.
+  All three run in shadow; nothing in `controller/` or `safety/` changed.
+- "Arrives late" is the *request*, not the arrival time: the car (60 kWh, 30 %) is plugged in at
+  08:00 scenario time, so it is connected at every demo start time, and the runtime EV state asks
+  for 80 % by the next 07:00 (numbers of `ev_arrives_late`). The washer is loaded at 10:30 with a
+  job "finished by 17:00" armed at start (through `Runtime.arm_program`, in the throw-away
+  database). The heat pump's store starts at 48.5 degrees with an evening-only draw profile; with
+  the default morning draw it heated for hours before 09:30 and drained the demo battery.
+- Effect on the existing demo: the plan now gives the battery the surplus first (a plan band), so
+  the heating rod no longer shows "would run" at 09:30 and the e2e test of the site summary checks
+  "running 0" and the shadow badge instead. The demo's flex entities have registry devices
+  (`registry.*(flex=True)`) so the picker's "same device" rule keeps working.
+- E2E: device cards 3 to 6, wizard review keeps 6 devices, decisions specs pick a device with a
+  card, the Phase 6 spec's seeded washer became `dryer` (the demo owns `washer`); new spec
+  "the demo shows the flexible loads". Registry accessors and `RecordingConnection` take `flex`.
+
 ### 7-D
 
 - Based on `phase-7/b-phase5-tail`, not on 7-C (7-C runs in parallel on a sibling branch); the
