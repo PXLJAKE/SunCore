@@ -3,7 +3,8 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps; 7-H HA surface) ·
+**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps; 7-H HA surface;
+7-I diagnostics backend; 7-O security review) ·
 **Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
 PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line.
 Bundle budget split pending maintainer decision; option A implemented (standard path 250 kB,
@@ -11,8 +12,8 @@ expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-7/h-ha-surface` (on `phase-7/b-phase5-tail`, which is on `phase-7/a-plan` and
-`phase-5/l-docs`)
+**Branch:** `phase-7/o-security` (`phase-7/i-diagnostics-backend` with `phase-7/h-ha-surface`
+merged; both are on `phase-7/b-phase5-tail`, which is on `phase-7/a-plan` and `phase-5/l-docs`)
 
 ## Phase 6 at a glance
 
@@ -37,6 +38,31 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-O, security review 1.0 (WP14; branch `phase-7/o-security`, 7-I + 7-H;
+  `reviewer`)** - `docs/security/review-1.0.md`, 26 findings (SEC-01 to SEC-26). Nothing in
+  `safety/` or `controller/` changed, and no MQTT command changed its effect:
+  - Fixed:
+    - a rejected or corrupt `mqtt` section no longer writes the password into the log or a
+      traceback (Pydantic `input_value`);
+    - broker passwords are registered with the log redaction;
+    - the redaction covers password-like keys and `user:password` in URLs;
+    - `SUNCORE_ALLOW_ANY_PEER` logs a warning;
+    - uvicorn ignores `X-Forwarded-For`;
+    - every JSON route has a body cap, and a test guards it;
+    - `nosniff` and `Referrer-Policy: same-origin`;
+    - the unused `homeassistant_config` map is removed from both apps, with a least-privilege
+      packaging test;
+    - actions are pinned by commit SHA (`helpers/info` was on `master`);
+    - CodeQL covers JavaScript/TypeScript;
+    - Dependabot watches npm;
+    - certifi and opentelemetry-api are bumped, and `pip-audit` is clean.
+  - Needs `control-safety`: SEC-13 (CSRF header on writing routes), SEC-15 (coalesce
+    emergency-stop tasks from MQTT), SEC-16 (throttle the refused-command log). Proposals are in
+    the review.
+  - Open after 1.0: CSP, a non-root user, an own AppArmor profile, image digests (`BUILD_FROM`,
+    `uv`) and ECharts 6. The verification window is pending 7-J.
+  - Questions 23 to 28 are in plan section 10; deviations and `UNVERIFIED` are in plan section 8
+    (7-O).
 - **Phase 7 - PR 7-I, diagnostics export and heat pump live values (backend half; branch
   `phase-7/i-diagnostics-backend`, on 7-B; `backend-engineer`)** - nothing in `safety/` or
   `controller/` changed; `frontend/` only by the regenerated OpenAPI types:
@@ -1372,6 +1398,15 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
 - **Docs:** screenshots of the new views through the `demo-screenshots` skill, a followed test of
   every new how-to on Home Assistant OS, the docs site and the Weblate project (the translation
   structure of `docs/user/en` and `docs/user/de` is identical).
+- **Security (7-O, `docs/security/review-1.0.md`):**
+  - for `control-safety`: SEC-13 (require `X-SunCore-Request` on writing API routes, the
+    frontend sends it; question 26), SEC-15 (coalesce MQTT emergency-stop tasks), SEC-16
+    (throttle `mqtt.command_refused`);
+  - review the 7-J verification window (SEC-24);
+  - CSP after a browser check (`frontend-engineer`);
+  - digests for `BUILD_FROM` and the `uv` image (question 28);
+  - user-guide notes on MQTT ACLs and backup encryption (questions 23, 25);
+  - after 1.0: a non-root user, an AppArmor profile and ECharts 6 (question 27).
 - Deferred past 1.0 unless asked: built-in PV and price fallbacks, calibration charging, per-phase
   imbalance limits, V2H, several vehicles per charger, EEBus and the certified §14a path.
 
@@ -1673,6 +1708,8 @@ Each was built with the proposed default; the answer may change that default.
 
 | Item | Where | Needed to resolve |
 |---|---|---|
+| 7-O security: whether an app with `NET_ADMIN` on the `hassio` bridge can spoof the ingress peer 172.30.32.2; Docker applying `docker-default` AppArmor when the Supervisor names no profile; whether HA onboarding sets a backup encryption key by default; the affected option of the ECharts advisory GHSA-fgmj-fm8m-jvvx; keyless Cosign in the HA builder; the Mosquitto ACL default (from its docs) | `docs/security/review-1.0.md` | Docker and builder source; the advisory text; maintainer's HA backup settings |
+| 7-O: the action SHA pins were resolved with `git ls-remote` but not run in CI in the session | `.github/workflows/*.yml` | first CI run of the 7-O PR |
 | 7-I diagnostics: the HA core version is read from the `version` key of `get_config` (documented in `docs/research/ha-websocket-api.md`, verified there against `Config.as_dict`) with `auth_ok` `ha_version` as the fallback; the simulator's `get_config` has neither, so the demo shows `null` until a test sets it | `suncore/app/runtime.py` `_remember_ha_version` | Look at the export on a real Home Assistant |
 | 7-I diagnostics: free-text fields of config and logs are scrubbed by known values and a closed list of entity domains; an entity id of a domain not in `ENTITY_DOMAINS` (a custom integration domain) that is not mapped in the configuration is not recognised in a log line, and a log field that holds a secret under an innocent key name is only masked if that exact value was seen in the configuration | `suncore/app/pseudonyms.py` | Read one real export before attaching it to a public issue; extend the domain list from reports |
 | 7-I heat pump card: the outdoor temperature is the weather entity's forecast of the current hour, not a sensor reading | `suncore/app/thermal_live.py` | Decide whether a measured outdoor sensor role is worth adding |

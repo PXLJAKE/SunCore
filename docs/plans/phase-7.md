@@ -947,6 +947,58 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 2. **Soll der PV-Prognosefehler in W bleiben?** Ein Prozentwert braucht einen Nenner
    (mittlere Tagesleistung oder Tagesenergie), der in `accuracy_day` fehlt. **Empfehlung:** W.
 
+### 7-O (security review; branch `phase-7/o-security`)
+
+- Base: `phase-7/i-diagnostics-backend` with `phase-7/h-ha-surface` merged in (the two
+  conflicts were the STATUS and plan entries of both PRs; both were kept). The plan's dependency
+  "7-E … 7-N" is not met: the views, 7-J, 7-K, 7-L and 7-N are not on this base. The review
+  covers what is here, and the verification window of 7-J is the row "pending 7-J" (SEC-24).
+- Output: `docs/security/review-1.0.md`, which has 26 findings. Twelve are fixed here, three are
+  "needs control-safety" (SEC-13 CSRF header, SEC-15 emergency-stop task coalescing, SEC-16
+  refusal log throttling) with concrete proposals, and three are open for later PRs (SEC-12 CSP,
+  SEC-17 non-root user, SEC-19 image digests). The rest are accepted or verified.
+- Fixed without touching `safety/`, `controller/` or the effect of MQTT commands:
+  - validation errors no longer echo the MQTT password (`storage/config_store.py`);
+  - the broker password is registered with the log redaction;
+  - the redaction covers password-like keys and URL user info;
+  - `SUNCORE_ALLOW_ANY_PEER` logs a warning;
+  - uvicorn `proxy_headers=False`;
+  - body caps on every JSON route, with a guard test;
+  - `nosniff` and `Referrer-Policy`;
+  - the unused `homeassistant_config` map is removed;
+  - actions are pinned by SHA;
+  - CodeQL covers JavaScript/TypeScript;
+  - Dependabot watches npm;
+  - certifi and opentelemetry-api are bumped.
+- **Deviation: the `homeassistant_config` map is removed.** The WP14 table listed it as "read-only
+  map" to check. No code reads it, and it exposed `secrets.yaml` and `.storage/auth`. If a
+  later feature needs a file from the HA config folder, it must bring its own justification
+  (question 24).
+- **Deviation: question 19's premise is corrected.** HA backups are encrypted only with a
+  configured backup password (`create_backup.password` defaults to `None` in HA core). The
+  recommendation stays "keep and document", with a different reason (question 23).
+- Audits: `uvx pip-audit` 2.10.1 found two advisories, both fixed; the re-run is clean.
+  `npm audit --omit=dev` reports echarts 5.6.0 (accepted for 1.0, SEC-21). The full audit adds
+  dev-only vite, undici and eslint/minimatch, left to Dependabot.
+- Numbering: 7-O's questions are 23 to 28, the next free numbers on this base. 7-N (23 to 25,
+  release) and 7-L (23, GitHub Pages) use the same numbers on their branches; whoever merges
+  second renumbers. The 7-N question on the Mosquitto digest and SEC-19 (base and `uv` image
+  digests) belong to the same `prepare-release` step.
+- Conflicts to expect on merge: the workflows and both `config.yaml` with 7-N (pins, map
+  removal), and `docs/STATUS.md`.
+
+#### UNVERIFIED (7-O)
+
+See the list at the end of `docs/security/review-1.0.md`. In short:
+
+- spoofing of 172.30.32.2 on the `hassio` bridge;
+- Docker's default AppArmor profile;
+- the default backup encryption key of the HA onboarding;
+- the ECharts advisory text;
+- keyless Cosign in the HA builder;
+- the SHA pins in a real CI run;
+- the Mosquitto ACL default, which comes from its docs only.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update
@@ -1036,3 +1088,37 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 22. **Doku-Sprachen per Pull Request.** Die deutsche Nutzer-Doku wird für 1.0 weiter von uns per
     PR gepflegt, nicht in Weblate. **Empfehlung:** so lassen; Weblate für die Doku nach 1.0 prüfen,
     wenn Übersetzer für weitere Sprachen kommen.
+
+23. **Sicherheits-Review (7-O), Fragen 23 bis 28: MQTT-Passwort im Klartext (zu Frage 19,
+    SEC-22).** Die Annahme „HA-Sicherungen sind verschlüsselt“ stimmt nur, wenn in HA ein
+    Sicherungs-Passwort gesetzt ist. In HA Core ist `create_backup.password` ohne Einstellung
+    leer. Ein Schlüssel in SunCore würde nichts nützen,
+    denn er läge in derselben Sicherung. **Empfehlung:** Speicherung so lassen. In der Doku
+    empfehlen wir den Supervisor-Broker (dann wird kein Passwort gespeichert), für einen
+    manuellen Broker einen eigenen MQTT-Benutzer mit ACL, und die Verschlüsselung der
+    HA-Sicherungen einzuschalten.
+24. **Zugriff auf den HA-Konfigurationsordner entfernt (SEC-07).** Die App hatte
+    `homeassistant_config` nur lesend eingebunden, benutzt hat ihn kein Code. Darüber waren
+    `secrets.yaml` und die Anmelde-Tokens in `.storage/` im Container lesbar. **Empfehlung:**
+    entfernt lassen. Braucht eine spätere Funktion eine Datei daraus, bekommt sie einen eigenen
+    PR mit Begründung.
+25. **Wer darf SunCore über MQTT steuern (SEC-14)?** Jeder, der sich am Mosquitto-Broker
+    anmelden kann, darf SunCore steuern. Das sind alle HA-Benutzer, auch Nicht-Admins, und alle
+    Apps über den Benutzer `addons`. Möglich sind Not-Aus, Modus senken, Pause, Boost und
+    Neuplanung. Hochstufen geht nur mit `allow_mode_raise`. **Empfehlung:** so lassen, denn das
+    entspricht dem Entitätsmodell von HA. In der Doku kommt ein ACL-Beispiel für `suncore/#`
+    dazu.
+26. **Schutz gegen fremde Webseiten (CSRF, SEC-13).** Heute schützen das Ingress-Cookie
+    (`SameSite=Strict`), der zufällige Ingress-Pfad und der Admin-Zwang. Zusätzlich würde jede
+    schreibende Anfrage eine eigene Kopfzeile verlangen (`X-SunCore-Request: 1`); die Oberfläche
+    sendet sie. **Empfehlung:** vor 1.0 als kleiner eigener PR (Backend, Frontend, e2e-Test)
+    mit Prüfung durch `control-safety`. Das Auslösen des Not-Aus bleibt ohne die Kopfzeile
+    möglich, das Aufheben nicht.
+27. **Härtung des Containers (SEC-17, SEC-18).** SunCore läuft im Container als root und ohne
+    eigenes AppArmor-Profil; seccomp schaltet der Supervisor für alle Apps ab. **Empfehlung:**
+    nach 1.0, denn eigener Benutzer und Profil müssen auf HA OS getestet werden (Rauchtest und
+    Upgrade-Test). Ebenso das Update auf ECharts 6 (SEC-21).
+28. **Basis-Images per Digest fixieren (SEC-19).** Das Python-Basis-Image und das `uv`-Image
+    hängen an Tags. Dependabot erkennt das Basis-Image nicht, weil es über `ARG` kommt.
+    **Empfehlung:** beide per Digest fixieren und den Digest im Skill `prepare-release` prüfen,
+    zusammen mit dem Mosquitto-Digest des Rauchtests (Frage von 7-N auf dessen Zweig).
