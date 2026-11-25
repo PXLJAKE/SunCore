@@ -263,8 +263,14 @@ export class WizardStore {
     this.batteryUsesModbus = saved.modbus != null;
   }
 
-  async saveDevices(devices: DeviceConfig[]): Promise<void> {
-    const before = (this.saved.devices?.devices ?? []).map((d) => d.id);
+  /**
+   * Store the device list. `build` receives the server's current list (read just now, not the
+   * copy cached at load time) and returns the new one, so edits of another tab survive.
+   */
+  async saveDevices(build: (latest: DeviceConfig[]) => DeviceConfig[]): Promise<void> {
+    const latest = (await api.getSection<DevicesConfig>('devices'))?.devices ?? [];
+    const devices = build(latest);
+    const before = latest.map((d) => d.id);
     const saved = await api.putSection<DevicesConfig>('devices', {
       schema_version: 1,
       devices,
@@ -274,7 +280,7 @@ export class WizardStore {
     // A deleted device leaves the island keep list: a new device with the same id must not
     // inherit "kept in island operation" (safety review of 7-Q, F3).
     const site = pruneKeep(
-      this.saved.site,
+      (await api.getSite()) ?? this.saved.site,
       before,
       (saved.devices ?? []).map((d) => d.id),
     );

@@ -45,7 +45,7 @@
     failed = null;
     saved = false;
     try {
-      await wizard.saveDevices(applyDeviceGridEdits(devices, edits));
+      await wizard.saveDevices((latest) => applyDeviceGridEdits(latest, edits));
       edits = {};
       saved = true;
     } catch (e) {

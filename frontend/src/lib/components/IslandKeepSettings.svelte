@@ -3,7 +3,7 @@
   import { describeError, type FailedRequest } from '../api/errors';
   import { api } from '../api/client';
   import { t, tDynamic } from '../i18n/index.svelte';
-  import { keepDevices, siteWithKeep, toggleKeep } from '../settings/phase6';
+  import { keepDevices, mergeKeep, siteWithKeep, toggleKeep } from '../settings/phase6';
   import { app } from '../stores/app.svelte';
   import { wizard } from '../stores/wizard.svelte';
   import Button from '../ui/Button.svelte';
@@ -35,13 +35,15 @@
   }
 
   async function save(): Promise<void> {
-    if (!site) return;
-    const body = siteWithKeep(site, keep);
-    if (!body) return;
+    if (!site || stored === null) return;
     busy = true;
     failed = null;
     saved = false;
     try {
+      // Built from the server's current site, not the copy cached at load time.
+      const latest = (await api.getSite()) ?? site;
+      const body = siteWithKeep(latest, mergeKeep(keepDevices(latest) ?? [], stored, keep));
+      if (!body) throw new Error('no backup entity');
       const result = await api.putSite(body);
       wizard.saved = { ...wizard.saved, site: result };
       wizard.site = siteFormFromSite(result);

@@ -130,7 +130,7 @@
     if (order.length > 0) {
       const next = withPriorities(wizard.devices, order);
       if (next.some((d, i) => d.priority !== wizard.devices[i]!.priority)) {
-        await wizard.saveDevices(next);
+        await wizard.saveDevices((cur) => withPriorities(cur, order));
       }
     }
     await wizard.saveGoals();
