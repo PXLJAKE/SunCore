@@ -5,6 +5,7 @@
   import { describeError } from '../api/errors';
   import type { HaEntitiesStatus, MqttConfig } from '../api/types';
   import { t, tDynamic, type MessageKey } from '../i18n/index.svelte';
+  import MqttBrokerSettings from './MqttBrokerSettings.svelte';
 
   const uid = $props.id();
   const STATE_LABEL: Record<HaEntitiesStatus['state'], MessageKey> = {
@@ -48,6 +49,16 @@
     }
   }
   onMount(() => void load());
+
+  /** The broker section was saved: take the server's copy and refresh the connection status. */
+  function brokerSaved(saved: MqttConfig): void {
+    config = saved;
+    raise = saved.allow_mode_raise;
+    void surfaceApi.haEntities().then(
+      (s) => (status = s),
+      () => undefined,
+    );
+  }
 
   async function republish(): Promise<void> {
     busy = true;
@@ -123,6 +134,10 @@
     >
   </div>
   <p class="hint">{t('ha.republish_hint')}</p>
+
+  {#if config}
+    <MqttBrokerSettings {config} onsaved={brokerSaved} />
+  {/if}
 
   <label class="check">
     <input
