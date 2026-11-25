@@ -9,7 +9,7 @@ reads Home Assistant or writes anything.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from suncore.core.controlstate import HeatPumpLive, ThermalModelQuality
 from suncore.core.devices import DeviceConfig
@@ -22,10 +22,17 @@ from suncore.core.thermal import (
 
 
 def outdoor_now(series: TimeSeries | None, now: datetime) -> float | None:
-    """The outdoor temperature of the hour that contains ``now`` (``None`` if not covered)."""
+    """The outdoor temperature of the hour that contains ``now`` (``None`` if not covered).
+
+    Many weather integrations (and the demo) start the hourly forecast at the next full hour,
+    so a ``now`` less than one step before the series start takes the first value.
+    """
     if series is None or not series.values:
         return None
-    index = int((now - series.start) / series.step)
+    offset = now - series.start
+    if -series.step < offset < timedelta(0):
+        return series.values[0]
+    index = int(offset / series.step)
     if index < 0 or index >= len(series.values):
         return None
     return series.values[index]

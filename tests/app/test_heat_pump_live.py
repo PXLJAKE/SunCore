@@ -39,6 +39,12 @@ def test_outdoor_now_is_the_hour_that_contains_now() -> None:
     assert outdoor_now(series, NOW) == 4.0
     assert outdoor_now(series, NOW + timedelta(hours=2)) is None  # past the last hour
     assert outdoor_now(series, NOW - timedelta(hours=3)) is None
+
+
+def test_outdoor_now_takes_a_forecast_that_starts_at_the_next_full_hour() -> None:
+    series = _hourly(4.0, 5.0)
+    assert outdoor_now(series, series.start - timedelta(minutes=30)) == 4.0
+    assert outdoor_now(series, series.start - timedelta(hours=1)) is None
     assert outdoor_now(None, NOW) is None
     assert outdoor_now(_hourly(None), datetime(2026, 11, 25, 9, 10, tzinfo=UTC)) is None
 
