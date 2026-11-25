@@ -217,7 +217,10 @@ export type VerificationAnswer =
 async function verificationCommand(path: string): Promise<VerificationAnswer> {
   let res: Response;
   try {
-    res = await fetch(apiUrl(path), { method: 'POST', headers: { Accept: 'application/json' } });
+    res = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: { Accept: 'application/json', ...REQUEST_HEADER },
+    });
   } catch {
     throw new ApiError(0, 'api.error.network');
   }

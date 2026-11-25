@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, controlApi, flexApi, request } from './client';
+import { api, controlApi, flexApi, request, verificationApi } from './client';
 
 function captureFetch(): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(
@@ -31,6 +31,17 @@ describe('request header (SEC-13)', () => {
       expect(sentHeaders(fetchMock, i)['X-SunCore-Request']).toBe('1');
     }
     expect(sentHeaders(fetchMock, 4)['Content-Type']).toBe('application/json');
+  });
+
+  it('goes with the verification commands (7-J), which do not use the shared helper', async () => {
+    const fetchMock = captureFetch();
+    await verificationApi.start();
+    await verificationApi.confirm();
+    await verificationApi.abort();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (let i = 0; i < 3; i++) {
+      expect(sentHeaders(fetchMock, i)['X-SunCore-Request']).toBe('1');
+    }
   });
 
   it('cannot be overridden by a caller', async () => {
