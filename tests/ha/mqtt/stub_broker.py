@@ -109,7 +109,9 @@ class StubBroker:
         data = payload.encode() if isinstance(payload, str) else payload
         self._route(Message(topic, data, 0, retain))
 
-    async def wait_for(self, predicate: object, seconds: float = 3.0) -> None:
+    # ``seconds`` only bounds a hang (the loop returns the moment the condition holds), so it is
+    # generous: a loaded CI machine must not turn a slow reconnect into a failure.
+    async def wait_for(self, predicate: object, seconds: float = 30.0) -> None:
         assert callable(predicate)
         end = asyncio.get_running_loop().time() + seconds
         while not predicate():

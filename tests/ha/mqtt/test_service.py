@@ -20,6 +20,7 @@ from suncore.ha.mqtt import (
     SiteEvent,
 )
 from suncore.ha.mqtt.broker import ServiceNotEnabledError
+from suncore.ha.websocket import Backoff
 
 from .stub_broker import Message, StubBroker
 from .support import FakeSource, MemoryStore, topology
@@ -50,6 +51,7 @@ class Harness:
             store=store,
             services=self.services,
             retry_s=0.1,
+            backoff=lambda: Backoff(initial=0.0, jitter=0.0),  # no real-time reconnect delay
             poll_s=0.05,
             birth_delay=(0.0, 0.0),
             min_interval_s=0.0,
