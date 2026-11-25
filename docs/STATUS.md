@@ -89,6 +89,19 @@ Carried to Phase 7: see "Open - Phase 7".
     scenarios `inverter_verify_rest`, `inverter_verify_modbus`; 14 scenario tests (pass,
     mismatch, inert, read-back failure, load rise, disconnect, emergency stop, restart, abort,
     window expiry). Deviations in plan section 8 (7-J).
+  - Review fixes (CS F1-F4): a re-test judges X2 as for an unverified limit while the window
+    is open or its limit is held; `confirm` stops when something else ended the procedure
+    during the write and `_finish` is idempotent; the export chain waits only from the write
+    on; a window cannot be re-opened (no extension past 600 s).
+  - **Behaviour change (for the release notes, plan WP15):** a stored `inverter` section with
+    `limit_verified: true` but no `verified_identity` (written by a hand edit or an import
+    before 7-J; the panel never set it) counts as **unverified** after the update, so the
+    inverter limit is capped at assisted until the verification test passes. Release notes
+    text: en "Inverter limit: run the verification test again after updating; a flag set by
+    hand is no longer trusted and the limit runs at most in assisted mode until the test
+    passes." de "Wechselrichter-Limit: Führe nach dem Update den Verifikationstest erneut aus;
+    ein von Hand gesetztes Flag gilt nicht mehr, und das Limit läuft höchstens assistiert, bis
+    der Test bestanden ist."
 - **Phase 7 - PR 7-G, Settings and wizard (frontend; branch `phase-7/g-settings`, on 7-F;
   `frontend-engineer`)** - review stop 2; stores, API calls, validation and step ids unchanged:
   - Settings: an index of five groups (Your system, Devices, Goals and operating mode, Home

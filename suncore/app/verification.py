@@ -209,6 +209,16 @@ class InverterVerification:
         return self.phase not in TERMINAL_PHASES
 
     @property
+    def holds_inverter(self) -> bool:
+        """The test limit is being written, held or given back: the export chain waits (CS F3;
+        while checking and waiting for the confirmation the chain runs as usual)."""
+        return self.phase in (
+            VerificationPhase.WRITING,
+            VerificationPhase.OBSERVING,
+            VerificationPhase.RELEASING,
+        )
+
+    @property
     def window(self) -> VerificationWindow | None:
         return self._window
 
@@ -341,7 +351,7 @@ class InverterVerification:
         log.info("verify.started")
         return ()
 
-    async def confirm(self) -> Decision | None:  # noqa: PLR0911 - one return per verdict
+    async def confirm(self) -> Decision | None:  # noqa: PLR0911, PLR0915 - one return per verdict
         """The user confirmed the proposed test limit: open the window and submit it.
 
         Returns the gate's decision (``None`` = not in the ``ready`` phase, nothing submitted).
@@ -399,9 +409,14 @@ class InverterVerification:
         except Exception:
             log.exception("verify.submit_failed")
             self._busy = False
-            await self._fail(Reason(key="safety.write_failed"))
+            if self.phase is VerificationPhase.WRITING:
+                await self._fail(Reason(key="safety.write_failed"))
             return None
         self._busy = False
+        if self.phase is not VerificationPhase.WRITING:
+            # Ended while the gate judged the write (stack stopped, connection lost): that path
+            # already finished the procedure and its gate releases; nothing more to do (CS F2).
+            return decision
         if self._abort_requested:
             await self._abort_now(Reason(key="verify.aborted"))
             return decision
@@ -643,6 +658,10 @@ class InverterVerification:
             self._stack.gate.close_verification_window(self._window.id)
 
     def _finish(self, outcome: VerificationPhase, reason: Reason | None) -> None:
+        if not self.active:
+            # Idempotent (CS F2): a second end never stores a second record or resets the flag.
+            log.debug("verify.finish_ignored", outcome=outcome.value, phase=self.phase.value)
+            return
         self._close_window()
         self.phase = outcome
         self.reasons = () if reason is None else (reason,)

@@ -298,3 +298,52 @@ def test_the_window_is_never_persisted() -> None:
 
     assert not any("window" in name for name in DeviceRuntime.model_fields)
     assert not any("window" in name for name in dir(MemoryRuntimeStore))
+
+
+# --- review findings (CS F1, F4) -------------------------------------------------------------
+
+
+async def test_a_retest_of_a_verified_adapter_judges_x2_as_unverified_for_the_write() -> None:
+    """CS F1: a re-test questions the stored semantics, so X2 reads the limit as an AC limit."""
+    r = rig(mode=ASSISTED, verified=True)
+    r.at(headroom_w=2000.0)
+    low = InverterLimitAction(max_export_w=1000.0)  # below house 1.5 kW + 500 W
+    assert r.gate.open_verification_window(replace(make_window(r), lowest=low)) is None
+    assert "safety.inverter_may_cause_import" in keys(await submit_user(r, low))
+    assert r.inverter.applied == []
+
+
+async def test_a_retest_of_a_verified_adapter_ends_the_lease_through_x2_on_a_load_rise() -> None:
+    r = rig(mode=ASSISTED, verified=True)
+    r.at(headroom_w=2000.0)
+    await accepted_under_window(r)
+    r.at(headroom_w=2000.0, house_w=5500.0)  # needs 6 kW, the test limit is 5 kW
+    decisions = await r.tick(5.0)
+    assert any("safety.inverter_may_cause_import" in keys(d) for d in decisions)
+    assert r.inverter.released == [BASE_W]
+
+
+async def test_without_a_window_a_verified_export_limit_keeps_its_lease_on_a_load_rise() -> None:
+    """The contrast to the test above: outside a re-test a verified export limit is trusted."""
+    r = rig(mode=ASSISTED, verified=True)
+    r.at(headroom_w=0.0)
+    proposal = await r.submit(TEST_LIMIT)
+    assert proposal.kind is DecisionKind.PROPOSED
+    assert (await r.gate.confirm(proposal.intent.id)) is not None
+    assert r.inverter.applied == [TEST_LIMIT]
+    r.at(headroom_w=0.0, house_w=5500.0)
+    await r.tick(5.0)
+    assert r.inverter.released == []
+
+
+async def test_a_window_cannot_be_reopened_to_extend_it() -> None:
+    """CS F4: the same id again would push the expiry past 600 s after the first opening."""
+    r = verify_rig()
+    assert r.gate.open_verification_window(make_window(r, length=500.0)) is None
+    r.clock.advance(400.0)
+    reason = r.gate.open_verification_window(make_window(r, length=500.0))
+    assert reason is not None
+    assert reason.key == "safety.verification_window_busy"
+    window = r.gate.verification_window
+    assert window is not None
+    assert window.length == timedelta(seconds=500)

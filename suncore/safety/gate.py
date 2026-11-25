@@ -1526,6 +1526,10 @@ class SafetyGate:
         its origin and id; a lease renewal has none and is never waived)."""
         config = self._inverter
         assert config is not None
+        if config.verified and (self._window is not None or self._window_held is not None):
+            # A verification re-test questions the stored semantics: X2 reads the limit as an
+            # AC limit again, for the test write and for the lease of what it wrote (CS F1).
+            config = replace(config, verified=False)
         live, inputs = self._inverter_live(now)
         return InverterContext(
             requested=requested,
@@ -1579,7 +1583,8 @@ class SafetyGate:
         if not window.active(now):
             return REASON_VERIFY_WINDOW_INVALID
         current = self._window
-        if current is not None and current.active(now) and current.id != window.id:
+        if current is not None and current.active(now):
+            # Also the same id: re-opening would extend a window past its 600 s (CS F4).
             return REASON_VERIFY_WINDOW_BUSY
         self._window = window
         log.info(
