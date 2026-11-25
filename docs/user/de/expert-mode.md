@@ -44,7 +44,7 @@ lesen nur.
 ## 4. Parameter-Referenz
 
 Die vollständige, generierte Liste ist die
-[Parameter-Referenz](../../reference/parameters.de.md) ([English](../../reference/parameters.md)):
+[Parameter-Referenz](reference/parameters.md):
 Einheit, Standard, Bereich, Sicherheits-Markierung und Hilfetext jedes Parameters. Sie wird aus
 dem Register im Code erzeugt. Ist sie falsch, ist der Code falsch, nicht die Seite.
 

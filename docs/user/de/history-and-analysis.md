@@ -5,7 +5,7 @@ einen Tag, eine Woche, einen Monat oder ein Jahr. Sie liest die gemessenen Viert
 SunCore speichert, und funktioniert deshalb auch im Schattenmodus. Sie ändert nichts an deinen
 Geräten.
 
-![Verlauf auf einem Tablet](../../assets/screenshots/history-tablet-light-de.png)
+![Verlauf auf einem Tablet](../assets/screenshots/history-tablet-light-de.png)
 
 ## 1. Zeitraum wählen
 

@@ -4,7 +4,7 @@ The **Plan** view shows what SunCore intends for the next 24 or 48 hours and, si
 that compares with what was measured. This page covers what is new. For what the planner does,
 see [Planning and battery control](planning-and-battery.md).
 
-![Plan view on a tablet](../../assets/screenshots/plan-tablet-light-en.png)
+![Plan view on a tablet](../assets/screenshots/plan-tablet-light-en.png)
 
 ## 1. What you see
 

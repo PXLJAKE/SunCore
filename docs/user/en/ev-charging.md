@@ -32,7 +32,7 @@ assisted, whatever you set. For the vehicle enter the battery capacity (needed f
 the charging efficiency (default 90 %, the losses between wall and battery).
 
 No integration template has been checked against its source yet; only the generic one exists
-(see the limits). Check the [compatibility list](../compatibility.md).
+(see the limits). Check the [compatibility list](compatibility.md).
 
 ## 2. Charging modes
 

@@ -24,7 +24,7 @@ by default, set up in minutes.**
 > [Surplus control](docs/user/en/surplus-control.md), the [roadmap](docs/roadmap.md) and
 > [status](docs/STATUS.md).
 
-![SunCore "Now" view: live energy flow between solar, grid, battery and house](docs/assets/screenshots/now-tablet-light-en.png)
+![SunCore "Now" view: live energy flow between solar, grid, battery and house](docs/user/assets/screenshots/now-tablet-light-en.png)
 
 *Screenshot from the built-in demo mode (simulated data).*
 
@@ -85,11 +85,13 @@ young: see the roadmap.
   [Plan-Diagramm](docs/user/de/plan-chart.md)
 - [Expert mode](docs/user/en/expert-mode.md) ·
   [Expertenmodus](docs/user/de/expert-mode.md) ·
-  [Parameter reference](docs/reference/parameters.md) (generated)
+  [Parameter reference](docs/user/en/reference/parameters.md) ·
+  [Parameter-Referenz](docs/user/de/reference/parameters.md) (generated)
 - [What-if and backtesting](docs/user/en/what-if-and-backtesting.md) ·
   [Was-wäre-wenn und Backtest](docs/user/de/what-if-and-backtesting.md)
 - [Contribute a device template](docs/user/en/device-templates.md) ·
-  [Compatibility list](docs/user/compatibility.md)
+  [Compatibility list](docs/user/en/compatibility.md) ·
+  [Kompatibilitätsliste](docs/user/de/compatibility.md)
 - [Roadmap](docs/roadmap.md) · [Status](docs/STATUS.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) ·
   [Code of Conduct](CODE_OF_CONDUCT.md)

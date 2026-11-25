@@ -20,7 +20,7 @@ the next 48 hours and can set limits on your home battery:
   Octopus Energy, Solcast, Forecast.Solar, Open-Meteo Solar Forecast, battery
   adapters for generic entities and Kostal Plenticore, regions) with a gallery;
   see the
-  [compatibility list](https://github.com/pxljake/suncore/blob/main/docs/user/compatibility.md).
+  [compatibility list](https://github.com/pxljake/suncore/blob/main/docs/user/en/compatibility.md).
 - **Forecasts**: several solar forecast sources blended by their measured
   accuracy, a bias calibration that becomes active after 30 days, clipping
   recognised, a load forecast learnt from Home Assistant's statistics (base
@@ -129,7 +129,7 @@ are understood; other units are rejected rather than guessed.
 - **Expert mode** (header switch, off by default) exposes every parameter with
   its range inside the safety limits, see the
   [Expert mode guide](https://github.com/pxljake/suncore/blob/main/docs/user/en/expert-mode.md) and the
-  [parameter reference](https://github.com/pxljake/suncore/blob/main/docs/reference/parameters.md).
+  [parameter reference](https://github.com/pxljake/suncore/blob/main/docs/user/en/reference/parameters.md).
 - **What-if** replays the real planner over past days with other battery or
   tariff settings (expert mode):
   [What-if and backtesting](https://github.com/pxljake/suncore/blob/main/docs/user/en/what-if-and-backtesting.md).

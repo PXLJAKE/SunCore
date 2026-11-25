@@ -10,7 +10,7 @@ hand (`uv run python scripts/gen_schemas.py`; CI fails on drift).
 
 Step-by-step guide for contributors: [Contribute a device
 template](../docs/user/en/device-templates.md); generated list of what exists:
-[compatibility list](../docs/user/compatibility.md) (`scripts/gen_compat.py`, CI fails on
+[compatibility list](../docs/user/en/compatibility.md) (`scripts/gen_compat.py`, CI fails on
 drift).
 
 ## Built-in templates

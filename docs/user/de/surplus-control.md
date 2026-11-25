@@ -118,7 +118,7 @@ Ein Gerät handelt im **niedrigeren** von Gesamtmodus und eigenem Modus. Automat
 Automatik gestellt. Jedes neue Gerät startet im Schattenmodus. Der Einrichtungsschritt setzt nur
 den Gesamtmodus; die Modi der Geräte änderst du in der Ansicht **Jetzt**.
 
-![Ansicht Jetzt: Überschuss-Karte und eine Karte je Gerät mit Modus-Umschalter](../../assets/screenshots/now-tablet-light-de.png)
+![Ansicht Jetzt: Überschuss-Karte und eine Karte je Gerät mit Modus-Umschalter](../assets/screenshots/now-tablet-light-de.png)
 
 - **Assistierte Vorschläge** erscheinen unter **Vorschläge warten auf dich**. **Bestätigen**
   führt die Aktion jetzt aus (sie muss trotzdem die Sicherheitsprüfungen bestehen und kann mit
@@ -276,7 +276,7 @@ wird.
 
 Die Schaltfläche **Not-Aus** steht in der Kopfzeile jeder Ansicht, ein Klick, keine Rückfrage:
 
-![Not-Aus aktiv: Banner, pausierte Geräte, Schaltfläche „Zurück zum Normalbetrieb“](../../assets/screenshots/estop-tablet-light-de.png)
+![Not-Aus aktiv: Banner, pausierte Geräte, Schaltfläche „Zurück zum Normalbetrieb“](../assets/screenshots/estop-tablet-light-de.png)
 
 - Jedes gesteuerte Gerät wird innerhalb von 10 Sekunden zurückgegeben, und SunCore **schreibt
   nichts**, bis du den Not-Aus beendest.
@@ -307,7 +307,7 @@ Jede Gerätekarte hat **Warum?** mit den letzten Gründen in Klartext, etwa „W
 Mindestlaufzeit, noch 240 s“ oder „Nicht eingeschaltet: 1200 W nötig, nur 800 W sicherer
 Überschuss“, und die **Letzte Entscheidung**. Die Gründe stehen in deiner Sprache.
 
-![Entscheidungsprotokoll mit Filtern](../../assets/screenshots/decisions-tablet-light-de.png)
+![Entscheidungsprotokoll mit Filtern](../assets/screenshots/decisions-tablet-light-de.png)
 
 Das **Entscheidungsprotokoll** (Ansicht **Entscheidungen**) listet, was SunCore entschieden hat,
 neueste zuerst (bis zu 200 Einträge, Zeiten in deiner Zeitzone), und lässt sich nach Gerät und
@@ -393,10 +393,10 @@ anhand von Belegen, nicht aus Hoffnung.
   EMHASS und Predbat optimieren die Batterie über die Zeit, mit jahrelanger Praxis; SunCores
   Planer ist neu und an
   Hardware unerprobt. Was SunCore bietet, ist eine App mit Sicherheitsschicht, Schattenmodus und
-  einer Begründung zu jeder Entscheidung; siehe die [Roadmap](../../roadmap.md).
+  einer Begründung zu jeder Entscheidung; siehe die [Roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 Siehe auch: [Schnellstart](quick-start.md), [Planung und Akkusteuerung](planning-and-battery.md),
 [Home-Assistant-Entitäten](home-assistant-entities.md), [Benachrichtigungen](notifications.md),
 [Netzgrenzen](grid-limits.md), [E-Auto laden](ev-charging.md), [Wärmepumpe](heat-pump.md),
 [Programme](programs.md), [Gerätevorlage beitragen](device-templates.md),
-[Kompatibilitätsliste](../compatibility.md).
+[Kompatibilitätsliste](compatibility.md).

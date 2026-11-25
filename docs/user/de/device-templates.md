@@ -9,11 +9,12 @@ dann deine Entitäten nach den Rollen und füllt das Formular aus.
 
 Dieser Leitfaden behandelt Gerätevorlagen im Detail; Tarif-, Prognose- und
 Regionsvorlagen haben denselben Kopf. Maßgeblich ist
-[`templates/README.md`](../../../templates/README.md) (englisch) mit der
-Kompatibilitätsregel für das Schema; der Entwurf steht in
-[ADR-0006](../../adr/0006-template-and-plugin-system.md) und
-[ADR-0012](../../adr/0012-template-schema-v1.md). Vorhandene Vorlagen findest
-du in der generierten [Kompatibilitätsliste](../compatibility.md)
+[`templates/README.md`](https://github.com/pxljake/suncore/blob/main/templates/README.md)
+(englisch) mit der Kompatibilitätsregel für das Schema; der Entwurf steht in
+[ADR-0006](https://github.com/pxljake/suncore/blob/main/docs/adr/0006-template-and-plugin-system.md)
+und
+[ADR-0012](https://github.com/pxljake/suncore/blob/main/docs/adr/0012-template-schema-v1.md).
+Vorhandene Vorlagen findest du in der generierten [Kompatibilitätsliste](compatibility.md)
 (englisch).
 
 Sei ehrlich dazu, was du geprüft hast. Eine Vorlage mit dem Vermerk „nicht
@@ -25,7 +26,7 @@ getestet“ ist willkommen; eine, die so tut, nicht.
   Integration, oder einen Auszug aus Entwicklerwerkzeuge → Zustände mit den
   Entitäten (Attribute eingeschlossen).
 - Ein Checkout des Repositorys und `uv sync --all-groups` (siehe
-  [CONTRIBUTING.md](../../../CONTRIBUTING.md)).
+  [CONTRIBUTING.md](https://github.com/pxljake/suncore/blob/main/CONTRIBUTING.md)).
 - Erfinde nie Entitäts-IDs, Attribute, Dienste oder Register. Alles in der
   Vorlage muss aus dem Quellcode der Integration, einem Herstellerdokument
   oder deinem eigenen Gerät stammen.
@@ -175,7 +176,7 @@ Eintrag.
   einem echten Home Assistant betrieben hast.
 - Ist `tested_with` leer, muss `unverified` aufführen, was du nicht prüfen
   konntest. Die Anzahl erscheint auch in der
-  [Kompatibilitätsliste](../compatibility.md). Der Assistent zeigt Vorlagen
+  [Kompatibilitätsliste](compatibility.md). Der Assistent zeigt Vorlagen
   ohne `tested_with` mit dem Hinweis „Nicht an echter Hardware geprüft“ an.
 - Entferne einen `unverified`-Eintrag nur, wenn du genau diese Tatsache
   geprüft hast.

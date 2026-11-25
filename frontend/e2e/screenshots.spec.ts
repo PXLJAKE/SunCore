@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Documentation screenshots from the real demo mode (simulator, scenario summer_day, demo
 // started at 09:30 by playwright.config.ts). Nothing is mocked.
-// Run: SCREENSHOTS_DIR=../docs/assets/screenshots npx playwright test screenshots
+// Run: SCREENSHOTS_DIR=../docs/user/assets/screenshots npx playwright test screenshots
 import { expect, test } from '@playwright/test';
 import { resetDemo, STEP_IDS } from './helpers';
 

@@ -5,7 +5,7 @@ reasons. The **Decision log** in the header lists them, and **Why?** explains on
 together with what the system knew at that moment. This works in shadow mode as well: the
 entries then say what SunCore *would* have done.
 
-![Decision log on a tablet](../../assets/screenshots/decisions-tablet-light-en.png)
+![Decision log on a tablet](../assets/screenshots/decisions-tablet-light-en.png)
 
 ## 1. Filter the list
 

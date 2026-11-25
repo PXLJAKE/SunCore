@@ -4,7 +4,7 @@ The **History** view answers "what did my house do, and what did SunCore save me
 a week, a month or a year. It reads the measured quarter hours that SunCore stores, so it works
 in shadow mode too. It never changes anything on your devices.
 
-![History view on a tablet](../../assets/screenshots/history-tablet-light-en.png)
+![History view on a tablet](../assets/screenshots/history-tablet-light-en.png)
 
 ## 1. Choose a period
 
