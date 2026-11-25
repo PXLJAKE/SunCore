@@ -20,7 +20,8 @@ depth. **Info** needs no change.
 
 Status: **fixed** means fixed in this branch. **needs control-safety** means it touches a command
 path; a proposal is below and nothing was changed (SEC-13, SEC-15 and SEC-16 had this status and
-were then fixed with the `control-safety` sign-off in plan section 8, 7-O). **open** means a proposal for a later PR.
+were then fixed with the `control-safety` sign-off in plan section 8, 7-O). **open** means a
+proposal for a later PR.
 **accepted** is explained in "Accepted risks". **verified** means it was checked and nothing was
 found.
 
