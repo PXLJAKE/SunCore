@@ -47,8 +47,10 @@ Wärmepumpen und Klimageräte werden so nie abgeschaltet. Ein laufendes verschie
 wird nie abgeschaltet (siehe [Programme](programs.md)). Verringern ist immer erlaubt; geprüft
 wird nur das Erhöhen.
 
-Den Abwurf-Rang je Gerät kannst du im Panel noch nicht eintragen; setze bei Bedarf `shed_rank`
-in der Gerätekonfiguration (Import).
+Die Reihenfolge stellst du je Gerät unter **Einstellungen → Geräte → Netzschutz je Gerät** im
+Feld **Abschaltreihenfolge (Shed-Rang)** ein: eine ganze Zahl von 0 bis 10.000, die niedrigste
+Zahl geht zuerst. Leer lassen gilt die umgekehrte Priorität. Ein falscher Wert (zum Beispiel über
+10.000) wird mit einer Meldung am Feld abgelehnt, es wird nichts gespeichert.
 
 ### §14a EnWG (Deutschland)
 
@@ -58,8 +60,9 @@ das Signal aktiv ist, teilen sich die für §14a markierten Geräte die erlaubte
 **4200 W**, der gesetzliche Richtwert) in Prioritätsreihenfolge. SunCore protokolliert, zeigt das
 Badge **§14a-Begrenzung aktiv** und hält die markierten Geräte unter dem Budget.
 
-- Ein Gerät nimmt nur teil, wenn es in seiner Konfiguration mit `para14a` markiert ist. Der
-  Geräte-Editor hat dafür noch kein Kontrollkästchen.
+- Ein Gerät nimmt nur teil, wenn es markiert ist: **Einstellungen → Geräte → Netzschutz je
+  Gerät**, **Steuerbare Verbrauchseinrichtung nach §14a EnWG** aktivieren (Wallbox, Wärmepumpe
+  oder Klimaanlage über 4,2 kW, die dein Netzbetreiber dimmen darf).
 - **Unbekanntes Signal** (die Entität ist nicht verfügbar): markierte Geräte werden eingefroren,
   nichts wird erhöht. **Keine Signal-Entität** zählt als „nicht aktiv“, mit Hinweis.
 - Nach dem Ende der Begrenzung gibt es eine Abklingzeit (120 s), bevor wieder etwas erhöht wird.
@@ -82,7 +85,11 @@ sie meldet. `unavailable` und `unknown` werden abgelehnt.
   120 s.
 - Eine nicht verfügbare Entität zählt als **Netz verbunden**, das Panel zeigt „Netzzustand
   unbekannt“.
-- Die Behalte-Liste (`keep_devices`) hat im Panel noch kein Feld.
+- Die Behalte-Liste steht unter **Einstellungen → Geräte → Geräte im Notstrombetrieb
+  behalten**. Sie braucht die Entität für den Notstromzustand von oben; ohne sie weist die Seite
+  darauf hin. Behalte nur, was bei einem Stromausfall wirklich Strom braucht: SunCore schaltet
+  ein Gerät auf der Liste im Inselbetrieb nie ab, Batterie und Wechselrichter müssen es tragen
+  können.
 - `UNVERIFIED`: welche Entität und welche Zustände ein Kostal BackUp Switch G3 zeigt. Der
   Simulator nutzt `island` und `on_grid`.
 

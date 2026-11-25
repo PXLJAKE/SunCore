@@ -44,6 +44,21 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-Q, Phase 6 fields in Settings (frontend only; branch
+  `phase-7/q-phase6-fields`, on 7-J; `frontend-engineer`, **CS** read of the field semantics)** -
+  no backend change, the fields and ranges are the backend's own:
+  - Settings -> Devices: per device `para14a` (checkbox) and `shed_rank` (integer 0-10,000, empty =
+    reverse priority) in one card, saved with the whole `devices` section (`PUT`); the island keep
+    list (`grid.backup.keep_devices`) as a checkbox list, saved with the `site` section, only
+    while a backup entity is configured.
+  - Settings -> Home Assistant: the manual MQTT broker (`broker`, `host`, `port` 1-65,535, `tls`,
+    `username`, `password`); the password is write-only (never filled from the API, an empty
+    field sends the mask so the stored secret is kept, "Remove" sends none).
+  - Validation errors of the backend (422) show at the field; strings in `p6.*` (en, de).
+  - Bundle: standard path 247.5 -> 252.4 kB, **over the 250 kB budget by 2.4 kB** (see plan
+    section 8, 7-Q); first paint 122.7 -> 123.8 kB, expert extras unchanged.
+  - Screenshots `docs/assets/screenshots/7q/`; user pages `grid-limits.md` and
+    `home-assistant-entities.md` (en, de) updated.
 - **Phase 7 - PR 7-J, inverter limit verification (WP8, ADR-0018 addendum; branch
   `phase-7/j-inverter-verify`, on 7-G; `control-safety`, **CS**)** - no new writer:
   - `core/verification.py`: `VerificationWindow` (id, opened, expiry at most 600 s, lowest
@@ -84,7 +99,7 @@ Carried to Phase 7: see "Open - Phase 7".
   - Bundle: one lazy chunk per wizard stage instead of per step, the settings pages in the one
     Settings chunk, backend-only messages left out of the browser catalogues
     (`scripts/backend-only.mjs`). Phase 6 panel fields (`para14a`, `shed_rank`, island keep
-    list, manual broker) are not in this PR (question 2 in `review-7g.md`).
+    list, manual broker) are not in this PR (question 2 in `review-7g.md`); 7-Q adds them.
   - Screenshots `docs/assets/screenshots/{before-7g,after-7g}/`; deviations in plan section 8
     (7-G); six questions in `review-7g.md`.
 - **Phase 7 - PR 7-F, Plan and Analysis (frontend; branch `phase-7/f-plan-analysis`, on 7-E;
@@ -1415,10 +1430,10 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   HA **commands** for EV mode, target, program arming, comfort band and the battery settings
   (with the author `mqtt` in the config history; needs a `control-safety` review, plan section 8,
   6-O); a push for a target the plan meets but the controller later misses.
-- **Panel gaps:** per-device `para14a` flag,
-  `shed_rank` and the island keep list, evcc `loadpoint_id` and `topic_prefix`, a manual MQTT
-  broker, COP at the current weather on the heat pump card, bundle budget (first paint 123.5 of
-  125 kB: move more wizard steps out).
+- **Panel gaps:** COP at the current weather on the heat pump card, bundle budget (7-Q: standard
+  path 252.4 of 250 kB, needs a maintainer decision or savings elsewhere). The per-device
+  `para14a` flag, `shed_rank`, the island keep list and the manual MQTT broker are in the panel
+  since 7-Q.
 - **Behaviour decisions deferred:** hard target at any price for the EV (the late-car scenario
   stops at about 77 % of 80 %), grid pre-heating execution, `generic.heat_pump_select`, a
   `button.press` remote start, a plan clear for evcc, resetting evcc's mode at unplugging.

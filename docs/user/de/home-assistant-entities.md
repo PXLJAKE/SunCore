@@ -27,9 +27,12 @@ Benutzername oder falsches Passwort, TLS-Fehler, keine Antwort; die Seite nennt 
 Systemcheck am Ende des Einrichtungsassistenten hat dafür ebenfalls eine Zeile.
 
 Einen anderen Broker als die Mosquitto-App (oder einen außerhalb von Home Assistant OS) richtest
-du mit `broker: manual` (Host, Port, TLS, Benutzername, Passwort) im Abschnitt `mqtt` der
-Konfiguration ein. Das Panel hat dafür noch keine Felder (siehe Grenzen unten). Das Passwort wird
-als Geheimnis gespeichert und in der API, in Exporten und im Konfigurationsverlauf maskiert. Die
+du unter **Einstellungen → Home Assistant → MQTT-Broker** ein: **Eigener Broker** wählen und Host,
+Port (1 bis 65.535), TLS, Benutzername und Passwort eintragen. Ein manueller Broker braucht einen
+Host, ein Passwort braucht einen Benutzernamen; sonst zeigt die Seite die Ablehnung und speichert
+nichts. Das Passwort ist nur beschreibbar: die Seite zeigt es nie an. Feld leer lassen behält das
+gespeicherte, eine Eingabe ersetzt es, **Gespeichertes Passwort entfernen** löscht es. Es wird als
+Geheimnis gespeichert und in der API, in Exporten und im Konfigurationsverlauf maskiert. Die
 Schaltfläche **Erneut veröffentlichen** meldet alle Entitäten noch einmal an.
 
 Die Entitäten werden `unavailable`, wenn SunCore stoppt (der Broker veröffentlicht SunCores
@@ -110,7 +113,6 @@ Schutzmaßnahmen, alle getestet:
   Phase 7. Bis dahin nimmst du dafür das Panel. Das Event-Entity feuert nur für ein geschaltetes Gerät,
   einen Vorschlag und einen Fehler. Konfigurationsänderungen aus Home Assistant (und damit ein
   Urheber `mqtt` im Konfigurationsverlauf) gibt es nicht.
-- Einen manuellen Broker kannst du im Panel noch nicht eintragen; nimm den Abschnitt `mqtt`.
 - Ein Erhöhen eines Geräts aus Home Assistant trägt die aktuelle Identitätsmarke des Geräts, der
   Schutz vor einem umgeordneten Gerät greift dort also nicht. Nur die Freigabe schützt.
 - Wer Zugangsdaten für den Broker hat, kann SunCore stoppen, Geräte pausieren und Modi

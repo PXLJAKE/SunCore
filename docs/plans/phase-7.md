@@ -569,6 +569,7 @@ Frontend PRs attach before/after screenshots.
 | 7-N `test,ci` release readiness | WP13 | 7-C; final runs after 7-J | `qa-engineer`, `ha-integration` (Sonnet) | – |
 | 7-O `docs(security)` security review and fixes | WP14 | 7-E … 7-N | `reviewer` (Fable), `control-safety` | **CS** for command-path fixes |
 | 7-P `docs` screenshots, STATUS, final review, release | WP15 | all, acceptance §6 | `docs-writer`, `reviewer` (Fable), maintainer | final CS read of 7-J, 7-K |
+| 7-Q `feat(frontend)` Phase-6 fields in Settings | WP5 follow-up (question 2 of review-7g) | 7-J | `frontend-engineer` (Sonnet) | CS read (fields feeding G1–G6) |
 
 ```text
 7-A ─► 7-B ─► 7-C ─► 7-D ─┬► 7-E ─┐
@@ -1130,6 +1131,36 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - **Simulator:** the limiter got physical semantics (an export limit caps export, an AC limit
   caps the AC output, so export = AC − house − AC-coupled charging) and an `inert` mode; the
   house model got timed load events. Two bundled scenarios, 14 scenario tests.
+
+### 7-Q Phase-6 fields
+
+- Based on `phase-7/j-inverter-verify`. Frontend only; answers question 2 of `review-7g.md`
+  (7-G left these fields out because they feed G1-G6).
+- **Fields exactly as the backend models them:** `DeviceConfig.para14a` (bool, default false),
+  `DeviceConfig.shed_rank` (int 0-10,000 or none = reverse priority, ADR-0018 decision 2),
+  `BackupConfig.keep_devices` (device ids, unique, not reference-checked by the backend) and
+  `MqttConfig` (`broker` supervisor or manual, `host`, `port` 1-65,535 default 1883, `tls`,
+  `username`, `password`). Nothing was added to the backend or the API.
+- **Where the writes go:** devices and keep list through the existing `PUT` of the whole
+  `devices` and `site` sections (the stored section with only these fields changed, so the
+  config store validates and versions as always); MQTT through `PUT /config/mqtt`. A change of
+  `para14a` or `shed_rank` is not part of the device identity: the mode of a device stays.
+- **The island keep list belongs to `grid.backup`:** without a backup entity there is nothing to
+  attach it to, so the card explains that and offers no save. Ids of devices that no longer exist
+  stay in a stored list untouched (the card does not list them and cannot drop them).
+- **Password is write-only:** the API returns the mask `**********`; the form never takes the
+  stored value. Empty field = send the mask (the backend keeps the secret), typed = replace,
+  "Remove the stored password" = send none. The page and the saved form hold no secret
+  (e2e checks the page content).
+- **Supervisor broker:** saving it sends no host, user or password (the backend refuses extras).
+- **Dropped for the budget:** a live preview of the resulting shed order and the listing of
+  unknown keep ids.
+- **Bundle: over budget.** Standard path 247.5 -> 252.4 kB (budget 250), first paint 122.7 ->
+  123.8 kB, expert extras 25.5 kB unchanged. The new code is about 3.4 kB gzip in the Settings
+  chunk and 1.0 kB in the German catalogue; it cannot go into a lazy chunk because the standard
+  path counts every chunk. Options for the maintainer: raise the standard budget by 5 kB, or
+  free 2.4 kB elsewhere. The budget script is unchanged in this PR.
+- **UNVERIFIED:** nothing new; the §14a limit and signal convention stay as in 6-F.
 
 ## 9. Follow-ups per agent
 
