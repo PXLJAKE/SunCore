@@ -869,6 +869,25 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - The program profile of a running job changed from "cut at the quarter boundary" to the exact
   resampling; `tests/planner/test_flex.py::test_jobs_running_ignored_and_without_job` was
   adjusted to the exact values.
+- Review follow-ups (independent `control-safety` review of PR #72, approved):
+  - F1: the late-plan property also draws grid limits (fuse, peak shaving, §14a), a program
+    job armed at `now` (a start in slot 0 books the whole run, nothing before `now`) and a heat
+    pump; a property test of `flex.profile_from` (energy exact, never above the profile's
+    maximum, the whole run covered); the job-end check of
+    `test_full_house_meets_deadlines_with_binaries` uses the production rule
+    `max(now, starts[k]) + runtime`; the simulator SoC asserts have an upper bound (target + 2
+    points).
+  - F2: `profile_from` no longer drops trailing zero-power slots. A running job in a soak phase
+    stays in the plan with PREFER_ON until its runtime is over, as before 7-K (test
+    `test_a_running_job_in_a_zero_power_phase_stays_in_the_plan`).
+  - F3: `app.planning.planned_soc_at` interpolates slot 0 from `plan.created_at` (clamped to
+    the interval) to the interval's end, matching the planner's accounting. This is in `app/`,
+    not in `controller/` or `safety/`.
+  - I1: EV grid power carries a tie-breaker `1e-5 * t / n` per kWh (`EV_GRID_EARLY_PER_KWH`):
+    at equal prices the earliest slots win, so replans keep their slots. In the flat night
+    window of `ev_arrives_late` HiGHS already chose the same slots without it; the new test
+    `test_ev_grid_slots_do_not_shift_between_replans_at_flat_prices` therefore guards the
+    behaviour, it does not prove that the tie-breaker is needed.
 
 ## 9. Follow-ups per agent
 

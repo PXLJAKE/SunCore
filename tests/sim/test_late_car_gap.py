@@ -106,13 +106,13 @@ def test_no_plan_books_the_elapsed_part_of_its_first_slot(harness_cadence: Run) 
 
 def test_the_late_car_reaches_80_percent_at_the_harness_cadence(harness_cadence: Run) -> None:
     _, runner, _ = harness_cadence
-    assert ev.wallbox(runner).soc_pct >= TARGET_SOC_PCT - 1.0
+    assert TARGET_SOC_PCT - 1.0 <= ev.wallbox(runner).soc_pct <= TARGET_SOC_PCT + 2.0
 
 
 def test_the_late_car_reaches_80_percent_when_plans_are_fresh(service_cadence: Run) -> None:
     """With the plan made at quarter + offset the same controller meets the target."""
     result, runner, plans = service_cadence
-    assert ev.wallbox(runner).soc_pct >= TARGET_SOC_PCT - 1.0
+    assert TARGET_SOC_PCT - 1.0 <= ev.wallbox(runner).soc_pct <= TARGET_SOC_PCT + 2.0
     for plan in plans[1:]:
         assert plan.created_at is not None
         late_s = (plan.created_at - plan.intervals[0].start).total_seconds()

@@ -302,7 +302,7 @@ def test_the_late_car_reaches_its_target_in_the_cheap_hours(
     sim = wallbox(runner)
     # Within 1 point of the 80 % target (7-K; before, the plan booked the elapsed part of its
     # first slot and the car ended at ~77 %, docs/research/late-car-gap.md).
-    assert sim.soc_pct >= 79.0
+    assert 79.0 <= sim.soc_pct <= 82.0  # met, and not overcharged beyond the target + 2
     power = result.devices["wallbox"].power_w
     assert all(w == 0 for w in power[: at(result, 1800)])  # not before it arrives
     charging = [result.steps[i].t for i, w in enumerate(power) if w > 0]
@@ -350,7 +350,7 @@ def test_late_plans_still_bring_the_car_to_its_target(
     for plan in late:
         assert plan.created_at is not None
         assert (plan.created_at - plan.intervals[0].start).total_seconds() == pytest.approx(LATE_S)
-    assert wallbox(runner).soc_pct >= 79.0
+    assert 79.0 <= wallbox(runner).soc_pct <= 82.0
     power = result.devices["wallbox"].power_w
     for i, w in enumerate(power):
         if w > 0:

@@ -40,6 +40,30 @@ TOL_W = 1.0
 
 
 @st.composite
+def grid_requests(draw: st.DrawFn, export_limit_w: float | None) -> GridRequest | None:
+    """Random grid limits: fuse, peak shaving with a capacity price, §14a (or none)."""
+    if not draw(st.booleans()):
+        return None
+    fuse = draw(st.floats(6_000, 30_000))
+    peak = draw(st.booleans())
+    status = draw(st.sampled_from([None, Para14aStatus.ACTIVE, Para14aStatus.UNKNOWN]))
+    return GridRequest(
+        fuse_limit_w=fuse,
+        peak=PeakShaving(
+            enabled=peak,
+            peak_floor_w=min(fuse, 2_500.0),
+            capacity_price_per_kw_month=draw(st.floats(0, 15)),
+        ),
+        month_peak_w=draw(st.one_of(st.none(), st.floats(0, 12_000))),
+        static_export_limit_w=export_limit_w,
+        para14a=Para14aBudget(Para14aStatus.INACTIVE)
+        if status is None
+        else Para14aBudget(status, 4_200.0 if status is Para14aStatus.ACTIVE else None),
+        para14a_hold=timedelta(minutes=draw(st.sampled_from([15, 60]))),
+    )
+
+
+@st.composite
 def flex_situations(draw: st.DrawFn) -> Situation:
     base = draw(situations())
     now = base.now
@@ -89,25 +113,7 @@ def flex_situations(draw: st.DrawFn) -> Situation:
         )
         band = (20.0, 23.0) if winter else (45.0, 55.0)
         temperatures["heat_pump"] = draw(st.floats(band[0] - 1.0, band[1] + 0.5))
-    grid = None
-    if draw(st.booleans()):
-        fuse = draw(st.floats(6_000, 30_000))
-        peak = draw(st.booleans())
-        status = draw(st.sampled_from([None, Para14aStatus.ACTIVE, Para14aStatus.UNKNOWN]))
-        grid = GridRequest(
-            fuse_limit_w=fuse,
-            peak=PeakShaving(
-                enabled=peak,
-                peak_floor_w=min(fuse, 2_500.0),
-                capacity_price_per_kw_month=draw(st.floats(0, 15)),
-            ),
-            month_peak_w=draw(st.one_of(st.none(), st.floats(0, 12_000))),
-            static_export_limit_w=base.export_limit_w,
-            para14a=Para14aBudget(Para14aStatus.INACTIVE)
-            if status is None
-            else Para14aBudget(status, 4_200.0 if status is Para14aStatus.ACTIVE else None),
-            para14a_hold=timedelta(minutes=draw(st.sampled_from([15, 60]))),
-        )
+    grid = draw(grid_requests(base.export_limit_w))
     flex = FlexRequest(
         ev_states=ev_states,
         ev_live=ev_live,
@@ -162,7 +168,9 @@ def test_flexible_plans_are_feasible_and_never_worse_than_the_heuristic(
 
 @st.composite
 def late_situations(draw: st.DrawFn) -> tuple[Situation, float]:
-    """A random situation with a charging car, planned ``elapsed`` seconds into its quarter."""
+    """A random situation with a charging car, planned ``elapsed`` seconds into its quarter;
+    optionally a program job armed at ``now`` (a start in slot 0 is a start now), a heat pump
+    and grid limits (fuse, peak shaving, §14a)."""
     base = draw(situations())
     quarter = floor_to_step(base.now, PLANNING_STEP).astimezone(base.now.tzinfo)
     elapsed = draw(st.one_of(st.floats(0, 898.0), st.sampled_from([0.0, 450.0, 870.0, 898.0])))
@@ -175,14 +183,36 @@ def late_situations(draw: st.DrawFn) -> tuple[Situation, float]:
         if mode is EvMode.TARGET
         else None
     )
+    devices = [*base.devices, wallbox(para14a=draw(st.booleans()))]
+    jobs = []
+    if draw(st.booleans()):
+        profile = draw(st.lists(st.floats(0, 2_000), min_size=1, max_size=8))
+        devices.append(program("washer", profile))
+        jobs.append(job("washer", now, now + timedelta(hours=draw(st.integers(1, 12)))))
+    winter = not base.summer
+    temperatures: dict[str, float] = {}
+    hp = draw(st.booleans())
+    if hp:
+        devices.append(
+            heat_pump(winter=winter, grid_preheat=draw(st.booleans()), para14a=draw(st.booleans()))
+        )
+        band = (20.0, 23.0) if winter else (45.0, 55.0)
+        temperatures["heat_pump"] = draw(st.floats(band[0] - 1.0, band[1] + 0.5))
     flex = FlexRequest(
         ev_states={
             "wallbox": EvState(device_id="wallbox", mode=mode, target=target, updated_at=now)
         },
         ev_live={"wallbox": EvLive(soc_pct=draw(st.floats(0, 39)), connected=True)},
+        jobs=tuple(jobs),
+        temperatures_c=temperatures,
+        outdoor_c=outdoor(now, winter=winter) if hp else None,
     )
     situation = replace(
-        base, now=now, devices=(*base.devices, wallbox()), flex=flex, grid_limits=None
+        base,
+        now=now,
+        devices=tuple(devices),
+        flex=flex,
+        grid_limits=draw(grid_requests(base.export_limit_w)),
     )
     return situation, (quarter + PLANNING_STEP - now).total_seconds()
 
@@ -196,6 +226,7 @@ def test_the_first_slot_books_no_more_energy_than_its_remaining_time_allows(
     the LP and the heuristic alike; and the plan stays feasible under its own accounting."""
     situation, left_s = case
     inputs = situation_inputs(situation)
+    event(f"grid limits: {inputs.grid is not None}")
     left_h = left_s / 3600.0
     assert inputs.hours[0] == pytest.approx(left_h, abs=1e-12)
     assert all(h == inputs.dt_h for h in inputs.hours[1:])
@@ -207,6 +238,11 @@ def test_the_first_slot_books_no_more_energy_than_its_remaining_time_allows(
         for load, flows in zip(inputs.flex_loads, schedule.flex, strict=True):
             booked = flows.power_w(0) * inputs.hours[0]
             assert booked <= load.max_w[0] * left_h + 1e-6
+            event(f"{load.kind} start 0" if flows.start == 0 else load.kind)
+            if isinstance(load, PlannerJob) and flows.start == 0:
+                # started now: the whole run's energy is booked, none of it before now
+                energy = sum(flows.power_w(t) * inputs.hours[t] for t in range(inputs.n))
+                assert energy == pytest.approx(sum(load.profile_w) * inputs.dt_h, abs=0.5)
         if battery is not None:
             model = battery.model
             stored = schedule.soc_wh[0] - battery.soc_wh

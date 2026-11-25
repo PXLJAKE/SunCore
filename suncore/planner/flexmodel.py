@@ -56,6 +56,10 @@ JOB_MOVE_COST: Final = 1e-3
 """Tie-breaker (currency): a scheduled job keeps its previous start unless another start
 saves more than this, so consecutive plans do not move the start back and forth."""
 TEMP_BOUND_C: Final = 200.0
+EV_GRID_EARLY_PER_KWH: Final = 1e-5
+"""Tie-breaker (currency/kWh, times ``t / n``): at equal prices the EV takes grid energy in
+the earliest slots, so consecutive plans keep the same slots instead of shifting them (7-K
+review I1). Far below any real price step, it never beats a cheaper slot."""
 
 
 class RowSink(Protocol):
@@ -297,7 +301,8 @@ def set_flow_bounds(  # noqa: PLR0917 - the LP arrays
                     limit = min(limit, load.base_w[t] / KW)
                 upper[fl.b(i, t)] = limit
             cost[fl.s(i, t)] = -dt * fe.value[i][t]
-            cost[fl.g(i, t)] = dt * (inputs.import_price[t] + base.autarky)
+            early = EV_GRID_EARLY_PER_KWH * t / fl.n if isinstance(load, PlannerEv) else 0.0
+            cost[fl.g(i, t)] = dt * (inputs.import_price[t] + base.autarky + early)
             cost[fl.b(i, t)] = dt * base.degradation / 2
 
 

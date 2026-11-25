@@ -190,7 +190,9 @@ def planned_soc_at(plan: Plan, now: datetime) -> float | None:
     """The plan's SoC at ``now``: linear between the interval's start and end SoC.
 
     The start SoC of the first interval is the live SoC the run started from
-    (``assumptions[soc_start_pct]``), of the later ones the previous interval's end SoC.
+    (``assumptions[soc_start_pct]``), read at ``plan.created_at``: the planner books slot 0
+    only from then on (7-K, ``planner.slots``), so the line runs from ``created_at`` (clamped
+    to the interval) to its end. Later intervals start at the previous interval's end SoC.
     ``None`` when the plan does not cover ``now`` or has no battery.
     """
     ordered = plan.intervals
@@ -200,16 +202,19 @@ def planned_soc_at(plan: Plan, now: datetime) -> float | None:
         end = None if interval.expected is None else interval.expected.soc_pct
         if end is None:
             return None
+        origin = interval.start
         if index == 0:
             raw = plan.assumptions.get(SOC_START_KEY)
             start = (
                 float(raw) if isinstance(raw, int | float) and not isinstance(raw, bool) else end
             )
+            if plan.created_at is not None:
+                origin = min(interval.end, max(interval.start, plan.created_at))
         else:
             previous = ordered[index - 1].expected
             start = end if previous is None or previous.soc_pct is None else previous.soc_pct
-        span = (interval.end - interval.start).total_seconds()
-        share = 0.0 if span <= 0 else (now - interval.start).total_seconds() / span
+        span = (interval.end - origin).total_seconds()
+        share = 1.0 if span <= 0 else (now - origin).total_seconds() / span
         return start + (end - start) * min(1.0, max(0.0, share))
     return None
 

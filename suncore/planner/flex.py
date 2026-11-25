@@ -467,8 +467,9 @@ def profile_from(
     step: timedelta,
 ) -> tuple[float, ...]:
     """A run of ``profile`` (W per ``step`` from ``origin``) on the grid: per slot the mean
-    power over its usable part (slot 0 from ``now``), exact in energy. Ends with the last slot
-    the run reaches; the part before ``now`` is gone."""
+    power over its usable part (slot 0 from ``now``), exact in energy, never above the
+    profile's maximum. One value per slot the run overlaps after ``now``, zero-power phases
+    included; empty once the run is over."""
     end = origin + step * len(profile)
     out: list[float] = []
     for t, begin in enumerate(starts):
@@ -483,8 +484,8 @@ def profile_from(
                 energy += p * (hi - lo).total_seconds()
         span = (b - a).total_seconds()
         out.append(energy / span if span > 0 else 0.0)
-    while out and out[-1] <= 0.0:
-        out.pop()
+    # Zero-power phases (a soak) count: the run lasts until ``end`` whatever it draws, so a
+    # running job stays in the plan (PREFER_ON) until its runtime is over.
     return tuple(out)
 
 
@@ -895,5 +896,6 @@ __all__ = [
     "build_grid",
     "cap_para14a_floors",
     "job_profile_w",
+    "profile_from",
     "thermal_base_w",
 ]
