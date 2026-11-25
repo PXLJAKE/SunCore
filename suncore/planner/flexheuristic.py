@@ -54,7 +54,7 @@ def preplan(  # noqa: PLR0912 - one block per load kind, then the EV targets
     battery_first_until: int = -1,
 ) -> FlexPrePlan:
     """Job starts and the EV targets' grid slots (module doc)."""
-    n, dt = inputs.n, inputs.dt_h
+    n, hours = inputs.n, inputs.hours
     loads = inputs.flex_loads
     left = list(surplus_w)
     used = [0.0] * n
@@ -69,15 +69,13 @@ def preplan(  # noqa: PLR0912 - one block per load kind, then the EV targets
                     if k == load.previous_start or load.previous_start is None
                     else (JOB_MOVE_COST)
                 )
-                for j, p in enumerate(load.profile_w):
-                    t = k + j
-                    if t >= n:
-                        break
+                for t in range(k, min(n, k + load.length(k))):
+                    p = load.power_at(k, t)
                     on_surplus = min(p, left[t])
                     cost += (
                         on_surplus * inputs.export_price[t]
                         + (p - on_surplus) * inputs.import_price[t]
-                    ) * dt
+                    ) * hours[t]
                 if best is None or cost < best[0] - EPS:
                     best = (cost, k)
             start = load.candidates[0] if best is None else best[1]
@@ -106,7 +104,7 @@ def preplan(  # noqa: PLR0912 - one block per load kind, then the EV targets
             else min(load.max_w[t] - load.floor_w[t], fe.surplus_p10_w[t], left[t])
             for t in slots
         }
-        gap = load.need_by_wh - sum((est[t] + load.floor_w[t]) * dt for t in slots)
+        gap = load.need_by_wh - sum((est[t] + load.floor_w[t]) * hours[t] for t in slots)
         for t in sorted(slots, key=lambda t: (inputs.import_price[t], t)):
             if gap <= EPS:
                 break
@@ -115,7 +113,7 @@ def preplan(  # noqa: PLR0912 - one block per load kind, then the EV targets
                 load.grid_max_w[t] - load.floor_w[t],
                 _headroom(inputs, deficit_w, t) - used[t],
             )
-            want = min(room, gap / dt)
+            want = min(room, gap / hours[t])
             if est[t] + load.floor_w[t] + want < load.min_w:
                 want = load.min_w - est[t] - load.floor_w[t]
                 if want > room + EPS:
@@ -124,7 +122,7 @@ def preplan(  # noqa: PLR0912 - one block per load kind, then the EV targets
                 continue
             plan[t] = want
             used[t] += want
-            gap -= want * dt
+            gap -= want * hours[t]
         grids.append(tuple(plan))
     return FlexPrePlan(job_start=tuple(starts), ev_grid_w=tuple(grids))
 
@@ -155,7 +153,7 @@ class FlexSim:
         self.delivered = [0.0] * len(self.loads)
         self.need = [0.0] * len(self.loads)
         """Per load: power still to settle from battery or grid in the current slot."""
-        dt = inputs.dt_h
+        hours = inputs.hours
         self.reserved: list[list[float]] = []
         """Per load and slot: energy the EV's later floors and planned grid slots need (Wh);
         surplus charging keeps room for it under the vehicle's total."""
@@ -163,7 +161,7 @@ class FlexSim:
             later = [0.0] * (n + 1)
             if isinstance(load, PlannerEv):
                 for t in range(n - 1, -1, -1):
-                    later[t] = later[t + 1] + (load.floor_w[t] + pre.ev_grid_w[i][t]) * dt
+                    later[t] = later[t + 1] + (load.floor_w[t] + pre.ev_grid_w[i][t]) * hours[t]
             self.reserved.append(later)
 
     # --- helpers ---------------------------------------------------------------------------
@@ -174,7 +172,7 @@ class FlexSim:
     def _ev_room(self, i: int, ev: PlannerEv, t: int, *, keep: bool = True) -> float:
         room = ev.max_w[t] - self.power(i, t)
         if ev.need_total_wh is not None:
-            dt = self.inputs.dt_h
+            dt = self.inputs.hours[t]
             left = ev.need_total_wh - self.delivered[i] - self.power(i, t) * dt
             if keep:
                 left -= self.reserved[i][t + 1]
@@ -186,7 +184,7 @@ class FlexSim:
         k = th.heat_k[t]
         if k <= 0:
             return 0.0
-        return (target_c - th.alpha * temp - th.drift[t]) * 1000.0 / k
+        return (target_c - th.alpha[t] * temp - th.drift[t]) * 1000.0 / k
 
     def grid_reserved(self, t: int) -> float:
         """Grid and still unsettled power of slot ``t`` (worst case for the import limit)."""
@@ -314,7 +312,7 @@ class FlexSim:
         """Unsettled power from the battery (up to ``battery_w``) or the grid; the battery
         power used is returned. Updates temperatures and delivered energy."""
         used = 0.0
-        dt = self.inputs.dt_h
+        dt = self.inputs.hours[t]
         for i, load in enumerate(self.loads):
             rest = self.need[i]
             if load.battery and rest > EPS:

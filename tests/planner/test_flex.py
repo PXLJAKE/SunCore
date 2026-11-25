@@ -11,6 +11,8 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from suncore.core.control import BandPreference
 from suncore.core.devices import DeviceConfig
@@ -29,6 +31,7 @@ from suncore.planner.flex import (
     PlannerThermal,
     build_flex,
     build_grid,
+    profile_from,
     thermal_base_w,
 )
 from suncore.planner.flexmodel import ev_delivered_wh, thermal_temps
@@ -104,7 +107,7 @@ def test_ev_arrives_late_charges_in_the_cheap_night_and_meets_the_target() -> No
     assert econ.flex is not None
     flows = result.schedule.flex[i]
     assert ev.need_by_wh is not None
-    assert ev_delivered_wh(ev, flows, econ.flex.surplus_p10_w, inputs.dt_h) >= ev.need_by_wh - 1
+    assert ev_delivered_wh(ev, flows, econ.flex.surplus_p10_w, inputs.hours) >= ev.need_by_wh - 1
     for t in range(inputs.n):
         local = _local(inputs, t)
         band = result.plan.intervals[t].devices[ev.device_id]
@@ -220,7 +223,7 @@ def test_peak_variable_holds_every_import_and_the_limit() -> None:
     i, ev = _ev(inputs)
     assert ev.need_by_wh is not None
     assert econ.flex is not None
-    got = ev_delivered_wh(ev, result.schedule.flex[i], econ.flex.surplus_p10_w, inputs.dt_h)
+    got = ev_delivered_wh(ev, result.schedule.flex[i], econ.flex.surplus_p10_w, inputs.hours)
     assert got >= ev.need_by_wh - 1
 
 
@@ -244,6 +247,11 @@ def test_para14a_budget_holds_and_blocks_grid_charging() -> None:
 
 def test_full_house_meets_deadlines_with_binaries() -> None:
     inputs = flex_inputs("full_house")
+    runtimes = {
+        d.id: timedelta(minutes=d.program.runtime_min)
+        for d in flex_situation("full_house").devices
+        if d.program is not None
+    }
     result = run(inputs)
     assert result.plan.stats is not None
     assert result.plan.stats.n_binaries > 0
@@ -252,10 +260,11 @@ def test_full_house_meets_deadlines_with_binaries() -> None:
     for load, flows in zip(inputs.flex_loads, result.schedule.flex, strict=True):
         if isinstance(load, PlannerJob):
             assert flows.start is not None
-            end = inputs.starts[flows.start] + inputs.step * len(load.profile_w)
-            assert end <= load.deadline
+            # the production rule (flex._job): a start in slot 0 is a start at now
+            begin = max(inputs.now, inputs.starts[flows.start])
+            assert begin + runtimes[load.device_id] <= load.deadline
         if isinstance(load, PlannerEv) and load.need_by_wh is not None:
-            got = ev_delivered_wh(load, flows, econ.flex.surplus_p10_w, inputs.dt_h)
+            got = ev_delivered_wh(load, flows, econ.flex.surplus_p10_w, inputs.hours)
             assert got >= load.need_by_wh - 1
 
 
@@ -400,7 +409,10 @@ def test_jobs_running_ignored_and_without_job() -> None:
     planned = built.jobs[0]
     assert planned.running
     assert planned.candidates == (0,)
-    assert planned.profile_w == (400.0, 400.0, 1200.0)  # 20 min done: from the 2nd quarter
+    # 20 min done: the run's quarters [2000, 400, 400, 1200] W, shifted by 5 min onto the grid
+    # (exact in energy since 7-K; before, the remainder was cut at the quarter boundary)
+    assert planned.profile_w == pytest.approx((400.0, 2000.0 / 3.0, 800.0))
+    assert sum(planned.profile_w) * 0.25 == pytest.approx(100.0 * 2 / 3 + 100.0 + 300.0)
     assert [r.key for r in built.reasons] == [rk.JOB_IGNORED]
     nothing, _ = _build([washer], FlexRequest())
     assert nothing.jobs == ()
@@ -494,3 +506,94 @@ def test_flexible_band_kinds() -> None:
     after = result.plan.intervals[start + len(inputs.jobs[0].profile_w)].devices["washer"]
     assert after.allowed
     assert not after.start
+
+
+# --- programs on a grid that starts before now (7-K) -----------------------------------------
+
+
+@given(
+    profile=st.lists(st.floats(0, 3_000), min_size=1, max_size=12),
+    origin_s=st.integers(-4 * 3600, 0),
+    now_s=st.integers(0, 899),
+)
+@settings(max_examples=200, deadline=None)
+def test_profile_from_is_exact_in_energy_and_never_above_the_profile(
+    profile: list[float], origin_s: int, now_s: int
+) -> None:
+    step = timedelta(minutes=15)
+    quarter = datetime(2026, 6, 1, 6, 0, tzinfo=UTC)
+    starts = [quarter + step * k for k in range(40)]
+    now = quarter + timedelta(seconds=now_s)
+    origin = now + timedelta(seconds=origin_s)
+    out = profile_from(profile, origin=origin, now=now, starts=starts, step=step)
+    end = origin + step * len(profile)
+    # the energy still to come: every profile quarter clipped to [now, end)
+    left_ws = sum(
+        p
+        * max(
+            0.0, (min(origin + step * (k + 1), end) - max(origin + step * k, now)).total_seconds()
+        )
+        for k, p in enumerate(profile)
+    )
+    lengths = [(starts[0] + step - now).total_seconds()] + [step.total_seconds()] * len(starts)
+    booked_ws = sum(p * s for p, s in zip(out, lengths, strict=False))
+    assert booked_ws == pytest.approx(left_ws, rel=1e-9, abs=1e-6)
+    assert all(0.0 <= p <= max(profile) + 1e-9 for p in out)
+    if end <= now:
+        assert out == ()
+    else:
+        assert starts[len(out) - 1] < end <= starts[len(out) - 1] + step  # whole run, zeros too
+
+
+def test_a_running_job_in_a_zero_power_phase_stays_in_the_plan() -> None:
+    """F2 (7-K review): a soak phase draws nothing but the job still runs, so it keeps its
+    slots and the PREFER_ON band until its runtime is over (as before 7-K)."""
+    soaker = program("soaker", (500.0, 0.0, 0.0, 0.0))
+    running = ProgramJob(
+        id="s1",
+        device_id="soaker",
+        state=JobState.RUNNING,
+        deadline=NOW + timedelta(hours=10),
+        armed_at=NOW - timedelta(hours=1),
+        started_at=NOW - timedelta(minutes=20),
+    )
+    built, _ = _build([soaker], FlexRequest(jobs=(running,)))
+    [planned] = built.jobs
+    assert planned.running
+    assert planned.profile_w == (0.0, 0.0, 0.0)  # 40 min left, all soak
+    inputs = situation_inputs(
+        replace(
+            reference_situation(NOW),
+            devices=(soaker,),
+            flex=FlexRequest(jobs=(running,)),
+        )
+    )
+    result = run(inputs)
+    band = result.plan.intervals[0].devices["soaker"]
+    assert band.preference is BandPreference.PREFER_ON
+    # once the runtime is over the job leaves the plan
+    over = running.model_copy(update={"started_at": NOW - timedelta(hours=1, minutes=5)})
+    done, _ = _build([soaker], FlexRequest(jobs=(over,)))
+    assert done.jobs == ()
+
+
+def test_ev_grid_slots_do_not_shift_between_replans_at_flat_prices() -> None:
+    """7-K review I1: the cheap night window is flat, so the EV's grid slots are a tie; the
+    early tie-breaker keeps a replan a quarter later on the same slots."""
+    base = flex_situation("ev_arrives_late")
+    assert base.flex is not None
+    live = {"wallbox": EvLive(soc_pct=30.0, connected=True)}
+    situation = replace(base, flex=replace(base.flex, ev_live=live))
+
+    def grid_slots(now: datetime) -> set[datetime]:
+        result = run(situation_inputs(replace(situation, now=now)))
+        return {
+            i.start
+            for i in result.plan.intervals
+            if (i.devices["wallbox"].grid_power_max_w or 0.0) > 0
+        }
+
+    first = grid_slots(base.now + timedelta(seconds=20))
+    later = grid_slots(base.now + timedelta(minutes=15, seconds=20))
+    assert first
+    assert later == {t for t in first if t >= base.now + timedelta(minutes=15)}

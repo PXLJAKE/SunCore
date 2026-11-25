@@ -243,7 +243,7 @@ def follow(
 
     ``flex`` (Phase 6): the flexible loads' flows are kept, except that what they drew from
     the battery comes from the grid (the battery is re-simulated without them)."""
-    n, dt = inputs.n, inputs.dt_h
+    n = inputs.n
     kept = tuple(
         FlexFlows(
             f.surplus_w,
@@ -261,6 +261,7 @@ def follow(
     floor = min(battery.reserve_wh, e) if battery else 0.0
     ceiling = max(battery.max_wh, e) if battery else 0.0
     for t in range(n):
+        dt = inputs.hours[t]
         s, d = econ.surplus_w[t], econ.deficit_w[t]
         rest = s - sum(f.surplus_w[t] for f in kept)
         for j, device in enumerate(inputs.devices):

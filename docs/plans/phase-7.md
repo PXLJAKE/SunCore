@@ -1621,6 +1621,57 @@ See the list at the end of `docs/security/review-1.0.md`. In short:
 - the Mosquitto ACL default, which comes from its docs only.
 - that both ingress hops forward `X-SunCore-Request` (source read, not run through a live
   ingress; SEC-13).
+### 7-K
+
+- Root cause (step 1, `qa-engineer`, `docs/research/late-car-gap.md`): every plan booked the
+  whole first quarter, also when most of it had passed; at the harness cadence (870 s into the
+  slot) the remaining EV energy sat in that dead slot, so no plan reported a shortfall.
+- Fix in the planner only (`optimizer-engineer`): `planner/slots.py` and `PlannerInputs.hours`;
+  every energy and cost term is `power * hours[t]` with the first slot counting only the time
+  left after `now` (LP, heuristic, warm-start repair, feasibility check, "why" facts, the
+  morning-buffer simulation). Thermal coefficients are per slot (`PlannerThermal.alpha` is a
+  tuple); a program started in slot 0 and a running program are resampled onto the grid from
+  `now` or their real start (exact in energy). A remainder below 1 s counts as 1 s (solver
+  tolerance); the slot is never dropped, so the controller always has an interval covering
+  `now`. **No change in `suncore/controller/` or `suncore/safety/`**, so no CS sign-off is
+  needed for this PR (the final CS read of 7-K in 7-P stays).
+- Deviation from the proposal: the first slot is not dropped below "minimum run time or one
+  tick plus settle time". The planner does not know the controller's timings (dependency rule),
+  and an interval that ends before `now` would leave the controller without a band. Residual at
+  the late cadence: 0.06 points (the 6 A floor cannot place a remainder below 1035 Wh in a whole
+  slot), bounded by `max_w * remaining` per plan.
+- Harness: `tests/sim/test_ev_scenarios.py` ticks the planner every step (the service fires at
+  quarter + 20 s); the late cadence is kept as a regression scenario. Late-car assertion raised
+  from 75 % to 79 %; the `xfail` in `tests/sim/test_late_car_gap.py` is removed.
+- Results: 81.15 % at the service cadence, 79.94 % with every plan 14.5 min late (before: 77.35
+  %); nothing rejected or failed, no import above the limit, no battery into the car (G1, E1-E9).
+  An infeasible target is still reported and announced once (new check with a late plan).
+- **Decision: no second notification rule** ("plan meets, controller misses"). The gap had a
+  planner cause; with it fixed the residual is either in a real slot or a reported shortfall,
+  and the existing 6-O rule fires. Revisit only if a scenario shows a band the controller does
+  not deliver.
+- The program profile of a running job changed from "cut at the quarter boundary" to the exact
+  resampling; `tests/planner/test_flex.py::test_jobs_running_ignored_and_without_job` was
+  adjusted to the exact values.
+- Review follow-ups (independent `control-safety` review of PR #72, approved):
+  - F1: the late-plan property also draws grid limits (fuse, peak shaving, §14a), a program
+    job armed at `now` (a start in slot 0 books the whole run, nothing before `now`) and a heat
+    pump; a property test of `flex.profile_from` (energy exact, never above the profile's
+    maximum, the whole run covered); the job-end check of
+    `test_full_house_meets_deadlines_with_binaries` uses the production rule
+    `max(now, starts[k]) + runtime`; the simulator SoC asserts have an upper bound (target + 2
+    points).
+  - F2: `profile_from` no longer drops trailing zero-power slots. A running job in a soak phase
+    stays in the plan with PREFER_ON until its runtime is over, as before 7-K (test
+    `test_a_running_job_in_a_zero_power_phase_stays_in_the_plan`).
+  - F3: `app.planning.planned_soc_at` interpolates slot 0 from `plan.created_at` (clamped to
+    the interval) to the interval's end, matching the planner's accounting. This is in `app/`,
+    not in `controller/` or `safety/`.
+  - I1: EV grid power carries a tie-breaker `1e-5 * t / n` per kWh (`EV_GRID_EARLY_PER_KWH`):
+    at equal prices the earliest slots win, so replans keep their slots. In the flat night
+    window of `ev_arrives_late` HiGHS already chose the same slots without it; the new test
+    `test_ev_grid_slots_do_not_shift_between_replans_at_flat_prices` therefore guards the
+    behaviour, it does not prove that the tie-breaker is needed.
 
 ## 9. Follow-ups per agent
 

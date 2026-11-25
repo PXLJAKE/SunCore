@@ -28,6 +28,7 @@ forecast:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -74,7 +75,7 @@ def _import_headroom(inputs: PlannerInputs, econ: Economics, t: int) -> float:
 def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module doc
     inputs: PlannerInputs, econ: Economics, extra_grid_w: list[float]
 ) -> Schedule:
-    n, dt = inputs.n, inputs.dt_h
+    n, hours = inputs.n, inputs.hours
     battery = inputs.battery
     goals = _goals(inputs, econ)
     order = sorted(
@@ -109,11 +110,13 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
     )
     # Net battery energy each slot would add if all surplus went to it and deficits drew from it.
     gain = [
-        min(econ.surplus_w[t], max_ch) * dt * eta_c - min(econ.deficit_w[t], max_dis) * dt / eta_d
+        (min(econ.surplus_w[t], max_ch) * eta_c - min(econ.deficit_w[t], max_dis) / eta_d)
+        * hours[t]
         for t in range(n)
     ]
     budget_left = dict(econ.device_budget)
     for t in range(n):
+        dt = hours[t]
         s, d = econ.surplus_w[t], econ.deficit_w[t]
         pending = [g for g in goals if g.slot >= t]
         # Projected margin over every pending target if this slot's surplus went to the battery.
@@ -121,7 +124,7 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
             (
                 min(
                     ceiling,
-                    e + sum(gain[t : g.slot + 1]) + _extra(extra_grid_w, t, g.slot, dt, eta_c),
+                    e + sum(gain[t : g.slot + 1]) + _extra(extra_grid_w, t, g.slot, hours, eta_c),
                 )
                 - g.target_wh
                 for g in pending
@@ -208,8 +211,11 @@ def _simulate(  # noqa: PLR0912, PLR0915 - one pass over the rules of the module
     )
 
 
-def _extra(extra_grid_w: list[float], start: int, end: int, dt: float, eta_c: float) -> float:
-    return sum(extra_grid_w[start : end + 1]) * dt * eta_c
+def _extra(
+    extra_grid_w: list[float], start: int, end: int, hours: Sequence[float], eta_c: float
+) -> float:
+    span = range(start, min(end + 1, len(extra_grid_w)))
+    return sum(extra_grid_w[t] * hours[t] for t in span) * eta_c
 
 
 def heuristic_schedule(inputs: PlannerInputs, econ: Economics | None = None) -> Schedule:
@@ -220,7 +226,7 @@ def heuristic_schedule(inputs: PlannerInputs, econ: Economics | None = None) -> 
     battery = inputs.battery
     if battery is None or not any(w > 0 for w in inputs.grid_charge_w):
         return schedule
-    dt, eta_c = inputs.dt_h, battery.model.charge_efficiency
+    hours, eta_c = inputs.hours, battery.model.charge_efficiency
     for _ in range(len(inputs.goals) + 1):
         shortfalls = goal_shortfall_wh(inputs, econ, schedule)
         missing = [
@@ -242,9 +248,9 @@ def heuristic_schedule(inputs: PlannerInputs, econ: Economics | None = None) -> 
             if need <= 0:
                 break
             free = min(inputs.grid_charge_at(t), battery.max_charge_w) - extra[t]
-            add = min(free, need / (dt * eta_c))
+            add = min(free, need / (hours[t] * eta_c))
             extra[t] += add
-            need -= add * dt * eta_c
+            need -= add * hours[t] * eta_c
         schedule = _simulate(inputs, econ, extra)
     return schedule
 

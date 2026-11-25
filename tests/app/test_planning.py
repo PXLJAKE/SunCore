@@ -19,7 +19,7 @@ from suncore.app.planning import (
     planned_soc_at,
     run_in_daemon_thread,
 )
-from suncore.core.control import Plan
+from suncore.core.control import IntervalFlows, Plan, PlanInterval
 from suncore.planner import reasons as rk
 from suncore.planner.run import PlannerRun, run
 from suncore.sim.planner_scenarios import situation, situation_inputs
@@ -513,7 +513,42 @@ async def test_planned_soc_interpolates_inside_the_first_interval() -> None:
     assert first.expected is not None
     assert first.expected.soc_pct is not None
     assert planned_soc_at(plan, first.start) == pytest.approx(30.0)
-    mid = first.start + (first.end - first.start) / 2
+    # 7-K: slot 0 is booked from created_at on, so the line starts there (clamped)
+    assert plan.created_at is not None
+    origin = min(first.end, max(first.start, plan.created_at))
+    assert planned_soc_at(plan, origin) == pytest.approx(30.0)
+    mid = origin + (first.end - origin) / 2
     assert planned_soc_at(plan, mid) == pytest.approx((30.0 + first.expected.soc_pct) / 2, abs=0.01)
+    assert planned_soc_at(plan, first.end - timedelta(microseconds=1)) == pytest.approx(
+        first.expected.soc_pct, abs=0.01
+    )
     assert planned_soc_at(plan, plan.intervals[-1].end + timedelta(seconds=1)) is None
     assert planned_soc_at(Plan.default(), START) is None
+
+
+def _flows(soc_pct: float) -> IntervalFlows:
+    return IntervalFlows(pv_p50_w=0.0, load_w=0.0, import_w=0.0, export_w=0.0, soc_pct=soc_pct)
+
+
+def test_planned_soc_of_a_late_plan_runs_from_its_creation_to_the_slot_end() -> None:
+    """7-K: a plan made 14.5 min into its first slot moves the SoC within the 30 s left."""
+    start = START.replace(minute=0, second=0, microsecond=0)
+    first = PlanInterval(
+        start=start,
+        end=start + timedelta(minutes=15),
+        expected=_flows(40.0),
+    )
+    second = PlanInterval(
+        start=first.end, end=first.end + timedelta(minutes=15), expected=_flows(50.0)
+    )
+    created = start + timedelta(minutes=14, seconds=30)
+    plan = Plan(intervals=(first, second), created_at=created, assumptions={"soc_start_pct": 30.0})
+    assert planned_soc_at(plan, start + timedelta(minutes=5)) == pytest.approx(30.0)
+    assert planned_soc_at(plan, created) == pytest.approx(30.0)
+    assert planned_soc_at(plan, created + timedelta(seconds=15)) == pytest.approx(35.0)
+    assert planned_soc_at(plan, second.start + timedelta(minutes=7, seconds=30)) == pytest.approx(
+        45.0
+    )
+    # created_at outside the interval is clamped: before it = the whole slot
+    early = plan.model_copy(update={"created_at": start - timedelta(minutes=1)})
+    assert planned_soc_at(early, start + timedelta(minutes=7, seconds=30)) == pytest.approx(35.0)

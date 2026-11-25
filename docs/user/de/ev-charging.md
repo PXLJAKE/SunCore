@@ -100,9 +100,9 @@ Weitere Regeln:
 - Ein Fahrzeug pro Lader, kein Vehicle-to-Home. Noch keine E-Auto-Entitäten in Home Assistant
   (siehe [Home-Assistant-Entitäten](home-assistant-entities.md)); Modus und Ziel stellst du im
   Panel ein.
-- Ein Ziel bei später Ankunft kann knapp verfehlt werden (der Simulator hört bei etwa 77 % eines
-  80-%-Ziels auf, Netzleistung freizugeben). Eine harte Frist zu jedem Preis ist eine offene
-  Frage.
+- Ein Ziel wird mit der Zeit geplant, die wirklich bleibt: Entsteht ein Plan spät in einer
+  Viertelstunde, zählt nur deren Rest, und ein unerreichbares Ziel wird gemeldet. Eine harte Frist
+  zu jedem Preis ist eine offene Frage.
 - Ohne Akkusperre kann ein **Ziel**-Fenster nicht aus dem Netz laden, solange ein Hausakku
   existiert und im Schattenmodus ist.
 

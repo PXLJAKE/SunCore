@@ -90,8 +90,9 @@ Other rules:
 - Only a generic template; an integration template needs a read of that integration's source.
 - One vehicle per charger, no vehicle-to-home. No EV entities in Home Assistant yet (see
   [Home Assistant entities](home-assistant-entities.md)); mode and target are set in the panel.
-- A "late arrival" target can end slightly short (the simulator stops releasing grid power at
-  about 77 % of an 80 % target). A hard deadline at any price is an open question.
+- A target is planned with the time that is really left: when a plan is made late in a
+  quarter hour, only the rest of that quarter counts, and a target that cannot be reached is
+  reported. A hard deadline at any price is an open question.
 - Without a battery lock a **Target** window cannot charge from the grid while a home battery
   exists and is in shadow mode.
 
