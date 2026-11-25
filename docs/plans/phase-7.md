@@ -847,8 +847,11 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - "Arrives late" is the *request*, not the arrival time: the car (60 kWh, 30 %) is plugged in at
   08:00 scenario time, so it is connected at every demo start time, and the runtime EV state asks
   for 80 % by the next 07:00 (numbers of `ev_arrives_late`). The washer is loaded at 10:30 with a
-  job "finished by 17:00" armed at start (through `Runtime.arm_program`, in the throw-away
-  database). The heat pump's store starts at 48.5 degrees with an evening-only draw profile; with
+  job armed at start (through `Runtime.arm_program`, in the throw-away database) with the
+  deadline six hours ahead. A one-shot job was gone after about 13:00 scenario time, so the
+  tablet run (the last project, hours of demo time later) found no job card: the sim user now
+  loads the machine again after each programme and `demo_flex_user` arms a job per load.
+  The heat pump's store starts at 48.5 degrees with an evening-only draw profile; with
   the default morning draw it heated for hours before 09:30 and drained the demo battery.
 - Effect on the existing demo: the plan now gives the battery the surplus first (a plan band), so
   the heating rod no longer shows "would run" at 09:30 and the e2e test of the site summary checks

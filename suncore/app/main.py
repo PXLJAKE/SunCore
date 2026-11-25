@@ -132,6 +132,36 @@ async def seed_demo_flex_state(runtime: Runtime) -> None:
     mode, target = demo_ev_target(local)
     await runtime.set_ev_state(WALLBOX_ID, mode, target)
     await runtime.arm_program(WASHER_ID, demo_washer_deadline(local))
+    runtime.demo_user = demo_flex_user
+
+
+async def demo_flex_user(runtime: Runtime) -> None:
+    """The demo's user arms a job for every load of the washing machine (as long as it runs).
+
+    The simulator loads the machine again whenever a programme has finished; without this the
+    demo would show a job for the first load only and none for the rest of the (accelerated)
+    day. Scenario time, no wall clock.
+    """
+    from suncore.sim.demo_flex import WASHER_ID, demo_washer_deadline  # noqa: PLC0415
+    from suncore.sim.devices import SimProgram  # noqa: PLC0415
+    from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
+
+    connection = runtime.connection
+    if not isinstance(connection, FakeHAConnection):
+        return
+    while True:
+        await runtime.control_sleep(60.0)
+        try:
+            demo = connection.demo
+        except AssertionError:  # not connected yet
+            continue
+        washer = demo.devices.devices.get(WASHER_ID)
+        if not isinstance(washer, SimProgram) or not washer.loaded:
+            continue
+        if runtime.program_jobs.current(WASHER_ID) is not None:
+            continue
+        with contextlib.suppress(Exception):
+            await runtime.arm_program(WASHER_ID, demo_washer_deadline(runtime.clock()))
 
 
 async def build_runtime(  # noqa: PLR0915 - the composition root
