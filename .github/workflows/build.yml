@@ -68,7 +68,7 @@ jobs:
       app: ${{ steps.meta.outputs.app }}
       beta_version: ${{ steps.meta.outputs.beta_version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - name: Select channel
@@ -81,7 +81,7 @@ jobs:
           fi
       - name: Read app config
         id: info
-        uses: home-assistant/actions/helpers/info@master
+        uses: home-assistant/actions/helpers/info@9e9565e68f5a70d874202871f4c4064d23814235 # master 2026-11-25
         with:
           path: ./addon/${{ steps.channel.outputs.app }}
       - name: Derive metadata
@@ -129,7 +129,7 @@ jobs:
           fi
       - name: Build matrix
         id: matrix
-        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
           architectures: ${{ steps.meta.outputs.architectures }}
           image-name: ${{ steps.meta.outputs.image_name }}
@@ -147,11 +147,11 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - name: Build image
-        uses: home-assistant/builder/actions/build-image@2026.09.0
+        uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
           arch: ${{ matrix.arch }}
           image: ${{ matrix.image }}
@@ -194,7 +194,7 @@ jobs:
       id-token: write
       packages: write
     steps:
-      - uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.09.0
+      - uses: home-assistant/builder/actions/publish-multi-arch-manifest@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
         with:
           architectures: ${{ needs.prepare.outputs.architectures }}
           image-name: ${{ needs.prepare.outputs.image_name }}
@@ -217,7 +217,7 @@ jobs:
     steps:
       # Only after the image and manifest exist: HA must never be offered a
       # version whose tag cannot be pulled.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: main
           # RELEASE_PLEASE_TOKEN (PAT) may bypass branch protection; GITHUB_TOKEN
