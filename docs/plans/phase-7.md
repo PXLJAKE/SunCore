@@ -1127,6 +1127,13 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   disabled Phase 6 block was) and under Settings, Your system. Without an adapter the card says
   so and the button is disabled. Closing the dialog or pressing Escape while the test runs
   aborts it.
+- **Review fixes (CS, approved with conditions):** F1 the gate judges X2 as for an unverified
+  limit while a window is open or a limit written under it is held (a re-test questions the
+  stored semantics; write and lease); F2 `confirm` returns when the procedure was ended during
+  the gate's await, and `_finish` is idempotent (one record, no spurious reset); F3 the export
+  chain waits only from the write on (`holds_inverter`), not while checking or waiting for the
+  confirmation; F4 a window cannot be re-opened, also not with the same id; F6 the behaviour
+  change for stored flags without `verified_identity` is in STATUS for the release notes.
 - **Simulator:** the limiter got physical semantics (an export limit caps export, an AC limit
   caps the AC output, so export = AC − house − AC-coupled charging) and an `inert` mode; the
   house model got timed load events. Two bundled scenarios, 14 scenario tests.

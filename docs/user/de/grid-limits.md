@@ -118,7 +118,8 @@ Ein Wechselrichter-Adapter schreibt das Limit. Vorlagen: `kostal.plenticore_powe
   es schlägt nur vor. Nur der Verifikationstest setzt das Flag; Speichern der Konfiguration oder
   ein Import können es nicht setzen (ein Import setzt es zurück). Das Flag gehört zu einem
   Adapter: Wechselst du Vorlage, Entität, Register oder Fähigkeit, ist das Limit wieder
-  unverifiziert.
+  unverifiziert. Ein in einer älteren Version von Hand gesetztes Flag gilt nicht: Führe den
+  Test nach dem Update erneut aus.
 - **Den Test ausführen.** Öffne den Block in Einrichtungsschritt 5 oder unter Einstellungen,
   *Deine Anlage*, und wähle *Verifikationstest starten*. Stelle den Wechselrichter vorher auf
   **assistiert**. Der Test:

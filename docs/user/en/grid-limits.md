@@ -111,7 +111,8 @@ An inverter adapter writes the limit. Templates: `kostal.plenticore_power_limit`
   verified.** Unverified, SunCore never writes a limit on its own (automatic mode); it only
   proposes. Only the verification test sets the flag; saving the configuration or importing
   a file cannot set it (an import resets it). The flag belongs to one adapter: changing the
-  template or its entity, register or capability makes the limit unverified again.
+  template or its entity, register or capability makes the limit unverified again. A flag
+  set by hand in an older version is not trusted: after the update, run the test again.
 - **Running the test.** Open the block in setup step 5 or under Settings, *Your system*, and
   choose *Run the verification test*. Set the inverter asset to **assisted** first. The test:
   1. waits until the sunshine is steady: at least 1 kW export and 1.5 kW above house load plus
