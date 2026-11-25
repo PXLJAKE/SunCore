@@ -1147,7 +1147,7 @@ class ControlStack:
         runtime = self.gate.runtime_of(INVERTER_ASSET_ID)
         if self.gate.emergency_stopped:
             return REASON_EMERGENCY_STOP
-        if self.verification is not None and self.verification.active:
+        if self.verification is not None and self.verification.holds_inverter:
             return REASON_VERIFY_RUNNING
         if (pause := self.watchdog.pause_reason(INVERTER_ASSET_ID, now)) is not None:
             return pause

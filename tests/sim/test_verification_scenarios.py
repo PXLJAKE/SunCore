@@ -24,7 +24,7 @@ import pytest
 
 from suncore.app.verification import InverterVerification
 from suncore.core.config import InverterVerificationRecord
-from suncore.core.decisions import DecisionKind, InverterLimitAction
+from suncore.core.decisions import DecisionKind, InverterLimitAction, Reason
 from suncore.core.verification_view import VerificationPhase
 from suncore.sim.house import LoadEvent
 from suncore.sim.limiter import SimExportLimiter
@@ -75,6 +75,7 @@ async def play(
     confirm: bool = True,
     actions: dict[float, Callable[[ScenarioRunner], Any]] | None = None,
     window_s: float | None = None,
+    during_submit: Callable[[InverterVerification], None] | None = None,
 ) -> Played:
     runner = ScenarioRunner(scenario, catalog())
     records: list[tuple[InverterVerificationRecord, bool | None]] = []
@@ -89,9 +90,28 @@ async def play(
         r.stack.verification = procedure
         holder["p"] = procedure
 
-    async def do_confirm(_: ScenarioRunner) -> None:
-        assert holder["p"].phase is VerificationPhase.READY, holder["p"].reasons
-        await holder["p"].confirm()
+    async def do_confirm(r: ScenarioRunner) -> None:
+        procedure = holder["p"]
+        assert procedure.phase is VerificationPhase.READY, procedure.reasons
+        if during_submit is not None:
+            assert r.stack is not None
+            gate = r.stack.gate
+            submit = gate.submit
+
+            async def interleaved(intent: Any) -> Any:
+                # The write lands, then something else ends the procedure before the gate's
+                # answer reaches ``confirm`` (CS F2).
+                decision = await submit(intent)
+                during_submit(procedure)
+                return decision
+
+            gate.submit = interleaved  # type: ignore[method-assign]
+            try:
+                await procedure.confirm()
+            finally:
+                gate.submit = submit  # type: ignore[method-assign]
+            return
+        await procedure.confirm()
 
     runner.at(START_S, start)
     if confirm:
@@ -283,6 +303,63 @@ def test_closing_the_dialog_mid_step_releases() -> None:
     assert p.written()[-1] == BASE_REST
     assert_released(p)
     assert p.records == []
+
+
+def test_the_export_chain_waits_only_from_the_write_on() -> None:
+    """CS F3: checking and waiting for the confirmation leave the chain alone."""
+    seen: dict[float, tuple[VerificationPhase, str | None]] = {}
+
+    def probe(at_s: float) -> Callable[[ScenarioRunner], Any]:
+        async def look(r: ScenarioRunner) -> None:
+            assert r.stack is not None
+            assert r.stack.verification is not None
+            blocked = r.stack._inverter_blocked(r.stack.now())
+            seen[at_s] = (r.stack.verification.phase, None if blocked is None else blocked.key)
+
+        return look
+
+    run(load_scenario("inverter_verify_rest"), actions={t: probe(t) for t in (60.0, 150.0, 170.0)})
+    assert seen[60.0][0] is VerificationPhase.CHECKING
+    assert seen[150.0][0] is VerificationPhase.READY
+    assert seen[170.0][0] in (VerificationPhase.WRITING, VerificationPhase.OBSERVING)
+    assert seen[60.0][1] != "verify.running"
+    assert seen[150.0][1] != "verify.running"
+    assert seen[170.0][1] == "verify.running"
+
+
+def test_stopped_while_the_gate_judges_the_write() -> None:
+    """CS F2: the procedure stays ended; the gate gives the limit back when the window is gone."""
+    p = run(
+        load_scenario("inverter_verify_rest"),
+        during_submit=lambda proc: proc.stopped(Reason(key="verify.stopped")),
+    )
+    assert p.procedure.phase is VerificationPhase.ABORTED
+    assert p.reason == "verify.stopped"
+    assert p.records == []
+    assert p.written()[0] < BASE_REST  # the test limit did land
+    assert_released(p)
+
+
+def test_connection_lost_while_the_gate_judges_the_write() -> None:
+    p = run(
+        load_scenario("inverter_verify_rest"), during_submit=lambda proc: proc.connection_lost()
+    )
+    assert p.procedure.phase is VerificationPhase.FAILED
+    assert p.reason == "verify.connection_lost"
+    # One record, and an interruption never touches the flag.
+    assert [v for _, v in p.records] == [None]
+    assert_released(p)
+
+
+def test_finish_is_idempotent() -> None:
+    p = run(load_scenario("inverter_verify_rest"))
+    assert p.procedure.phase is VerificationPhase.PASSED
+    count = len(p.records)
+    p.procedure.connection_lost()
+    p.procedure.stopped(Reason(key="verify.stopped"))
+    p.procedure._finish(VerificationPhase.FAILED, Reason(key="verify.semantics_mismatch"))
+    assert p.procedure.phase is VerificationPhase.PASSED
+    assert len(p.records) == count
 
 
 def test_window_expired() -> None:
