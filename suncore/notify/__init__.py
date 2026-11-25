@@ -28,6 +28,7 @@ from suncore.notify.service import (
     ProposalView,
     TestResult,
 )
+from suncore.notify.signals import SiteSignal, signal_for
 
 __all__ = [
     "POLICIES",
@@ -50,9 +51,11 @@ __all__ = [
     "ProposalView",
     "Refusal",
     "RuleEngine",
+    "SiteSignal",
     "TestResult",
     "Verb",
     "Verdict",
     "cheap_window",
     "in_quiet_hours",
+    "signal_for",
 ]

@@ -99,7 +99,9 @@ EVENT_TYPES: Final = (
     "ev_target_at_risk",
     "error",
 )
-"""Types of the ``events`` entity (the plan's list); later PRs add producers."""
+"""Types of the ``events`` entity. Producers: the gate's decisions (``device_switched``,
+``proposal``, ``error``) and the notification rules (``suncore.notify.signals``); the type
+``proposal_expired`` has none yet."""
 
 _ALL = None
 _THERMAL = frozenset({DeviceKind.CLIMATE, DeviceKind.WATER_HEATER, DeviceKind.HEAT_PUMP})
@@ -147,12 +149,17 @@ SITE_ENTITIES: Final[tuple[EntitySpec, ...]] = (
         deadband_abs=1.0,
         precision=0,
     ),
+    # The mean absolute error of the PV forecast on the newest day with accuracy rows. The
+    # ``accuracy_day`` table stores it in W (no actual energy to divide by), so the sensor is a
+    # power, not a percentage (HA core: sensor device class ``power`` takes W, state class
+    # ``measurement``; verified 2026-11-25, docs/research/mqtt-discovery.md).
     _site(
         "pv_forecast_error",
         Platform.SENSOR,
-        unit="%",
+        device_class="power",
+        unit="W",
         state_class="measurement",
-        deadband_abs=1.0,
+        deadband_abs=5.0,
         precision=0,
     ),
     _site(

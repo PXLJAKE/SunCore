@@ -131,3 +131,35 @@ configured for the tools), so these are `UNVERIFIED` and used as documented on
   announced yet.
 - N1: `pl_prs`, `pl_on`, `pl_off`, `stat_on`, `stat_off` are announced explicitly;
   the abbreviations are `UNVERIFIED` (source not read).
+
+### Phase 7 (PR 7-H), device classes, units and the new site sensors, 2026-11-25
+
+Read from `home-assistant/core` `dev` (raw files `components/binary_sensor/const.py`,
+`components/sensor/const.py`, `sensor/entity.py`, `mqtt/sensor.py`, `mqtt/binary_sensor.py`,
+`mqtt/event.py`, `mqtt/abbreviations.py`). This closes the 6-O `UNVERIFIED` device classes.
+
+- `binary_sensor` device class `plug` exists (`BinarySensorDeviceClass.PLUG`, "On means plugged
+  in, Off means unplugged"). Used for `ev_plugged`.
+- `sensor` device class `battery` exists; its only allowed unit is `%` (`DEVICE_CLASS_UNITS`) and
+  its allowed state class is `measurement`. Used for `ev_vehicle_soc` (`%`, `measurement`).
+- `sensor` device class `timestamp` exists and allows no unit and no state class. The MQTT sensor
+  parses the payload with `dt_util.parse_datetime`; the sensor entity raises for a datetime
+  without a time zone ("missing timezone information"), so the value must be ISO 8601 **with**
+  an offset. `EvTarget.by` and `ProgramJob.planned_start` are `AwareDatetime`, so
+  `isoformat()` carries the offset. Used for `ev_target_time_state` and `planned_start`.
+- Unit `K` without a device class: the MQTT validator returns early when there is no device
+  class (`validate_sensor_state_and_device_class_config`), and `STATE_CLASS_UNITS` only
+  restricts the angle state class. So `hp_lift` (`K`, `measurement`) is valid. A
+  `temperature_delta` device class exists in `dev`, but SunCore does not use it (the minimum
+  supported Home Assistant version is not pinned, so a class that may be newer is avoided).
+- `monetary`: allowed state class is `total` only (SunCore sets none); `DEVICE_CLASS_UNITS` has
+  **no** entry for it, so any unit is accepted. The class docstring says "Unit of measurement:
+  ISO4217 currency code" but nothing enforces it. SunCore uses the region's currency code.
+- `power` with `W` and state class `measurement` is allowed. `pv_forecast_error` uses it because
+  `accuracy_day` stores the error in W (the catalogue said `%` before 7-H, but there is no
+  actual energy in the row to divide by).
+- A sensor without a device class may carry any text (`next_action`); the state must not be
+  longer than 255 characters (`check_state_too_long`), so SunCore cuts the text at 255.
+- `event`: abbreviation `evt_typ` = `event_types`; `dev_cla`, `stat_cla`, `unit_of_meas`,
+  `sug_dsp_prc` and `pl_prs` are in `abbreviations.py` as used.
+- Not verified here: how a running Home Assistant renders them (needs the maintainer's system).
