@@ -277,8 +277,8 @@ Carried to Phase 7: see "Open - Phase 7".
       F6); all are fixed.
   - Open after 1.0: CSP, a non-root user, an own AppArmor profile, image digests (`BUILD_FROM`,
     `uv`) and ECharts 6. The verification window is pending 7-J.
-  - Questions 28 to 33 (23 to 28 on the 7-O branch) are in plan section 10; deviations and `UNVERIFIED` are in plan section 8
-    (7-O).
+  - Questions 28 to 33 (23 to 28 on the 7-O branch) are in plan section 10; deviations and
+    `UNVERIFIED` are in plan section 8 (7-O).
 - **Phase 7 - PR 7-I, diagnostics export and heat pump live values (backend half; branch
   `phase-7/i-diagnostics-backend`, on 7-B; `backend-engineer`)** - nothing in `safety/` or
   `controller/` changed; `frontend/` only by the regenerated OpenAPI types:

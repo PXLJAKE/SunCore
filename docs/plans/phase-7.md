@@ -1281,6 +1281,7 @@ Part 2 (community hygiene) is below; the final runs after 7-I and 7-J are still 
   screenshots of 7-E/F/G stay under `docs/assets/screenshots/{before,after}-*` (the review pages
   link them); 7-L's moved set is `docs/user/assets/screenshots/`. STATUS and plan section 8
   were merged from both sides.
+
 ### 7-J
 
 - Based on `phase-7/g-settings`. Built as the ADR-0018 addendum says, with these deviations:
@@ -1386,6 +1387,7 @@ Part 2 (community hygiene) is below; the final runs after 7-I and 7-J are still 
     reserve; frozen on an unknown signal, held after it ends; no claim about grid charging).
   - F7a: a warning when switching from a manual broker with a stored password to the Supervisor.
 - **UNVERIFIED:** nothing new; the §14a limit and signal convention stay as in 6-F.
+
 ### 7-I (backend half; branch `phase-7/i-diagnostics-backend`, on 7-B)
 
 - The frontend half (the *Settings → Advanced → Diagnostics* panel, the heat pump card rows)
@@ -1443,6 +1445,7 @@ Part 2 (community hygiene) is below; the final runs after 7-I and 7-J are still 
 - No troubleshooting page exists in `docs/user` on this base, so no hint was added there.
 - E2E note: the demo's simulated clock drifts when one server runs for hours; `plan.spec` ("jumps
   to a day") and `whatif.spec` (replay) then fail on the tablet project and pass on a fresh server.
+
 ### 7-H
 
 - Branch `phase-7/h-ha-surface`, on `phase-7/b-phase5-tail` (7-B had landed on the line first; the
@@ -1621,6 +1624,7 @@ See the list at the end of `docs/security/review-1.0.md`. In short:
 - the Mosquitto ACL default, which comes from its docs only.
 - that both ingress hops forward `X-SunCore-Request` (source read, not run through a live
   ingress; SEC-13).
+
 ### 7-K
 
 - Root cause (step 1, `qa-engineer`, `docs/research/late-car-gap.md`): every plan booked the
