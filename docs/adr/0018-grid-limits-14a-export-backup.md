@@ -1,7 +1,7 @@
 # ADR-0018: Grid limits – peak shaving, export limit, §14a EnWG, backup power
 
 - **Status:** proposed (Phase 6 proceeds on the recommendation by delegation of 2026-11-23; the
-  maintainer may override)
+  maintainer may override); addendum 2026-11-25: inverter limit verification procedure
 - **Date:** 2026-11-24
 - **Deciders:** maintainer, lead engineer (`architect`), `control-safety`
 - **Research:** [`kostal-plenticore-modbus.md`](../research/kostal-plenticore-modbus.md) (§3.3
@@ -148,3 +148,53 @@ for the battery (§3.4), multi-inverter plants.
 
 Accept; please confirm that SunCore only *respects* §14a and that writing an inverter export
 limit stays capped at assisted until you have run the verification test.
+
+## Addendum 2026-11-25: the inverter limit verification procedure (plan phase 7, WP8)
+
+Decision 3 caps the inverter asset at assisted "until `inverter.limit_verified` (a documented
+test the user runs)". Phase 6 built the cap but no test, so no limit is ever written. This
+addendum fixes how the test works; ADR-0018 is still proposed, so it is amended here rather than
+superseded. Implementation: PR 7-J, `control-safety` (Fable), **CS** sign-off.
+
+**Problem with the plain approach.** A test must curtail export below its current value while
+devices or the battery could still absorb power. Invariant X3 ("below the current export only
+when devices and battery cannot absorb more", `safety/inverter.py` `check_chain`) rejects that
+on almost every day. X2 (an unverified export limit is read as an AC limit and must leave house
+load + battery charging + 500 W) rejects a deep test limit. X2 protects against grid import;
+X3 protects against wasting PV in the wrong order of the chain.
+
+**Decision.**
+
+1. **No new writer.** A procedure object in `app/` proposes `InverterLimitAction` intents with
+   `Origin.USER` through the services layer; the gate judges them; the user confirms each write
+   as an assisted proposal. Precondition: `operation.inverter_mode` is assisted (the procedure
+   never raises a mode).
+2. **X1, X2, X4, X5, X6 are never waived.** X3 is waived only while the gate holds an active
+   **verification window**: a new additive field of `GateInputs` (procedure id, expiry at most
+   10 min after opening, the lowest limit it allows), opened by the procedure through the
+   services layer and cleared on pass, fail, abort, emergency stop, restart and expiry. The
+   waiver applies only to `Origin.USER` intents for the inverter asset at or above the window's
+   lowest limit. No change to `Plan`, `Intent`, `Decision` or `Reason` (ADR-0011).
+3. **Preconditions:** adapter built and its limit entity readable, inputs fresh and `OK` (X5),
+   no emergency stop, no island, the battery not held by SunCore, export ≥ 1 kW and at least
+   1.5 kW above house load plus battery charging, stable for 2 min.
+4. **Steps:** read and record the baseline; propose the test limit
+   `max(house + battery charging + 700 W, export − 1 kW)` (W for `export_limit`; the matching
+   percentage of `nominal_ac_w` for `ac_limit`); require that export follows within the
+   adapter's settle time plus 60 s and that the read-back equals the written value; classify
+   the observed semantics (export fell to about the limit = export limit; to about the limit
+   minus house and battery = AC limit) and fail when it contradicts the configured capability;
+   release to the baseline and read it back.
+   A rising house load ends the lease through X2 as today and fails the test.
+5. **Result:** a pass sets `inverter.limit_verified = true` with the adapter identity token and a
+   timestamp (additive `InverterConfig` fields; config history author `user`); a changed
+   identity resets it (unchanged rule). A fail stores a reason key; nothing else changes.
+
+**Consequences.** The only relaxation is X3 for a few user-confirmed minutes; the import
+protection (X2) and the bounds (X1) hold throughout. Risks and tests: plan §4 ("Inverter
+verification"), §5 R9; the security review (7-O) checks the window. Contract changes (additive):
+the `GateInputs` window field, the `InverterConfig` verification fields, three API endpoints
+(plan WP8).
+
+**Recommendation.** Accept; question 21 of the Phase 7 plan asks the maintainer to confirm the
+X3 exception.
