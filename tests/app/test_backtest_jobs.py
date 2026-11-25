@@ -107,6 +107,9 @@ def jobs_for(env: Env, **kw: Any) -> BacktestJobs:
         "history": lambda: env.history,
         "site": site,
         "today": lambda: TODAY,
+        # The real RSS of the pytest process grows with the suite (about 300 MB on CI with the
+        # Phase 6 tests), so the memory stop is pinned here and tested on its own.
+        "rss_mb": lambda: None,
     }
     return BacktestJobs(env.store, **{**fields, **kw})
 
@@ -225,7 +228,9 @@ async def test_shutdown_stops_a_running_run(env: Env) -> None:
     assert view.error.key == STOP_RESTART
 
 
-async def test_the_demo_runtime_replays_without_touching_home_assistant(tmp_path: Path) -> None:
+async def test_the_demo_runtime_replays_without_touching_home_assistant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from suncore.app.main import build_runtime  # noqa: PLC0415
     from suncore.sim.fake_ha import FakeHAConnection  # noqa: PLC0415
     from tests.app.conftest import demo_settings  # noqa: PLC0415
@@ -234,6 +239,8 @@ async def test_the_demo_runtime_replays_without_touching_home_assistant(tmp_path
     try:
         jobs = runtime.backtests()
         assert jobs is not None
+        # Pin the RSS reading: the pytest process is larger than the Pi budget (see jobs_for).
+        monkeypatch.setattr(jobs, "_rss_mb", lambda: None)
         connection = runtime.connection
         assert isinstance(connection, FakeHAConnection)
         today = runtime.clock().astimezone(BERLIN).date()
