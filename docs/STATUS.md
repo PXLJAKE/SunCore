@@ -3,7 +3,7 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps) ·
+**Last update:** 2026-11-25 (Phase 6 complete: PRs 6-A to 6-M, 6-N docs, 6-O gaps; 7-H HA surface) ·
 **Phase:** 6 built and waiting for review and merge (plan `docs/plans/phase-6.md`); Phase 7 next.
 PR 7-B has merged the Phase 5 tail (5-E, 5-I, 5-J, 5-K, 5-L) into this line.
 Bundle budget split pending maintainer decision; option A implemented (standard path 250 kB,
@@ -11,7 +11,8 @@ expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-7/b-phase5-tail` (on `phase-7/a-plan` and `phase-5/l-docs`)
+**Branch:** `phase-7/h-ha-surface` (on `phase-7/b-phase5-tail`, which is on `phase-7/a-plan` and
+`phase-5/l-docs`)
 
 ## Phase 6 at a glance
 
@@ -36,6 +37,25 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-H, WP6 HA surface completion (branch `phase-7/h-ha-surface`, on 7-B;
+  `ha-integration`)** - read only, no command path, nothing in `safety/` or `controller/`:
+  - Five site sensors announced: `plan_cost_today` (the plan's priced intervals of the local
+    day), `savings_today` (today's `day_summary` preview, saving against a house without PV),
+    `autarky_today` (same row, in %), `pv_forecast_error` (newest `accuracy_day` day of the
+    blended PV forecast, n-weighted MAE) and `next_action` (first busy plan interval, rendered by
+    the backend ICU renderer in the configured language, at most 255 characters). The day values
+    are read in the background at most every 5 minutes; a missing source is "unknown".
+  - `pv_forecast_error` is now a `power` sensor in W, not `%`: `accuracy_day` has no actual
+    energy to divide by. `savings_month` stays unannounced (no month sum yet).
+  - MQTT event types with producers: `island_start/_end`, `para14a_start/_end`,
+    `program_start_now`, `program_done`, `cheap_window_start/_end`, `ev_target_at_risk`. They
+    are derived from the same `NotifyEvent`s as the pushes (`notify/signals.py`), independent
+    of quiet hours, the daily cap and category switches. `cheap_window_end` is new in the rule
+    engine. `proposal_expired` still has no producer; a program that was missed or whose
+    outcome is unknown stays push only.
+  - Device classes `plug`, `battery`, `timestamp`, unit `K` without a class, `monetary` and
+    `power` checked against the HA core source (`research/mqtt-discovery.md`).
+  - Deviations, `UNVERIFIED` and questions: plan section 8 (7-H).
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable
@@ -1311,12 +1331,11 @@ the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 l
   §14a "not active", backup entity mapped or skipped), the simulated "car arrives late" and a
   washing-machine job in the demo, later a real wallbox, heat pump, evcc and inverter limit.
   The 16 questions of plan section 10 need answers or confirmation of the defaults.
-- **Still not fed or offered (6-O closed the rest):** costs, savings, autarky, forecast error and
-  the next action as MQTT entities (nothing produces them); the event types `island_*`,
-  `para14a_*`, `program_*`, `cheap_window_*` and `ev_target_at_risk` of the MQTT events entity;
-  HA **commands** for EV mode, target, program arming, comfort band and the battery settings
-  (with the author `mqtt` in the config history; needs a `control-safety` review, plan section 8,
-  6-O); a push for a target the plan meets but the controller later misses.
+- **Still not offered (6-O and 7-H closed the rest):** the month's savings as an MQTT entity, the
+  event type `proposal_expired`; HA **commands** for EV mode, target, program arming, comfort
+  band and the battery settings (with the author `mqtt` in the config history; needs a
+  `control-safety` review, plan section 8, 6-O); a push for a target the plan meets but the
+  controller later misses.
 - **Panel gaps:** inverter verification test as an endpoint with a dialog (without it
   `limit_verified` stays false and no limit is ever written), per-device `para14a` flag,
   `shed_rank` and the island keep list, evcc `loadpoint_id` and `topic_prefix`, a manual MQTT
@@ -1638,7 +1657,8 @@ Each was built with the proposed default; the answer may change that default.
 | Phase 6 budgets: resident memory below 300 MB with MQTT, notifications and a full plan, and the planner at most 10 s on aarch64, were not measured (amd64: 0.26 s for the full house) | `scripts/smoke_image.sh`, `scripts/bench_planner.py` | CI arm runner or a Pi 4 |
 | The Phase 6 user guides (6-N) are written from the code and the catalogues; their set-up steps and the UI names were not followed on a real Home Assistant, and the new views have no screenshots yet | `docs/user/*/home-assistant-entities.md`, `notifications.md`, `grid-limits.md`, `ev-charging.md`, `heat-pump.md`, `programs.md` | maintainer follows them; screenshots through `demo-screenshots` (Phase 7) |
 | 6-D MQTT commands: default payloads of the MQTT `switch` (`ON`/`OFF`), `button` (`PRESS`) and the `number` keys `min`, `max`, `step`, `mode` (HA source was not reachable in the session; used as documented); that HA sends commands with retain off | `research/mqtt-discovery.md`, `suncore/ha/mqtt/commands.py`, `discovery.py` | maintainer's HA: press the buttons, set the switches and the boost duration, see the true state come back |
-| 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); the unit rule of `monetary` sensors; TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
+| 7-H: the device classes and units of the read-only entities (`plug`, `battery`, `timestamp`, `K`, `monetary`, `power`) are verified against the HA core source, not on a running HA; how the sensors, the one-line next action and the events look in HA and in the Companion app; the savings figure reads 0 or the plant's gain while in shadow mode | `research/mqtt-discovery.md`, `suncore/app/ha_site_values.py`, `suncore/notify/signals.py` | maintainer's HA with the Mosquitto app: the five sensors fill after the first plan and the first summary; an event automation fires at night (island simulated in the demo) |
+| 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
 | Kostal §3.4 set-point timeout and how external battery management is enabled (register map itself is verified from KOSTAL rev 2.9) | `research/kostal-plenticore-modbus.md` | Phase 4 measurement on the maintainer's inverter |
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
 | Energy-Charts and aWATTar APIs and terms (not shipped in Phase 4) | `research/integrations.md` | session with network access (Phase 6) |

@@ -837,6 +837,72 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   standard path 236.9 kB, expert extras 25.4 kB; ECharts chunks unchanged. Budgets for first
   paint and ECharts are unchanged.
 
+### 7-H
+
+- Branch `phase-7/h-ha-surface`, on `phase-7/b-phase5-tail` (7-B had landed on the line first; the
+  plan said 7-H depends on 7-A only and nothing of 7-B is used).
+- **Five site sensors announced** (`app/ha_site_values.py`, `app/ha_entities.py`):
+  `plan_cost_today` sums `import_w * import_price - export_w * export_price` over the plan's
+  intervals that start on the local day (the plan holds only the time from its creation on, so it
+  is the rest of today); `savings_today` is `savings_vs_no_pv` of `DaySummaryJob.preview` for
+  today, the first savings tile of the history view (the history view has no "default" baseline;
+  the tile order was taken; `savings_vs_pv_only`, what SunCore adds, is not announced);
+  `autarky_today` is its autarky times 100; `pv_forecast_error` is the `n`-weighted mean of
+  `mae_w` over the horizon buckets of the newest day of the blended PV source (any PV source if
+  the blend has no row), looked up over the last three days; `next_action` is the first reason of
+  the first plan interval that has not ended and is not "balanced" (the same rule as the plan
+  view's `plannedActions`), prefixed by `mqtt.next_action.value` (day, time) and cut at 255
+  characters (Home Assistant drops longer states).
+- **Deviation: `pv_forecast_error` is a power in W, not a percentage.** The catalogue said `%`,
+  but `accuracy_day` stores `mae_w`; a percentage needs the actual energy, which the row does not
+  hold, and an invented denominator would mislead. The entry is now `device_class power`, `W`,
+  `measurement`; its name says "(mean absolute)". The unique id and topics are unchanged.
+- The day values (`today_summary`, `recent_pv_accuracy` on the runtime) are read in a background
+  task from the synchronous `values()` call at most every 300 s; a failing read keeps the last
+  values. `savings_month` stays out of `SUPPORTED` (no month sum).
+- **Event types** (`notify/signals.py`): `signal_for(NotifyEvent)` maps the notification text keys
+  of the same observations to `island_*`, `para14a_*`, `program_start_now`, `program_done`,
+  `cheap_window_start` and `ev_target_at_risk`; the rule engine adds `cheap_window_end` as an
+  `Evaluation.signals` entry (a window ends once, when its end has passed; overlapping windows are
+  closed by the first end). The service calls its signal listeners for every tick event and every
+  posted event **before** the category switch, the quiet hours and the cap are consulted. The
+  runtime hands them to a bounded, age-limited `SiteEventBuffer` (64 entries, 5 minutes) that the
+  entity source drains with the decision-based events. Attributes: `name` (the device's display
+  name, the notification reason carries no id), window times and price, EV need and planned kWh.
+  A program that was missed or whose outcome is unknown has no type in the catalogue and stays a
+  push; `proposal_expired` has no producer. No type name was invented.
+- Reason keys: `mqtt.next_action.value` (en, de, in the frontend catalogue, regenerated backend
+  catalogue and ICU golden file). Golden discovery payloads regenerated (`pv_forecast_error`,
+  names); the other four sensors were already in the golden file.
+- **Verified against the HA core source on 2026-11-25** (`research/mqtt-discovery.md`): `plug`,
+  `battery` (unit `%`, state class `measurement`), `timestamp` (ISO 8601 **with** a time zone; the
+  values are aware datetimes), unit `K` without a class, `monetary` (no state class, no unit
+  list), `power`/`W`/`measurement`, the 255 character state limit, the abbreviations.
+- Tests: `tests/notify/test_signals.py` (mapping, no invented type, cheap window end, listeners
+  past quiet hours, the cap and a silenced category, a failing listener),
+  `tests/app/test_ha_site_values.py` (pure values, runtime source, day refresh and failure,
+  buffer, wiring, real time-series reads), discovery goldens, ICU golden.
+- No change in `safety/` or `controller/`; nothing is written to a device or a setting, no
+  command was added. No `config.yaml` or app translation changed.
+
+#### UNVERIFIED (7-H)
+
+- How a running Home Assistant and the Companion app show the five sensors, the one-line next
+  action and the events (only the schema was verified, from source).
+- The plan's `savings_today` choice (savings against a house without PV) is the maintainer's to
+  confirm; in shadow mode it shows the plant's gain, not what SunCore changed.
+- The ISO 4217 rule of `monetary` is documented in HA but not enforced; SunCore uses the
+  region's currency code.
+
+#### Offene Fragen an den Maintainer (7-H)
+
+1. **Welche Ersparnis soll `savings_today` zeigen?** Jetzt: gegenüber einem Haus ohne PV (was
+   die Anlage bringt). Alternative: gegenüber PV ohne Batterie und Steuerung (was SunCore
+   bringt, im Schattenmodus etwa 0). **Empfehlung:** so lassen, die zweite Zahl später als
+   eigene Entität.
+2. **Soll der PV-Prognosefehler in W bleiben?** Ein Prozentwert braucht einen Nenner
+   (mittlere Tagesleistung oder Tagesenergie), der in `accuracy_day` fehlt. **Empfehlung:** W.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

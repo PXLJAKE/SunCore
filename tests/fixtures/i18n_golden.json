@@ -2686,7 +2686,7 @@
   "lang": "en",
   "key": "mqtt.entity.pv_forecast_error.name",
   "args": {},
-  "expected": "PV forecast error"
+  "expected": "PV forecast error (mean absolute)"
  },
  {
   "lang": "en",
@@ -2741,6 +2741,50 @@
   "key": "mqtt.hint.install_broker",
   "args": {},
   "expected": "SunCore shows its values in Home Assistant through an MQTT broker. Install the “Mosquitto broker” app (Settings, Apps, App store), start it and let it be added to the MQTT integration. SunCore looks for the broker again every minute. Everything else in SunCore works without it."
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.next_action.value",
+  "args": {
+   "day": "zzz",
+   "time": "abc",
+   "date": "abc",
+   "text": "abc"
+  },
+  "expected": "abc abc: abc"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.next_action.value",
+  "args": {
+   "day": "today",
+   "time": 42,
+   "date": 42,
+   "text": 42
+  },
+  "expected": "42: 42"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.next_action.value",
+  "args": {
+   "day": "tomorrow",
+   "time": "abc",
+   "date": "abc",
+   "text": "abc"
+  },
+  "expected": "Tomorrow abc: abc"
+ },
+ {
+  "lang": "en",
+  "key": "mqtt.next_action.value",
+  "args": {
+   "day": "other",
+   "time": 42,
+   "date": 42,
+   "text": 42
+  },
+  "expected": "42 42: 42"
  },
  {
   "lang": "en",
@@ -11428,7 +11472,7 @@
   "lang": "de",
   "key": "mqtt.entity.pv_forecast_error.name",
   "args": {},
-  "expected": "PV-Prognosefehler"
+  "expected": "PV-Prognosefehler (mittlerer absoluter)"
  },
  {
   "lang": "de",
@@ -11483,6 +11527,50 @@
   "key": "mqtt.hint.install_broker",
   "args": {},
   "expected": "SunCore zeigt seine Werte über einen MQTT-Broker in Home Assistant an. Installiere die App „Mosquitto broker“ (Einstellungen, Apps, App-Store), starte sie und lass sie zur MQTT-Integration hinzufügen. SunCore sucht jede Minute erneut nach dem Broker. Alles andere in SunCore funktioniert auch ohne."
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.next_action.value",
+  "args": {
+   "day": "zzz",
+   "time": "abc",
+   "date": "abc",
+   "text": "abc"
+  },
+  "expected": "abc abc Uhr: abc"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.next_action.value",
+  "args": {
+   "day": "today",
+   "time": 42,
+   "date": 42,
+   "text": 42
+  },
+  "expected": "42 Uhr: 42"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.next_action.value",
+  "args": {
+   "day": "tomorrow",
+   "time": "abc",
+   "date": "abc",
+   "text": "abc"
+  },
+  "expected": "Morgen abc Uhr: abc"
+ },
+ {
+  "lang": "de",
+  "key": "mqtt.next_action.value",
+  "args": {
+   "day": "other",
+   "time": 42,
+   "date": 42,
+   "text": 42
+  },
+  "expected": "42 42 Uhr: 42"
  },
  {
   "lang": "de",

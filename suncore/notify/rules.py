@@ -18,6 +18,7 @@ from typing import Final
 
 from suncore.core.decisions import Reason
 from suncore.notify.model import Category, NotifyEvent, ProposalRef
+from suncore.notify.signals import CHEAP_WINDOW_END, SiteSignal
 
 FAILED_WRITES: Final = 3
 """Failed writes in a row on one device before an error is announced (plan WP5)."""
@@ -94,6 +95,9 @@ class Evaluation:
     events: tuple[NotifyEvent, ...] = ()
     resolved: tuple[str, ...] = ()
     """Dedupe keys of persistent notifications that can be dismissed."""
+    signals: tuple[SiteSignal, ...] = ()
+    """Event types without a push message of their own (the end of a cheap window); the others
+    are derived from ``events`` by :func:`~suncore.notify.signals.signal_for`."""
 
 
 def _event(
@@ -146,6 +150,7 @@ def cheap_window(
 class _Acc:
     events: list[NotifyEvent] = field(default_factory=list)
     resolved: list[str] = field(default_factory=list)
+    signals: list[SiteSignal] = field(default_factory=list)
 
 
 class RuleEngine:
@@ -167,6 +172,8 @@ class RuleEngine:
         self._active: set[str] = set()
         """Persistent error keys currently raised (planner, MQTT): only these get resolved."""
         self._announced_windows: set[str] = set()
+        self._open_window: tuple[datetime, SiteSignal] | None = None
+        """End and end signal of the cheap window announced last, until it is over."""
         self._summary_day: str | None = None
         self._switched: dict[str, int] = {}
         self._stops = 0
@@ -180,7 +187,7 @@ class RuleEngine:
         self._ev_targets(obs, acc)
         self._cheap(obs, acc)
         self._summary(obs, acc)
-        return Evaluation(tuple(acc.events), tuple(acc.resolved))
+        return Evaluation(tuple(acc.events), tuple(acc.resolved), tuple(acc.signals))
 
     # --- proposals --------------------------------------------------------------------
 
@@ -406,6 +413,9 @@ class RuleEngine:
     # --- cheap windows, daily summary ---------------------------------------------------------
 
     def _cheap(self, obs: Observation, acc: _Acc) -> None:
+        if self._open_window is not None and obs.now >= self._open_window[0]:
+            acc.signals.append(self._open_window[1])
+            self._open_window = None
         window = cheap_window(obs.prices, obs.now)
         if window is None:
             return
@@ -417,14 +427,21 @@ class RuleEngine:
             self._announced_windows.clear()
         self._announced_windows.add(key)
         zone = obs.now.tzinfo
+        start_text = start.astimezone(zone).strftime("%H:%M")
+        end_text = end.astimezone(zone).strftime("%H:%M")
+        if self._open_window is None:  # a window that overlaps an open one is not closed twice
+            self._open_window = (
+                end,
+                SiteSignal(CHEAP_WINDOW_END, {"start": start_text, "end": end_text}),
+            )
         acc.events.append(
             _event(
                 Category.CHEAP_WINDOW,
                 key,
                 "notify.cheap_window.start",
                 obs.now,
-                start=start.astimezone(zone).strftime("%H:%M"),
-                end=end.astimezone(zone).strftime("%H:%M"),
+                start=start_text,
+                end=end_text,
                 price=round(mean, 3),
             )
         )

@@ -47,10 +47,15 @@ prüfen, hängen deshalb an der Sprache. Nimm stattdessen die Binärsensoren und
 | Betriebsmodus | Sensor | Schatten, assistiert oder automatisch (Gesamtmodus) |
 | Verfügbarer Überschuss | Sensor | Der sichere Überschuss, den die Steuerung sieht, in W |
 | Gesund, Schattenmodus, Not-Aus | Binärsensoren | Für Automationen und Dashboards |
+| Nächste Aktion | Sensor | Die nächste Aktion des Plans in einer Zeile, etwa „14:30 Uhr: Speichere 2.400 W Solarüberschuss“, mit dem Tag für morgen und später; unbekannt, wenn der Plan nichts vorsieht |
+| Geplante Kosten heute | Sensor | Was der Plan für den Rest des Tages an Netzkosten erwartet (Bezug minus Einspeiseerlös), in deiner Währung; unbekannt ohne Preise |
+| Ersparnis heute | Sensor | Was die Anlage heute gegenüber einem Haus ohne PV gespart hat (die erste Spar-Kachel der Verlaufsansicht), in deiner Währung |
+| Autarkie heute | Sensor | Anteil des heutigen Verbrauchs, der nicht aus dem Netz kam, in % |
+| PV-Prognosefehler | Sensor | Mittlerer absoluter Fehler der PV-Prognose am neuesten Tag mit Messung, in W (keine Prozentzahl; gestern, nachts berechnet) |
 | Monatsspitze | Sensor | Der höchste 15-Minuten-Bezug des Monats in W (wenn der Netzabschnitt ihn misst) |
 | Netzzustand | Sensor | Normal, vom Netzbetreiber begrenzt (§14a), Inselbetrieb |
 | Begrenzung des Netzbetreibers (§14a) aktiv, Inselbetrieb | Binärsensoren | Nur mit Signal oder Backup-Entität; unbekannt, solange diese nicht verfügbar ist |
-| Ereignisse | Event | Gerät geschaltet, Vorschlag, Fehler |
+| Ereignisse | Event | Gerät geschaltet, Vorschlag, Fehler, Beginn und Ende von Insel und §14a, Programm „jetzt starten“ und „fertig“, Beginn und Ende eines günstigen Fensters, Ladeziel in Gefahr |
 | Automatisch | Schalter | Gesamtmodus: an = automatisch, aus = Schatten |
 | Neu planen | Taste | Startet eine neue Planung |
 | Not-Aus | Taste | Wie der Not-Aus im Panel |
@@ -73,6 +78,19 @@ Reine Anzeigen, nur wo sie zutreffen:
 
 Das sind absichtlich Sensoren. EV-Modus und Ziel setzen, ein Programm vormerken und das
 Komfortband aus Home Assistant gibt es noch nicht (siehe Grenzen).
+
+Die fünf Standort-Sensoren lesen den Plan und den Verlauf; sie schreiben nie. Ein Wert ohne
+Quelle (kein Plan, keine Preise, kein gemessener Tag) erscheint in Home Assistant als
+unbekannt, nicht als null. Ersparnis, Autarkie und Prognosefehler werden höchstens alle fünf
+Minuten aus dem Verlauf gelesen und hinken dem Panel entsprechend nach.
+
+**Ereignisse.** Jedes Ereignis trägt seinen Typ und einige Attribute (etwa den Gerätenamen oder
+die Zeiten des Fensters). Sie stammen aus denselben Beobachtungen wie die Benachrichtigungen,
+sind aber von den Push-Regeln unabhängig: Ruhezeit, Tageslimit und eine abgeschaltete Kategorie
+unterdrücken den Push, nicht das Ereignis. Eine Automation auf „Inselbetrieb beginnt“ läuft
+also auch nachts. Ein Programm, das nicht rechtzeitig gestartet wurde oder dessen Ausgang
+unbekannt ist, ist nur eine Benachrichtigung ohne Ereignis. Ereignisse werden nicht
+nachgeholt: Eines, das länger als fünf Minuten auf den Broker wartete, entfällt.
 
 ## 3. Befehle und was abgelehnt wird
 
@@ -102,19 +120,24 @@ Schutzmaßnahmen, alle getestet:
 
 ## 4. Bekannte Grenzen und UNVERIFIED
 
-- **Noch nicht angemeldet:** Kosten, Ersparnis, Autarkie, Prognosefehler und die nächste
-  Aktion (nichts erzeugt sie), Batteriestrategie, -reserve und Abendziel sowie jede
-  **Steuerung** für E-Auto, Programme und Komfort (EV-Modus, Ziel, Vormerken, Abbrechen, Fertig
-  bis, Komfortband). Die Steuerungen brauchen einen Befehlsweg, der etwas vormerkt oder setzt;
-  das ist offene Arbeit (Plan Abschnitt 8, 6-O) und kommt mit der Begleit-Integration in
-  Phase 7. Bis dahin nimmst du dafür das Panel. Das Event-Entity feuert nur für ein geschaltetes Gerät,
-  einen Vorschlag und einen Fehler. Konfigurationsänderungen aus Home Assistant (und damit ein
-  Urheber `mqtt` im Konfigurationsverlauf) gibt es nicht.
+- **Noch nicht angemeldet:** die Ersparnis des Monats, Batteriestrategie, -reserve und
+  Abendziel sowie jede **Steuerung** für E-Auto, Programme und Komfort (EV-Modus, Ziel,
+  Vormerken, Abbrechen, Fertig bis, Komfortband). Die Steuerungen brauchen einen Befehlsweg,
+  der etwas vormerkt oder setzt; das ist offene Arbeit (Plan Abschnitt 8, 6-O) und kommt mit
+  der Begleit-Integration in Phase 7. Bis dahin nimmst du dafür das Panel. Der Ereignistyp
+  „Vorschlag abgelaufen“ hat noch keinen Erzeuger. Konfigurationsänderungen aus Home Assistant
+  (und damit ein Urheber `mqtt` im Konfigurationsverlauf) gibt es nicht.
 - Einen manuellen Broker kannst du im Panel noch nicht eintragen; nimm den Abschnitt `mqtt`.
 - Ein Erhöhen eines Geräts aus Home Assistant trägt die aktuelle Identitätsmarke des Geräts, der
   Schutz vor einem umgeordneten Gerät greift dort also nicht. Nur die Freigabe schützt.
 - Wer Zugangsdaten für den Broker hat, kann SunCore stoppen, Geräte pausieren und Modi
   absenken. Das ist Absicht: Stoppen ist immer sicher.
+- Ersparnis, Autarkie und Kosten sind dieselben Zahlen wie in der Verlaufsansicht; sie sind nur
+  so gut wie die Preise und die gemessenen Flüsse dahinter (der Schattenmodus spart nichts von
+  selbst: Die Zahlen zeigen dann, was die Anlage tut, nicht was SunCore geändert hat).
+- Am 2026-11-25 gegen den Quelltext von Home Assistant Core geprüft: die Geräteklassen `plug`,
+  `battery`, `timestamp`, `power` und `monetary`, die Einheit K ohne Geräteklasse und das
+  Zeitstempel-Format (ISO 8601 mit Zeitzone). An einem laufenden Home Assistant noch nicht gesehen.
 - `UNVERIFIED` an einem echten Home Assistant: die Standard-Nutzlasten der MQTT-Plattformen
   Schalter, Taste und Zahl, dass Home Assistant Befehle ohne Retain sendet, der Schlüssel
   `language` für die Namen, die Antwort des Supervisors bei der Broker-Suche, TLS zur

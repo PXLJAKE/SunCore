@@ -10,11 +10,22 @@ a device directly, and nothing calls ``apply``.
 
 from __future__ import annotations
 
+import asyncio
+from collections import deque
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Final
 
+import structlog
+
 from suncore import __version__
+from suncore.app.ha_site_values import (
+    autarky_today_pct,
+    next_action,
+    plan_cost_today,
+    pv_forecast_error_w,
+    savings_today,
+)
 from suncore.app.notifications import grid_flags
 from suncore.core.config import MqttConfig
 from suncore.core.controlstate import BatteryControlState, DeviceControlState, OverrideCommand
@@ -37,7 +48,14 @@ from suncore.storage.learned import LearnedParamStore
 if TYPE_CHECKING:
     from suncore.app.runtime import Runtime
 
+log = structlog.get_logger(__name__)
+
 NAMESPACE: Final = "ha_entities"
+DAY_REFRESH_S: Final = 300.0
+"""The day values (savings, autarky, forecast error) read the time series: at most this often."""
+EVENT_MAX_AGE_S: Final = 300.0
+"""An event that waited longer than this (broker down) is stale and dropped, not replayed."""
+EVENT_BUFFER: Final = 64
 _JOB_STATE: Final = {
     JobState.ARMED: "armed",
     JobState.SCHEDULED: "armed",
@@ -77,6 +95,12 @@ SUPPORTED: Final = frozenset(
         "hp_lift",
         "job_state",
         "planned_start",
+        # site sensors with a producer since PR 7-H (read only)
+        "next_action",
+        "plan_cost_today",
+        "savings_today",
+        "autarky_today",
+        "pv_forecast_error",
         # command entities (PR 6-D); announced only with a command port
         "auto",
         "replan",
@@ -89,11 +113,32 @@ SUPPORTED: Final = frozenset(
         "device_boost_minutes",
     }
 )
-"""Catalogue keys SunCore can fill today. Not announced yet: costs, savings, autarky, forecast
-error and the next action (no producer), the battery strategy, reserve and evening target (the
-config path from HA, plan WP4, is open) and every EV, program and comfort *control* (``ev_mode``,
-``target_*``, ``arm``, ``cancel``, ``finish_by``, ``comfort_*``: they need commands that arm or
-set things; see plan section 8, 6-O)."""
+"""Catalogue keys SunCore can fill today. Not announced yet: ``savings_month`` (no month sum
+yet), the battery strategy, reserve and evening target (the config path from HA, plan WP4, is
+open) and every EV, program and comfort *control* (``ev_mode``, ``target_*``, ``arm``,
+``cancel``, ``finish_by``, ``comfort_*``: they need commands that arm or set things; see plan
+section 8, 6-O and 7-H)."""
+
+
+class SiteEventBuffer:
+    """Events for the MQTT ``events`` entity that wait for the next sync.
+
+    The notification service offers its signals here (``Runtime`` wires it); the entity source
+    drains them. Bounded and age-limited so a broker that is down for hours neither grows the
+    buffer nor replays old news when it returns.
+    """
+
+    def __init__(self, clock: Callable[[], datetime]) -> None:
+        self._clock = clock
+        self._items: deque[tuple[datetime, SiteEvent]] = deque(maxlen=EVENT_BUFFER)
+
+    def offer(self, event: SiteEvent) -> None:
+        self._items.append((self._clock(), event))
+
+    def drain(self) -> list[SiteEvent]:
+        now = self._clock()
+        items, self._items = list(self._items), deque(maxlen=EVENT_BUFFER)
+        return [e for ts, e in items if (now - ts).total_seconds() <= EVENT_MAX_AGE_S]
 
 
 class SqliteInstallStore:
@@ -173,10 +218,14 @@ class RuntimeCommandPort:
 class RuntimeEntitySource:
     """``EntitySource`` over the running application."""
 
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(self, runtime: Runtime, events: SiteEventBuffer | None = None) -> None:
         self._rt = runtime
         self._seen: dict[str, datetime] = {}
         self._baseline = False
+        self._events = events
+        self._day: dict[str, object] = {}
+        self._day_at: datetime | None = None
+        self._day_task: asyncio.Task[None] | None = None
 
     def topology(self) -> Topology:
         rt = self._rt
@@ -220,6 +269,7 @@ class RuntimeEntitySource:
         if state.site is not None and state.site.available_w is not None:
             out["available_surplus"] = state.site.available_w
         out.update(self._grid_values())
+        out.update(self._site_values())
         out.update(self._battery_values(state.battery))
         for device in state.devices:
             out.update(self._flex_values(device))
@@ -230,6 +280,56 @@ class RuntimeEntitySource:
             last = device.last_decision
             out[f"{device.device_id}_last_decision"] = "none" if last is None else last.kind.value
         return out
+
+    def _site_values(self) -> dict[str, object]:
+        """Plan cost, next action and the day values (read only; a missing source is no key)."""
+        rt = self._rt
+        plan = None if rt.planning is None else rt.planning.plan
+        now = rt.clock()
+        tz = rt.timezone()
+        out: dict[str, object] = {}
+        cost = plan_cost_today(plan, now, tz)
+        if cost is not None:
+            out["plan_cost_today"] = cost
+        action = next_action(plan, now, tz, self.language())
+        if action is not None:
+            out["next_action"] = action
+        self._schedule_day_refresh(now)
+        out.update(self._day)
+        return out
+
+    def _schedule_day_refresh(self, now: datetime) -> None:
+        if self._day_task is not None and not self._day_task.done():
+            return
+        if self._day_at is not None and (now - self._day_at).total_seconds() < DAY_REFRESH_S:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._day_at = now
+        self._day_task = loop.create_task(self.refresh_day_values(), name="suncore-ha-day-values")
+
+    async def refresh_day_values(self) -> None:
+        """Savings and autarky from today's ``day_summary`` preview, the forecast error from the
+        newest ``accuracy_day`` rows. A failing read keeps the last values."""
+        values: dict[str, object] = {}
+        try:
+            row = await self._rt.today_summary()
+            savings = savings_today(row)
+            if savings is not None:
+                values["savings_today"] = savings
+            autarky = autarky_today_pct(row)
+            if autarky is not None:
+                values["autarky_today"] = autarky
+            rows, blended = await self._rt.recent_pv_accuracy()
+            error = pv_forecast_error_w(rows, blended)
+            if error is not None:
+                values["pv_forecast_error"] = error
+        except Exception:
+            log.exception("ha_entities.day_values_failed")
+            return
+        self._day = values
 
     def _grid_values(self) -> dict[str, object]:
         """Island, section 14a and the month's peak from the grid monitor (read only)."""
@@ -327,7 +427,9 @@ class RuntimeEntitySource:
         return out
 
     def drain_events(self) -> list[SiteEvent]:
-        """``device_switched``, ``proposal`` and ``error`` from the gate's newest decisions."""
+        """``device_switched``, ``proposal`` and ``error`` from the gate's newest decisions, then
+        the signals of the notification rules (island, section 14a, programs, cheap windows, EV
+        target at risk)."""
         events: list[SiteEvent] = []
         for device in self._rt.control_state().devices:
             last = device.last_decision
@@ -345,11 +447,15 @@ class RuntimeEntitySource:
             if kind is not None:
                 events.append(SiteEvent(kind, {"device": device.device_id, "name": device.name}))
         self._baseline = True
+        if self._events is not None:
+            events.extend(self._events.drain())
         return events
 
 
 def build_ha_entities(
-    runtime: Runtime, on_refusal: Callable[[str, Reason], None] | None = None
+    runtime: Runtime,
+    on_refusal: Callable[[str, Reason], None] | None = None,
+    events: SiteEventBuffer | None = None,
 ) -> HaEntityService | None:
     """The service for ``runtime`` (``None`` in demo mode or without the learned store)."""
     if runtime.demo or runtime.learned is None:
@@ -359,7 +465,7 @@ def build_ha_entities(
         stored = await runtime.config.get("mqtt")
         return stored if isinstance(stored, MqttConfig) else None
 
-    source: EntitySource = RuntimeEntitySource(runtime)
+    source: EntitySource = RuntimeEntitySource(runtime, events)
     return HaEntityService(
         source=source,
         load_config=load_config,

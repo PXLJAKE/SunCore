@@ -129,13 +129,14 @@
    },
    "pv_forecast_error": {
     "def_ent_id": "sensor.suncore_pv_forecast_error",
-    "name": "PV-Prognosefehler",
+    "dev_cla": "power",
+    "name": "PV-Prognosefehler (mittlerer absoluter)",
     "p": "sensor",
     "stat_cla": "measurement",
     "stat_t": "suncore/a1b2c3d4/pv_forecast_error/state",
     "sug_dsp_prc": 0,
     "uniq_id": "suncore_a1b2c3d4_pv_forecast_error",
-    "unit_of_meas": "%"
+    "unit_of_meas": "W"
    },
    "savings_month": {
     "def_ent_id": "sensor.suncore_savings_month",
