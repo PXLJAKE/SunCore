@@ -1,0 +1,423 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Command entities and the command path end to end: real client, stub broker, fake port."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import AsyncIterator
+from typing import Any
+
+import pytest
+
+from suncore.app.ha_entities import SUPPORTED
+from suncore.core.config import MqttConfig
+from suncore.core.decisions import OperatingMode
+from suncore.ha.mqtt import BrokerState, HaEntityService
+from suncore.ha.mqtt.service import MAX_STOP_TASKS
+from suncore.ha.websocket import Backoff
+
+from .stub_broker import Message, StubBroker
+from .support import FakeSource, MemoryStore, topology
+from .test_commands import FakePort
+from .test_service import Services
+
+
+class Harness:
+    def __init__(self, broker: StubBroker, *, allow_raise: bool) -> None:
+        self.broker = broker
+        self.source = FakeSource(topology(supported=SUPPORTED))
+        self.source.data = {"status": "running", "mode": "shadow", "auto": False}
+        self.port = FakePort()
+        self.port.device_modes = {"heater": OperatingMode.SHADOW, "car": OperatingMode.SHADOW}
+        self.config = MqttConfig(allow_mode_raise=allow_raise)
+        self.store = MemoryStore()
+        self.service = HaEntityService(
+            source=self.source,
+            load_config=self._load,
+            store=self.store,
+            services=Services(broker),
+            commands=self.port,
+            retry_s=0.1,
+            backoff=lambda: Backoff(initial=0.0, jitter=0.0),  # no real-time reconnect delay
+            poll_s=0.05,
+            birth_delay=(0.0, 0.0),
+            min_interval_s=0.0,
+        )
+
+    async def _load(self) -> MqttConfig | None:
+        return self.config
+
+    @property
+    def iid(self) -> str:
+        assert self.store.record is not None
+        return self.store.record.iid
+
+    def components(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for m in self.broker.published:
+            if "/device/" in m.topic and m.payload:
+                out.update(json.loads(m.payload)["cmps"])
+        return out
+
+    async def connected(self) -> None:
+        await self.broker.wait_for(lambda: self.service.status.state is BrokerState.CONNECTED)
+        await self.broker.wait_for(lambda: bool(self.components()))
+
+    def command(self, object_id: str, payload: str, *, retain: bool = False) -> None:
+        self.broker.inject(f"suncore/{self.iid}/{object_id}/set", payload, retain=retain)
+
+
+async def run(allow_raise: bool) -> AsyncIterator[Harness]:
+    async with StubBroker() as broker:
+        h = Harness(broker, allow_raise=allow_raise)
+        await h.service.start()
+        try:
+            yield h
+        finally:
+            await h.service.stop()
+
+
+@pytest.fixture
+async def harness() -> AsyncIterator[Harness]:
+    async for h in run(False):
+        yield h
+
+
+@pytest.fixture
+async def opted_in() -> AsyncIterator[Harness]:
+    async for h in run(True):
+        yield h
+
+
+async def settle() -> None:
+    await asyncio.sleep(0.3)
+
+
+async def test_command_entities_are_announced_with_command_topics(harness: Harness) -> None:
+    await harness.connected()
+    iid = harness.iid
+    cmps = harness.components()
+    for object_id in ("auto", "replan", "emergency_stop_button", "heater_auto", "heater_boost"):
+        assert cmps[object_id]["cmd_t"] == f"suncore/{iid}/{object_id}/set"
+    assert "stat_t" not in cmps["replan"]  # a button has no state
+    assert cmps["auto"]["p"] == "switch"
+    assert cmps["replan"]["pl_prs"] == "PRESS"
+    assert (cmps["auto"]["pl_on"], cmps["auto"]["pl_off"]) == ("ON", "OFF")
+    assert (cmps["auto"]["stat_on"], cmps["auto"]["stat_off"]) == ("ON", "OFF")
+    assert "stat_t" in cmps["auto"]
+    minutes = cmps["heater_boost_minutes"]
+    assert (minutes["min"], minutes["max"], minutes["step"]) == (1, 1440, 1)
+    assert minutes["ent_cat"] == "config"
+    # Entities of kinds whose commands do not exist yet are not announced.
+    assert "car_ev_mode" not in cmps
+    assert "battery_strategy" not in cmps
+
+
+async def test_clear_button_only_with_the_opt_in(harness: Harness, opted_in: Harness) -> None:
+    await harness.connected()
+    await opted_in.connected()
+    assert "emergency_stop_clear" not in harness.components()
+    assert "emergency_stop_clear" in opted_in.components()
+
+
+async def test_no_commands_without_a_port() -> None:
+    async with StubBroker() as broker:
+        h = Harness(broker, allow_raise=True)
+        h.service = HaEntityService(
+            source=h.source,
+            load_config=h._load,
+            store=h.store,
+            services=Services(broker),
+            retry_s=0.1,
+            poll_s=0.05,
+            birth_delay=(0.0, 0.0),
+        )
+        await h.service.start()
+        try:
+            await h.connected()
+        finally:
+            await h.service.stop()
+        assert not any(c.get("cmd_t") for c in h.components().values())
+        assert not any(t.endswith("/+/set") for t in broker.subscribed)
+
+
+async def test_command_topics_are_subscribed(harness: Harness) -> None:
+    await harness.connected()
+    assert f"suncore/{harness.iid}/+/set" in harness.broker.subscribed
+
+
+async def test_a_command_reaches_the_port_once(harness: Harness) -> None:
+    await harness.connected()
+    harness.command("replan", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls)
+    await settle()
+    assert harness.port.calls == [("replan",)]
+
+
+async def test_emergency_stop_from_ha(harness: Harness) -> None:
+    await harness.connected()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls)
+    assert harness.port.calls == [("stop",)]
+
+
+async def test_raise_is_refused_and_the_true_state_is_republished(harness: Harness) -> None:
+    await harness.connected()
+    iid = harness.iid
+    topic = f"suncore/{iid}/auto/state"
+    await harness.broker.wait_for(lambda: topic in harness.broker.retained)
+    before = len(harness.broker.messages(topic))
+    harness.command("auto", "ON")
+    await harness.broker.wait_for(lambda: len(harness.broker.messages(topic)) > before)
+    assert harness.broker.messages(topic)[-1].payload == b"OFF"  # still the true state
+    assert harness.port.calls == []
+
+
+async def test_a_refused_raise_calls_the_refusal_hook_and_nothing_else_does(
+    harness: Harness,
+) -> None:
+    seen: list[tuple[str, str]] = []
+    harness.service._on_refusal = lambda entity, reason: seen.append((entity, reason.key))
+    await harness.connected()
+    harness.command("auto", "ON")
+    await harness.broker.wait_for(lambda: bool(seen))
+    harness.command("replan", "PRESS")  # an accepted command is no refusal
+    harness.command("auto", "garbage")  # an invalid payload is no raise refusal
+    await asyncio.sleep(0.2)
+    assert seen == [("auto", "safety.mqtt_mode_raise_disabled")]
+
+
+async def test_raise_works_with_the_opt_in(opted_in: Harness) -> None:
+    await opted_in.connected()
+    opted_in.command("auto", "ON")
+    await opted_in.broker.wait_for(lambda: opted_in.port.calls)
+    assert opted_in.port.calls == [("global_mode", OperatingMode.AUTOMATIC)]
+
+
+async def test_a_retained_command_is_ignored_and_removed(opted_in: Harness) -> None:
+    await opted_in.connected()
+    topic = f"suncore/{opted_in.iid}/emergency_stop_button/set"
+    # A retained command waiting on the broker; it arrives (flagged retained) after a reconnect.
+    opted_in.broker.retained[topic] = Message(topic, b"PRESS", 0, True)
+    await opted_in.broker.drop_connections()
+    await opted_in.broker.wait_for(lambda: topic not in opted_in.broker.retained)
+    # The removal is published after the handler ran, so no extra wait is needed here.
+    assert opted_in.port.calls == []
+    assert any(m.topic == topic and m.payload == b"" for m in opted_in.broker.published)
+
+
+async def test_garbage_is_ignored(harness: Harness) -> None:
+    await harness.connected()
+    for payload in ("", "press", "{}", "x" * 500):
+        harness.command("replan", payload)
+    harness.command("nonexistent", "PRESS")
+    await settle()
+    assert harness.port.calls == []
+
+
+async def test_flood_does_not_stall_the_surface(harness: Harness) -> None:
+    await harness.connected()
+    for _ in range(200):
+        harness.command("replan", "PRESS")
+    await settle()
+    assert len(harness.port.calls) <= 3  # burst of three, no refill in 0.3 s worth of flood
+    # The surface still publishes state changes (no tick or sync delay).
+    topic = f"suncore/{harness.iid}/mode/state"
+    harness.source.data["mode"] = "automatic"
+    harness.service.refresh()
+    await harness.broker.wait_for(
+        lambda: harness.broker.messages(topic)[-1].payload == b"Automatic"
+    )
+
+
+async def test_boost_minutes_state_follows_the_command(harness: Harness) -> None:
+    await harness.connected()
+    topic = f"suncore/{harness.iid}/heater_boost_minutes/state"
+    await harness.broker.wait_for(lambda: topic in harness.broker.retained)
+    assert harness.broker.retained[topic].payload == b"60"
+    harness.command("heater_boost_minutes", "25")
+    await harness.broker.wait_for(lambda: harness.broker.retained[topic].payload == b"25")
+    assert harness.port.calls == []
+
+
+async def test_withdrawing_the_opt_in_mid_session_refuses_a_raise(opted_in: Harness) -> None:
+    await opted_in.connected()
+    opted_in.config = MqttConfig(allow_mode_raise=False)
+    opted_in.service.reconfigure()  # the session is still running while it shuts down
+    opted_in.command("auto", "ON")
+    await settle()
+    assert ("global_mode", OperatingMode.AUTOMATIC) not in opted_in.port.calls
+
+
+async def test_the_emergency_stop_passes_a_blocked_command(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.block = asyncio.Event()
+    harness.command("replan", "PRESS")  # waits in the service (5 s timeout in production)
+    await asyncio.sleep(0.1)
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: ("stop",) in harness.port.calls, seconds=1.0)
+    harness.port.block.set()
+
+
+# --- SEC-15: one emergency-stop task, coalesced repeats ----------------------------------
+
+
+def _stop_tasks() -> list[asyncio.Task[Any]]:
+    return [
+        t
+        for t in asyncio.all_tasks()
+        if t.get_name() == "suncore-mqtt-emergency-stop" and not t.done()
+    ]
+
+
+async def test_a_stop_flood_runs_one_task_and_repeats_once(harness: Harness) -> None:
+    await harness.connected()
+    routed = 0
+    route = harness.service._route_command
+
+    def counting(*args: Any) -> None:
+        nonlocal routed
+        routed += 1
+        route(*args)
+
+    harness.service._route_command = counting  # type: ignore[method-assign]
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    # The first stop reaches the port at once, while the flood has not even started.
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    for _ in range(500):
+        harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: routed == 501, seconds=5.0)
+    assert len(_stop_tasks()) == 1
+    assert harness.port.calls == [("stop",)]
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",), ("stop",)]  # the flood collapsed into one repeat
+    # After the run a new stop starts a new task at once.
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 3, seconds=1.0)
+
+
+async def test_a_single_stop_is_not_repeated(harness: Harness) -> None:
+    await harness.connected()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls, seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",)]
+    assert not _stop_tasks()
+
+
+async def test_garbage_during_a_stop_never_replaces_a_pending_press(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    harness.command("emergency_stop_button", "PRESS")
+    for payload in ("garbage", "x" * 500, "press"):
+        harness.command("emergency_stop_button", payload)
+    await settle()
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 2, seconds=1.0)
+    await settle()
+    assert harness.port.calls == [("stop",), ("stop",)]
+
+
+async def test_a_stop_after_garbage_alone_still_repeats(harness: Harness) -> None:
+    """Garbage first marks the repeat; a later valid press replaces it and is not lost."""
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    harness.command("emergency_stop_button", "garbage")
+    harness.command("emergency_stop_button", "PRESS")
+    await settle()
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: len(harness.port.calls) == 2, seconds=1.0)
+
+
+async def test_a_failing_stop_does_not_wedge_the_next_one(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.fail = True
+    harness.command("emergency_stop_button", "PRESS")
+    await settle()
+    assert not _stop_tasks()
+    harness.port.fail = False
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+
+
+async def test_a_stop_after_a_clear_never_waits_behind_an_older_run(opted_in: Harness) -> None:
+    """Review F1: the earlier run is still releasing when the stop is cleared and pressed
+    again; the new stop must reach the port at once, not after the old run."""
+    h = opted_in
+    await h.connected()
+    h.port.stop_block = asyncio.Event()
+    h.command("emergency_stop_button", "PRESS")
+    await h.broker.wait_for(lambda: h.port.calls == [("stop",)], seconds=1.0)
+    h.command("emergency_stop_clear", "PRESS")
+    await h.broker.wait_for(lambda: ("clear",) in h.port.calls, seconds=1.0)
+    h.command("emergency_stop_button", "PRESS")
+    await h.broker.wait_for(lambda: h.port.calls == [("stop",), ("clear",), ("stop",)], seconds=1.0)
+    assert h.port.stopped
+    # With the stop in effect again, a flood coalesces into the runs in flight.
+    for _ in range(200):
+        h.command("emergency_stop_button", "PRESS")
+    await settle()
+    assert len(_stop_tasks()) == 2
+    h.port.stop_block.set()
+    await h.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+    assert h.port.calls.count(("stop",)) == 3  # two runs plus one coalesced repeat
+
+
+async def test_an_unreadable_stop_state_starts_a_run_instead_of_waiting(harness: Harness) -> None:
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+
+    def broken() -> bool:
+        raise RuntimeError("boom")
+
+    harness.port.stored_emergency_active = broken  # type: ignore[method-assign]
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    for _ in range(50):
+        harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: len(harness.port.calls) >= 2, seconds=1.0)
+    await settle()
+    assert len(_stop_tasks()) <= MAX_STOP_TASKS  # the backstop bounds the runs
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+
+
+async def test_a_session_restart_lets_a_stop_and_its_repeat_finish(harness: Harness) -> None:
+    """Review F2: a reconfigure does not cancel a stop in flight or drop its repeat."""
+    await harness.connected()
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    harness.port.settled = False
+    harness.command("emergency_stop_button", "PRESS")  # coalesced: the repeat is pending
+    await settle()
+    harness.service.reconfigure()
+    await settle()
+    assert _stop_tasks()  # the teardown waits, it does not cancel
+    harness.port.stop_block.set()
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",), ("stop",)])
+    await harness.broker.wait_for(lambda: not _stop_tasks(), seconds=1.0)
+    await harness.connected()  # the new session comes up after the drain
+
+
+async def test_stopping_the_service_waits_for_a_stop_then_gives_up(harness: Harness) -> None:
+    """A stuck stop is cancelled only after the drain time (bounded by the release deadline)."""
+    await harness.connected()
+    harness.service._stop_drain_s = 0.3
+    harness.port.stop_block = asyncio.Event()
+    harness.command("emergency_stop_button", "PRESS")
+    await harness.broker.wait_for(lambda: harness.port.calls == [("stop",)], seconds=1.0)
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    await harness.service.stop()
+    assert loop.time() - started >= 0.25
+    await asyncio.sleep(0)
+    assert not _stop_tasks()

@@ -112,7 +112,7 @@ needs **both**: the overall mode set to automatic (setup step *Operating mode*, 
 **Now** view. Every new device starts in shadow mode. The setup step only sets the overall
 mode; the modes of the devices are changed on the **Now** view.
 
-![Now view: surplus card and a card per device with the mode switch](../../assets/screenshots/now-tablet-light-en.png)
+![Now view: surplus card and a card per device with the mode switch](../assets/screenshots/now-tablet-light-en.png)
 
 - **Assisted proposals** appear under **Suggestions waiting for you**. **Confirm** carries
   the action out now (it still has to pass the safety checks and can be rejected with a
@@ -176,6 +176,57 @@ A switch (a pool pump, a smart plug) goes on and off with the hysteresis and pro
 above. An adjustable load (a heating rod through a number entity) follows the surplus in its
 configured range with a dead band.
 
+### Shiftable programs (washing machine, dishwasher)
+
+You select the programme, press start and tell SunCore when it must be finished. With a smart
+plug SunCore switches the plug off right after that (while the appliance still draws almost
+nothing) and on again at the planned start; the appliance must resume its programme when the
+power returns (you confirm that per device). A running programme is never switched off.
+Whenever SunCore lets go of the plug (you cancel the job, "back to normal", an update or a
+crash), it switches the plug **on**: the machine then starts at once.
+
+**Recommended safety net:** if SunCore is not running while the plug is off, nobody switches
+it on again. Add a Home Assistant automation that switches the plug on when it has been off
+longer than you would ever delay a programme, for example:
+
+```yaml
+alias: Washing machine plug back on
+triggers:
+  - trigger: state
+    entity_id: switch.washing_machine_plug
+    to: "off"
+    for: {hours: 12}
+actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.washing_machine_plug
+```
+
+Replace the entity id with your plug and choose the hours to fit your longest "finished by".
+More about programs in [Programs](programs.md).
+
+### evcc loadpoint (MQTT)
+
+With the template `evcc.loadpoint` SunCore does not drive the wallbox itself: it tells evcc what
+it may do (mode `off`, `smart` or `now`, the maximum current, the charge limit) over evcc's MQTT
+interface, and evcc regulates the current and the phases. SunCore never touches evcc's battery
+settings and never writes a vehicle plan. Things to know:
+
+- **Stale or silent evcc:** SunCore treats evcc as gone when its heartbeat (`<prefix>/updated`)
+  is older than 120 seconds. Nothing is written then and SunCore retries handing evcc back with a
+  growing delay. evcc publishes only when something changes, so a very quiet evcc can trip this
+  falsely; and a clock in evcc that runs ahead makes an old stored timestamp look fresh.
+- **Import limit:** `smart` follows the PV surplus, but evcc can import by its own rules (its
+  vehicle plan, a smart-cost limit, "always charge"). SunCore lowers evcc's maximum current (or
+  switches it off) when the measured grid import is over your limit while the car charges. It
+  reacts after a few seconds, so a short overshoot is possible. To avoid flapping it switches
+  off only after a minute over the limit and back on only after five minutes with some room.
+- Setup, modes and the residual risks of the evcc path are in
+  [EV charging](ev-charging.md#5-evcc-as-actor).
+- **Home battery:** in `smart` SunCore has **no discharge lock** for the home battery: evcc's own
+  battery rules (for example the buffer SoC) can discharge it into the car. Keep them neutral
+  in evcc. Only `now` and planned grid charging wait for SunCore's lock.
+
 ## 4. If you change something yourself
 
 SunCore respects manual changes. It recognises them by the **value**: after the settle time, a
@@ -209,7 +260,7 @@ trip, after a connection loss and when a device is removed or re-mapped.
 
 The **Emergency stop** button is in the header of every view, one click and no confirmation:
 
-![Emergency stop active: banner, paused devices, "Back to normal" button](../../assets/screenshots/estop-tablet-light-en.png)
+![Emergency stop active: banner, paused devices, "Back to normal" button](../assets/screenshots/estop-tablet-light-en.png)
 
 - Every device under control is handed back within 10 seconds, and SunCore **writes nothing**
   until you end the stop.
@@ -240,7 +291,7 @@ Each device card has **Why?**, showing the latest reasons in plain language, suc
 for the minimum run time, 240 s left" or "Not switched on: 1200 W needed, only 800 W of safe
 surplus", and the **Last decision**. Reasons are given in your language.
 
-![Decision log with filters](../../assets/screenshots/decisions-tablet-light-en.png)
+![Decision log with filters](../assets/screenshots/decisions-tablet-light-en.png)
 
 The **Decision log** lists what SunCore decided, newest first (up to 200 entries, times in your
 time zone), and can be filtered by device and outcome: **Executed**, **Proposed**, **Would have
@@ -303,22 +354,27 @@ day with sun. The window of a few days is the point: you decide on evidence, not
   assumptions.
 - **The plan is new.** Forecasts, tariffs, the planner and battery control exist now
   ([Planning and battery control](planning-and-battery.md)), but have never run against real
-  hardware either. SunCore does not shift device load to cheaper hours, does not pre-heat for the
-  weather and models no thermal behaviour of devices. Without a plan the goals *battery target*
+  hardware either. Apart from the EV, shiftable programs and the heat pump
+  ([EV charging](ev-charging.md), [Programs](programs.md), [Heat pump](heat-pump.md)), SunCore
+  does not shift device load to cheaper hours, and it models no thermal behaviour of air
+  conditioners and water heaters. Without a plan the goals *battery target*
   and *climate before export* only decide whether the battery's charging power counts as surplus,
   and the target's time is not evaluated.
 - **Time windows and quiet hours** are honoured by the controller but cannot be edited in the
   panel yet (templates and imported configuration only).
 - A removed or re-mapped device that cannot be given back (for example after a crash) is
   reported ("please check it by hand"), not retried forever.
-- **Downgrade**: this version stores its data in database schema 4, which earlier versions cannot
-  open. Export the configuration before updating.
+- **Downgrade**: this version stores its data in database schema 6 (`timeseries.db` schema 3),
+  which earlier versions cannot open. Export the configuration before updating.
 - **Compared with evcc, EMHASS and Predbat**: evcc is the better choice for charge points and
-  has years of hardware experience; SunCore has no wallbox control yet. EMHASS and Predbat
+  has years of hardware experience; SunCore's wallbox control is new and simulator-only. EMHASS and Predbat
   optimise the battery over time with years of field experience; SunCore's planner is new and
   unproven on hardware. What SunCore adds is one app with a safety layer, shadow mode and a reason
-  for every decision; see the [roadmap](../../roadmap.md).
+  for every decision; see the [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 See also: [Quick start](quick-start.md), [Planning and battery control](planning-and-battery.md),
+[Home Assistant entities](home-assistant-entities.md), [Notifications](notifications.md),
+[Grid limits](grid-limits.md), [EV charging](ev-charging.md), [Heat pump](heat-pump.md),
+[Programs](programs.md),
 [Contribute a device template](device-templates.md),
-[compatibility list](../compatibility.md).
+[compatibility list](compatibility.md).

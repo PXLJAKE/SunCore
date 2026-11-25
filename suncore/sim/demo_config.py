@@ -21,7 +21,10 @@ from suncore.core.config import (
     ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
+    InverterConfig,
     LoadForecastConfig,
+    MqttConfig,
+    NotificationsConfig,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -29,6 +32,7 @@ from suncore.core.config import (
 )
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
+from suncore.core.expert import ExpertConfig
 from suncore.core.site import EntityRef
 from suncore.sim.demo_devices import (
     AC_B_POWER_ID,
@@ -122,8 +126,17 @@ def _device_template(catalog: TemplateCatalog, template_id: str) -> DeviceTempla
     return template
 
 
-def demo_devices(catalog: TemplateCatalog) -> DevicesConfig:
-    """AC (LG ThinQ template, measured power from the second integration), pool pump, rod."""
+def demo_devices(catalog: TemplateCatalog, *, flex: bool = False) -> DevicesConfig:
+    """AC (LG ThinQ template, measured power from the second integration), pool pump, rod.
+
+    ``flex`` adds the Phase 6 loads (EV wallbox, washing machine, heat pump; ``demo_flex``).
+    """
+    flex_configs: list[DeviceConfig] = []
+    if flex:
+        from suncore.sim.demo_devices import default_demo_devices  # noqa: PLC0415
+        from suncore.sim.demo_flex import demo_flex_configs  # noqa: PLC0415
+
+        flex_configs = demo_flex_configs(catalog, default_demo_devices(flex=True).devices)
     return DevicesConfig(
         devices=[
             instantiate_device(
@@ -157,17 +170,23 @@ def demo_devices(catalog: TemplateCatalog) -> DevicesConfig:
                 priority=30,
                 nominal_w=ROD_NOMINAL_W,
             ),
+            *flex_configs,
         ]
     )
 
 
 async def seed_demo_config(
-    config: ConfigStore, catalog: TemplateCatalog, *, battery_control: bool = False
+    config: ConfigStore,
+    catalog: TemplateCatalog,
+    *,
+    battery_control: bool = False,
+    flex: bool = False,
 ) -> None:
     """Store every section except ``site`` (the caller stores the site).
 
     ``battery_control``: the demo house has a controllable inverter (``generic`` adapter), the
-    battery section maps its number entities.
+    battery section maps its number entities. ``flex``: the devices section also holds the EV
+    wallbox, the washing machine and the heat pump (``SUNCORE_DEMO_FLEX``).
     """
     await config.put(
         "region", RegionConfig(region_id="de", currency="EUR", timezone="Europe/Berlin")
@@ -211,7 +230,7 @@ async def seed_demo_config(
             ),
         ),
     )
-    await config.put("devices", demo_devices(catalog))
+    await config.put("devices", demo_devices(catalog, flex=flex))
     await config.put(
         "goals",
         GoalsConfig(
@@ -238,4 +257,9 @@ async def seed_demo_config(
             }
         )
     await config.put("battery", battery)
+    # Phase 6 sections at their defaults; the demo has no MQTT broker, so the HA entities are off.
+    await config.put("mqtt", MqttConfig(enabled=False))
+    await config.put("notifications", NotificationsConfig())
+    await config.put("inverter", InverterConfig())
+    await config.put("expert", ExpertConfig())  # the expert page needs its section to exist
     await config.put("wizard", WizardState(completed=True, completed_steps=list(WIZARD_STEPS)))

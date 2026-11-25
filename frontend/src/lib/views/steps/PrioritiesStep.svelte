@@ -130,7 +130,7 @@
     if (order.length > 0) {
       const next = withPriorities(wizard.devices, order);
       if (next.some((d, i) => d.priority !== wizard.devices[i]!.priority)) {
-        await wizard.saveDevices(next);
+        await wizard.saveDevices((cur) => withPriorities(cur, order));
       }
     }
     await wizard.saveGoals();
@@ -364,7 +364,7 @@
   }
   .prio li.dragging {
     z-index: 2;
-    box-shadow: 0 6px 20px rgb(0 0 0 / 0.3);
+    box-shadow: var(--sc-elev-2);
     border-color: var(--primary-color);
     opacity: 0.95;
   }

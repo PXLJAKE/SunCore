@@ -543,6 +543,13 @@ sub-hourly periods on paid plans; the sign of Kostal `Battery Power` /
 exact publication time of tomorrow's day-ahead prices (Tibber, Nord Pool); live
 entity ids of all integrations (derived from code only).
 
+Phase 6 verification (2026-11-24, `home-assistant/core` `dev`,
+`components/kostal_plenticore/number.py`): `Inverter:ActivePowerLimitation` is a `number`
+entity in W, disabled by default, with `min`/`max` read from the inverter; `number.set_value`
+writes it over REST and a failed write is swallowed (read back). Still `UNVERIFIED`: whether it
+limits the export or the AC output (PR 6-G judges it like an AC limit until the verification
+test) and whether it survives an inverter restart.
+
 ## Summary: Phase 4 interfaces and consequences for the adapters
 
 | Interface | Verified? | Source (repo@ref path) | Consequence for the adapter |

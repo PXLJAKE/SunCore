@@ -27,6 +27,10 @@ class ModeProvider(Protocol):
         """Mode of the battery asset (ADR-0013); shadow unless the user raised it."""
         ...
 
+    def inverter_mode(self) -> OperatingMode:
+        """Mode of the inverter limit asset (ADR-0018, PR 6-G); shadow unless raised."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class ModeView:
@@ -53,6 +57,9 @@ class AllShadow:
     def battery_mode(self) -> OperatingMode:
         return OperatingMode.SHADOW
 
+    def inverter_mode(self) -> OperatingMode:
+        return OperatingMode.SHADOW
+
 
 class StaticModes:
     """A provider over fixed values (tests, demo): ``device_modes`` missing = shadow."""
@@ -62,10 +69,12 @@ class StaticModes:
         global_mode: OperatingMode = OperatingMode.SHADOW,
         devices: dict[str, OperatingMode] | None = None,
         battery: OperatingMode = OperatingMode.SHADOW,
+        inverter: OperatingMode = OperatingMode.SHADOW,
     ) -> None:
         self._global = global_mode
         self._devices = dict(devices or {})
         self._battery = battery
+        self._inverter = inverter
 
     def global_mode(self) -> OperatingMode:
         return self._global
@@ -84,6 +93,12 @@ class StaticModes:
 
     def set_battery(self, mode: OperatingMode) -> None:
         self._battery = mode
+
+    def inverter_mode(self) -> OperatingMode:
+        return self._inverter
+
+    def set_inverter(self, mode: OperatingMode) -> None:
+        self._inverter = mode
 
 
 def view(provider: ModeProvider, device_id: str) -> ModeView:

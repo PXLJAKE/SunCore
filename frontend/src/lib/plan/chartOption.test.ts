@@ -22,6 +22,7 @@ const colors: ChartColors = {
   gridExport: '#7040b8',
   target: '#8a5100',
   now: '#555555',
+  batteryOut: '#c2185b',
 };
 const labels: ChartLabels = {
   pvBand: 'band',
@@ -37,6 +38,15 @@ const labels: ChartLabels = {
   morningBuffer: (p) => `morning ${p}`,
   eveningTarget: (p) => `evening ${p}`,
   now: 'now',
+  decision: 'decision',
+  actualPv: 'a-pv',
+  actualHouse: 'a-house',
+  actualGrid: 'a-grid',
+  actualBattery: 'a-battery',
+  actualSoc: 'a-soc',
+  comparedSoc: 'c-soc',
+  comparedBattery: 'c-battery',
+  laneName: (id) => `lane ${id}`,
   power: (w) => `${w} W`,
   percent: (p) => `${p} %`,
   price: (v) => String(v),
@@ -139,6 +149,50 @@ describe('buildOption', () => {
   it('has room for the legend on narrow screens', () => {
     expect(chartHeight(true)).toBeGreaterThan(chartHeight(false) - 80);
     expect(build({ compact: true }).grid).toHaveLength(3);
+  });
+});
+
+describe('buildOption extras', () => {
+  const actual = {
+    times: [0, 900_000],
+    stepMs: 900_000,
+    pvW: [1, 2],
+    houseW: [3, 4],
+    gridW: [5, 6],
+    batteryW: [7, 8],
+    socPct: [50, 51],
+    devices: {},
+  };
+  const lanes = [
+    {
+      id: 'battery',
+      battery: true,
+      planned: [{ fromMs: 0, toMs: 900_000, kind: 'charge' as const }],
+      actual: [],
+    },
+  ];
+  it('adds measured lines, a Gantt panel with a shared zoom and the compare lines', () => {
+    const o = build({
+      actual,
+      lanes,
+      compare: { socPct: [1, 2, 3], batteryW: [1, 2, 3] },
+      window: { fromMs: -1000, toMs: 5_000_000 },
+      marker: { atMs: 900_000, fromMs: 900_000, toMs: 1_800_000 },
+    }) as unknown as {
+      series: Series[];
+      grid: unknown[];
+      xAxis: { min: number; max: number }[];
+      dataZoom: { xAxisIndex: number[] }[];
+      legend: { data: string[] };
+    };
+    expect(o.legend.data).toHaveLength(17);
+    expect(o.series.some((s) => s.name === 'a-pv')).toBe(true);
+    expect(o.series.filter((s) => s.type === 'custom')).toHaveLength(2);
+    expect(o.grid).toHaveLength(4);
+    expect(o.dataZoom[0]!.xAxisIndex).toEqual([0, 1, 2, 3]);
+    expect(o.xAxis[0]).toMatchObject({ min: -1000, max: 5_000_000 });
+    expect(o.series.find((s) => s.name === 'pv')!.markLine!.data).toHaveLength(2);
+    expect(chartHeight(false, 17, 1)).toBeGreaterThan(chartHeight(false));
   });
 });
 

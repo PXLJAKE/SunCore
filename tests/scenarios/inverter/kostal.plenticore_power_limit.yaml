@@ -1,0 +1,14 @@
+template: kostal.plenticore_power_limit
+sim_scenario: negative_price_curtail
+# Registry metadata as the kostal_plenticore integration creates it (number.py of HA core
+# 5cfe9aad / dev 2026-11-24): both power numbers are in W and tie, the user picks the
+# "Active Power Limitation" number.
+extra_entities:
+  - { entity_id: number.scb_battery_min_soc, platform: kostal_plenticore, unit: "%", state: "5" }
+  - { entity_id: number.scb_battery_min_home_consumption, platform: kostal_plenticore, unit: W, state: "50" }
+  - { entity_id: number.scb_active_power_limitation, platform: kostal_plenticore, unit: W, state: "10000" }
+roles:
+  limit:
+    tied: [number.scb_battery_min_home_consumption, number.scb_active_power_limitation]
+    pick: number.scb_active_power_limitation
+capabilities: [export_limit]

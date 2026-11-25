@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# One evcc loadpoint driven over evcc's MQTT API (PR 6-J, ADR-0017 decision 2: "evcc as actor").
+# SunCore sets what evcc accepts - the mode (off, smart, now), `maxCurrent` and `limitSoc` of the
+# loadpoint - and evcc regulates the current and the phases itself. Nothing is written to a Home
+# Assistant entity, so the template has no roles to map: the user enters the loadpoint id (the
+# 1-based index in evcc's configuration) and, if it is not `evcc`, the MQTT topic prefix of
+# evcc's `mqtt` section. SunCore reads evcc's retained topics (mode, maxCurrent, minCurrent,
+# limitSoc, connected, charging, chargePower, vehicleSoc, phasesActive) and its heartbeat
+# `<prefix>/updated`. It never writes `<prefix>/site/*` (evcc's own battery rules stay the
+# user's), never `minCurrent` or `phasesConfigured`, and never a vehicle plan.
+id: evcc.loadpoint
+kind: device
+schema_version: 1
+name: template.evcc.loadpoint.name
+source:
+  - title: "evcc-io/evcc server/mqtt.go (topics <prefix>/loadpoints/<id>/<key>, retained publication of every key, heartbeat <prefix>/updated; branch master, fetched 2026-11-24)"
+    url: "https://github.com/evcc-io/evcc/blob/master/server/mqtt.go"
+    date: 2026-11-24
+  - title: "evcc-io/evcc server/mqtt_setter.go (the writable keys of a loadpoint, `/set` suffix, empty payloads ignored; branch master, fetched 2026-11-24)"
+    url: "https://github.com/evcc-io/evcc/blob/master/server/mqtt_setter.go"
+    date: 2026-11-24
+  - title: "evcc-io/evcc core/keys/loadpoint.go (the key names; branch master, fetched 2026-11-24)"
+    url: "https://github.com/evcc-io/evcc/blob/master/core/keys/loadpoint.go"
+    date: 2026-11-24
+  - title: "evcc-io/evcc core/loadpoint_api.go (modes off/now/minpv/pv, maxCurrent >= minCurrent, limitSoc, phases 0/1/3; branch master, fetched 2026-11-24)"
+    url: "https://github.com/evcc-io/evcc/blob/master/core/loadpoint_api.go"
+    date: 2026-11-24
+  - title: "evcc-io/evcc plugin/mqtt/client.go (the MQTT client and its topic handling; branch master, fetched 2026-11-24)"
+    url: "https://github.com/evcc-io/evcc/blob/master/plugin/mqtt/client.go"
+    date: 2026-11-24
+tested_with: []
+capabilities: [ev_charging]
+unverified:
+  - "Exercised against a fake evcc on the in-process test broker only (the `evcc_actor` scenario); not tested with a running evcc."
+  - "Loadpoint ids start at 1 in the sources read; whether every evcc version numbers them that way is not verified."
+  - "A vehicle plan cannot be cleared over MQTT (the setter parses JSON only; `nil` is unverified), so SunCore never writes one."
+  - "evcc normalises the deprecated modes `pv`/`minpv` to `smart`; SunCore sends `smart` only and cannot enforce a minimum power, so `min_pv` behaves like `pv`."
+  - "How fast evcc reacts to `maxCurrent` while charging is unverified; evcc resets its mode to its default at disconnect, which the gate reads as an override."
+  - "Liveness: evcc publishes `updated` only on change, so a quiet evcc may exceed 120 s (false trip); an evcc clock running ahead makes an old retained timestamp look fresh."
+  - "Warning: `smart` has no E6 battery lock; evcc's own battery rules (bufferSoc) can discharge the home battery into the car. Keep them neutral in evcc."
+  - "evcc may import in `smart` (vehicle plan, smart-cost limit, alwaysCharge); SunCore only reacts by lowering maxCurrent once the measured import is over the limit."
+  - "max_current_a 16 A is a placeholder: the wizard must take the circuit's real maximum."
+device_kind: wallbox
+roles: {}
+defaults:
+  power_model:
+    kind: nominal
+    nominal_w: 11000
+  control:
+    kind: loadpoint
+    loadpoint_id: 1
+    topic_prefix: evcc
+    max_current_a: 16
+    phases: 3
+    voltage_v: 230
+  settle_s: 20
+  ev:
+    efficiency: 0.9
+    default_mode: pv

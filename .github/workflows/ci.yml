@@ -22,10 +22,10 @@ jobs:
       matrix:
         python: ["3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           version: "0.11.32"
           enable-cache: true
@@ -46,13 +46,19 @@ jobs:
         run: uv run python scripts/gen_schemas.py --check
       - name: Compatibility list up to date
         run: uv run python scripts/gen_compat.py --check
+      - name: Backend message catalogue up to date
+        run: uv run python scripts/gen_backend_catalogue.py --check
+      - name: Beta app translations match the stable app
+        run: uv run python scripts/sync_beta_translations.py --check
+      - name: Parameter reference up to date
+        run: uv run python scripts/gen_params.py --check
       - name: Templates valid
         run: uv run python scripts/validate_templates.py --check
       - name: Coverage gate (core, safety, planner, controller >= 80 %)
         run: uv run coverage report --include="suncore/core/*,suncore/safety/*,suncore/planner/*,suncore/controller/*" --fail-under=80
       - name: Upload coverage
         if: matrix.python == '3.13'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-xml
           path: coverage.xml
@@ -62,10 +68,10 @@ jobs:
     name: Lockfile up to date
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           version: "0.11.32"
       - run: uv lock --check
@@ -76,15 +82,15 @@ jobs:
     # (ubuntu 26.04, "Playwright does not support chromium on ubuntu26.04-x64").
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           version: "0.11.32"
           enable-cache: true
@@ -99,6 +105,9 @@ jobs:
       - name: API types up to date
         working-directory: frontend
         run: npm run gen:api:check
+      - name: No colour literals outside the design tokens
+        working-directory: frontend
+        run: npm run check:tokens
       - name: Lint
         working-directory: frontend
         run: npm run lint
@@ -125,7 +134,7 @@ jobs:
         run: npm run test:e2e
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
           path: frontend/playwright-report

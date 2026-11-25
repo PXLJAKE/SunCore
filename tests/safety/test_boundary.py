@@ -29,7 +29,8 @@ AST-based scan over ``suncore/``; no module is imported. The rules:
    ``suncore.tariff`` imports only ``suncore.core``, ``suncore.templates`` and itself (Phase 4
    WP4: Home Assistant reaches it through the injected action caller and entity reader);
    ``suncore.planner`` imports only ``suncore.core`` and itself (Phase 4 WP8: the runtime
-   hands it the services' outputs).
+   hands it the services' outputs); ``suncore.analysis`` imports only ``suncore.core`` and itself
+   (Phase 5 WP2: pure functions over quarter-hour energy, ADR-0014).
 5. ``suncore.api`` imports none of ``suncore.safety``, ``suncore.ha``,
    ``suncore.devices`` (it talks to the ``Services`` protocol only).
 6. ``suncore.safety`` imports neither ``suncore.core.config`` nor ``suncore.storage`` and
@@ -55,6 +56,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+from typing import Final
 
 import pytest
 
@@ -68,10 +70,14 @@ TEMPLATES = "suncore.templates"
 CONTROLLER = "suncore.controller"
 TARIFF = "suncore.tariff"
 PLANNER = "suncore.planner"
+ANALYSIS = "suncore.analysis"
 ACTUATOR_MODULE = "suncore.safety.actuator"
 GATE_MODULE = "suncore.safety.gate"
 DRIVERS = "suncore.devices.drivers"
 BATTERY_DRIVERS = "suncore.devices.battery"
+INVERTER_DRIVERS = "suncore.devices.inverter"
+"""PR 6-G: the inverter limit adapters follow the battery adapters' rule."""
+EVCC_DRIVER = "suncore.devices.evcc"
 SIM = "suncore.sim"
 DRIVER_IMPORTERS = (SAFETY, "suncore.app", SIM)
 WRITE_CALLS = ("apply", "release", "arm_fallback", "keep_alive")
@@ -234,6 +240,8 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
     if (
         in_package(module, DRIVERS)
         or in_package(module, BATTERY_DRIVERS)
+        or in_package(module, INVERTER_DRIVERS)
+        or in_package(module, EVCC_DRIVER)
         or any(in_package(module, pkg) for pkg in DRIVER_IMPORTERS)
     ):
         return
@@ -242,10 +250,24 @@ def test_drivers_are_imported_only_by_safety_and_app(path: Path) -> None:
         (
             line
             for line, imported in imported_modules(path, parse(path))
-            if in_package(imported, DRIVERS) or in_package(imported, BATTERY_DRIVERS)
+            if in_package(imported, DRIVERS)
+            or in_package(imported, BATTERY_DRIVERS)
+            or in_package(imported, INVERTER_DRIVERS)
+            or in_package(imported, EVCC_DRIVER)
         ),
     )
     assert not offenders, f"driver module imported outside safety/app: {offenders}"
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_evcc_set_publisher_is_called_only_by_the_evcc_driver(path: Path) -> None:
+    """PR 6-J: ``publish_set`` (the one write path to evcc) is called by the evcc driver only,
+    which only ``safety.gate`` reaches; nothing else in the package publishes to evcc."""
+    module = module_name(path)
+    if module in (EVCC_DRIVER, "suncore.app.evcc_link") or in_package(module, SIM):
+        return  # the driver, the bus implementation (defines it), the simulator's fake bus
+    offenders = fmt(path, attribute_calls(parse(path), "publish_set"))
+    assert not offenders, f"publish_set called outside the evcc driver: {offenders}"
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
@@ -307,6 +329,8 @@ def test_dependency_rule(path: Path) -> None:
         allowed = (CORE, TEMPLATES, TARIFF)
     elif in_package(module, PLANNER):
         allowed = (CORE, PLANNER)
+    elif in_package(module, ANALYSIS):
+        allowed = (CORE, ANALYSIS)
     else:
         return
     offenders = fmt(
@@ -615,3 +639,33 @@ def test_the_write_capability_is_taken_from_the_connection_inside_safety() -> No
     ]
     app = PACKAGE / "app" / "control.py"
     assert "suncore.safety.wiring" in {m for _, m in imported_modules(app, parse(app))}
+
+
+def test_analysis_rule_rejects_siblings() -> None:
+    """Phase 5 WP2: the analytics core sees ``core`` only (not planner, storage, ha, ...)."""
+    tmp = PACKAGE / "analysis" / "_synthetic.py"
+    src = "from suncore.planner import x\nfrom suncore.core import series\nimport suncore.storage\n"
+    bad = {
+        line
+        for line, imported in imported_modules(tmp, _tree(src))
+        if in_package(imported, "suncore")
+        and not any(in_package(imported, pkg) for pkg in (CORE, ANALYSIS))
+    }
+    assert bad == {1, 3}
+    assert (PACKAGE / "analysis" / "flows.py").is_file()
+
+
+SIBLING_FREE_CORE: Final = ("grid", "thermal", "flex")
+"""Plan WP1 (Phase 6): these ``core`` modules import nothing from siblings but the validation
+helper, so planner, controller and gate share them without pulling in device or config models."""
+
+
+@pytest.mark.parametrize("name", SIBLING_FREE_CORE)
+def test_phase6_core_modules_import_no_siblings(name: str) -> None:
+    path = ROOT / "suncore" / "core" / f"{name}.py"
+    offenders = [
+        f"{line}: {imported}"
+        for line, imported in imported_modules(path, parse(path))
+        if in_package(imported, "suncore") and not in_package(imported, "suncore.core.validation")
+    ]
+    assert not offenders, f"core/{name}.py imports siblings: {offenders}"

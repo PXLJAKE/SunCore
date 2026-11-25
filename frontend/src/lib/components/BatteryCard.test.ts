@@ -27,8 +27,8 @@ describe('BatteryCard', () => {
     expect(screen.getByTestId('battery-soc').textContent?.trim().replace(/\s/g, ' ')).toBe('83 %');
     expect(screen.getByTestId('battery-control').textContent).toMatch(/own settings/);
     const limits = (screen.getByTestId('battery-limits').textContent ?? '').replace(/\s/g, ' ');
-    expect(limits).toMatch(/Minimum state of charge: 10 %/);
-    expect(limits).toMatch(/Charge power limit: 5 kW/);
+    expect(limits).toMatch(/Minimum state of charge 10 %/);
+    expect(limits).toMatch(/Charge power limit 5 kW/);
     expect(screen.queryByTestId('battery-cap-note')).toBeNull();
   });
 
@@ -53,8 +53,8 @@ describe('BatteryCard', () => {
       },
     });
     const held = (screen.getByTestId('battery-held').textContent ?? '').replace(/\s/g, ' ');
-    expect(held).toMatch(/Minimum state of charge: 60 %/);
-    expect(held).toMatch(/Discharge power limit: 0 W/);
+    expect(held).toMatch(/Minimum state of charge 60 %/);
+    expect(held).toMatch(/Discharge power limit 0 W/);
     expect(screen.getByTestId('battery-paused').textContent).toMatch(/state of charge is unknown/);
     expect(screen.queryByTestId('battery-limits')).toBeNull();
     await fireEvent.click(screen.getByText('Why?'));

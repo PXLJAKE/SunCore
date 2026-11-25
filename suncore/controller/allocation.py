@@ -55,6 +55,16 @@ from datetime import datetime, timedelta, tzinfo
 from typing import Final
 
 from suncore.controller import reasons as rs
+from suncore.controller.ev import EvDirective, EvMachine, EvTick
+from suncore.controller.grid import (
+    NO_HOLDS,
+    CapInput,
+    GridCaps,
+    GridHolds,
+    GridInputs,
+    grid_caps,
+    shed_order,
+)
 from suncore.controller.hysteresis import DeviceMachine, Phase, Transition
 from suncore.controller.levels import (
     LevelTable,
@@ -69,10 +79,21 @@ from suncore.core.control import (
     DeviceState,
     Plan,
     PowerEstimate,
+    device_band_now,
     heat_capped,
 )
 from suncore.core.decisions import Decision, DecisionKind, Intent, Origin, Reason, SetpointAction
-from suncore.core.devices import DeviceConfig, SetpointControl, TimeWindow
+from suncore.core.devices import (
+    THERMAL_KINDS,
+    ChargerControl,
+    DeviceConfig,
+    SetpointControl,
+    SgReadyControl,
+    TimeWindow,
+)
+from suncore.core.flex import EV_BATTERY_DISCHARGE_W, EV_MODE_DEFAULT, EvMode
+from suncore.core.grid import GridState, Para14aStatus
+from suncore.core.sgready import FailsafeCause, heat_pump_failsafe, sg_has_probe, sg_restart_c
 from suncore.core.signals import Quality
 
 POOR_ESTIMATE_REL: Final = 0.5
@@ -133,6 +154,10 @@ class Candidate:
     gate_lower_w: float | None = None
     """The current draw as the gate's grid invariant counts it (``power_delta_w``:
     the estimate's lower bound); ``None`` = ``current_lower_w``."""
+    min_level: int = 0
+    """A floor the device is raised to without surplus (EV ``now``/``min_pv``/plan grid power,
+    ADR-0017 decision 4; PR 6-I); the cap still wins."""
+    floor_reason: Reason | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,9 +170,11 @@ class Wanted:
     """A cap (window, plan) drives the change: no hysteresis delay."""
     need_w: float = 0.0
     """Added power of a rise (what the gate's grid invariant will compare)."""
+    floor: bool = False
+    """The level is a floor (PR 6-I): no surplus guard, no hysteresis delay."""
 
 
-def allocate_levels(
+def allocate_levels(  # noqa: PLR0912, PLR0915 - one branch per allocation rule
     candidates: Iterable[Candidate], total_w: float, uncertainty_w: float
 ) -> tuple[Wanted, ...]:
     """Wanted level per device in the given (priority) order; pure, no state.
@@ -187,6 +214,14 @@ def allocate_levels(
             else:
                 need = table.need_w(level, level + 1) if table.top > level else 0.0
                 reason = rs.no_surplus(usable, need)
+        floor = min(c.min_level, cap)
+        capped = floor < c.min_level  # §14a, fuse, phase pause ... win over the floor
+        at_floor = False
+        if wanted < floor:
+            wanted, forced, at_floor = floor, True, True
+            reason = (c.cap_reason if capped else c.floor_reason) or reason
+        elif floor > 0 and wanted == floor:
+            reason = (c.cap_reason if capped else c.floor_reason) or reason
         need = 0.0
         if wanted > level:
             power = table.level(wanted).power_w
@@ -201,7 +236,7 @@ def allocate_levels(
         else:
             reserved = c.draw_w
         remaining -= reserved
-        out.append(Wanted(c.device_id, wanted, reserved, reason, forced, need))
+        out.append(Wanted(c.device_id, wanted, reserved, reason, forced, need, at_floor))
     return tuple(out)
 
 
@@ -274,6 +309,18 @@ class AllocationInputs:
     plan: Plan
     reserve_soc_pct: float | None
     import_limit_w: float | None = None
+    grid: GridInputs | None = None
+    """Island, §14a, peak and fuse limits (PR 6-F); ``None`` = only ``import_limit_w``."""
+    grid_holds: GridHolds = NO_HOLDS
+    """The cool-down after island/§14a as the controller mirrors it (G6)."""
+    ev_modes: Mapping[str, EvMode] = field(default_factory=dict)
+    """PR 6-I: the runtime EV mode per charger (missing = the device's default mode)."""
+    battery_locked: bool = False
+    """PR 6-I (E6): no home battery, or SunCore holds a discharge lock on it."""
+
+    @property
+    def grid_inputs(self) -> GridInputs:
+        return self.grid if self.grid is not None else GridInputs.from_limit(self.import_limit_w)
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +392,8 @@ class TickOutcome:
     total_w: float | None = None
     free_w: float | None = None
     attributable_deficit_w: float = 0.0
+    ev_lock: bool = False
+    """PR 6-I (E6): a charger may draw grid power - the battery should hold a discharge lock."""
 
     @property
     def controlled_draw(self) -> dict[str, float]:
@@ -402,7 +451,11 @@ class Allocator:
         self._tz = tz
         self._machines: dict[str, DeviceMachine] = {}
         self._order: list[str] = []
+        self._shed_order: list[str] = []
         self._deficit = DeficitTracker()
+        self._caps = GridCaps()
+        self._ev: dict[str, EvMachine] = {}
+        self._ev_directives: dict[str, EvDirective] = {}
 
     # --- devices ---------------------------------------------------------------------
 
@@ -418,10 +471,19 @@ class Allocator:
                     fresh.switch_times = list(machine.switch_times)
                     fresh.last_on_ts = machine.last_on_ts
                     fresh.last_off_ts = machine.last_off_ts
+                    fresh.level_ts = machine.level_ts
                 machine = fresh
             keep[device.id] = machine
         self._machines = keep
+        self._ev = {
+            d.id: (
+                self._ev[d.id] if d.id in self._ev and self._ev[d.id].device == d else EvMachine(d)
+            )
+            for d in ordered
+            if isinstance(d.control, ChargerControl)
+        }
         self._order = [d.id for d in ordered]
+        self._shed_order = shed_order(ordered)
 
     @property
     def machines(self) -> Mapping[str, DeviceMachine]:
@@ -435,6 +497,9 @@ class Allocator:
         return self._deficit
 
     def report(self, decision: Decision) -> bool:
+        ev = self._ev.get(decision.intent.asset_id)
+        if ev is not None and ev.report(decision):
+            return True
         machine = self._machines.get(decision.intent.asset_id)
         return machine is not None and machine.report(decision)
 
@@ -461,7 +526,12 @@ class Allocator:
         out.total_w = site.total_w(reserve)
         out.free_w = site.free_w(reserve, sum(committed.values()))
 
+        self._caps = self._grid_caps(synced, inputs, out.draws)
+        self._ev_directives = self._ev_tick(now, site, synced, inputs, out)
         backoff = self._deficit_backoff(now, site, synced, committed, inputs, out)
+        # H5 (PR 6-K): a heat pump with a fail-safe cause goes back to its normal state now,
+        # also while the surplus is unknown; it wins over any other back-off.
+        backoff = {**backoff, **self._failsafe_backoff(synced, inputs)}
 
         wanted_by_id: dict[str, Wanted] = {}
         if out.total_w is not None:
@@ -485,10 +555,129 @@ class Allocator:
             ):
                 m.reasons = (*m.reasons, rs.battery_target(site.soc_pct, site.target_soc_pct))
             out.views[m.device.id] = self._view(m, out.draws.get(m.device.id))
+        self._ev_phase_intents(now, inputs, out)
         return out
+
+    # --- EV (PR 6-I) -----------------------------------------------------------------------
+
+    def ev_machine(self, device_id: str) -> EvMachine | None:
+        return self._ev.get(device_id)
+
+    def _ev_tick(
+        self,
+        now: datetime,
+        site: SiteSurplus,
+        synced: Sequence[DeviceMachine],
+        inputs: AllocationInputs,
+        out: TickOutcome,
+    ) -> dict[str, EvDirective]:
+        """The EV directive of every synced charger (``controller.ev``)."""
+        directives: dict[str, EvDirective] = {}
+        for m in synced:
+            ev = self._ev.get(m.device.id)
+            if ev is None or m.table is None:
+                continue
+            spec = m.device.ev
+            mode = inputs.ev_modes.get(
+                m.device.id, spec.default_mode if spec is not None else EV_MODE_DEFAULT
+            )
+            draw = out.draws.get(m.device.id)
+            available = (
+                None
+                if out.free_w is None or draw is None
+                else max(0.0, out.free_w + draw.committed_w)
+            )
+            tick = EvTick(
+                mode=mode,
+                band=device_band_now(inputs.plan, m.device.id, now),
+                battery_locked=inputs.battery_locked,
+                site_trusted=site.trusted,
+                available_w=available,
+            )
+            directive = ev.directive(now, m.table, inputs.states.get(m.device.id), m.level, tick)
+            directives[m.device.id] = directive
+            out.ev_lock = out.ev_lock or directive.lock_wanted
+        return directives
+
+    def _ev_phase_intents(self, now: datetime, inputs: AllocationInputs, out: TickOutcome) -> None:
+        for device_id, ev in self._ev.items():
+            m = self._machines.get(device_id)
+            if m is None or not m.synced:
+                continue
+            intent = ev.phase_intent(
+                now,
+                inputs.states.get(device_id),
+                m.level,
+                m.last_off_ts,
+                machine_busy=m.in_flight_id is not None or m.pending_level is not None,
+            )
+            if intent is not None:
+                out.intents.append(intent)
 
     def _ordered(self) -> list[DeviceMachine]:
         return [self._machines[i] for i in self._order]
+
+    @staticmethod
+    def _failsafe(m: DeviceMachine, inputs: AllocationInputs) -> FailsafeCause | None:
+        grid = inputs.grid_inputs
+        return heat_pump_failsafe(
+            m.device,
+            inputs.states.get(m.device.id),
+            island=grid.grid_state is GridState.ISLAND,
+            para14a_dimmed=grid.para14a.status is not Para14aStatus.INACTIVE,
+        )
+
+    def _failsafe_backoff(
+        self, synced: Sequence[DeviceMachine], inputs: AllocationInputs
+    ) -> dict[str, Transition]:
+        """Heat pumps above their floor with a fail-safe cause: level 0 at once (H5)."""
+        out: dict[str, Transition] = {}
+        for m in synced:
+            if m.level <= 0 or m.table is None:
+                continue
+            cause = self._failsafe(m, inputs)
+            if cause is not None:
+                out[m.device.id] = Transition(
+                    0, rs.heat_pump_failsafe(cause.value), forced=True, failsafe=True
+                )
+        return out
+
+    @property
+    def caps(self) -> GridCaps:
+        """The grid caps of the latest tick (island, §14a, cool-down)."""
+        return self._caps
+
+    def _grid_caps(
+        self,
+        synced: Sequence[DeviceMachine],
+        inputs: AllocationInputs,
+        draws: Mapping[str, DeviceDraw],
+    ) -> GridCaps:
+        grid = inputs.grid_inputs
+        fixed: float | None = 0.0
+        synced_ids = {m.device.id for m in synced}
+        for m in self._ordered():
+            if not m.device.para14a or m.device.id in synced_ids:
+                continue
+            estimate = inputs.estimates.get(m.device.id)
+            if estimate is None or not _known(estimate):
+                fixed = None
+                break
+            assert fixed is not None
+            fixed += estimate.upper_w
+        devices = [
+            CapInput(
+                device_id=m.device.id,
+                table=m.table,
+                level=m.level,
+                draw_w=draws[m.device.id].committed_w if m.device.id in draws else 0.0,
+                hysteresis_w=m.hysteresis_w,
+                para14a=m.device.para14a,
+            )
+            for m in synced
+            if m.table is not None
+        ]
+        return grid_caps(devices, grid, inputs.grid_holds, para14a_fixed_w=fixed)
 
     # --- steps -----------------------------------------------------------------------------
 
@@ -561,6 +750,11 @@ class Allocator:
 
     @staticmethod
     def _uncontrollable_reason(device: DeviceConfig, state: DeviceState) -> Reason:
+        if isinstance(device.control, SgReadyControl):
+            if not sg_has_probe(device):
+                return rs.plain(rs.HP_NO_PROBE)
+            if state.step is None:
+                return rs.plain(rs.HP_STATE_UNKNOWN)
         if isinstance(device.control, SetpointControl):
             if not _is_on(state) and not device.allow_switch_on:
                 return rs.plain(rs.CLIMATE_OFF)
@@ -617,6 +811,26 @@ class Allocator:
         heat = _heat_cap_reason(device, inputs.states.get(device.id))
         if heat is not None:
             cap, cap_reason = 0, heat
+        failsafe = self._failsafe(m, inputs)
+        if failsafe is not None and heat is None:
+            cap, cap_reason = 0, rs.heat_pump_failsafe(failsafe.value)
+        state = inputs.states.get(device.id)
+        restart = sg_restart_c(device, state) if m.level <= 0 else None
+        if restart is not None and heat is None and failsafe is None:
+            assert state is not None
+            assert state.temperature_c is not None
+            cap, cap_reason = 0, rs.heat_pump_restart(state.temperature_c, restart)
+        grid_cap = self._caps.get(device.id)
+        if grid_cap is not None and grid_cap.level < cap:
+            cap, cap_reason = grid_cap.level, grid_cap.reason
+        directive = self._ev_directives.get(device.id)
+        min_level, floor_reason = 0, None
+        if directive is not None:
+            if directive.cap is not None and directive.cap < cap:
+                cap, cap_reason = directive.cap, directive.cap_reason
+            min_level, floor_reason = directive.floor, directive.floor_reason
+            if directive.floor_reason is not None and directive.floor == 0 and cap > 0:
+                cap_reason = cap_reason or directive.floor_reason
         return Candidate(
             device_id=device.id,
             table=m.table,
@@ -629,6 +843,8 @@ class Allocator:
             cap_reason=cap_reason,
             hold=m.in_flight_id is not None,
             gate_lower_w=self._gate_lower_w(m, estimate, inputs.states.get(device.id)),
+            min_level=min_level,
+            floor_reason=floor_reason,
         )
 
     @staticmethod
@@ -685,7 +901,9 @@ class Allocator:
             and wanted.level == 1
         ):
             reason = rs.plain(rs.SWITCH_ON)
-        return Transition(wanted.level, reason, forced=wanted.forced, need_w=wanted.need_w)
+        return Transition(
+            wanted.level, reason, forced=wanted.forced, need_w=wanted.need_w, floor=wanted.floor
+        )
 
     def _drive(  # noqa: PLR0911, PLR0917 - one return per outcome
         self,
@@ -710,12 +928,17 @@ class Allocator:
         if remaining > 0:
             m.reasons = (transition.reason, rs.waiting_delay(remaining))
             return
-        blocked = m.blocked_by_protection(now, transition.level)
+        blocked = m.blocked_by_protection(
+            now,
+            transition.level,
+            waive_run=transition.fuse_shed,
+            failsafe=transition.failsafe,
+        )
         if blocked is not None:
             m.reasons = (transition.reason, blocked)
             return
         rising = transition.level > m.level
-        if rising:
+        if rising and not transition.floor:
             guard = self._rise_guard(site, inputs)
             if guard is None and transition.need_w > budget.w:
                 # The surplus is promised to a device that has not backed off yet (or to
@@ -732,7 +955,7 @@ class Allocator:
         if action is None:  # pragma: no cover - every level has an action today
             m.steady(now, transition.reason)
             return
-        if rising:
+        if rising and not transition.floor:
             budget.w -= transition.need_w
         intent = Intent(
             id=m.next_intent_id(now),
@@ -765,7 +988,54 @@ class Allocator:
 
     # --- deficit -----------------------------------------------------------------------------
 
-    def _deficit_backoff(  # noqa: PLR0917
+    def _battery_fed_chargers(
+        self, site: SiteSurplus, active: Sequence[DeviceMachine]
+    ) -> dict[str, DeviceMachine]:
+        """Running chargers that wait for a battery lock while the battery discharges (E6).
+
+        Review 6-I A2: the lock can be lost while the car charges (battery override, watchdog,
+        shadow, lease end); the floor then waits for it (``EV_BATTERY_WAIT``) but the car
+        still draws, so the battery feeds it. These are shed without the deficit delay.
+        """
+        if site.battery_w is None or site.battery_w >= -EV_BATTERY_DISCHARGE_W:
+            return {}
+        out: dict[str, DeviceMachine] = {}
+        for m in active:
+            directive = self._ev_directives.get(m.device.id)
+            if (
+                directive is not None
+                and directive.floor_reason is not None
+                and directive.floor_reason.key == rs.EV_BATTERY_WAIT
+            ):
+                out[m.device.id] = m
+        return out
+
+    def _shed_battery_fed(
+        self, now: datetime, unlocked: Mapping[str, DeviceMachine]
+    ) -> dict[str, Transition]:
+        """Pause every battery-fed charger at once, min run waived (E6, review 6-I A2).
+
+        No step-wise back-off: without the lock the car may not draw more than the surplus,
+        and at a discharging battery there is none; the allocator raises it again from the
+        surplus (min pause applies)."""
+        shed: dict[str, Transition] = {}
+        for m in unlocked.values():
+            if m.in_flight_id is not None:
+                continue
+            protection = m.blocked_by_protection(now, 0, waive_run=True)
+            if protection is not None:
+                m.reasons = (rs.plain(rs.EV_BATTERY_WAIT), protection)
+                continue
+            shed[m.device.id] = Transition(
+                0, rs.plain(rs.EV_BATTERY_WAIT), forced=True, deficit=True, fuse_shed=True
+            )
+        if shed:
+            self._deficit.restart(
+                now, max(m.settle_s for m in unlocked.values()) + self._settings.tick_s
+            )
+        return shed
+
+    def _deficit_backoff(  # noqa: PLR0912, PLR0917 - one branch per back-off rule
         self,
         now: datetime,
         site: SiteSurplus,
@@ -790,11 +1060,16 @@ class Allocator:
         self._deficit.update(now, attributable, self._settings.deficit_delay_s)
         if attributable <= 0 or self._deficit.since is None:
             return {}
+        unlocked = self._battery_fed_chargers(site, active)
+        if unlocked:
+            shed = self._shed_battery_fed(now, unlocked)
+            if shed:
+                return shed
         elapsed = (now - self._deficit.since).total_seconds()
         reserve = inputs.reserve_soc_pct
-        limit = inputs.import_limit_w
-        if limit is not None and site.grid_w is not None and site.grid_w > limit:
-            reason = rs.import_limit(site.grid_w, limit)
+        over_limit, fuse, limit_reason = _limit_breach(site, inputs.grid_inputs)
+        if limit_reason is not None:
+            reason = limit_reason
         elif _at_reserve(site, reserve):
             reason = rs.battery_reserve(site.soc_pct or 0.0, reserve or 0.0)
         elif self._deficit.wh >= self._settings.deficit_budget_wh:
@@ -805,20 +1080,37 @@ class Allocator:
             return {}
         if self._deficit.holding(now):
             return {}  # the previous step has not shown its effect yet
-        for m in reversed(active):  # lowest priority first
+        if over_limit:
+            # ADR-0018 decision 2: the shedding order (continuous first, shed_rank, reverse
+            # priority) instead of plain reverse priority.
+            by_id = {m.device.id: m for m in active}
+            order = [by_id[i] for i in self._shed_order if i in by_id]
+        else:
+            order = list(reversed(active))  # lowest priority first
+        for m in order:
             assert m.table is not None
             if m.in_flight_id is not None:
                 continue
+            directive = self._ev_directives.get(m.device.id)
+            if not over_limit and directive is not None and m.level <= directive.floor:
+                continue  # a user-demanded floor is import by design (ADR-0017 decision 4)
+            if unlocked and m.device.id in unlocked:
+                continue  # shed above, at once
             target = min(
                 m.level - 1,
                 _fall_level(m.table, m.level, committed.get(m.device.id, 0.0), attributable),
             )
-            protection = m.blocked_by_protection(now, target)
+            if not over_limit and directive is not None:
+                target = max(target, directive.floor)  # back off to the floor, not below
+            waive = fuse and m.device.kind not in THERMAL_KINDS and not m.table.level(target).on
+            protection = m.blocked_by_protection(now, target, waive_run=waive)
             if protection is not None:
                 m.reasons = (reason, protection)
                 continue
             self._deficit.restart(now, m.settle_s + self._settings.tick_s)
-            return {m.device.id: Transition(target, reason, forced=True, deficit=True)}
+            return {
+                m.device.id: Transition(target, reason, forced=True, deficit=True, fuse_shed=waive)
+            }
         return {}
 
     @staticmethod
@@ -871,6 +1163,24 @@ def _attributable_deficit(
     if site.grid_w is not None and site.grid_w > 0:
         deficit = max(deficit, site.grid_w)
     return min(deficit, active_draw)
+
+
+def _limit_breach(site: SiteSurplus, grid: GridInputs) -> tuple[bool, bool, Reason | None]:
+    """``(over the effective limit, over the fuse limit, the reason)`` of an import breach.
+
+    Above the fuse (connection) limit the shedding skips min run of non-thermal kinds (G2) and
+    needs a trusted reading; above a lower peak limit it is plain shedding.
+    """
+    limit, fuse_limit, grid_w = grid.import_limit_w, grid.fuse_limit_w, site.grid_w
+    if limit is None or grid_w is None or grid_w <= limit:
+        return False, False, None
+    fuse = fuse_limit is not None and site.trusted and grid_w > fuse_limit
+    if fuse:
+        assert fuse_limit is not None
+        return True, True, rs.grid_shed(grid_w, fuse_limit, fuse=True)
+    if fuse_limit is not None and limit < fuse_limit:
+        return True, False, rs.grid_shed(grid_w, limit, fuse=False)
+    return True, False, rs.import_limit(grid_w, limit)
 
 
 def _at_reserve(site: SiteSurplus, reserve_soc_pct: float | None) -> bool:

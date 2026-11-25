@@ -47,7 +47,7 @@ Modell, und ein kleiner Bonus für Autarkie hält den Plan bei flachen Preisen v
   Plan heißt: Der Regler verhält sich genau wie ohne Planer. Schatten, assistiert und Automatik
   gelten für die Wirkung des Plans wie bisher.
 
-![Planansicht mit Diagramm, nächsten geplanten Aktionen und Prognosefeld](../../assets/screenshots/plan-tablet-light-de.png)
+![Planansicht mit Diagramm, nächsten geplanten Aktionen und Prognosefeld](../assets/screenshots/plan-tablet-light-de.png)
 
 Die Ansicht **Plan** zeigt ein Diagramm der nächsten 24 oder 48 Stunden (Solar mit seinem
 P10-bis-P90-Band, Hauslast, Akkuleistung, Netzbezug und Einspeisung, den geplanten Ladestand mit
@@ -272,7 +272,7 @@ Netz zwingen:** Der Plan zeigt es als „würde laden“, und es wird nichts ges
 Der Akku hat in der Ansicht **Jetzt** eine eigene **Akku**-Karte und einen eigenen Modus, wie ein
 Gerät:
 
-![Akku-Karte und nächste geplante Aktionen in der Ansicht Jetzt](../../assets/screenshots/now-battery-tablet-light-de.png)
+![Akku-Karte und nächste geplante Aktionen in der Ansicht Jetzt](../assets/screenshots/now-battery-tablet-light-de.png)
 
 | Modus | Was SunCore mit dem Akku tut |
 |---|---|
@@ -376,7 +376,7 @@ Wähle in Schritt 5 unter **Steuerung** den **Akku-Adapter**. Vorgabe ist **Nur 
 schreibt nie)**: Der Akku gehört zum Plan, aber du stellst ihn selbst ein. Die Akku-Karte listet,
 was der Adapter **einstellen kann**.
 
-![Einrichtungsschritt 5: Akkusensoren, Modell, Adapter und Strategie](../../assets/screenshots/wizard-battery-tablet-light-de.png)
+![Einrichtungsschritt 5: Akkusensoren, Modell, Adapter und Strategie](../assets/screenshots/wizard-battery-tablet-light-de.png)
 
 ### Generisch: Home-Assistant-Entitäten
 
@@ -586,7 +586,7 @@ eröffne ein Issue mit deinen Messwerten.
 - **„Der Akku-Adapter kann kein Laden erzwingen: nur angezeigt“.** Bei Kostal Plenticore zu
   erwarten: Netzladen wird geplant und angezeigt, ist aber nicht ausführbar.
 - **Keine Genauigkeitswerte.** Sie werden jede Nacht berechnet; warte auf die erste Nacht mit Daten.
-- **Mehr** im Abschnitt zur Fehlersuche der [App-Beschreibung](../../../addon/suncore/DOCS.md)
+- **Mehr** im Abschnitt zur Fehlersuche der [App-Beschreibung](https://github.com/pxljake/suncore/blob/main/addon/suncore/DOCS.md)
   (englisch) und in der [Überschusssteuerung](surplus-control.md).
 
 ## 10. Bekannte Grenzen und UNVERIFIED
@@ -618,21 +618,23 @@ eröffne ein Issue mit deinen Messwerten.
   morgen (13:00) ist angenommen; die Konfigurations-ID von Nord Pool musst du von Hand eintragen; die
   amtliche deutsche Einspeisestufen-Tabelle ist nicht eingebaut.
 - **Nicht modelliert:** das thermische Verhalten von Klimageräten und Warmwasserbereitern im Plan
-  (sie bekommen nur den Überschuss), Einspeisebegrenzung über den Wechselrichter (Abregelung wird
-  angezeigt, nicht gesteuert), Lastspitzenkappung, Wallbox, Wärmepumpe, verschiebbare Programme.
-- **Kein Verlauf, kein Was-wäre-wenn.** Die Planansicht ist minimal; das volle Diagramm, Verlauf und
-  Analyse folgen in Phase 5.
+  (sie bekommen nur den Überschuss). Einspeisebegrenzung über den Wechselrichter,
+  Lastspitzenkappung, Wallbox, Wärmepumpe und verschiebbare Programme werden von eigenen
+  Funktionen geplant und gesteuert: siehe [Netzgrenzen](grid-limits.md),
+  [E-Auto laden](ev-charging.md), [Wärmepumpe](heat-pump.md) und [Programme](programs.md).
+- **Verlauf:** Planansicht, Verlaufsansicht und Analyse gibt es seit Phase 5.
 - **Nach einem Neustart** wird der erste Plan neu berechnet (gespeicherte Pläne werden nicht
   zurückgelesen).
 - **Zeitreihen** (`timeseries.db`) gehören nicht zur App-Sicherung; SunCore baut 28 Tage
   Viertelstundenverlauf aus den Statistiken von Home Assistant neu auf. Die gelernten Korrekturen
   brauchen neue Tage.
-- **Downgrade:** Diese Version speichert ihre Daten im Datenbankschema 4, das frühere Versionen nicht
-  öffnen können. Exportiere die Konfiguration vor dem Update.
+- **Downgrade:** Diese Version speichert ihre Daten im Datenbankschema 6
+  (`timeseries.db` Schema 3), das frühere Versionen nicht öffnen können. Exportiere die
+  Konfiguration vor dem Update.
 - **Im Vergleich zu EMHASS und Predbat:** Beide sind deutlich ausgereiftere Optimierer mit jahrelanger
   Praxis; SunCores Planer ist neu und an Hardware unerprobt. SunCore ergänzt eine App mit Prognosen,
   Plan, Akkusteuerung, Sicherheitsschicht, Schattenmodus und einer Begründung für jede
   Entscheidung, eingerichtet über einen Assistenten. Für Ladepunkte bleibt evcc die bessere Wahl.
 
 Siehe auch: [Schnellstart](quick-start.md), [Überschusssteuerung](surplus-control.md),
-[Gerätevorlage beitragen](device-templates.md), [Kompatibilitätsliste](../compatibility.md).
+[Gerätevorlage beitragen](device-templates.md), [Kompatibilitätsliste](compatibility.md).

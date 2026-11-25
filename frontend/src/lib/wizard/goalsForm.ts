@@ -51,6 +51,8 @@ export interface OperationForm {
   deviceModes: Record<string, OperatingMode>;
   /** The battery's mode is carried through unchanged (raised only with its identity token). */
   batteryMode: OperatingMode;
+  /** Carried through unchanged: the inverter mode is set on its own endpoint (PR 6-G). */
+  inverterMode: OperatingMode;
 }
 
 export function operationFormFromConfig(cfg: OperationConfig | null): OperationForm {
@@ -58,6 +60,7 @@ export function operationFormFromConfig(cfg: OperationConfig | null): OperationF
     mode: cfg?.mode ?? 'shadow',
     deviceModes: { ...(cfg?.device_modes ?? {}) },
     batteryMode: cfg?.battery_mode ?? 'shadow',
+    inverterMode: cfg?.inverter_mode ?? 'shadow',
   };
 }
 
@@ -71,7 +74,13 @@ export function operationFromForm(
     const mode = form.deviceModes[id];
     if (mode && mode !== 'shadow') device_modes[id] = mode;
   }
-  return { schema_version: 1, mode: form.mode, device_modes, battery_mode: form.batteryMode };
+  return {
+    schema_version: 1,
+    mode: form.mode,
+    device_modes,
+    battery_mode: form.batteryMode,
+    inverter_mode: form.inverterMode,
+  };
 }
 
 export const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;

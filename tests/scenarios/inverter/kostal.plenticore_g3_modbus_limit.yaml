@@ -1,0 +1,10 @@
+template: kostal.plenticore_g3_modbus_limit
+sim_scenario: inverter_limit_heartbeat_lost
+# A `modbus:` YAML sensor that reads register 533 back (whether 533 is readable is UNVERIFIED).
+extra_entities:
+  - { entity_id: sensor.kostal_533_active_power_setpoint, platform: modbus, unit: "%", state: "100" }
+roles:
+  limit:
+    entity: sensor.kostal_533_active_power_setpoint
+    criteria: [domain, platforms, units]
+capabilities: [ac_limit]

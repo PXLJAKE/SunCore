@@ -1,0 +1,99 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# A wallbox controlled through generic Home Assistant entities (PR 6-I, ADR-0017 decision 1):
+# the charging current as a `number` in A, a `switch` that pauses and resumes charging, and
+# optionally a `select` for one/three phases, the charging power, the vehicle's SoC and a
+# "vehicle connected" binary sensor.
+# The vehicle roles (`vehicle_soc`, `connected`) are mapped into `ev` by the wizard only when the
+# user maps them (`ev.vehicle_soc_role` needs the car's `capacity_wh`). Phase switching needs the
+# `phases` role plus `phase_option_1`/`phase_option_3` (the select's option texts) and
+# `phase_switching: true`; it is off by default (plan §0 decision 6).
+id: generic.wallbox
+kind: device
+schema_version: 1
+name: template.generic.wallbox.name
+source:
+  - title: "home-assistant/core number/__init__.py (set_value, value, min, max, step; core checks min/max, not step; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/number/__init__.py"
+    date: 2026-10-13
+  - title: "home-assistant/core switch/__init__.py (turn_on, turn_off; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/switch/__init__.py"
+    date: 2026-10-13
+  - title: "home-assistant/core select/__init__.py (select_option with option; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/select/__init__.py"
+    date: 2026-10-13
+  - title: "home-assistant/core binary_sensor/__init__.py (BinarySensorDeviceClass.PLUG, on = plugged in)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/binary_sensor/__init__.py"
+    date: 2026-10-13
+  - title: "home-assistant.io integrations/wallbox (a real integration with this shape: max charging current number in A, pause/resume switch, charging power sensor, state of charge sensor; fetched 2026-11-24)"
+    url: "https://www.home-assistant.io/integrations/wallbox/"
+    date: 2026-11-24
+tested_with: []
+capabilities: [ev_charging, power_measured]
+unverified:
+  - "Generic template, exercised in the simulator only (number.sim_wallbox_current); not tested with a physical wallbox."
+  - "min_current_a 6 A is the IEC 61851 minimum most cars accept; max_current_a 16 A is a placeholder: the wizard must take the charger's and the circuit's real maximum."
+  - "Whether a charger accepts a phase change while paused, and how long it needs, is vendor-specific (phase_switch_pause_s 120 s is a design default)."
+  - "Cloud-polled wallboxes (e.g. the `wallbox` integration polls every 90 s) need a longer settle_s and min_run_s than set here."
+  - "min_run_s, min_pause_s and max_switches_per_hour are contactor-protective design defaults, not manufacturer data."
+device_kind: wallbox
+roles:
+  current:
+    matcher:
+      domain: number
+      units: [A]
+    description: template.generic.wallbox.role.current
+  enable:
+    same_device_as: current
+    matcher:
+      domain: switch
+    description: template.generic.wallbox.role.enable
+  phases:
+    required: false
+    same_device_as: current
+    matcher:
+      domain: select
+    description: template.generic.wallbox.role.phases
+  charger_power:
+    required: false
+    same_device_as: current
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.wallbox.role.charger_power
+  vehicle_soc:
+    required: false
+    matcher:
+      domain: sensor
+      device_class: battery
+      units: ["%"]
+    description: template.generic.wallbox.role.vehicle_soc
+  connected:
+    required: false
+    matcher:
+      domain: binary_sensor
+      device_class: plug
+    description: template.generic.wallbox.role.connected
+defaults:
+  power_model:
+    kind: nominal
+    nominal_w: 11000
+  control:
+    kind: charger
+    role: current
+    enable_role: enable
+    min_current_a: 6
+    max_current_a: 16
+    phases: 3
+    voltage_v: 230
+    phase_switch_pause_s: 120
+    max_phase_switches_per_hour: 4
+  min_run_s: 300
+  min_pause_s: 300
+  max_switches_per_hour: 6
+  hysteresis_w: 300
+  hysteresis_delay_s: 60
+  settle_s: 30
+  ev:
+    efficiency: 0.9
+    default_mode: pv

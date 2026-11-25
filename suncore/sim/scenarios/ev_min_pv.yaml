@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+name: ev_min_pv
+description: >-
+  PR 6-I. Mode min_pv on a hazy morning without a home battery: the car charges at least at
+  the 6 A minimum (the user-demanded floor may import, ADR-0017 decision 4) and takes more
+  current whenever the surplus allows. The import limit holds; nothing beyond the floor is
+  imported for the car. The car leaves at 11:30 (the charger pauses, nothing is raised).
+start: "2026-05-10T08:00:00+02:00"
+duration_s: 14400
+step_s: 5
+house:
+  seed: 31
+  pv: {kwp: 9.0}
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 15.0, amplitude_c: 5.0}
+control:
+  import_limit_w: 16000
+  site_battery: false
+devices:
+  - id: wallbox
+    template: generic.wallbox
+    physics:
+      kind: wallbox
+      current_max: 16
+      initial_current_a: 16
+      initial_enabled: false
+      initial_soc_pct: 20
+      capacity_wh: 60000
+      depart_s: 12600
+    control:
+      power_model: {kind: measured, power_role: charger_power, nominal_w: 11040}
+      ev: {capacity_wh: 60000, vehicle_soc_role: vehicle_soc, connected_role: connected}
+      behaviour_confirmed: true
+    ev_mode: min_pv
+clouds:
+  - {at_s: 0, factor: 0.5}
+  - {at_s: 3600, factor: 0.8}
+  - {at_s: 5400, factor: 0.4}
+  - {at_s: 7200, factor: 1.0}

@@ -38,7 +38,8 @@ function (`plan/chartOption.ts`), the data series, the next-actions list and the
 come from `plan/model.ts`. "Now" is the plan's hand-over time. The Now view shows the battery
 card and the next planned actions; the wizard steps 4, 5, 6, 8 and 10 carry the Phase 4 forms
 (`wizard/batteryForm.ts`, `tariffForm.ts`, `scheduleForm.ts`, `forecastForm.ts`). The demo battery
-adapter for Playwright and screenshots is switched on with `SUNCORE_DEMO_BATTERY_CONTROL=1`.
+adapter for Playwright and screenshots is switched on with `SUNCORE_DEMO_BATTERY_CONTROL=1`; the
+Phase 6 flexible loads (EV on a wallbox, washing machine, heat pump) with `SUNCORE_DEMO_FLEX=1`.
 
 ## Setup wizard (Phase 2)
 
@@ -72,8 +73,34 @@ frontend. If `window.parent.document` is readable (same origin), the HA theme va
 from the parent's root onto our `:root`; our tokens carry HA's names, so the mapping is the identity.
 A `MutationObserver` on the parent's `<html>` (style/class) follows theme switches, and
 `color-scheme` is derived from the background luminance. A cross-origin or sandboxed parent throws;
-that is caught and nothing changes: the defaults in `app.css` follow `prefers-color-scheme`.
-`?theme=light|dark` (`data-theme` on the root) wins over the bridge.
+that is caught and nothing changes: the defaults in `lib/theme/tokens.css` follow
+`prefers-color-scheme`. `?theme=light|dark` (`data-theme` on the root) wins over the bridge.
+
+## Design system (ADR-0019, Phase 7)
+
+- **Tokens** (`src/lib/theme/tokens.css`): the HA variables above are the inputs; semantic
+  `--sc-*` tokens derive from them (surfaces, text, accent and status with `-bg` tint and `-fg`,
+  energy palette, type scale, spacing, radius, elevation, motion, layout). Tints use
+  `color-mix()` inside `@supports`, with static per-scheme fallbacks before it. Components use
+  only `--sc-*`. `src/lib/theme/tokens.ts` mirrors the light defaults for the chart canvas.
+- **Guards:** `npm run check:tokens` (also in `verify`, `scripts/check.sh` and CI) fails on hex,
+  `rgb()` or `hsl()` literals outside the token files and the bridge; `tokens.test.ts` checks
+  contrast (text 4.5:1, UI and chart lines 3:1) light and dark, with and without `color-mix()`.
+- **Components** (`src/lib/ui/`): `Card`, `SectionHeader`, `Stat`, `Chip`, `Button`, `FormRow`,
+  `EmptyState`, `Loading`, `Banner`, `SegmentedControl`, `Disclosure`, `Icon` (inline SVG, own
+  drawings, see `NOTICE`). The global classes in `app.css` (`.card`, `.btn`, `.notice`, ...) are
+  restyled on the tokens and stay until the views move onto the components (7-E ... 7-G).
+- **Shell:** four destinations (Now, Plan, Analysis, Settings); Analysis shows tabs for
+  `#/history`, `#/decisions` and (expert mode) `#/whatif`. Top bar sticky on every size with the
+  emergency stop; bottom bar on phones (< 600 px), destinations in a second top-bar row on tablets
+  (600–1023 px), one row from 1024 px. Sticky elements inside views use `--sc-sticky-top` and
+  `--sc-sticky-bottom`.
+- **Chart theme** (`src/lib/charts/theme.ts`): reads the tokens of the chart container and
+  returns the plan and history colours plus option defaults merged with `withChartTheme` (plain
+  object, no `registerTheme`).
+- **Review screenshots:** `REVIEW_SHOTS_DIR=<dir> npx playwright test review-shots
+--project=desktop` captures Now, Plan, Analysis, Settings and the PV step at 390×844 and
+  1280×800, light and dark.
 
 Status: unit-tested with fake parent windows; **UNVERIFIED against a running Home Assistant** (that
 the ingress iframe is same-origin and that these variables are defined on the parent's root).

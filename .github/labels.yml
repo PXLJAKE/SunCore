@@ -1,0 +1,21 @@
+# Labels the issue templates and the contribution docs rely on.
+# Documentation only: there is no workflow that syncs this file; create the labels by hand or
+# with `gh label create` (plan phase 7, section 8, 7-N part 2).
+- name: bug
+  color: d73a4a
+  description: Something does not work as documented
+- name: enhancement
+  color: a2eeef
+  description: New feature or improvement
+- name: triage
+  color: fbca04
+  description: Not yet looked at by a maintainer
+- name: device-template
+  color: 0e8a16
+  description: Device, tariff, forecast or region template
+- name: good first issue
+  color: 7057ff
+  description: Suitable for a first contribution
+- name: translation
+  color: 1d76db
+  description: Translations (Weblate or pull request)

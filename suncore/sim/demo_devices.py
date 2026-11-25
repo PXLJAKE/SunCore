@@ -47,11 +47,13 @@ from datetime import date, datetime, timedelta
 from typing import Any, Final
 
 from suncore.sim.devices import (
+    AnyDeviceParams,
     ClimateParams,
     NumberParams,
     SimClimate,
     SimDevice,
     SimDeviceSet,
+    SimProgram,
     SimSwitchLoad,
     SwitchParams,
     WaterHeaterParams,
@@ -181,8 +183,17 @@ WATER_HEATER_DEVICE_ID: Final = "water_heater"
 WATER_HEATER_RELAYS_DEVICE_ID: Final = "water_heater_relays"
 
 
-def default_demo_devices() -> SimDeviceSet:
-    """The default demo devices (ids and entities above), all off at the start."""
+def default_demo_devices(*, flex: bool = False) -> SimDeviceSet:
+    """The default demo devices (ids and entities above), all off at the start.
+
+    ``flex`` adds the Phase 6 loads of :mod:`suncore.sim.demo_flex` (EV wallbox, washing
+    machine, heat pump).
+    """
+    from suncore.sim.demo_flex import demo_flex_specs  # noqa: PLC0415 - avoids a cycle
+
+    flex_devices: list[tuple[str, AnyDeviceParams]] = (
+        [(spec.id, spec.physics) for spec in demo_flex_specs()] if flex else []
+    )
     return build_device_set(
         [
             (
@@ -247,6 +258,7 @@ def default_demo_devices() -> SimDeviceSet:
                     initial_temp_c=48.0,
                 ),
             ),
+            *flex_devices,
         ]
     )
 
@@ -256,6 +268,8 @@ class DemoDevices:
     """Stateful model of the demo entities; call :meth:`step` once per house step."""
 
     scenario: Scenario
+    flex: bool = False
+    """Phase 7 (WP3): the default demo house also has the flexible loads (``demo_flex``)."""
     devices: SimDeviceSet = field(init=False)
     """The physical devices (the scenario's, or the default demo devices)."""
     is_default: bool = field(init=False)
@@ -273,7 +287,7 @@ class DemoDevices:
         self._model = SimForecastModel(self.scenario, self._cloud_at)
         specs = [(spec.id, spec.physics) for spec in self.scenario.devices]
         self.is_default = not specs
-        self.devices = build_device_set(specs) if specs else default_demo_devices()
+        self.devices = build_device_set(specs) if specs else default_demo_devices(flex=self.flex)
 
     # --- model ----------------------------------------------------------------
 
@@ -316,6 +330,9 @@ class DemoDevices:
                     self.apply_now(ac, "set_temperature", 24.0)
                 else:
                     self.apply_now(ac, "turn_off", None)
+        washer = self.devices.devices.get("washer")
+        if self.flex and isinstance(washer, SimProgram) and washer.runs > 0 and not washer.loaded:
+            self.apply_now(washer, "turn_on", None)  # the next load of laundry
         pool = self.devices.devices.get(POOL_DEVICE_ID)
         if isinstance(pool, SimSwitchLoad):
             wants = self.pool_on(state)

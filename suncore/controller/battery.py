@@ -33,17 +33,25 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from suncore.controller.export import lift_battery_charge_cap
+from suncore.controller.grid import GridHolds, GridInputs
 from suncore.controller.reasons import (
     BATTERY_BLOCKED,
     BATTERY_DISCHARGE_LOCK,
     BATTERY_DISCHARGE_LOCK_UNSUPPORTED,
+    BATTERY_EV_LOCK,
     BATTERY_GRID_CHARGE,
     BATTERY_GRID_CHARGE_UNSUPPORTED,
     BATTERY_NO_PLAN,
     BATTERY_RELEASE,
+    EXPORT_BATTERY_CAP_LIFTED,
+    GRID_BATTERY_ISLAND,
+    GRID_BATTERY_NO_GRID_CHARGE,
+    GRID_BATTERY_SUPPORT,
 )
 from suncore.core.battery import (
     BATTERY_ASSET_ID,
+    SOC_LOCK_TOLERANCE_PCT,
     BatteryAction,
     BatteryCapability,
     BatteryModel,
@@ -59,6 +67,7 @@ from suncore.core.decisions import (
     Reason,
     ReleaseAction,
 )
+from suncore.core.grid import GridState, Para14aStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +97,8 @@ class BatteryControlInputs:
     under_control: bool = False
     blocked: Reason | None = None
     """Emergency stop, watchdog pause, override hold, pending release: no intents."""
+    release_pending: bool = False
+    """The gate is releasing the battery: a held lock no longer counts (E6, review 6-I H1)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,14 +130,25 @@ class BatteryIntents:
 
     # --- the wanted state --------------------------------------------------------------------
 
-    def wanted(  # noqa: PLR0911 - one return per rule
-        self, now: datetime, plan: Plan, inputs: BatteryControlInputs, soc_pct: float | None
+    def wanted(
+        self,
+        now: datetime,
+        plan: Plan,
+        inputs: BatteryControlInputs,
+        soc_pct: float | None,
+        *,
+        ev_lock: bool = False,
     ) -> tuple[BatteryAction | None, tuple[Reason, ...]]:
-        """The state the plan asks for now and why (pure apart from the held state)."""
+        """The state the plan asks for now and why (pure apart from the held state).
+
+        ``ev_lock`` (PR 6-I, E6): an EV may draw grid power now; the house battery must not
+        discharge into it, so a discharge lock is wanted (unless the plan charges from the
+        grid), also without a fresh plan."""
         band, fresh = battery_band_now(plan, now)
         if band is None or not fresh:
+            if ev_lock:
+                return self._lock(inputs, soc_pct, ev=True)
             return None, (Reason(key=BATTERY_NO_PLAN),)
-        caps = inputs.capabilities
         grid_max = band.grid_charge_max_w or 0.0
         if grid_max > 0:
             grid = self._grid_power(grid_max, inputs)
@@ -137,23 +159,64 @@ class BatteryIntents:
             return BatteryAction(grid_charge_w=grid), (
                 Reason(key=BATTERY_GRID_CHARGE, args={"power_w": round(grid)}),
             )
-        if band.discharge_lock:
-            if (
-                BatteryCapability.DISCHARGE_LIMIT in caps
-                and inputs.ranges.max_discharge_w is not None
-            ):
-                return BatteryAction(max_discharge_w=0.0), (Reason(key=BATTERY_DISCHARGE_LOCK),)
-            if (
-                BatteryCapability.MIN_SOC in caps
-                and inputs.ranges.min_soc_pct is not None
-                and soc_pct is not None
-            ):
-                floor = self._lock_floor(soc_pct, inputs)
-                return BatteryAction(min_soc_pct=floor), (
-                    Reason(key=BATTERY_DISCHARGE_LOCK, args={"min_soc_pct": round(floor)}),
-                )
-            return None, (Reason(key=BATTERY_DISCHARGE_LOCK_UNSUPPORTED),)
+        if band.discharge_lock or ev_lock:
+            return self._lock(inputs, soc_pct, ev=not band.discharge_lock)
         return None, ()
+
+    def _lock(
+        self, inputs: BatteryControlInputs, soc_pct: float | None, *, ev: bool
+    ) -> tuple[BatteryAction | None, tuple[Reason, ...]]:
+        """A discharge lock in the adapter's terms (``max_discharge_w`` 0, else ``min_soc``)."""
+        caps = inputs.capabilities
+        key = BATTERY_EV_LOCK if ev else BATTERY_DISCHARGE_LOCK
+        if BatteryCapability.DISCHARGE_LIMIT in caps and inputs.ranges.max_discharge_w is not None:
+            return BatteryAction(max_discharge_w=0.0), (Reason(key=key),)
+        if (
+            BatteryCapability.MIN_SOC in caps
+            and inputs.ranges.min_soc_pct is not None
+            and soc_pct is not None
+        ):
+            floor = self._lock_floor(soc_pct, inputs)
+            return BatteryAction(min_soc_pct=floor), (
+                Reason(key=key, args={"min_soc_pct": round(floor)}),
+            )
+        return None, (Reason(key=BATTERY_DISCHARGE_LOCK_UNSUPPORTED),)
+
+    @staticmethod
+    def grid_override(  # noqa: PLR0917
+        wanted: BatteryAction | None,
+        reasons: tuple[Reason, ...],
+        grid: GridInputs | None,
+        holds: GridHolds,
+        deficit_w: float | None,
+        reserve_w: float,
+    ) -> tuple[BatteryAction | None, tuple[Reason, ...], bool]:
+        """The grid's say on the wanted state (PR 6-F); the flag marks an urgent release.
+
+        * island: SunCore keeps nothing on the battery (no grid to charge from, a lock would
+          leave the house without supply) - the inverter's own management carries the house;
+        * §14a active or unknown, or a cool-down after island/§14a: no grid charging (G3/G6);
+        * battery support (ADR-0018 decision 2): a discharge lock is lifted while the house
+          deficit without the battery comes within ``reserve_w`` of the import limit, or is
+          unknown.
+        """
+        if wanted is None or grid is None:
+            return wanted, reasons, False
+        if grid.grid_state is GridState.ISLAND:
+            return None, (Reason(key=GRID_BATTERY_ISLAND),), True
+        if (wanted.grid_charge_w or 0.0) > 0 and (
+            grid.para14a.status is not Para14aStatus.INACTIVE
+            or holds.island_s > 0
+            or holds.para14a_s > 0
+        ):
+            return None, (Reason(key=GRID_BATTERY_NO_GRID_CHARGE), *reasons), True
+        limit = grid.import_limit_w
+        lock = (wanted.grid_charge_w or 0.0) <= 0 and (
+            wanted.max_discharge_w is not None or wanted.min_soc_pct is not None
+        )
+        if lock and limit is not None and (deficit_w is None or deficit_w >= limit - reserve_w):
+            return None, (Reason(key=GRID_BATTERY_SUPPORT, args={"limit_w": round(limit)}),), True
+        return wanted, reasons, False
 
     def _grid_power(self, planned_w: float, inputs: BatteryControlInputs) -> float | None:
         allowed = inputs.ranges.grid_charge_w
@@ -177,9 +240,13 @@ class BatteryIntents:
         assert soc_range is not None
         step = soc_range.step
         held = inputs.held.min_soc_pct if inputs.held is not None else None
-        if held is not None and held >= inputs.reserve_pct and soc_pct < held + (step or 1.0):
-            # Still (almost) a lock: moved only when the SoC rose a full step above it, so a
-            # SoC creeping up under PV does not rewrite the floor every few minutes.
+        if (
+            held is not None
+            and held >= inputs.reserve_pct
+            and soc_pct <= held + SOC_LOCK_TOLERANCE_PCT  # the same bound as discharge_lock_held
+        ):
+            # Still a lock by the same tolerance the gate and the EV logic use (review 6-I M1):
+            # the floor is rounded up to the step, so a rising SoC rewrites it once per step.
             return held
         floor = max(inputs.reserve_pct, soc_pct)
         return min(soc_range.high, round_up_to_step(floor, step, soc_range.low))
@@ -192,8 +259,20 @@ class BatteryIntents:
         plan: Plan,
         inputs: BatteryControlInputs | None,
         soc_pct: float | None,
+        *,
+        grid: GridInputs | None = None,
+        holds: GridHolds | None = None,
+        deficit_w: float | None = None,
+        reserve_w: float = 0.0,
+        ev_lock: bool = False,
+        export_over_limit: bool = False,
     ) -> Intent | None:
-        """The battery intent of this tick (``None`` = nothing to submit)."""
+        """The battery intent of this tick (``None`` = nothing to submit).
+
+        ``export_over_limit`` (PR 6-G, export chain step 2): the site exports more than the
+        effective export limit - SunCore's own charge cap is lifted so the battery absorbs
+        before the inverter is curtailed (``controller.export.lift_battery_charge_cap``).
+        """
         if inputs is None:
             self.view = None
             return None
@@ -206,7 +285,13 @@ class BatteryIntents:
             and now - self._last_submit > timedelta(seconds=self._settings.pending_timeout_s)
         ):
             self._pending = None
-        wanted, reasons = self.wanted(now, plan, inputs, soc_pct)
+        wanted, reasons = self.wanted(now, plan, inputs, soc_pct, ev_lock=ev_lock)
+        wanted, reasons, urgent = self.grid_override(
+            wanted, reasons, grid, holds or GridHolds(), deficit_w, reserve_w
+        )
+        wanted, lifted = lift_battery_charge_cap(wanted, over_limit=export_over_limit)
+        if lifted:
+            reasons = (Reason(key=EXPORT_BATTERY_CAP_LIFTED), *reasons)
         action: BatteryAction | ReleaseAction | None = wanted
         if wanted is None:
             action = ReleaseAction() if inputs.under_control else None
@@ -215,7 +300,12 @@ class BatteryIntents:
         elif inputs.under_control and inputs.held == wanted:
             action = None  # the gate holds exactly this
         self.view = BatteryView(wanted, reasons, last_decision=self._last_kind)
-        if action is None or self._pending is not None or not self._due(now, action):
+        if action is None or self._pending is not None:
+            return None
+        # A grid release (island, §14a, battery support) goes out at once - once: a repeat
+        # follows the normal spacing, so a refused release does not flood the log.
+        first_urgent = urgent and isinstance(action, ReleaseAction) and action != self._last_action
+        if not first_urgent and not self._due(now, action):
             return None
         self._seq += 1
         intent = Intent(

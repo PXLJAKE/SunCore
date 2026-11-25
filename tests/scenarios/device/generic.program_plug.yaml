@@ -1,0 +1,27 @@
+template: generic.program_plug
+sim_scenario: program_deadline_plug
+user_input:
+  nominal_w: 2000
+  program:
+    resume_confirmed: true
+# The demo house has no washing machine: the plug and its power sensor as the simulator
+# publishes them (suncore/sim/devices.py SimProgram), one registry device.
+extra_entities:
+  - entity_id: switch.sim_washer
+    device_id: sim_dev_washer
+    state: "on"
+  - entity_id: sensor.sim_washer_power
+    unit: W
+    device_class: power
+    device_id: sim_dev_washer
+    state: "2.0"
+roles:
+  switch:
+    # Every switch of the demo matches the domain: the user picks the plug.
+    tied: [switch.sim_pool_pump, switch.sim_water_heater_relay_1, switch.sim_water_heater_relay_2,
+           switch.sim_water_heater_relay_3, switch.sim_washer]
+    pick: switch.sim_washer
+  power:
+    entity: sensor.sim_washer_power
+    unit: W
+    criteria: [domain, device_class, units, same_device]

@@ -58,6 +58,7 @@ from suncore.core.actions import is_read_only_action
 from suncore.core.entities import EntityMeta
 from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.ha.connection import (
+    NOTIFY_ACTION_EVENT,
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
     ActionRateLimitedError,
@@ -69,6 +70,8 @@ from suncore.ha.connection import (
     EntityUpdate,
     HAError,
     NotConnectedError,
+    NotificationAction,
+    NotificationActionListener,
     RateLimiter,
     RegistryListener,
     ServiceCaller,
@@ -76,6 +79,7 @@ from suncore.ha.connection import (
     StateListener,
     Unsubscribe,
     action_rate_key,
+    check_notify_call,
 )
 from suncore.sim import registry
 from suncore.sim.demo_devices import (
@@ -97,6 +101,7 @@ from suncore.sim.devices import (
 )
 from suncore.sim.house import House, HouseState
 from suncore.sim.inverter import SimInverter
+from suncore.sim.limiter import SimExportLimiter
 from suncore.sim.recorder import SimRecorder
 from suncore.sim.scenario import ManualEvent, Scenario, SimSignal
 
@@ -109,6 +114,11 @@ SOC_ID: Final = "sensor.sim_battery_soc"
 HOUSE_ID: Final = "sensor.sim_house_power"
 
 SIM_ENTITY_IDS: Final[tuple[str, ...]] = (GRID_ID, PV_ID, BATTERY_ID, SOC_ID, HOUSE_ID)
+BACKUP_ID: Final = "sensor.sim_backup_state"
+"""PR 6-F: the simulated backup switch (``island`` / ``on_grid``; the state names are the
+simulator's own - a real backup device's are ``UNVERIFIED``)."""
+PARA14A_BINARY_ID: Final = "binary_sensor.sim_para14a"
+PARA14A_POWER_ID: Final = "sensor.sim_para14a_power"
 
 ALL_SIM_ENTITY_IDS: Final[tuple[str, ...]] = (*SIM_ENTITY_IDS, *SIM_DEVICE_ENTITY_IDS)
 """The site sensors plus the demo devices, price, forecast and energy counters."""
@@ -136,6 +146,16 @@ SUPERVISOR_USER_ID: Final = "sim-supervisor"
 USER_ID: Final = "sim-user"
 """``user_id`` of a change a person makes in the Home Assistant UI."""
 TARGET_KEYS: Final = ("entity_id", "device_id", "area_id", "floor_id", "label_id")
+
+
+@dataclass(frozen=True, slots=True)
+class NotifyRecord:
+    """One notification the fake accepted (evidence for tests)."""
+
+    domain: str
+    service: str
+    data: Mapping[str, Any]
+    target: Mapping[str, Any] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +254,7 @@ class FakeHAConnection:
     * :meth:`entity_metas` - registry joined with the current states as ``EntityMeta``
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0915 - one attribute per piece of fake state
         self,
         scenario: Scenario,
         *,
@@ -247,6 +267,7 @@ class FakeHAConnection:
         sim_clock: Callable[[], datetime] | None = None,
         autorun: bool = True,
         write_limiter: RateLimiter | None = None,
+        demo_flex: bool = False,
     ) -> None:
         if speed <= 0:
             msg = "speed must be positive"
@@ -255,6 +276,7 @@ class FakeHAConnection:
             msg = "start_offset_s must lie within the scenario"
             raise ValueError(msg)
         self._scenario = scenario
+        self._demo_flex = demo_flex
         self._clock = clock
         self._sleep = sleep
         self._speed = speed
@@ -287,6 +309,14 @@ class FakeHAConnection:
         self._action_limiter = ActionRateLimiter(
             clock=lambda: self._clock().timestamp(), sleep=sleep
         )
+        self.notify_log: list[NotifyRecord] = []
+        """Every accepted :meth:`notify` call, oldest first (not in :attr:`call_log`)."""
+        self.notify_error: HAError | None = None
+        """Make :meth:`notify` fail (e.g. an unknown notify service)."""
+        self.action_subscribe_error: HAError | None = None
+        """Make :meth:`subscribe_notification_actions` fail (a token that may not subscribe)."""
+        self._notify_services: frozenset[str] = frozenset()
+        self._action_listeners: list[NotificationActionListener] = []
         self.call_log: list[CallRecord] = []
         """Every service call seen, oldest first."""
         self.recorder = SimRecorder(
@@ -331,7 +361,7 @@ class FakeHAConnection:
         self._step_index = 0
         self._published = {}
         self._events = []
-        self._demo = DemoDevices(self._scenario)
+        self._demo = DemoDevices(self._scenario, flex=self._demo_flex)
         self._heartbeats = self._demo.devices.heartbeats()
         for event in self._scenario.manual:
             self._at(
@@ -397,17 +427,17 @@ class FakeHAConnection:
     async def entity_registry_list_for_display(self) -> dict[str, Any]:
         """Payload of ``config/entity_registry/list_for_display``."""
         self._require_registry()
-        return registry.entity_registry_list_for_display()
+        return registry.entity_registry_list_for_display(flex=self._demo_flex)
 
     async def entity_registry_list(self) -> list[dict[str, Any]]:
         """Payload of ``config/entity_registry/list``."""
         self._require_connected()
-        return registry.entity_registry_list()
+        return registry.entity_registry_list(flex=self._demo_flex)
 
     async def device_registry_list(self) -> list[dict[str, Any]]:
         """Payload of ``config/device_registry/list``."""
         self._require_registry()
-        return registry.device_registry_list()
+        return registry.device_registry_list(flex=self._demo_flex)
 
     async def area_registry_list(self) -> list[dict[str, Any]]:
         """Payload of ``config/area_registry/list``."""
@@ -424,6 +454,46 @@ class FakeHAConnection:
     async def subscribe_registry_updates(self, listener: RegistryListener) -> Unsubscribe:
         """Register for registry events; :meth:`fire_registry_event` delivers them."""
         return self._add(self._registry_listeners, listener)
+
+    async def notify(
+        self,
+        domain: str,
+        service: str,
+        data: Mapping[str, Any],
+        target: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Notification call with the real allowlist; recorded in :attr:`notify_log`."""
+        check_notify_call(domain, service, data, target, self._notify_services)
+        self._require_connected()
+        if self.notify_error is not None:
+            raise self.notify_error
+        self.notify_log.append(NotifyRecord(domain, service, dict(data), target))
+
+    def set_notify_services(self, services: Collection[str]) -> None:
+        self._notify_services = frozenset(services)
+
+    async def subscribe_notification_actions(
+        self,
+        listener: NotificationActionListener,
+        on_lost: Callable[[], None] | None = None,  # noqa: ARG002 - the fake never loses it
+    ) -> Unsubscribe:
+        """Register for action taps; :meth:`fire_notification_action` delivers them."""
+        self._require_connected()
+        if self.action_subscribe_error is not None:
+            raise self.action_subscribe_error
+        return self._add(self._action_listeners, listener)
+
+    def fire_notification_action(
+        self, action: str, *, event_type: str = NOTIFY_ACTION_EVENT
+    ) -> None:
+        """Deliver a ``mobile_app_notification_action`` event (what the real client filters)."""
+        if event_type != NOTIFY_ACTION_EVENT:
+            return
+        for listener in list(self._action_listeners):
+            try:
+                listener(NotificationAction(action))
+            except Exception:
+                _log.exception("notification action listener failed")
 
     def fire_registry_event(self, event_type: str = REGISTRY_EVENT_TYPES[0]) -> None:
         """Deliver a registry update event to the listeners (tests and demo hooks)."""
@@ -689,6 +759,16 @@ class FakeHAConnection:
             )
             msg = f"fake HA is {self._state.value}"
             raise NotConnectedError(msg)
+        limiter = self._house.limiter if self._house is not None else None
+        if limiter is not None and self._limiter_call(
+            limiter, now, domain, service, entity_ids, fields
+        ):
+            context = self._new_context(user_id=SUPERVISOR_USER_ID)
+            self._record(
+                CallRecord(now, domain, service, entity_ids, fields, context.id, entity_ids)
+            )
+            self._publish_limiter(emit=True, context=context)
+            return {"context": {"id": context.id, "parent_id": None, "user_id": context.user_id}}
         inverter = self._house.inverter if self._house is not None else None
         if inverter is not None and self._inverter_call(
             inverter, now, domain, service, entity_ids, fields
@@ -778,6 +858,47 @@ class FakeHAConnection:
                     inverter.set_number(now, entity_id, float(value))
             return True
         return False
+
+    def _limiter_call(  # noqa: PLR0917
+        self,
+        limiter: SimExportLimiter,
+        now: datetime,
+        domain: str,
+        service: str,
+        entity_ids: tuple[str, ...],
+        fields: Mapping[str, Any],
+    ) -> bool:
+        """The inverter limit's services (PR 6-G): its number or ``modbus.write_register`` 533.
+
+        Like the battery inverter: ``modbus.write_register`` fails silently; a number write to
+        an unavailable entity is skipped silently."""
+        if domain == "modbus" and service == "write_register":
+            return limiter.write_register(now, dict(fields))
+        if (
+            domain == "number"
+            and service == "set_value"
+            and entity_ids
+            and all(limiter.handles(e) for e in entity_ids)
+        ):
+            value = fields.get("value")
+            if not isinstance(value, int | float) or isinstance(value, bool):
+                raise CommandError("invalid_format", "expected float for dictionary value")
+            for entity_id in entity_ids:
+                if entity_id not in self._unavailable:
+                    limiter.set_number(now, entity_id, float(value))
+            return True
+        return False
+
+    def _publish_limiter(self, *, emit: bool, context: StateContext | None = None) -> None:
+        limiter = self._house.limiter if self._house is not None else None
+        if limiter is None:
+            return
+        self._commit(
+            limiter.states(self._sim_now()),
+            context=context,
+            emit=emit,
+            only_changes=False,
+        )
 
     def _publish_inverter(self, *, emit: bool, context: StateContext | None = None) -> None:
         inverter = self._house.inverter if self._house is not None else None
@@ -978,9 +1099,36 @@ class FakeHAConnection:
         when = self._house.time
         self.run_events_until(when)
         self._demo.advance_devices(when)
-        state = self._house.step(self._demo.devices_power_w())
+        grid = self._scenario.grid
+        island = grid is not None and grid.island_at(self._house.index * self._scenario.step_s)
+        state = self._house.step(self._demo.devices_power_w(), island=island)
         self._demo.step(state)
         return state
+
+    def _grid_rows(self, offset_s: int) -> list[tuple[str, str, dict[str, Any]]]:
+        """The backup and §14a entities of a scenario with ``grid`` (PR 6-F)."""
+        grid = self._scenario.grid
+        if grid is None:
+            return []
+        rows: list[tuple[str, str, dict[str, Any]]] = []
+        if grid.backup:
+            state = "island" if grid.island_at(offset_s) else "on_grid"
+            rows.append((BACKUP_ID, state, {"friendly_name": "Sim backup state"}))
+        if grid.para14a:
+            window = grid.para14a_at(offset_s)
+            if grid.para14a_signal_kind == "binary":
+                state = "on" if window is not None else "off"
+                rows.append((PARA14A_BINARY_ID, state, {"friendly_name": "Sim §14a signal"}))
+            else:
+                value = 0.0 if window is None else (window.power_w or 0.0)
+                rows.append(
+                    (
+                        PARA14A_POWER_ID,
+                        _format(value),
+                        {"unit_of_measurement": "W", "friendly_name": "Sim §14a power"},
+                    )
+                )
+        return rows
 
     def _faults_at(
         self, offset_s: int
@@ -1029,6 +1177,7 @@ class FakeHAConnection:
                 "friendly_name": name,
             }
             rows.append((entity_id, _format(value), attributes))
+        rows.extend(self._grid_rows(offset_s))
         changed = self._commit(rows, context=None, emit=False, faults=faults, only_changes=False)
         device_ids = self._demo.device_entity_ids()
         demo_rows = [(e.entity_id, e.state, e.attributes) for e in self._demo.entities()]
@@ -1057,6 +1206,17 @@ class FakeHAConnection:
             changed.update(
                 self._commit(
                     inverter.states(house_state.time),
+                    context=None,
+                    emit=False,
+                    faults=faults,
+                    only_changes=False,
+                )
+            )
+        limiter = self._house.limiter
+        if limiter is not None:  # the inverter limit's number or modbus sensor (PR 6-G)
+            changed.update(
+                self._commit(
+                    limiter.states(house_state.time),
                     context=None,
                     emit=False,
                     faults=faults,

@@ -6,11 +6,13 @@ and a real-time surplus controller in one app.
 > This is the **beta channel**. It receives new versions earlier than the
 > stable app and may contain bugs. Please report what you find.
 
-## What SunCore does today (Phase 4)
+## What SunCore does (1.0 candidate)
 
-SunCore is **pre-alpha**. This version helps you describe your installation,
-shows your energy flow live, distributes your solar surplus to devices, plans
-the next 48 hours and can set limits on your home battery:
+This version helps you describe your installation, shows your energy flow
+live, distributes your solar surplus to devices, plans the next 48 hours, sets
+limits on your home battery, charges an EV, runs a heat pump and shiftable
+programs, and respects your grid limits. Much of it has only run in the
+simulator so far (see "What is not there yet"):
 
 - **Setup assistant**: ten steps for region, Energy dashboard import, grid,
   solar (with forecast sources), battery (adapter, model, strategy, risk
@@ -23,7 +25,7 @@ the next 48 hours and can set limits on your home battery:
   Octopus Energy, Solcast, Forecast.Solar, Open-Meteo Solar Forecast, battery
   adapters for generic entities and Kostal Plenticore, regions) with a gallery;
   see the
-  [compatibility list](https://github.com/pxljake/suncore/blob/main/docs/user/compatibility.md).
+  [compatibility list](https://github.com/pxljake/suncore/blob/main/docs/user/en/compatibility.md).
 - **Forecasts**: several solar forecast sources blended by their measured
   accuracy, a bias calibration that becomes active after 30 days, clipping
   recognised, a load forecast learnt from Home Assistant's statistics (base
@@ -92,13 +94,16 @@ Supported architectures: `amd64` and `aarch64`.
 
 ## Settings
 
-**Settings** lists every section of your setup with a summary and an
-**Open** link to the matching assistant step. **Run setup again** restarts
-the assistant; **Earlier versions** restores a previous save; **Export
-configuration** and **Import configuration** back up everything as a file.
-The settings are stored in the app's `/data` folder and are part of the app
-backup. This version uses database schema 4, which earlier versions cannot open:
-export the configuration before updating. Measurements, forecasts and prices
+**Settings** has five pages: **Your system**, **Devices**, **Goals and
+operating mode**, **Home Assistant** and **Advanced**. Each section has a
+summary and a link to the matching assistant step. **Run setup again** (on
+**Your system**) restarts the assistant; **Advanced** has expert mode,
+**Earlier versions** (restore a previous save), **Export configuration** and
+**Import configuration** (back up everything as a file) and the diagnostics
+export. The settings are stored in the app's `/data` folder and are part of the
+app backup. This version uses database schema 6, which earlier versions cannot
+open: make a Home Assistant backup and export the configuration before
+updating. Measurements, forecasts and prices
 live in a separate `timeseries.db`, which is left out of the app backup; SunCore
 rebuilds its quarter-hour history from Home Assistant's statistics when the file
 is missing.
@@ -117,6 +122,25 @@ The assistant asks whether the live direction is right and inverts the sign
 for you if not. On a sunny day with a charging battery, PV must be positive
 and the battery arrow must point into the battery. Power sensors in W and kW
 are understood; other units are rejected rather than guessed.
+
+## History, decisions, expert mode and what-if
+
+- **History** shows a day, week, month or year: autarky, self-consumption,
+  cost and savings against two baselines (without PV, PV only), energy flows,
+  battery cycles and forecast quality, with CSV and PNG export. Guide:
+  [History and analysis](https://github.com/pxljake/suncore/blob/main/docs/user/en/history-and-analysis.md)
+  ([Deutsch](https://github.com/pxljake/suncore/blob/main/docs/user/de/history-and-analysis.md)).
+- **Decision log** with filters and **Why?** per decision, and a **Plan** view
+  that sets the plan against measured values:
+  [Decision log](https://github.com/pxljake/suncore/blob/main/docs/user/en/decision-log.md),
+  [Plan chart](https://github.com/pxljake/suncore/blob/main/docs/user/en/plan-chart.md).
+- **Expert mode** (**Settings → Advanced**, off by default) exposes every parameter with
+  its range inside the safety limits, see the
+  [Expert mode guide](https://github.com/pxljake/suncore/blob/main/docs/user/en/expert-mode.md) and the
+  [parameter reference](https://github.com/pxljake/suncore/blob/main/docs/user/en/reference/parameters.md).
+- **What-if** (a tab under **Analysis** in expert mode) replays the real planner
+  over past days with other battery or tariff settings:
+  [What-if and backtesting](https://github.com/pxljake/suncore/blob/main/docs/user/en/what-if-and-backtesting.md).
 
 ## Planning and battery control
 
@@ -142,6 +166,29 @@ step-by-step guide for your first device are in
 Short version: leave everything in shadow mode first, read the **Decision log**
 for a day, then switch **one** device to automatic. Surplus control has never
 run against real hardware yet; the guide lists what is unverified.
+
+## Home Assistant entities, notifications, EV, heat pump, programs and grid limits
+
+SunCore shows its status in Home Assistant as devices and entities (the site, one
+device per configured device) and accepts a few commands from Home Assistant: emergency
+stop, pause, boost, resume, replan, and lowering an operating mode. They are published
+through MQTT discovery, so they need the **Mosquitto broker** app (Settings → Apps → App
+store). SunCore finds the broker through the Supervisor by itself and looks again every
+minute until one is installed. The app needs no `hassio_api` permission for this: it asks
+for the MQTT service only (`services: mqtt:want`) and calls one Supervisor path, the MQTT
+service lookup. Without a broker everything else in SunCore works; the **Home Assistant
+entities** page in the settings and the system check say so. Raising a mode from Home
+Assistant is refused unless you allow it in the settings. Details:
+[Home Assistant entities](https://github.com/pxljake/suncore/blob/main/docs/user/en/home-assistant-entities.md).
+
+The other guides: [Notifications](https://github.com/pxljake/suncore/blob/main/docs/user/en/notifications.md),
+[Grid limits](https://github.com/pxljake/suncore/blob/main/docs/user/en/grid-limits.md)
+(peak shaving, section 14a, island, export limit),
+[EV charging and evcc](https://github.com/pxljake/suncore/blob/main/docs/user/en/ev-charging.md),
+[Heat pump](https://github.com/pxljake/suncore/blob/main/docs/user/en/heat-pump.md) and
+[Programs](https://github.com/pxljake/suncore/blob/main/docs/user/en/programs.md).
+All of them are German as well (replace `en` by `de`). Every new device starts in shadow mode
+and nothing in these guides has run on real hardware yet.
 
 ## Options
 
@@ -174,9 +221,11 @@ mode", and nothing from your installation is used or modified. The demo
 includes simulated prices, solar forecasts and a plan. Use it to look around,
 to take screenshots or to report a UI problem. Switch it off again and restart
 to see your own data. Experts can also set `SUNCORE_DEMO_START_TIME` (time of
-day the demo starts, default `10:00`) and `SUNCORE_DEMO_BATTERY_CONTROL=1`
+day the demo starts, default `10:00`), `SUNCORE_DEMO_BATTERY_CONTROL=1`
 (gives the simulated house a controllable inverter, so the battery card can be
-tried; off by default).
+tried; off by default) and `SUNCORE_DEMO_FLEX=1` (adds an electric car on a
+wallbox, a washing machine and a heat pump, all in shadow mode, so the cards of
+the flexible loads can be tried; off by default).
 
 ## Troubleshooting
 
@@ -200,24 +249,45 @@ tried; off by default).
   see the troubleshooting section of
   [Planning and battery control](https://github.com/pxljake/suncore/blob/main/docs/user/en/planning-and-battery.md#9-troubleshooting).
 - **Logs**: the app's **Log** tab. Set `log_level` to `debug` for more
-  detail and attach the log when you report a problem. Tokens are redacted.
+  detail. Tokens are redacted.
+- **Bug reports**: attach the diagnostics export (**Settings → Advanced →
+  Diagnostics → Download diagnostics**). Secrets are masked and entity ids,
+  device and area names are replaced by codes; read the preview before you post
+  it.
+- **"A required header is missing"**: every write to SunCore's API needs the
+  header `X-SunCore-Request: 1`. The panel sends it; a proxy in front of Home
+  Assistant must forward it. Scripts that change something through the API must
+  send it too.
 - **Health**: the app serves `/health` internally; Home Assistant uses it
   to mark the app as unhealthy. It reports a failure when the database is
   unusable, Home Assistant rejects the app's credentials, or the connection
   was closed for good. A Home Assistant restart alone does not count.
 
+## Updating from 0.2.0
+
+The update to 1.0 migrates the database; 0.2.0 cannot open it afterwards, so the
+only way back is a Home Assistant backup made before the update. After the
+update, run the verification test of the inverter limit again if you use one: a
+flag set by hand or by an import is no longer trusted, and the limit runs at
+most in assisted mode until the test passes. The
+[release notes](https://github.com/pxljake/suncore/blob/main/docs/user/en/release-notes.md)
+([Deutsch](https://github.com/pxljake/suncore/blob/main/docs/user/de/release-notes.md))
+list every change in behaviour.
+
 ## What is not there yet
 
-Nothing of the planner and the battery control has run on real hardware yet.
-Kostal Plenticore cannot be told to charge from the grid (the plan only shows
-it), and a Kostal Modbus battery stays capped at assisted mode until you have
-measured the inverter's fallback timer. There are no history charts, what-if
-analysis or backtesting (the plan view is minimal), no machine-learning load
-model, no built-in internet fallbacks for solar forecasts and prices, no thermal
-models for air conditioners and water heaters in the plan, no export limiting
-through the inverter, no charge point (wallbox), heat pump or shiftable program
-control, and no Home Assistant entities (MQTT discovery follows in a later
-phase; the Mosquitto app is not needed yet). See the
+Nothing of the planner, the battery control, EV charging, heat pump and program
+control, the grid limits, the inverter limit test or the notifications has run on real
+hardware yet. Kostal Plenticore cannot be told to charge from the grid (the plan only
+shows it), a Kostal Modbus battery stays capped at assisted mode until you have measured
+the inverter's fallback timer, and the inverter limit stays at assisted until its
+verification test has passed. Home Assistant cannot yet change the EV mode, a target,
+a program or the comfort band (use the panel), there is no ready-made Home Assistant
+dashboard yet, and there is no built-in internet fallback for solar forecasts and
+prices. A companion integration and Lovelace cards may follow after 1.0. A what-if
+backtest replays the planner with perfect execution, so it is an
+estimate and not a promise (its run time on a Raspberry Pi is not measured yet), and the history
+has no free date range and no HT/NT or price-formula what-if. See the
 [roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 ## Privacy

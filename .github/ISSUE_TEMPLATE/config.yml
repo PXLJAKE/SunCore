@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Documentation
+    url: https://github.com/pxljake/suncore/tree/main/docs/user
+    about: User guides, FAQ and troubleshooting (the hosted site follows the first stable release).
   - name: Questions and ideas
     url: https://github.com/pxljake/suncore/discussions
     about: Ask questions and discuss ideas in GitHub Discussions.

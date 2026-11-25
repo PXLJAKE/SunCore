@@ -43,7 +43,14 @@ from suncore.storage.timeseries import TimeseriesStore
 log = structlog.get_logger(__name__)
 
 REBUILD_DAYS = 28
-"""History that is rebuilt (the load forecast needs 14 days, the risk model starts at 30)."""
+"""History that is rebuilt first (the load forecast needs 14 days, the risk model starts at 30)."""
+
+BACKFILL_DAYS = 365
+"""History the backfill reaches back for the history view (Phase 5 WP3, plan question 6)."""
+
+CHUNK_DAYS = 60
+"""A long range is rebuilt in windows of this many days (a series is limited to
+``MAX_POINTS`` = 20 000 quarter hours, i.e. 208 days)."""
 
 _GRID, _GRID_IMPORT, _GRID_EXPORT = "grid", "grid_import", "grid_export"
 _BATTERY, _SOC, _HOUSE = "battery", "soc", "house"
@@ -177,22 +184,59 @@ async def rebuild_history(
     *,
     days: int = REBUILD_DAYS,
     devices: Sequence[DeviceConfig] = (),
+    skip_recent_days: int = 0,
 ) -> RebuildResult:
     """Fetch the site's (and the devices' power) hourly statistics and store them as derived
     quarter hours.
 
-    Home Assistant errors propagate. Existing measured rows are never overwritten.
+    The range is the ``days`` before ``now``, without the newest ``skip_recent_days`` (the
+    backfill uses it to start where the 28-day rebuild ends). It is fetched in windows of
+    :data:`CHUNK_DAYS`; Home Assistant errors propagate (what earlier windows stored stays; a
+    second run is idempotent). Existing measured rows are never overwritten.
     """
     end = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    start = end - timedelta(days=days)
+    stop = end - timedelta(days=skip_recent_days)
     specs = [*site_statistic_specs(site), *device_statistic_specs(devices)]
-    history = await fetch_quarter_history(connection, specs, end - timedelta(days=days), end)
     stored: dict[str, int] = {}
-    for key, series in assemble_site_series(site, history.series).items():
-        stored[key] = await store.store_quarter_hours(key, series, derived=True)
-    for key, series in history.series.items():
-        if key.startswith(_DEVICE_PREFIX):
-            device_key = device_power_key(key.removeprefix(_DEVICE_PREFIX))
-            stored[device_key] = await store.store_quarter_hours(device_key, series, derived=True)
-    result = RebuildResult(stored=stored, missing=history.missing)
+    missing: dict[str, None] = {}
+    cursor = start
+    while cursor < stop:
+        window_end = min(cursor + timedelta(days=CHUNK_DAYS), stop)
+        history = await fetch_quarter_history(connection, specs, cursor, window_end)
+        for key, series in assemble_site_series(site, history.series).items():
+            stored[key] = stored.get(key, 0) + await store.store_quarter_hours(
+                key, series, derived=True
+            )
+        for key, series in history.series.items():
+            if key.startswith(_DEVICE_PREFIX):
+                device_key = device_power_key(key.removeprefix(_DEVICE_PREFIX))
+                stored[device_key] = stored.get(device_key, 0) + await store.store_quarter_hours(
+                    device_key, series, derived=True
+                )
+        missing.update(dict.fromkeys(history.missing))
+        cursor = window_end
+    result = RebuildResult(stored=stored, missing=tuple(missing))
     log.info("history.rebuilt", quarter_hours=result.total, missing=list(result.missing))
     return result
+
+
+async def backfill_history(
+    connection: HAConnection,
+    store: TimeseriesStore,
+    site: SiteConfig,
+    now: datetime,
+    *,
+    days: int = BACKFILL_DAYS,
+    devices: Sequence[DeviceConfig] = (),
+) -> RebuildResult:
+    """The history from ``days`` ago up to where :func:`rebuild_history` starts, as *derived*
+    hourly step-hold quarter hours (Phase 5 WP3). Cost is only computed for days SunCore stored
+    prices for (``price`` is filled by the tariff service, never from the statistics).
+
+    ``UNVERIFIED``: how many days Home Assistant's recorder keeps long-term statistics (they
+    are not purged by ``purge_keep_days``); days it has none for come back as a gap.
+    """
+    return await rebuild_history(
+        connection, store, site, now, days=days, devices=devices, skip_recent_days=REBUILD_DAYS
+    )

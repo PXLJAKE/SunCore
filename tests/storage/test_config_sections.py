@@ -29,6 +29,10 @@ from suncore.core.config import (
     ForecastSourceConfig,
     GoalsConfig,
     ImportTariff,
+    InverterConfig,
+    MqttConfig,
+    NotificationsConfig,
+    NotifyTarget,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -42,6 +46,7 @@ from suncore.core.devices import (
     PowerModel,
     PowerModelKind,
 )
+from suncore.core.expert import ExpertConfig
 from suncore.core.site import BatteryConfig, EntityRef, GridConfig, PvArray, SiteConfig
 from suncore.core.tariff import NIGHT_WINDOW
 from suncore.storage import (
@@ -108,7 +113,7 @@ async def test_v1_export_file_imports(db: Database) -> None:
     assert site.grid.is_pair
     assert [a.power for a in site.pv] == [EntityRef(entity_id="sensor.pv_total")]
     exported = await store.export_json()
-    assert exported["db_schema_version"] == latest_version() == 4
+    assert exported["db_schema_version"] == latest_version() == 6
     assert exported["sections"]["site"]["schema_version"] == 2
 
 
@@ -263,6 +268,37 @@ _sections: dict[str, st.SearchStrategy[BaseModel]] = {
         risk=st.sampled_from(list(RiskLevel)),
         grid_charge=st.sampled_from(
             [GridChargePolicy(), GridChargePolicy(enabled=True, max_price=0.12)]
+        ),
+    ),
+    "mqtt": st.one_of(
+        st.just(MqttConfig()),
+        st.builds(
+            MqttConfig,
+            broker=st.just("manual"),
+            host=st.sampled_from(["core-mosquitto", "192.168.1.5"]),
+            username=st.just("suncore"),
+            password=st.none(),
+            allow_mode_raise=st.booleans(),
+        ),
+    ),
+    "notifications": st.builds(
+        NotificationsConfig,
+        persistent=st.booleans(),
+        targets=st.sampled_from([(), (NotifyTarget(kind="service", id="mobile_app_phone"),)]),
+        daily_push_cap=st.integers(0, 200),
+    ),
+    "inverter": st.sampled_from(
+        [
+            InverterConfig(),
+            InverterConfig(adapter="kostal_modbus", capability="ac_limit", nominal_ac_w=10_000),
+        ]
+    ),
+    "expert": st.builds(
+        ExpertConfig,
+        overrides=st.dictionaries(
+            st.sampled_from(["controller.tick_s", "planner.budget_s", "controller.reserve_w"]),
+            st.integers(50, 60),
+            max_size=3,
         ),
     ),
     "wizard": st.builds(

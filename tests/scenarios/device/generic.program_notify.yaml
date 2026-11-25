@@ -1,0 +1,19 @@
+template: generic.program_notify
+sim_scenario: program_notify_start
+user_input:
+  nominal_w: 2000
+# The demo house has no dishwasher: its power sensor as the simulator publishes it
+# (suncore/sim/devices.py SimProgram, start method notify).
+extra_entities:
+  - entity_id: sensor.sim_dishwasher_power
+    unit: W
+    device_class: power
+    device_id: sim_dev_dishwasher
+    state: "0.0"
+roles:
+  power:
+    # Every power sensor of the demo matches: the user picks the appliance's.
+    tied: [sensor.sim_battery_power, sensor.sim_dishwasher_power, sensor.sim_grid_power,
+           sensor.sim_house_power, sensor.sim_living_room_ac_energy_current,
+           sensor.sim_pool_pump_power, sensor.sim_pv_power]
+    pick: sensor.sim_dishwasher_power

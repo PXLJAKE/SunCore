@@ -8,7 +8,7 @@ Prognosen, Preisen und deinem Akku die nächsten 48 Stunden. Sie startet im
 Sollwert geschrieben, bis du selbst ein Gerät oder den Akku auf Automatik (oder
 assistiert) stellst, siehe [Überschusssteuerung](surplus-control.md) und
 [Planung und Akkusteuerung](planning-and-battery.md). Die vollständige
-App-Beschreibung (englisch) steht in [`addon/suncore/DOCS.md`](../../../addon/suncore/DOCS.md).
+App-Beschreibung (englisch) steht in [`addon/suncore/DOCS.md`](https://github.com/pxljake/suncore/blob/main/addon/suncore/DOCS.md).
 
 ## 1. Installieren
 
@@ -51,7 +51,7 @@ Wähle das **Regionsprofil** (es legt Währung, Zeitzone und Regeln wie die
 Einspeisevergütung fest) und die **Sprache**. Nimm das neutrale Profil,
 falls dein Land nicht aufgeführt ist.
 
-![Schritt Region und Sprache](../../assets/screenshots/wizard-region-tablet-light-de.png)
+![Schritt Region und Sprache](../assets/screenshots/wizard-region-tablet-light-de.png)
 
 ### Energie-Dashboard
 
@@ -64,7 +64,7 @@ nächsten Schritten ändern. Oft enthält das Dashboard nur Energiezähler
 (kWh) und keine Leistungssensoren; dann sagt SunCore das, und du wählst den
 Leistungssensor selbst. Nicht eingerichtet? Überspring den Schritt.
 
-![Schritt Energie-Dashboard](../../assets/screenshots/wizard-energy-tablet-light-de.png)
+![Schritt Energie-Dashboard](../assets/screenshots/wizard-energy-tablet-light-de.png)
 
 ### Netzanschluss
 
@@ -72,14 +72,16 @@ Wähle **Ein Sensor mit Vorzeichen** oder **Getrennte Bezugs- und
 Einspeise-Sensoren**. Optional: ein Sensor für den Hausverbrauch (sonst
 wird er aus Netz, PV und Batterie berechnet), Grenzen für Bezug und
 Einspeisung und das Signal des Netzbetreibers nach § 14a EnWG
-(Deutschland).
+(Deutschland). Hier kannst du auch Spitzenkappung, Nulleinspeisung, „0 W bei negativen
+Einspeisepreisen“ und eine Ersatzstrom-Entität (Inselbetrieb) einschalten. Alles ist optional und
+steht in den [Netzgrenzen](grid-limits.md).
 
 Der Bereich **Vorzeichen prüfen** fragt zum Beispiel, ob der Netzanschluss gerade
 Bezug oder Einspeisung zeigt, und ob das stimmt. Antworte **Ja, stimmt**
 oder **Nein, Vorzeichen umkehren**. Fließt gerade fast nichts, prüfe später
 noch einmal, wenn deutlich etwas fließt.
 
-![Schritt Netzanschluss](../../assets/screenshots/wizard-grid-tablet-light-de.png)
+![Schritt Netzanschluss](../assets/screenshots/wizard-grid-tablet-light-de.png)
 
 ### Photovoltaik
 
@@ -96,7 +98,7 @@ Anlage. Optional ergänzt du unter **Eingaben der Lastprognose** einen
 der Hauslast. Ganz ohne Prognosequelle geht es auch; der Plan rechnet dann
 ohne Solarstrom. Siehe [Prognosen](planning-and-battery.md#2-prognosen).
 
-![Schritt Photovoltaik](../../assets/screenshots/wizard-pv-tablet-light-de.png)
+![Schritt Photovoltaik](../assets/screenshots/wizard-pv-tablet-light-de.png)
 
 ### Batterie
 
@@ -117,7 +119,7 @@ in den nächsten Tag überbrücken**. Alles ist in
 [Planung und Akkusteuerung](planning-and-battery.md#4-ziele-und-strategien)
 erklärt, die Adapter in [Adapter](planning-and-battery.md#7-adapter).
 
-![Schritt Batterie](../../assets/screenshots/wizard-battery-tablet-light-de.png)
+![Schritt Batterie](../assets/screenshots/wizard-battery-tablet-light-de.png)
 
 ### Tarif
 
@@ -131,7 +133,7 @@ deine **Preisformel** ein (Netzentgelt, Abgaben, Aufschlag, MwSt); ohne sie kann
 der Planer nicht nach Preisen optimieren. Der Planer nutzt diese Preise; siehe
 [Tarife](planning-and-battery.md#3-tarife).
 
-![Schritt Tarif](../../assets/screenshots/wizard-tariff-tablet-light-de.png)
+![Schritt Tarif](../assets/screenshots/wizard-tariff-tablet-light-de.png)
 
 ### Verbraucher
 
@@ -156,15 +158,20 @@ reagieren nur auf zwei *verschiedene* Integrationen mit gleichem Gerätenamen;
 hast du eines der Geräte in Home Assistant umbenannt (eigener Name), bleiben
 Hinweis und Warnung stumm.
 
-![Hinweis im Geräte-Editor](../../assets/screenshots/device-duplicate-hint-tablet-light-de.png)
+![Hinweis im Geräte-Editor](../assets/screenshots/device-duplicate-hint-tablet-light-de.png)
 
-![Warnung der Systemprüfung](../../assets/screenshots/wizard-summary-duplicate-tablet-light-de.png)
+![Warnung der Systemprüfung](../assets/screenshots/wizard-summary-duplicate-tablet-light-de.png)
 
-![Schritt Verbraucher](../../assets/screenshots/wizard-devices-tablet-light-de.png)
+![Schritt Verbraucher](../assets/screenshots/wizard-devices-tablet-light-de.png)
+
+Die Galerie hat auch eine Wallbox ([E-Auto laden](ev-charging.md)), einen evcc-Ladepunkt, eine
+Wärmepumpe ([Wärmepumpe](heat-pump.md)) und verschiebbare Programme
+([Programme](programs.md)). Geräte dieser Arten laufen höchstens assistiert, bis du das
+Kontrollkästchen setzt, mit dem du bestätigst, dass du ihr Verhalten geprüft hast.
 
 Fehlt dein Gerät? Siehe
 [Gerätevorlage beitragen](device-templates.md) und die generierte
-[Kompatibilitätsliste](../compatibility.md) (englisch).
+[Kompatibilitätsliste](compatibility.md) (englisch).
 
 ### Prioritäten und Ziele
 
@@ -179,7 +186,7 @@ einer Preisgrenze und in einem Wochenplan (standardmäßig aus; siehe
 **Autarkie-Gewicht je kWh** ist ein kleiner Gleichstand-Entscheider für den
 Planer ([erklärt hier](planning-and-battery.md#das-autarkie-gewicht)).
 
-![Schritt Prioritäten und Ziele](../../assets/screenshots/wizard-priorities-tablet-light-de.png)
+![Schritt Prioritäten und Ziele](../assets/screenshots/wizard-priorities-tablet-light-de.png)
 
 ### Betriebsmodus
 
@@ -190,7 +197,7 @@ setzt nur den Gesamtmodus. Jedes Gerät hat einen eigenen Modus, den du in der
 Ansicht **Jetzt** änderst, und ein Gerät handelt nur im niedrigeren von beiden,
 Automatik braucht also beides. Lass es vorerst auf Schatten.
 
-![Schritt Betriebsmodus](../../assets/screenshots/wizard-mode-tablet-light-de.png)
+![Schritt Betriebsmodus](../assets/screenshots/wizard-mode-tablet-light-de.png)
 
 ### Zusammenfassung und Check
 
@@ -205,11 +212,11 @@ Solarenergie, Verbrauch, Bezug und Einspeisung der nächsten Stunden sowie
 tiefsten, höchsten und letzten Ladestand des Akkus. **Vorschau aktualisieren**
 berechnet ihn neu.
 
-![Schritt Zusammenfassung und Check](../../assets/screenshots/wizard-summary-tablet-light-de.png)
+![Schritt Zusammenfassung und Check](../assets/screenshots/wizard-summary-tablet-light-de.png)
 
 Das Panel folgt auch dem dunklen Design deines Geräts:
 
-![Zusammenfassung auf einem Tablet, dunkles Design](../../assets/screenshots/wizard-summary-tablet-dark-de.png)
+![Zusammenfassung auf einem Tablet, dunkles Design](../assets/screenshots/wizard-summary-tablet-dark-de.png)
 
 ## 4. Was Schattenmodus bedeutet
 
@@ -234,9 +241,9 @@ Schaltfläche **Not-Aus** in der Kopfzeile gibt alle Geräte und den Akku sofort
 zurück. Die Seite **Plan** zeigt den 24- oder 48-Stunden-Plan mit den Prognosen
 und ihrer Genauigkeit.
 
-![Ansicht Jetzt auf einem Tablet, helles Design](../../assets/screenshots/now-tablet-light-de.png)
+![Ansicht Jetzt auf einem Tablet, helles Design](../assets/screenshots/now-tablet-light-de.png)
 
-![Akku-Karte und nächste geplante Aktionen](../../assets/screenshots/now-battery-tablet-light-de.png)
+![Akku-Karte und nächste geplante Aktionen](../assets/screenshots/now-battery-tablet-light-de.png)
 
 Das **Entscheidungsprotokoll** (Ansicht **Entscheidungen**) listet jede
 Entscheidung mit ihren Gründen. Wie das alles funktioniert, was passiert, wenn
@@ -245,22 +252,29 @@ du ein Gerät selbst änderst, und was SunCore bei Fehlern tut, steht in der
 [Planung und Akkusteuerung](planning-and-battery.md), mit einem Ablauf, um deinen
 ersten Akku in den assistierten Modus zu nehmen.
 
+Sobald Daten gesammelt sind, zeigt der **Verlauf**, was das Haus getan und gespart hat:
+[Verlauf und Analyse](history-and-analysis.md). Das **Entscheidungsprotokoll** hat je Zeile ein
+**Warum?**: [Entscheidungen und "Warum?"](decision-log.md). Später kannst du den
+[Expertenmodus](expert-mode.md) und [Was-wäre-wenn und Backtest](what-if-and-backtesting.md)
+ausprobieren.
+
 ## 6. Später ändern
 
-Öffne **Einstellungen**. Dort stehen alle Bereiche deiner Einrichtung
-(**Region**, **Anlage (Netz, PV, Batterie)**, **Tarif**, **PV-Prognose**,
-**Akku (Steuerung und Planung)**, **Verbraucher**, **Ziele**,
-**Betriebsmodus**) mit einer Kurzfassung und
-einem Link **Öffnen** zum passenden Schritt.
+Öffne **Einstellungen**. Sie haben fünf Seiten: **Deine Anlage** (Region, Netz,
+PV, Akku und Tarif), **Geräte**, **Ziele und Betriebsart**, **Home Assistant**
+(Entitäten über MQTT und Benachrichtigungen) und **Erweitert** (Expertenmodus,
+frühere Versionen, Sicherung, Diagnose, Info). Jeder Bereich zeigt eine
+Kurzfassung und die Schaltfläche **Bearbeiten**, die den passenden Schritt des
+Assistenten öffnet.
 
-![Einstellungen als Übersicht](../../assets/screenshots/settings-tablet-light-de.png)
+![Einstellungen als Übersicht](../assets/screenshots/settings-tablet-light-de.png)
 
-- **Einrichtung erneut durchlaufen** startet den Assistenten mit deinen
-  aktuellen Werten neu.
-- **Frühere Versionen**: Jedes Speichern behält die vorige Version. Mit
+- **Einrichtung erneut durchlaufen** (auf **Deine Anlage**) startet den
+  Assistenten mit deinen aktuellen Werten neu.
+- **Frühere Versionen** (auf **Erweitert**): Jedes Speichern behält die vorige Version. Mit
   **Versionen anzeigen** und **Wiederherstellen** machst du eine Änderung
   rückgängig.
-- **Sicherung**: **Konfiguration exportieren** speichert alles als Datei,
+- **Sicherung** (auf **Erweitert**): **Konfiguration exportieren** speichert alles als Datei,
   **Konfiguration importieren** lädt eine. Nutze das vor Experimenten und
   beim Umzug auf eine neue Installation.
 - Ungespeicherte Änderungen sind geschützt: Beim Verlassen einer Seite wird
@@ -294,23 +308,29 @@ einem Link **Öffnen** zum passenden Schritt.
   [Gerätevorlage beitragen](device-templates.md) oder nimm eine generische
   Vorlage (Schalter, Klima, einstellbare Last).
 - Mehr im Abschnitt Troubleshooting der
-  [App-Beschreibung](../../../addon/suncore/DOCS.md) (englisch).
+  [App-Beschreibung](https://github.com/pxljake/suncore/blob/main/addon/suncore/DOCS.md) (englisch).
 
 ## Was SunCore noch nicht kann
 
-Bedenke das, bevor du dich darauf verlässt. SunCore hat jetzt Prognosen, Tarife,
-einen 48-Stunden-Planer und Akkusteuerung, aber **nichts davon ist je an echter
-Hardware gelaufen**: Dafür ist dein Schattenlauf da. Der Akku startet im
-Schattenmodus, und bis der Rückfall-Timer des Wechselrichters an deiner Anlage
-gemessen ist, bleibt ein Kostal-Modbus-Akku auf den assistierten Modus
-begrenzt. Kostal Plenticore lässt sich nicht zum Laden aus dem Netz
-auffordern. Es gibt noch keine Verlaufsdiagramme und keine Was-wäre-wenn-Analyse
-(die Planansicht ist minimal), keine thermischen Modelle für Klimageräte und
-Warmwasserbereiter im Plan, keine Wallbox-Steuerung und keine
-Home-Assistant-Entitäten. Verglichen mit evcc (Ladepunkte und Heizstäbe), EMHASS
-und Predbat (Batterieoptimierung) ist SunCores Planer neu und unerprobt;
-Überschusssteuerung und Sicherheitsschicht sind seine Stärken. Die Liste der
+Bedenke das, bevor du dich darauf verlässt. SunCore hat jetzt Prognosen, Tarife, einen
+48-Stunden-Planer, Akkusteuerung, E-Auto-Laden (direkt oder über evcc), Wärmepumpen- und
+Programmsteuerung, Netzgrenzen und Entitäten in Home Assistant, aber **nichts davon ist je an
+echter Hardware gelaufen**: Dafür ist dein Schattenlauf da. Jedes Gerät startet im
+Schattenmodus. Ein Kostal-Modbus-Akku bleibt auf assistiert begrenzt, bis der Rückfall-Timer des
+Wechselrichters gemessen ist, und das Wechselrichter-Limit bleibt aus, bis es geprüft ist (das
+Panel hat noch keinen Prüfdialog). Kostal Plenticore lässt sich nicht zum Laden aus dem Netz
+auffordern. Home Assistant zeigt die Werte von E-Auto, Wärmepumpe und Programmen nur lesend
+(Befehle dafür gibt es noch nicht), und es gibt keine Begleit-Integration und keine eigene
+Lovelace-Karte (ein [Dashboard-Rezept](dashboard-recipe.md) mit eingebauten Karten ist geplant).
+
+Verglichen mit evcc (Ladepunkte, Jahre an Hardware-Erfahrung), EMHASS und Predbat
+(Batterieoptimierung) sind SunCores Planer und seine Wallbox-Steuerung neu und unerprobt. Seine
+Stärken sind eine App mit Sicherheitsschicht, Schattenmodus und einer Begründung zu jeder
+Entscheidung; es kann auch mit evcc zusammenarbeiten (siehe
+[E-Auto laden](ev-charging.md#5-evcc-als-akteur)). Die Liste der
 offenen Punkte steht in den
 [Bekannten Grenzen](planning-and-battery.md#10-bekannte-grenzen-und-unverified)
 und in der [Überschusssteuerung](surplus-control.md#bekannte-grenzen-und-unverified);
-die [Roadmap](../../roadmap.md) zeigt, wann welcher Teil kommt.
+die
+[Roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md) zeigt, wann welcher Teil
+kommt.

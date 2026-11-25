@@ -58,32 +58,70 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, tzinfo
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Protocol, runtime_checkable
 
 import structlog
 
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BATTERY_ASSET_ID, BatteryCapability, resolve_battery_action
-from suncore.core.control import ControlSettings, DeviceState, GateInputs
+from suncore.core.control import (
+    ControlSettings,
+    DeviceBand,
+    DeviceState,
+    GateInputs,
+    Plan,
+    PowerEstimate,
+    device_band_now,
+)
 from suncore.core.decisions import (
+    NOT_YET_SUPPORTED_KINDS,
     Action,
+    ActionKind,
     BatteryAction,
+    ChargeAction,
     Decision,
     DecisionKind,
     Intent,
+    InverterLimitAction,
+    LoadpointAction,
     OperatingMode,
     Origin,
     Reason,
     ReleaseAction,
     SetpointAction,
+    SwitchAction,
 )
-from suncore.core.devices import DeviceConfig, OverridePolicy
+from suncore.core.devices import (
+    ChargerControl,
+    DeviceConfig,
+    LoadpointControl,
+    OverridePolicy,
+    behaviour_mode_capped,
+)
+from suncore.core.flex import (
+    EV_MODE_DEFAULT,
+    EvMode,
+    ProgramJob,
+    latest_start,
+    open_job,
+)
+from suncore.core.grid import (
+    GridMemory,
+    Para14aStatus,
+    advance_grid_memory,
+    island_hold_s,
+    merge_grid_memory,
+    para14a_hold_s,
+)
 from suncore.core.identity import identity_token
-from suncore.core.signals import Sample
+from suncore.core.inverter import INVERTER_ASSET_ID, same_limit
+from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
+from suncore.core.verification import VerificationWindow
 from suncore.safety import overrides
 from suncore.safety.actuator import Actuator
 from suncore.safety.battery import (
@@ -94,6 +132,7 @@ from suncore.safety.battery import (
     BatteryLive,
     BatteryWatch,
     evaluate_battery,
+    is_discharge_lock,
     lease_violations,
     plan_band,
     quantise,
@@ -102,15 +141,42 @@ from suncore.safety.battery import (
     same_state,
     user_changed_fields,
 )
+from suncore.safety.evcc import LoadpointSafety, loadpoint_allowance_w
+from suncore.safety.flex import (
+    CURRENT_TOLERANCE_A,
+    EvSafety,
+    active_phases,
+    ev_allowance_w,
+    holds_discharge_lock,
+)
+from suncore.safety.grid import GridSafety
 from suncore.safety.invariants import (
     InvariantContext,
     action_matches,
     action_turns_on,
     evaluate,
+    expected_power_w,
     is_switch_transition,
     power_delta_w,
 )
+from suncore.safety.inverter import (
+    REASON_INVERTER_NO_CHANGE,
+    REASON_INVERTER_NOT_SUPPORTED,
+    InverterActuator,
+    InverterContext,
+    InverterGateConfig,
+    InverterLive,
+    as_limit,
+    check_takeover_baseline,
+    evaluate_inverter,
+)
+from suncore.safety.inverter import lease_violations as inverter_lease_violations
 from suncore.safety.modes import AllShadow, ModeProvider, ModeView, view
+from suncore.safety.programs import (
+    REASON_PROGRAM_NOTIFY_ONLY,
+    ProgramSafety,
+    program_running,
+)
 from suncore.safety.ratelimit import WriteRateLimiter, is_stale_intent
 from suncore.safety.runtime import DeviceRuntime, MemoryRuntimeStore, RuntimeStore
 from suncore.safety.watchdog import (
@@ -147,6 +213,7 @@ REASON_STATE_UNKNOWN: Final = Reason(key="safety.state_unknown")
 REASON_PROPOSED: Final = Reason(key="safety.proposed")
 REASON_PROPOSAL_EXPIRED: Final = Reason(key="safety.proposal_expired")
 REASON_CONFIRMED: Final = Reason(key="safety.confirmed")
+REASON_PROPOSAL_MODE_CHANGED: Final = Reason(key="safety.proposal_mode_changed")
 REASON_OVERRIDE_HELD: Final = Reason(key="safety.override_held")
 REASON_WRITE_FAILED: Final = Reason(key="safety.write_failed")
 REASON_READBACK_MISMATCH: Final = Reason(key="safety.readback_mismatch")
@@ -183,6 +250,46 @@ REASON_BATTERY_HELD_RESTORED: Final = Reason(key="safety.battery_held_restored")
 """The deferred read-back of a battery release (an adapter without hardware fallback)."""
 REASON_BATTERY_RELEASE_CONFIRMED: Final = Reason(key="safety.battery_release_confirmed")
 """The battery shows its own settings again: control of it has ended."""
+REASON_NOT_SUPPORTED: Final[Mapping[ActionKind, Reason]] = MappingProxyType({})
+"""ADR-0011 addendum, PR 6-B: the Phase 6 action kinds are in the contract but have no
+invariants yet; the gate rejects each before mode handling (also in shadow and assisted), writes
+nothing and creates no proposal. Every kind has its invariants now: 6-G inverter limit
+(X1-X6, ``safety.inverter``; without an inverter adapter or for another asset id it is rejected
+with ``safety.inverter_limit_not_supported`` from there), 6-I charge, 6-J loadpoint."""
+REASON_CHARGE_NOT_CHARGER: Final = Reason(key="safety.charge_not_charger")
+"""A ``charge`` action for a device that is not an EV charger (PR 6-I)."""
+REASON_CHARGER_NEEDS_CHARGE: Final = Reason(key="safety.charger_needs_charge")
+"""Any action but ``charge`` and a release for an EV charger (PR 6-I)."""
+REASON_EV_RELEASE_STAGED: Final = Reason(key="safety.ev_release_staged")
+"""A charger's release is staged (review 6-I A1/M3): paused now, the baseline (phases, a
+higher current) restored once the phase pause has passed and §14a allows it."""
+EV_RELEASE_RECHECK_S: Final = 60.0
+"""A release staged for §14a is re-checked this often."""
+REASON_LOADPOINT_NOT_LOADPOINT: Final = Reason(key="safety.loadpoint_not_loadpoint")
+"""A ``loadpoint`` action for a device that is not an evcc loadpoint (PR 6-J)."""
+REASON_LOADPOINT_NEEDS_LOADPOINT: Final = Reason(key="safety.loadpoint_needs_loadpoint")
+"""Any action but ``loadpoint`` and a release for an evcc loadpoint (PR 6-J)."""
+PROGRAM_BASELINE_ON: Final = SwitchAction(on=True)
+"""P3 (PR 6-L): the takeover baseline of a plug-started program: a release or the crash
+recovery switches the plug on, so laundry is never stranded."""
+REASON_INVERTER_RELEASE_CHECK: Final = Reason(key="safety.inverter_release_check")
+"""The deferred read-back of an inverter release: the limit must show the baseline again."""
+REASON_INVERTER_RELEASE_UNCONFIRMED: Final = Reason(key="safety.inverter_release_unconfirmed")
+REASON_INVERTER_RELEASE_CONFIRMED: Final = Reason(key="safety.inverter_release_confirmed")
+REASON_INVERTER_OVERRIDE: Final = Reason(key="safety.inverter_override")
+"""The inverter limit changed outside SunCore while it held one: given back to the user."""
+REASON_INVERTER_READBACK_LOST: Final = Reason(key="safety.inverter_readback_lost")
+"""The held limit cannot be read back (entity unavailable): the lease ends (X4, X5)."""
+REASON_INVERTER_RESET: Final = Reason(key="safety.inverter_limit_reset")
+"""A volatile limit register shows the inverter's default again (a reset): re-written."""
+INVERTER_SCOPE: Final = INVERTER_ASSET_ID
+# PR 7-J: the verification window (ADR-0018 addendum, the only waiver of X3).
+REASON_VERIFY_WINDOW_CLOSED: Final = Reason(key="safety.verification_window_closed")
+"""A limit written inside a verification window is held after the window closed or expired:
+the gate gives the user's own limit back (the waiver never outlives its window)."""
+REASON_VERIFY_NOT_ASSISTED: Final = Reason(key="safety.verification_not_assisted")
+REASON_VERIFY_WINDOW_INVALID: Final = Reason(key="safety.verification_window_invalid")
+REASON_VERIFY_WINDOW_BUSY: Final = Reason(key="safety.verification_window_busy")
 BATTERY_RELEASE_BACKOFF_S: Final = 30.0
 BATTERY_RELEASE_BACKOFF_MAX_S: Final = 600.0
 REASON_BATTERY_OVERRIDE: Final = Reason(key="safety.battery_override")
@@ -199,6 +306,29 @@ MAX_CONSECUTIVE_FAILURES: Final = 3
 
 
 InputsProvider = Callable[[], GateInputs | None]
+
+EvModeLookup = Callable[[str], EvMode]
+"""The effective EV mode of a charger device (runtime state, or its ``ev.default_mode``)."""
+
+PlanLookup = Callable[[datetime], Plan]
+"""The plan the controller follows (``ControlStack.current_plan``)."""
+
+JobLookup = Callable[[str], Sequence[ProgramJob]]
+"""The open program jobs of a device (runtime ``flex_state``, PR 6-L)."""
+
+
+@runtime_checkable
+class LoadpointLimits(Protocol):
+    """An evcc driver that reports evcc's own ``minCurrent`` (L1)."""
+
+    def min_current_a(self) -> float | None: ...
+
+
+@runtime_checkable
+class ChargerLimits(Protocol):
+    """A charger driver that reports the live range of its current entity (E1)."""
+
+    def current_range_a(self) -> tuple[float | None, float | None]: ...
 
 
 async def _asyncio_sleep(seconds: float) -> None:
@@ -230,8 +360,22 @@ class SafetyGate:
         sleep: Sleeper | None = None,
         predecessor: SafetyGate | None = None,
         battery: BatteryGateConfig | None = None,
+        ev_modes: EvModeLookup | None = None,
+        plan: PlanLookup | None = None,
+        programs: JobLookup | None = None,
+        inverter: InverterGateConfig | None = None,
     ) -> None:
         self._clock = clock
+        self._programs = programs
+        self._ev_modes = ev_modes
+        self._plan = plan
+        self._inverter = inverter
+        self._inverter_beat: datetime | None = None
+        # PR 7-J: the verification window lives only in this gate's memory (a restart, a new
+        # gate after a configuration change and the emergency stop start without one).
+        self._window: VerificationWindow | None = None
+        self._window_held: str | None = None
+        """Id of the window a held inverter limit was written under (released when it ends)."""
         # Actuators of assets a configuration change removed or re-mapped while their release
         # failed (``handover``): used only to release them, never to write (the identity of the
         # runtime selects them). Dropped once the release succeeded.
@@ -262,9 +406,19 @@ class SafetyGate:
         self._failures: dict[str, int] = {}
         self._site_tripped = False
         self._locks: dict[str, asyncio.Lock] = {}
+        # Actions sent and not yet read back (the settle wait): the §14a sum counts them.
+        self._writing: dict[str, Action] = {}
         # Load increases let through against one GateInputs snapshot (key: its ts).
         self._claims_ts: datetime | None = None
         self._claims: dict[str, float] = {}
+        # Island and §14a history for the cool-down (G6); kept across a configuration change.
+        self._grid_memory: GridMemory = (
+            predecessor._grid_memory if predecessor is not None else GridMemory()
+        )
+        # Since when each charger has been observed not charging (E2, review 6-I M2).
+        self._ev_idle_since: dict[str, datetime] = (
+            dict(predecessor._ev_idle_since) if predecessor is not None else {}
+        )
 
     # --- read-only views ----------------------------------------------------------
 
@@ -274,12 +428,26 @@ class SafetyGate:
         return self._modes.global_mode()
 
     def modes_of(self, device_id: str) -> ModeView:
+        if device_id == INVERTER_ASSET_ID:
+            mode = self._modes.inverter_mode()
+            if self.inverter_mode_capped and mode.rank > OperatingMode.ASSISTED.rank:
+                mode = OperatingMode.ASSISTED  # X6: at most assisted until verified
+            return ModeView(self._modes.global_mode(), mode)
         if device_id == BATTERY_ASSET_ID:
             mode = self._modes.battery_mode()
             if self.battery_mode_capped and mode.rank > OperatingMode.ASSISTED.rank:
                 mode = OperatingMode.ASSISTED
             return ModeView(self._modes.global_mode(), mode)
-        return view(self._modes, device_id)
+        modes = view(self._modes, device_id)
+        device = self._devices(device_id)
+        if (
+            device is not None
+            and behaviour_mode_capped(device)
+            and modes.device_mode.rank > OperatingMode.ASSISTED.rank
+        ):
+            # Plan §0 decision 17: unverified vendor behaviour, not confirmed -> at most assisted.
+            return ModeView(modes.global_mode, OperatingMode.ASSISTED)
+        return modes
 
     @property
     def battery_mode_capped(self) -> bool:
@@ -296,6 +464,21 @@ class SafetyGate:
     @property
     def battery(self) -> BatteryGateConfig | None:
         return self._battery
+
+    @property
+    def inverter_mode_capped(self) -> bool:
+        """X6: the inverter limit runs at most assisted until ``inverter.limit_verified``."""
+        return self._inverter is None or not self._inverter.verified
+
+    @property
+    def inverter(self) -> InverterGateConfig | None:
+        return self._inverter
+
+    def _inverter_actuator(self) -> InverterActuator | None:
+        actuator = self._actuators.get(INVERTER_ASSET_ID)
+        if self._inverter is None or not isinstance(actuator, InverterActuator):
+            return None
+        return actuator
 
     def _battery_actuator(self) -> BatteryActuator | None:
         actuator = self._actuators.get(BATTERY_ASSET_ID)
@@ -350,6 +533,7 @@ class SafetyGate:
         device's minimum run/pause time stays deferred (:meth:`poll` executes it); everything
         else under control is released at once, and so is everything under an emergency stop.
         """
+        self._end_window("recover")
         self._emergency_stop = await self._store.load_emergency_stop()
         for runtime in await self._store.all_runtimes():
             self._runtimes[runtime.device_id] = runtime
@@ -362,10 +546,11 @@ class SafetyGate:
                 for d, rt in self._runtimes.items()
                 if rt.release_due_ts is None or rt.release_due_ts <= now
             ]
-        await self._release_all(REASON_RECOVERY, origin=Origin.SAFETY, only=only)
+        await self._release_all(REASON_RECOVERY, origin=Origin.SAFETY, only=only, reschedule=True)
 
     async def shutdown(self) -> None:
         """Release every device under control within ``release_deadline_s``."""
+        self._end_window("shutdown")
         await self._release_all(
             REASON_SHUTDOWN, origin=Origin.SAFETY, deadline_s=self._settings.release_deadline_s
         )
@@ -383,6 +568,7 @@ class SafetyGate:
         Assistant down) is not lost: the successor gate is built with ``predecessor=self`` and
         keeps this gate's actuator for that release only (``recover``, ``connection_restored``).
         """
+        self._end_window("handover")
         kept = frozenset(keep)
         others = [d for d, rt in self._runtimes.items() if rt.under_control and d not in kept]
         deadline = self._settings.release_deadline_s
@@ -406,11 +592,13 @@ class SafetyGate:
         control are released (baseline restored) within ``release_deadline_s``.
         """
         self._emergency_stop = True
+        self._end_window("emergency_stop")
         await self._store.save_emergency_stop(True)
         await self._release_all(
             REASON_EMERGENCY_STOP,
             origin=Origin.USER,
             deadline_s=self._settings.release_deadline_s,
+            reschedule=True,
         )
 
     async def clear_emergency_stop(self) -> None:
@@ -432,6 +620,8 @@ class SafetyGate:
         """Execute deferred releases whose protection time has elapsed (call every tick); renew
         or end the battery's lease (its heartbeat) and check a battery release (WP10)."""
         now = self._now()
+        self._observe_grid()
+        self._track_chargers(now)
         decisions: list[Decision] = []
         for device_id in list(self._runtimes):
             runtime = self._runtimes[device_id]
@@ -442,11 +632,19 @@ class SafetyGate:
                 if runtime.release_due_reason is not None
                 else REASON_RELEASED
             )
-            decisions.append(await self.release_device(device_id, reason, origin=Origin.SAFETY))
+            decisions.append(
+                await self.release_device(device_id, reason, origin=Origin.SAFETY, backoff=True)
+            )
+        window_end = await self._window_expiry(now)
+        if window_end is not None:
+            decisions.append(window_end)
         if not self._emergency_stop:
             lease = await self._battery_lease(now)
             if lease is not None:
                 decisions.append(lease)
+            inverter = await self._inverter_lease(now)
+            if inverter is not None:
+                decisions.append(inverter)
         return tuple(decisions)
 
     # --- watchdog feed -------------------------------------------------------------------
@@ -472,25 +670,29 @@ class SafetyGate:
             # every tick would only flood the decision log.
             if runtime is not None and runtime.under_control and not runtime.release_pending:
                 await self.release_device(
-                    device_id, faults[0].reason, origin=Origin.SAFETY, urgent=False
+                    device_id, faults[0].reason, origin=Origin.SAFETY, urgent=False, backoff=True
                 )
         return faults
 
     async def connection_lost(self) -> None:
         """HA connection gone: everything pauses; nothing can be written, so no release."""
         self._watchdog.connection_lost(self._now())
+        # PR 7-J: the window ends; a held test limit is released by ``connection_restored``.
+        self._window = None
         self._site_tripped = True
 
     async def connection_restored(self) -> None:
         """Back online: release what was under control (the user may have changed things)."""
         self._watchdog.connection_restored(self._now())
-        await self._release_all(REASON_CONNECTION_LOST, origin=Origin.SAFETY, urgent=False)
+        await self._release_all(
+            REASON_CONNECTION_LOST, origin=Origin.SAFETY, urgent=False, reschedule=True
+        )
         self._site_tripped = self._watchdog.state(SITE_SCOPE, self._now()) is ScopeState.SAFE
 
     async def _after_site_check(self, now: datetime, faults: tuple[Fault, ...]) -> None:
         tripped = self._watchdog.state(SITE_SCOPE, now) is ScopeState.SAFE
         if tripped and not self._site_tripped and faults:
-            await self._release_all(faults[0].reason, origin=Origin.SAFETY)
+            await self._release_all(faults[0].reason, origin=Origin.SAFETY, reschedule=True)
         self._site_tripped = tripped
 
     # --- overrides -----------------------------------------------------------------
@@ -507,6 +709,8 @@ class SafetyGate:
         device = self._devices(device_id)
         if device is None:
             return overrides.NO_OVERRIDE
+        if isinstance(observed, ChargeAction):
+            self._track_idle(device_id, observed, self._now())
         async with self._lock(device_id):
             now = self._now()
             runtime = await self._runtime(device_id)
@@ -596,6 +800,16 @@ class SafetyGate:
                 (REASON_PROPOSAL_EXPIRED,),
                 proposal.mode,
             )
+        current = self.modes_of(proposal.intent.asset_id).effective
+        if current is not OperatingMode.ASSISTED:
+            # The proposal was made in assisted mode; a confirmation never acts under another one.
+            return await self._decide(
+                proposal.intent,
+                DecisionKind.REJECTED,
+                now,
+                (REASON_PROPOSAL_MODE_CHANGED,),
+                current,
+            )
         intent = proposal.intent.model_copy(
             update={
                 "origin": Origin.USER,
@@ -624,8 +838,13 @@ class SafetyGate:
             return await self._decide(
                 intent, DecisionKind.REJECTED, now, (REASON_EMERGENCY_STOP,), mode
             )
+        not_supported = self._not_supported(intent)
+        if not_supported is not None:
+            return await self._decide(intent, DecisionKind.REJECTED, now, (not_supported,), mode)
         if isinstance(intent.action, BatteryAction) or device_id == BATTERY_ASSET_ID:
             return await self._submit_battery(intent, now, mode)
+        if device_id == INVERTER_ASSET_ID:
+            return await self._submit_inverter(intent, now, mode)
         current = await self._runtime(device_id)
         runtime = overrides.expire(current, now)
         if runtime is not current:  # only the expiry is saved, never a stale copy
@@ -672,6 +891,47 @@ class SafetyGate:
             self._proposals[intent.id] = decision
             return decision
         return await self._claimed_write(intent, device, runtime, now, mode, ctx)
+
+    def _not_supported(self, intent: Intent) -> Reason | None:  # noqa: PLR0911
+        """The rejection of an action kind or device family without invariants (6-B), if any.
+
+        Checked before mode handling. A release always passes (it restores a baseline, and a
+        device of these families is never taken over, so there is nothing to restore).
+        """
+        action = intent.action
+        if action.kind in NOT_YET_SUPPORTED_KINDS:
+            return REASON_NOT_SUPPORTED[action.kind]
+        if isinstance(action, InverterLimitAction):
+            # PR 6-G: judged only for the configured inverter adapter (X1-X6).
+            if intent.asset_id != INVERTER_ASSET_ID or self._inverter_actuator() is None:
+                return REASON_INVERTER_NOT_SUPPORTED
+            return None
+        if isinstance(action, ReleaseAction):
+            return None
+        if intent.asset_id == INVERTER_ASSET_ID:
+            return REASON_INVERTER_NOT_SUPPORTED
+        device = self._devices(intent.asset_id)
+        if device is None:
+            return None
+        control = device.control
+        if isinstance(action, ChargeAction) != isinstance(control, ChargerControl):
+            # 6-I: a charger takes only ``charge`` actions, and only a charger takes them.
+            return (
+                REASON_CHARGE_NOT_CHARGER
+                if isinstance(action, ChargeAction)
+                else REASON_CHARGER_NEEDS_CHARGE
+            )
+        if isinstance(action, LoadpointAction) != isinstance(control, LoadpointControl):
+            # 6-J: an evcc loadpoint takes only ``loadpoint`` actions, and only it takes them.
+            return (
+                REASON_LOADPOINT_NOT_LOADPOINT
+                if isinstance(action, LoadpointAction)
+                else REASON_LOADPOINT_NEEDS_LOADPOINT
+            )
+        if device.program is not None and device.program.start_method == "notify":
+            # PR 6-L: a notify-only program has nothing SunCore may write.
+            return REASON_PROGRAM_NOTIFY_ONLY
+        return None
 
     async def _claimed_write(  # noqa: PLR0917
         self,
@@ -842,6 +1102,8 @@ class SafetyGate:
             reserve_w=self._settings.reserve_w,
             now=now,
             baseline=base,
+            grid=self._grid_safety(inputs, now, None),
+            ev_lock=self._ev_lock(now),
         )
 
     async def _battery_write(  # noqa: PLR0911, PLR0912, PLR0915 - one return per verdict
@@ -1063,9 +1325,12 @@ class SafetyGate:
             reason = actuator.refusal()
         if reason is None:
             ctx = self._battery_context(held, actuator, runtime.baseline, now)
-            if ctx.band is None or not ctx.plan_fresh:
+            if (ctx.band is None or not ctx.plan_fresh) and not (
+                ctx.ev_lock and is_discharge_lock(ctx)
+            ):
                 # ADR-0013 5B: every held state - also one that cannot cause import - is held
-                # only while a fresh plan interval covers it (review 4-G, minor 8).
+                # only while a fresh plan interval covers it (review 4-G, minor 8). PR 6-I: a
+                # discharge lock is also held while an EV may draw grid power (E6).
                 reason = REASON_BATTERY_PLAN_ENDED
             else:
                 violations = lease_violations(ctx)
@@ -1164,6 +1429,667 @@ class SafetyGate:
                 await self.release_device(BATTERY_ASSET_ID, faults[0].reason, origin=Origin.SAFETY)
         return reason
 
+    # --- inverter limit (PR 6-G, ADR-0018 decision 3) ---------------------------------------
+
+    async def _submit_inverter(  # noqa: PLR0911 - one return per verdict
+        self, intent: Intent, now: datetime, mode: OperatingMode
+    ) -> Decision:
+        """The inverter limit's path through the gate (same order as a device's, X1-X6).
+
+        ``_not_supported`` already rejected every limit without an adapter and every other
+        action kind for the asset; a release always passes (it restores the user's limit).
+        """
+        actuator = self._inverter_actuator()
+        current = await self._runtime(INVERTER_ASSET_ID)
+        runtime = overrides.expire(current, now)
+        if runtime is not current:
+            await self._save(runtime)
+        runtime = await self._own_runtime(INVERTER_ASSET_ID, runtime)
+        action = intent.action
+        if mode is OperatingMode.SHADOW:
+            reasons: tuple[Reason, ...] = (REASON_SHADOW_MODE,)
+            if isinstance(action, InverterLimitAction) and actuator is not None:
+                baseline = (
+                    as_limit(runtime.baseline)
+                    if runtime.under_control
+                    else as_limit(await actuator.read_back())
+                )
+                reasons += evaluate_inverter(
+                    self._inverter_context(action, actuator, baseline, now, intent)
+                )
+            return await self._decide(intent, DecisionKind.SHADOW, now, reasons, mode)
+        pause = self._watchdog.pause_reason(INVERTER_SCOPE, now)
+        if pause is not None:
+            return await self._decide(intent, DecisionKind.REJECTED, now, (pause,), mode)
+        held_back = self._held_back(intent, runtime)
+        if held_back is not None:
+            return await self._decide(intent, DecisionKind.REJECTED, now, (held_back,), mode)
+        if runtime.is_held(now) and intent.origin is not Origin.USER:
+            return await self._decide(
+                intent,
+                DecisionKind.HELD,
+                now,
+                (REASON_OVERRIDE_HELD,),
+                mode,
+                held_until=runtime.override_until,
+            )
+        if not isinstance(action, InverterLimitAction) or actuator is None:
+            return await self.release_device(
+                INVERTER_ASSET_ID, REASON_RELEASED, origin=intent.origin, intent=intent
+            )
+        refusal = actuator.refusal()
+        if refusal is not None:
+            return await self._decide(intent, DecisionKind.REJECTED, now, (refusal,), mode)
+        observed = as_limit(await actuator.read_back())
+        if observed is None:
+            return await self._decide(
+                intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
+            )
+        baseline = as_limit(runtime.baseline) if runtime.under_control else observed
+        violations = evaluate_inverter(
+            self._inverter_context(action, actuator, baseline, now, intent)
+        )
+        if violations:
+            return await self._decide(intent, DecisionKind.REJECTED, now, violations, mode)
+        held = as_limit(runtime.last_written) if runtime.under_control else None
+        if same_limit(action, observed) and (not runtime.under_control or same_limit(held, action)):
+            # Write only on change (X4): the inverter already shows this limit.
+            return await self._decide(
+                intent, DecisionKind.REJECTED, now, (REASON_INVERTER_NO_CHANGE,), mode
+            )
+        if mode is OperatingMode.ASSISTED and intent.origin is not Origin.USER:
+            expires = now + timedelta(seconds=self._settings.proposal_ttl_s)
+            decision = await self._decide(
+                intent, DecisionKind.PROPOSED, now, (REASON_PROPOSED,), mode, expires_at=expires
+            )
+            self._proposals[intent.id] = decision
+            return decision
+        return await self._inverter_write(intent, action, actuator, now, mode)
+
+    def _inverter_live(self, now: datetime) -> tuple[InverterLive, GateInputs]:
+        inputs = self._inputs() or GateInputs()
+        max_age = timedelta(seconds=self._settings.inputs_max_age_ticks * self._settings.tick_s)
+        fresh = inputs.ts is not None and now - inputs.ts <= max_age
+        # PR 7-J: the window is the gate's own; whatever a provider passes is replaced.
+        inputs = replace(inputs, verification_window=self._active_window(now))
+        return InverterLive.of(inputs.flows, fresh=fresh), inputs
+
+    def _inverter_context(
+        self,
+        requested: InverterLimitAction,
+        actuator: InverterActuator,
+        baseline: InverterLimitAction | None,
+        now: datetime,
+        intent: Intent | None = None,
+    ) -> InverterContext:
+        """The context of one limit; ``intent`` only for a new write (the X3 waiver looks at
+        its origin and id; a lease renewal has none and is never waived)."""
+        config = self._inverter
+        assert config is not None
+        if config.verified and (self._window is not None or self._window_held is not None):
+            # A verification re-test questions the stored semantics: X2 reads the limit as an
+            # AC limit again, for the test write and for the lease of what it wrote (CS F1).
+            config = replace(config, verified=False)
+        live, inputs = self._inverter_live(now)
+        return InverterContext(
+            requested=requested,
+            config=config,
+            live=live,
+            baseline=baseline,
+            limit_range=actuator.limit_range(),
+            headroom_w=inputs.export_headroom_w if live.fresh else None,
+            grid_state=inputs.grid_state,
+            origin=None if intent is None else intent.origin,
+            intent_id=None if intent is None else intent.id,
+            window=inputs.verification_window if intent is not None else None,
+            now=now,
+        )
+
+    # --- verification window (PR 7-J, ADR-0018 addendum) -----------------------------------
+
+    @property
+    def verification_window(self) -> VerificationWindow | None:
+        """The open verification window (``None`` = none, or it expired)."""
+        return self._active_window(self._now())
+
+    def _active_window(self, now: datetime) -> VerificationWindow | None:
+        """The window the X3 waiver may use now: open, not expired, no emergency stop, an
+        inverter adapter and the inverter asset effectively assisted."""
+        window = self._window
+        if (
+            window is None
+            or not window.active(now)
+            or self._emergency_stop
+            or self._inverter_actuator() is None
+            or self.modes_of(INVERTER_ASSET_ID).effective is not OperatingMode.ASSISTED
+        ):
+            return None
+        return window
+
+    def open_verification_window(self, window: VerificationWindow) -> Reason | None:
+        """Open the verification window (the verification procedure only; ``None`` = opened).
+
+        Refused during an emergency stop, without an inverter adapter, unless the inverter asset
+        is effectively assisted, for a window that is not open now, and while another window is
+        open. Never persisted: a restart starts without a window.
+        """
+        now = self._now()
+        if self._emergency_stop:
+            return REASON_EMERGENCY_STOP
+        if self._inverter_actuator() is None:
+            return REASON_INVERTER_NOT_SUPPORTED
+        if self.modes_of(INVERTER_ASSET_ID).effective is not OperatingMode.ASSISTED:
+            return REASON_VERIFY_NOT_ASSISTED
+        if not window.active(now):
+            return REASON_VERIFY_WINDOW_INVALID
+        current = self._window
+        if current is not None and current.active(now):
+            # Also the same id: re-opening would extend a window past its 600 s (CS F4).
+            return REASON_VERIFY_WINDOW_BUSY
+        self._window = window
+        log.info(
+            "safety.verification_window_opened",
+            window=window.id,
+            expires_at=window.expires_at.isoformat(),
+            lowest=window.lowest.model_dump(exclude_none=True),
+        )
+        return None
+
+    def close_verification_window(self, window_id: str) -> None:
+        """Close the window (pass, fail, abort). A limit still held from it is released by the
+        next :meth:`poll` (``safety.verification_window_closed``)."""
+        if self._window is not None and self._window.id == window_id:
+            self._window = None
+            log.info("safety.verification_window_closed", window=window_id)
+
+    def _end_window(self, why: str) -> None:
+        if self._window is not None:
+            log.info("safety.verification_window_closed", window=self._window.id, why=why)
+        self._window = None
+        self._window_held = None
+
+    async def _window_expiry(self, now: datetime) -> Decision | None:
+        """A limit written under a window that is closed or expired now is given back."""
+        held = self._window_held
+        if held is None:
+            return None
+        window = self._active_window(now)
+        if window is not None and window.id == held:
+            return None
+        self._window_held = None
+        if self._window is not None and self._window.id == held:
+            self._window = None  # expired (or no longer assisted): over for good
+        runtime = self._runtimes.get(INVERTER_ASSET_ID)
+        if runtime is None or not runtime.under_control or runtime.release_pending:
+            return None
+        return await self.release_device(
+            INVERTER_ASSET_ID, REASON_VERIFY_WINDOW_CLOSED, origin=Origin.SAFETY
+        )
+
+    async def _inverter_write(  # noqa: PLR0911, PLR0912, PLR0915 - one return per verdict
+        self,
+        intent: Intent,
+        requested: InverterLimitAction,
+        actuator: InverterActuator,
+        now: datetime,
+        mode: OperatingMode,
+    ) -> Decision:
+        """Takeover (the user's own limit is the baseline), judge again, write, read back."""
+        config = self._inverter
+        assert config is not None
+        failed = False
+        context_id: str | None = None
+        async with self._lock(INVERTER_ASSET_ID):
+            runtime = self._runtimes.get(INVERTER_ASSET_ID) or DeviceRuntime(
+                device_id=INVERTER_ASSET_ID
+            )
+            blocked = self._blocked(intent, runtime, now) or actuator.refusal()
+            if blocked is not None:
+                return await self._decide(intent, DecisionKind.REJECTED, now, (blocked,), mode)
+            previous_slot = self._limiter.last_write(INVERTER_ASSET_ID)
+            if not self._limiter.try_acquire(INVERTER_ASSET_ID, now):
+                return await self._decide(
+                    intent, DecisionKind.REJECTED, now, (REASON_RATE_LIMITED,), mode
+                )
+            if not runtime.under_control:
+                baseline = as_limit(await actuator.read_back())
+                if baseline is None:
+                    self._limiter.release_slot(INVERTER_ASSET_ID, previous_slot)
+                    return await self._decide(
+                        intent, DecisionKind.REJECTED, now, (REASON_STATE_UNKNOWN,), mode
+                    )
+                refused = check_takeover_baseline(
+                    baseline, default=actuator.default_limit, static_limit_w=config.static_limit_w
+                )
+                if refused is not None:
+                    # Review A2: never take over from a value a release could not safely restore.
+                    self._limiter.release_slot(INVERTER_ASSET_ID, previous_slot)
+                    return await self._decide(intent, DecisionKind.REJECTED, now, (refused,), mode)
+                runtime = runtime.model_copy(
+                    update={
+                        "baseline": baseline,
+                        "baseline_ts": now,
+                        "identity": config.identity,
+                        "attempted": (),
+                    }
+                )
+            ctx = self._inverter_context(
+                requested, actuator, as_limit(runtime.baseline), now, intent
+            )
+            violations = evaluate_inverter(ctx)
+            window = ctx.window if ctx.window is not None and ctx.window.owns(intent.id) else None
+            if violations:
+                # Judged again right before the write: something changed meanwhile.
+                self._limiter.release_slot(INVERTER_ASSET_ID, previous_slot)
+                return await self._decide(intent, DecisionKind.REJECTED, now, violations, mode)
+            if requested not in runtime.attempted:
+                # Remembered before the write: a late-landing value is never the user's.
+                runtime = runtime.model_copy(update={"attempted": (*runtime.attempted, requested)})
+            await self._save(runtime)
+            try:
+                context_id = await actuator.apply(intent)
+            except Exception as exc:
+                log.warning("safety.inverter_write_failed", error=str(exc)[:200])
+                failed = True
+            if window is not None:
+                # Sent under the window: whatever lands is released when the window ends.
+                self._window_held = window.id
+            update: dict[str, object] = {"last_write_ts": now}
+            if failed:
+                update.update({"pending_action": requested, "pending_ts": now})
+            runtime = runtime.model_copy(update=update)
+            await self._save(runtime)
+        if failed:
+            await self._count_failure(INVERTER_ASSET_ID, now)
+            return await self._decide(
+                intent, DecisionKind.FAILED, now, (REASON_WRITE_FAILED,), mode
+            )
+        await self._sleep(actuator.settle_s)
+        observed = as_limit(await actuator.read_back())
+        after = self._now()
+        async with self._lock(INVERTER_ASSET_ID):
+            current = self._runtimes.get(INVERTER_ASSET_ID)
+            if current is None or not current.under_control:
+                return await self._decide(
+                    intent,
+                    DecisionKind.FAILED,
+                    after,
+                    (REASON_SUPERSEDED,),
+                    mode,
+                    observed=observed,
+                )
+            confirmed = same_limit(requested, observed)
+            if confirmed:
+                self._failures.pop(INVERTER_ASSET_ID, None)
+                self._inverter_beat = now  # the write was the first beat
+                update = {
+                    "last_written": requested,
+                    "last_write_context_id": context_id,
+                    "pending_action": None,
+                    "pending_ts": None,
+                }
+            else:
+                update = {
+                    "last_write_context_id": context_id,
+                    "pending_action": requested,
+                    "pending_ts": now,
+                }
+            await self._save(current.model_copy(update=update))
+        if not confirmed:
+            await self._count_failure(INVERTER_ASSET_ID, after)
+            return await self._decide(
+                intent,
+                DecisionKind.FAILED,
+                after,
+                (REASON_READBACK_MISMATCH,),
+                mode,
+                observed=observed,
+            )
+        return await self._decide(
+            intent, DecisionKind.ACCEPTED, after, intent.reasons, mode, observed=observed
+        )
+
+    async def _inverter_lease(self, now: datetime) -> Decision | None:
+        """Every tick while SunCore holds an inverter limit (X4, X5).
+
+        The lease ends - and the user's own limit is restored - when the mode fell to shadow,
+        the watchdog paused the site or the inverter, the controller's inputs are stale or not
+        ``OK``, the adapter refuses, the held limit breaks X1/X2 (the house load rose), the
+        grid is in island or the limit cannot be read back any more. A limit changed outside
+        SunCore is a manual override: SunCore lets go without writing. A volatile register
+        that shows the inverter's default again (a reset) is re-written; while the lease
+        holds, a volatile register is re-written every ``heartbeat_s``.
+        """
+        actuator = self._inverter_actuator()
+        runtime = self._runtimes.get(INVERTER_ASSET_ID)
+        if (
+            actuator is None
+            or runtime is None
+            or not runtime.under_control
+            or runtime.release_pending
+            or self._is_orphan(INVERTER_ASSET_ID, runtime)
+        ):
+            return None
+        held = as_limit(runtime.last_written) or as_limit(runtime.pending_action)
+        if held is None:
+            return None
+        reason, observed = await self._inverter_lease_reason(runtime, actuator, now)
+        if reason is not None:
+            return await self.release_device(INVERTER_ASSET_ID, reason, origin=Origin.SAFETY)
+        if observed is not None and runtime.pending_action is not None:
+            runtime = await self._inverter_settle_pending(runtime, observed)
+        confirmed = as_limit(runtime.last_written)
+        if (
+            observed is not None
+            and confirmed is not None
+            and runtime.pending_action is None
+            and not same_limit(observed, confirmed)
+        ):
+            verdict = await self._inverter_drift(actuator, runtime, confirmed, observed, now)
+            if verdict is not None:
+                return verdict
+        heartbeat = actuator.heartbeat_s
+        if (
+            heartbeat is not None
+            and confirmed is not None
+            and runtime.pending_action is None  # review A1: no beat while a write is open
+            and (
+                self._inverter_beat is None
+                or (now - self._inverter_beat).total_seconds() >= heartbeat
+            )
+        ):
+            await self._inverter_keep_alive(actuator, confirmed, now)
+        return None
+
+    async def _inverter_lease_reason(
+        self, runtime: DeviceRuntime, actuator: InverterActuator, now: datetime
+    ) -> tuple[Reason | None, InverterLimitAction | None]:
+        """Why the inverter lease ends now (``None`` = it holds) and the settled read-back."""
+        reason: Reason | None = None
+        if self.modes_of(INVERTER_ASSET_ID).effective is OperatingMode.SHADOW:
+            reason = REASON_MODE_SHADOW
+        if reason is None:
+            reason = self._watchdog.pause_reason(INVERTER_SCOPE, now)
+        if reason is None:
+            reason = actuator.refusal()
+        observed: InverterLimitAction | None = None
+        settled = (
+            runtime.last_write_ts is not None
+            and (now - runtime.last_write_ts).total_seconds() >= 2 * actuator.settle_s
+        )
+        if reason is None and settled:
+            observed = as_limit(await actuator.read_back())
+            if observed is None:
+                reason = REASON_INVERTER_READBACK_LOST
+        if reason is None:
+            # Review A1: the lease holds only while *every* limit that may be in force passes:
+            # the confirmed one, an unconfirmed attempt (it may land late) and SunCore's own
+            # earlier value the inverter shows now. The strictest of them decides about import.
+            baseline = as_limit(runtime.baseline)
+            for candidate in self._inverter_in_force(runtime, observed):
+                ctx = self._inverter_context(candidate, actuator, baseline, now)
+                violations = inverter_lease_violations(ctx)
+                if violations:
+                    reason = violations[0]
+                    break
+        return reason, observed
+
+    @staticmethod
+    def _inverter_in_force(
+        runtime: DeviceRuntime, observed: InverterLimitAction | None
+    ) -> list[InverterLimitAction]:
+        """Every limit of SunCore's that may be in force in the inverter now (review A1)."""
+        limits: list[InverterLimitAction] = []
+        for value in (runtime.last_written, runtime.pending_action):
+            limit = as_limit(value)
+            if limit is not None:
+                limits.append(limit)
+        if observed is not None and any(
+            same_limit(observed, as_limit(a)) for a in runtime.attempted
+        ):
+            limits.append(observed)
+        return limits
+
+    async def _inverter_settle_pending(
+        self, runtime: DeviceRuntime, observed: InverterLimitAction
+    ) -> DeviceRuntime:
+        """An unconfirmed write after its settle time: the inverter shows it now (confirmed
+        late: it becomes the held limit) or still shows the confirmed limit (the write did not
+        land: dropped; should it land later, the drift check re-writes the confirmed one)."""
+        pending = as_limit(runtime.pending_action)
+        update: dict[str, object]
+        if same_limit(observed, pending):
+            update = {"last_written": pending, "pending_action": None, "pending_ts": None}
+        elif same_limit(observed, as_limit(runtime.last_written)):
+            update = {"pending_action": None, "pending_ts": None}
+        else:
+            return runtime
+        async with self._lock(INVERTER_ASSET_ID):
+            current = self._runtimes.get(INVERTER_ASSET_ID)
+            if current is None or current != runtime:
+                return runtime
+            settled = current.model_copy(update=update)
+            await self._save(settled)
+        return settled
+
+    async def _inverter_keep_alive(
+        self, actuator: InverterActuator, limit: InverterLimitAction, now: datetime
+    ) -> None:
+        self._inverter_beat = now
+        try:
+            await actuator.keep_alive(limit)
+        except Exception as exc:
+            log.warning("safety.inverter_heartbeat_failed", error=str(exc)[:200])
+            await self._count_failure(INVERTER_ASSET_ID, now)
+
+    async def _inverter_drift(
+        self,
+        actuator: InverterActuator,
+        runtime: DeviceRuntime,
+        held: InverterLimitAction,
+        observed: InverterLimitAction,
+        now: datetime,
+    ) -> Decision | None:
+        """The inverter shows another limit than the held one after the settle time.
+
+        * SunCore's own earlier value (a late write) or, for a volatile register, the
+          inverter's default again (a reset, ``safety.inverter_limit_reset``): re-written at
+          once (the held limit passed the lease checks this tick);
+        * anything else is the user's: SunCore lets go without writing, holds off per the
+          default override policy, and that value is what the user keeps.
+        """
+        own = any(same_limit(observed, as_limit(a)) for a in runtime.attempted)
+        reset = actuator.heartbeat_s is not None and same_limit(
+            observed, as_limit(runtime.baseline)
+        )
+        if own or reset:
+            log.info("safety.inverter_rewrite", reset=reset, observed=observed.model_dump())
+            await self._inverter_keep_alive(actuator, held, now)
+            if reset:
+                await self._decide(
+                    Intent(
+                        id=f"reset:{INVERTER_ASSET_ID}:{now.isoformat()}",
+                        ts=now,
+                        asset_id=INVERTER_ASSET_ID,
+                        action=observed,
+                        reasons=(REASON_INVERTER_RESET,),
+                        origin=Origin.SAFETY,
+                    ),
+                    DecisionKind.FAILED,
+                    now,
+                    (REASON_INVERTER_RESET,),
+                    self.modes_of(INVERTER_ASSET_ID).effective,
+                    observed=observed,
+                )
+            return None
+        async with self._lock(INVERTER_ASSET_ID):
+            until = overrides.resume_at(_DEFAULT_POLICY, now, self._tz)
+            released = overrides.hold_until(runtime, until).model_copy(
+                update={
+                    "baseline": None,
+                    "baseline_ts": None,
+                    "last_written": None,
+                    "pending_action": None,
+                    "pending_ts": None,
+                    "attempted": (),
+                }
+            )
+            await self._save(released)
+        self._inverter_beat = None
+        log.info("safety.inverter_override", until=until)
+        return await self._decide(
+            Intent(
+                id=f"override:{INVERTER_ASSET_ID}:{now.isoformat()}",
+                ts=now,
+                asset_id=INVERTER_ASSET_ID,
+                action=observed,
+                reasons=(REASON_INVERTER_OVERRIDE,),
+                origin=Origin.SAFETY,
+            ),
+            DecisionKind.HELD,
+            now,
+            (REASON_INVERTER_OVERRIDE,),
+            self.modes_of(INVERTER_ASSET_ID).effective,
+            held_until=until,
+            observed=observed,
+        )
+
+    async def _release_inverter(  # noqa: PLR0917
+        self,
+        intent: Intent,
+        runtime: DeviceRuntime,
+        actuator: Actuator,
+        reason: Reason,
+        now: datetime,
+        mode: OperatingMode,
+    ) -> Decision:
+        """Restore the user's **original** limit (the takeover baseline) and prove it (lock held).
+
+        Complete only when the inverter shows the baseline again, or a third value the user
+        set (theirs is kept, nothing is written). Until then the runtime stays under control
+        with a pending release: no write, no heartbeat, only the release is retried with
+        back-off (``poll``), also during an emergency stop. A failed release write or an
+        unreadable limit is never taken for the user's value.
+        """
+        self._inverter_beat = None
+        baseline = as_limit(runtime.baseline)
+        observed = as_limit(await actuator.read_back())
+        checking = runtime.release_due_reason == REASON_INVERTER_RELEASE_CHECK.key
+        if observed is not None and same_limit(observed, baseline):
+            return await self._asset_released(
+                INVERTER_ASSET_ID,
+                intent,
+                runtime,
+                now,
+                mode,
+                (REASON_RELEASED, REASON_INVERTER_RELEASE_CONFIRMED if checking else reason),
+            )
+        own = observed is not None and any(
+            same_limit(observed, as_limit(a)) for a in runtime.attempted
+        )
+        if (
+            observed is not None
+            and not own
+            and not same_limit(observed, as_limit(runtime.last_written))
+        ):
+            # The user set a third value: theirs is what they keep (no write).
+            until = overrides.resume_at(_DEFAULT_POLICY, now, self._tz)
+            kept = overrides.hold_until(runtime, until)
+            return await self._asset_released(
+                INVERTER_ASSET_ID,
+                intent,
+                kept,
+                now,
+                mode,
+                (REASON_RELEASED, REASON_INVERTER_OVERRIDE),
+            )
+        attempt = self._release_attempts.get(INVERTER_ASSET_ID, 0)
+        try:
+            await actuator.release(runtime.baseline)
+        except Exception as exc:
+            log.warning("safety.inverter_release_failed", error=str(exc)[:200])
+            self._release_attempts[INVERTER_ASSET_ID] = attempt + 1
+            due = now + timedelta(seconds=max(1.0, self._release_backoff_s(attempt + 1)))
+            await self._save(
+                runtime.model_copy(update={"release_due_ts": due, "release_due_reason": reason.key})
+            )
+            return await self._decide(
+                intent, DecisionKind.FAILED, now, (REASON_RELEASE_FAILED, reason), mode
+            )
+        settle = actuator.settle_s if isinstance(actuator, InverterActuator) else 0.0
+        due = now + timedelta(seconds=max(settle, self._release_backoff_s(attempt), 1.0))
+        await self._save(
+            runtime.model_copy(
+                update={
+                    "release_due_ts": due,
+                    "release_due_reason": REASON_INVERTER_RELEASE_CHECK.key,
+                    "last_write_ts": now,
+                }
+            )
+        )
+        self._release_attempts[INVERTER_ASSET_ID] = attempt + 1
+        if checking:
+            return await self._decide(
+                intent,
+                DecisionKind.FAILED,
+                now,
+                (REASON_INVERTER_RELEASE_UNCONFIRMED,),
+                mode,
+                observed=observed,
+            )
+        return await self._decide(
+            intent,
+            DecisionKind.ACCEPTED,
+            now,
+            (REASON_RELEASED,) if reason == REASON_RELEASED else (REASON_RELEASED, reason),
+            mode,
+            observed=observed,
+        )
+
+    async def _asset_released(  # noqa: PLR0917
+        self,
+        asset_id: str,
+        intent: Intent,
+        runtime: DeviceRuntime,
+        now: datetime,
+        mode: OperatingMode,
+        reasons: tuple[Reason, ...],
+    ) -> Decision:
+        self._release_attempts.pop(asset_id, None)
+        released = runtime.model_copy(
+            update={
+                "baseline": None,
+                "baseline_ts": None,
+                "last_written": None,
+                "last_write_context_id": None,
+                "last_write_ts": now,
+                "pending_action": None,
+                "pending_ts": None,
+                "release_due_ts": None,
+                "release_due_reason": None,
+                "attempted": (),
+            }
+        )
+        await self._save(released)
+        self._proposals = {
+            k: v for k, v in self._proposals.items() if v.intent.asset_id != asset_id
+        }
+        return await self._decide(intent, DecisionKind.ACCEPTED, now, reasons, mode)
+
+    async def check_inverter(self, readable: bool) -> Reason | None:
+        """X5: the inverter scope of the watchdog. While SunCore holds a limit its read-back
+        entity must be readable; a fault pauses inverter control and releases the limit."""
+        if self._inverter_actuator() is None:
+            return None
+        now = self._now()
+        runtime = self._runtimes.get(INVERTER_ASSET_ID)
+        under = runtime is not None and runtime.under_control
+        reason = REASON_INVERTER_READBACK_LOST if under and not readable else None
+        faults = self._watchdog.report(INVERTER_SCOPE, () if reason is None else (reason,), now)
+        if faults and runtime is not None and runtime.under_control and not runtime.release_pending:
+            await self.release_device(INVERTER_ASSET_ID, faults[0].reason, origin=Origin.SAFETY)
+        return reason
+
     # --- per-snapshot claims ---------------------------------------------------------------
 
     def _snapshot_ts(self) -> datetime | None:
@@ -1229,6 +2155,8 @@ class SafetyGate:
                 if blocked is not None:
                     self._limiter.release_slot(device_id, previous_slot)
                     return await self._decide(intent, DecisionKind.REJECTED, now, (blocked,), mode)
+                if device.program is not None and device.program.start_method == "plug":
+                    baseline = PROGRAM_BASELINE_ON  # P3: the plug's baseline is on
                 runtime = runtime.model_copy(
                     update={
                         "baseline": baseline,
@@ -1246,6 +2174,7 @@ class SafetyGate:
             switched = is_switch_transition(
                 intent.action, device, self._states(device_id)
             ) or _was_transition(intent.action, device, runtime)
+            self._writing[device_id] = intent.action
             try:
                 context_id = await actuator.apply(intent)
             except Exception as exc:
@@ -1253,6 +2182,8 @@ class SafetyGate:
                 failed_write = True
             runtime = runtime.model_copy(update={"last_write_ts": now})
             target = action_turns_on(intent.action, device) if switched else None
+            if _changes_phases(intent.action, self._states(device_id)):
+                runtime = runtime.with_phase_switch(now)  # E2, recorded when sent (as below)
             if target is not None:
                 # Recorded when the switch is *sent*, not when it is confirmed: a slow echo
                 # (late confirmation), a release or a rebuild during the settle wait, or a
@@ -1261,15 +2192,19 @@ class SafetyGate:
                 runtime = runtime.with_switch(now, on=target)
             await self._save(runtime)
         if failed_write:
+            self._writing.pop(device_id, None)
             await self._count_failure(device_id, now)
             return await self._decide(
                 intent, DecisionKind.FAILED, now, (REASON_WRITE_FAILED,), mode
             )
-        await self._sleep(self._settle_s(device))
-        observed = await actuator.read_back()
-        return await self._confirm(
-            intent, device, now, observed=observed, context_id=context_id, mode=mode
-        )
+        try:
+            await self._sleep(self._settle_s(device))
+            observed = await actuator.read_back()
+            return await self._confirm(
+                intent, device, now, observed=observed, context_id=context_id, mode=mode
+            )
+        finally:
+            self._writing.pop(device_id, None)
 
     async def _confirm(
         self,
@@ -1357,7 +2292,7 @@ class SafetyGate:
 
     # --- release -------------------------------------------------------------------------
 
-    async def release_device(  # noqa: PLR0911 - one return per verdict
+    async def release_device(  # noqa: PLR0911, PLR0912 - one return per verdict
         self,
         device_id: str,
         reason: Reason,
@@ -1365,6 +2300,7 @@ class SafetyGate:
         origin: Origin = Origin.SAFETY,
         intent: Intent | None = None,
         urgent: bool = True,
+        backoff: bool = False,
     ) -> Decision:
         """Restore the device's takeover baseline and stop controlling it.
 
@@ -1373,7 +2309,9 @@ class SafetyGate:
         the release write until the minimum run/pause time has elapsed and answers
         ``held`` with ``held_until``; writing stops at once and :meth:`poll` executes
         the release later. The decision is otherwise ``accepted`` (released),
-        ``rejected`` (not under control / no actuator) or ``failed``.
+        ``rejected`` (not under control / no actuator) or ``failed``. ``backoff=True`` (device
+        trip, :meth:`poll`): a failed release is rescheduled with back-off instead of being
+        repeated every tick.
         """
         async with self._lock(device_id):
             now = self._now()
@@ -1402,8 +2340,16 @@ class SafetyGate:
             orphan = self._is_orphan(device_id, runtime)
             if device_id == BATTERY_ASSET_ID and not orphan:
                 return await self._release_battery(intent, runtime, actuator, reason, now, mode)
+            if device_id == INVERTER_ASSET_ID and not orphan:
+                return await self._release_inverter(intent, runtime, actuator, reason, now, mode)
             observed = await actuator.read_back()
             runtime = await self._adopt_user_state(device, runtime, observed, now)
+            if not orphan and device is not None:
+                staged = await self._stage_ev_release(
+                    intent, device, runtime, actuator, observed, reason, now, mode
+                )
+                if staged is not None:
+                    return staged
             if not urgent and not orphan:
                 due = _protection_due(device, runtime, now, observed)
                 if due is not None:
@@ -1420,13 +2366,26 @@ class SafetyGate:
                         held_until=due,
                     )
             try:
-                await actuator.release(runtime.baseline)
+                await actuator.release(self._release_baseline(device, runtime, now, orphan))
             except Exception as exc:
                 log.warning("safety.release_failed", device_id=device_id, error=str(exc)[:200])
                 reasons = (REASON_RELEASE_FAILED, reason)
                 if orphan:
                     reasons = (REASON_RELEASE_FAILED, REASON_ORPHANED)
+                elif backoff:
+                    # Retry with back-off (B1/C1): the device stays under control, writing is
+                    # blocked (release pending) and `poll` tries again when due - instead of one
+                    # failed release per tick while the device is unreachable.
+                    attempt = self._release_attempts.get(device_id, 0) + 1
+                    self._release_attempts[device_id] = attempt
+                    due = now + timedelta(seconds=self._release_backoff_s(attempt))
+                    await self._save(
+                        runtime.model_copy(
+                            update={"release_due_ts": due, "release_due_reason": reason.key}
+                        )
+                    )
                 return await self._decide(intent, DecisionKind.FAILED, now, reasons, mode)
+            self._release_attempts.pop(device_id, None)
             if orphan:
                 # The old device is back at its baseline; a device now using the id starts clean.
                 self._release_only.pop(device_id, None)
@@ -1634,6 +2593,8 @@ class SafetyGate:
         """The configured identity token of an asset (``None`` = not configured)."""
         if asset_id == BATTERY_ASSET_ID and self._battery is not None:
             return self._battery.identity
+        if asset_id == INVERTER_ASSET_ID:
+            return None if self._inverter is None else self._inverter.identity
         device = self._devices(asset_id)
         return None if device is None else identity_token(device)
 
@@ -1767,7 +2728,11 @@ class SafetyGate:
         deadline_s: float | None = None,
         urgent: bool = True,
         only: Collection[str] | None = None,
+        reschedule: bool = False,
     ) -> None:
+        """Release every device under control. The first attempt is immediate; with
+        ``reschedule`` a failure is retried by :meth:`poll` with back-off (R2). Hand-over and
+        shutdown keep the plain behaviour: their successor retries at once."""
         ids = [
             d
             for d, rt in self._runtimes.items()
@@ -1776,7 +2741,9 @@ class SafetyGate:
         if not ids:
             return
         tasks = {
-            asyncio.ensure_future(self.release_device(d, reason, origin=origin, urgent=urgent)): d
+            asyncio.ensure_future(
+                self.release_device(d, reason, origin=origin, urgent=urgent, backoff=reschedule)
+            ): d
             for d in ids
         }
         done, pending = await asyncio.wait(tasks, timeout=deadline_s)
@@ -1826,7 +2793,416 @@ class SafetyGate:
             import_limit_w=inputs.import_limit_w,
             reserve_soc_pct=inputs.reserve_soc_pct,
             claimed_w=self._claimed_w() if inputs.ts is not None else 0.0,
+            grid=self._grid_safety(inputs, now, device),
+            ev=self._ev_safety(device, now, inputs),
+            program=self._program_safety(device, runtime, now, inputs, fresh=fresh),
+            lp=self._lp_safety(device),
         )
+
+    # --- programs (PR 6-L, ``safety.programs``) ----------------------------------------------
+
+    def program_job(self, device_id: str) -> ProgramJob | None:
+        """The device's open job (the injected lookup); an unreadable state counts as none
+        (no job: P1 never starts, P4 never switches off)."""
+        if self._programs is None:
+            return None
+        try:
+            return open_job(list(self._programs(device_id)))
+        except Exception:
+            log.exception("safety.program_jobs_failed", device_id=device_id)
+            return None
+
+    def _program_safety(
+        self,
+        device: DeviceConfig,
+        runtime: DeviceRuntime,
+        now: datetime,
+        inputs: GateInputs,
+        *,
+        fresh: bool,
+    ) -> ProgramSafety:
+        """P1-P5 inputs: the open job, a fresh *measured* power, the deadline binding."""
+        spec = device.program
+        if spec is None:
+            return ProgramSafety()
+        job = self.program_job(device.id)
+        estimate = inputs.estimates.get(device.id)
+        power: float | None = None
+        if (
+            fresh
+            and device.power_model.power_role is not None
+            and estimate is not None
+            and estimate.quality is Quality.OK
+        ):
+            power = estimate.value_w
+        bound = False
+        if job is not None:
+            band = self._ev_band(device.id, now)
+            bound = (band is not None and band.start) or now >= latest_start(job, spec.runtime_min)
+        return ProgramSafety(job=job, power_w=power, start_bound=bound, last_on=runtime.last_on_ts)
+
+    def _release_baseline(
+        self, device: DeviceConfig | None, runtime: DeviceRuntime, now: datetime, orphan: bool
+    ) -> Action | None:
+        """What a release restores; P2: never a switch-off of a program that may be running
+        (the write is skipped: the plug stays as it is)."""
+        baseline = runtime.baseline
+        if (
+            orphan
+            or device is None
+            or device.program is None
+            or not isinstance(baseline, SwitchAction)
+            or baseline.on
+        ):
+            return baseline
+        inputs = self._inputs() or GateInputs()
+        max_age = timedelta(seconds=self._settings.inputs_max_age_ticks * self._settings.tick_s)
+        fresh = inputs.ts is not None and now - inputs.ts <= max_age
+        ps = self._program_safety(device, runtime, now, inputs, fresh=fresh)
+        if program_running(device, ps, now) is False:
+            return baseline
+        log.info("safety.program_release_keeps_running", device_id=device.id)
+        return None
+
+    # --- EV (PR 6-I, ``safety.flex``) --------------------------------------------------------
+
+    def ev_mode(self, device: DeviceConfig) -> EvMode:
+        """The effective EV mode of a charger (the injected lookup, else its default)."""
+        default = device.ev.default_mode if device.ev is not None else EV_MODE_DEFAULT
+        if self._ev_modes is None:
+            return default
+        try:
+            return self._ev_modes(device.id)
+        except Exception:
+            log.exception("safety.ev_mode_failed", device_id=device.id)
+            return EvMode.OFF  # unknown runtime state: no increase at all (conservative)
+
+    def _ev_band(self, device_id: str, now: datetime) -> DeviceBand | None:
+        if self._plan is None:
+            return None
+        try:
+            return device_band_now(self._plan(now), device_id, now)
+        except Exception:
+            log.exception("safety.ev_plan_failed")
+            return None
+
+    def _ev_safety(
+        self, device: DeviceConfig, now: datetime, inputs: GateInputs | None = None
+    ) -> EvSafety:
+        """E1-E6 inputs of a charger: mode, allowance, connection, battery lock, read-back."""
+        control = device.control
+        if isinstance(control, LoadpointControl):
+            return self._loadpoint_ev_safety(device, control, now, inputs)
+        if not isinstance(control, ChargerControl):
+            return EvSafety()
+        inputs = inputs if inputs is not None else (self._inputs() or GateInputs())
+        state = self._states(device.id)
+        observed = _observed_charge(state)
+        mode = self.ev_mode(device)
+        connected = None if state is None else state.connected
+        allowance = ev_allowance_w(
+            mode,
+            control,
+            active_phases(control, None, observed),
+            connected=connected,
+            band=self._ev_band(device.id, now),
+        )
+        low: float | None = None
+        high: float | None = None
+        actuator = self._actuators.get(device.id)
+        if isinstance(actuator, ChargerLimits):
+            low, high = actuator.current_range_a()
+        return EvSafety(
+            mode=mode,
+            allowance_w=allowance,
+            connected=connected,
+            battery_locked=self._battery_locked(inputs),
+            observed=observed,
+            entity_min_a=low,
+            entity_max_a=high,
+            idle_since=self._ev_idle_since.get(device.id),
+        )
+
+    def _loadpoint_ev_safety(
+        self,
+        device: DeviceConfig,
+        control: LoadpointControl,
+        now: datetime,
+        inputs: GateInputs | None,
+    ) -> EvSafety:
+        """L2/E3/E6 inputs of an evcc loadpoint: the EV mode's allowance (the user's ``now`` or a
+        planned grid interval of ``target``), the connection, the battery lock."""
+        inputs = inputs if inputs is not None else (self._inputs() or GateInputs())
+        state = self._states(device.id)
+        connected = None if state is None else state.connected
+        mode = self.ev_mode(device)
+        return EvSafety(
+            mode=mode,
+            allowance_w=loadpoint_allowance_w(
+                mode, control, connected=connected, band=self._ev_band(device.id, now)
+            ),
+            connected=connected,
+            battery_locked=self._battery_locked(inputs),
+        )
+
+    def _lp_safety(self, device: DeviceConfig) -> LoadpointSafety:
+        """evcc's observed state and its own ``minCurrent`` (L1, L2)."""
+        if not isinstance(device.control, LoadpointControl):
+            return LoadpointSafety()
+        state = self._states(device.id)
+        observed: LoadpointAction | None = None
+        if (
+            state is not None
+            and state.known
+            and state.mode in ("off", "smart", "now")
+            and state.max_current_a is not None
+        ):
+            observed = LoadpointAction(
+                mode=state.mode,
+                max_current_a=state.max_current_a,
+                limit_soc_pct=state.limit_soc_pct,
+            )
+        actuator = self._actuators.get(device.id)
+        minimum = actuator.min_current_a() if isinstance(actuator, LoadpointLimits) else None
+        return LoadpointSafety(observed=observed, min_current_a=minimum)
+
+    def _battery_locked(self, inputs: GateInputs) -> bool:
+        """E6: no home battery, or SunCore holds (and has confirmed) a discharge lock."""
+        if not inputs.battery_present:
+            return True
+        runtime = self._runtimes.get(BATTERY_ASSET_ID)
+        if runtime is None or not runtime.under_control or runtime.release_pending:
+            return False
+        held = runtime.last_written
+        soc = self._battery_live().soc_pct
+        return holds_discharge_lock(held if isinstance(held, BatteryAction) else None, soc)
+
+    def _ev_lock(self, now: datetime) -> bool:
+        """B4 with E6: a charger SunCore may drive (not shadow) may draw grid power now."""
+        inputs = self._inputs() or GateInputs()
+        for device_id in self._actuators:
+            device = self._devices(device_id)
+            if device is None or not isinstance(device.control, ChargerControl | LoadpointControl):
+                continue
+            if self.modes_of(device_id).effective is OperatingMode.SHADOW:
+                continue
+            if self._watchdog.pause_reason(device_id, now) is not None:
+                continue
+            ev = self._ev_safety(device, now, inputs)
+            if isinstance(device.control, LoadpointControl):
+                state = self._states(device_id)
+                charging = state is not None and state.on is True
+            else:
+                charging = ev.observed is not None and ev.observed.effective_current_a > 0
+            if ev.allowance_w > 0 and (ev.connected is True or charging):
+                return True
+        return False
+
+    # --- EV idle tracking and staged release (review 6-I A1, M2, M3) -----------------------
+
+    def _track_idle(self, device_id: str, observed: ChargeAction | None, now: datetime) -> None:
+        """Remember since when a charger has been seen not charging (unknown = forget)."""
+        if observed is None or observed.effective_current_a > CURRENT_TOLERANCE_A:
+            self._ev_idle_since.pop(device_id, None)
+            return
+        self._ev_idle_since.setdefault(device_id, now)
+
+    def _track_chargers(self, now: datetime) -> None:
+        for device_id in self._actuators:
+            device = self._devices(device_id)
+            if device is None or not isinstance(device.control, ChargerControl):
+                continue
+            self._track_idle(device_id, _observed_charge(self._states(device_id)), now)
+
+    def _ev_release_due(
+        self, device: DeviceConfig, runtime: DeviceRuntime, observed: Action | None, now: datetime
+    ) -> tuple[bool, datetime | None]:
+        """``(pause now, due)`` of a charger's release; ``due`` ``None`` = release at once.
+
+        A1: restoring other phases needs the car paused for ``phase_switch_pause_s`` (E2 also
+        for a release); while it charges it is paused first. M3: while §14a dims or its
+        cool-down runs, a baseline that charges is not restored on a flagged charger; the
+        pause is the safe state until then.
+        """
+        control = device.control
+        baseline = runtime.baseline
+        if not isinstance(control, ChargerControl) or not isinstance(baseline, ChargeAction):
+            return False, None
+        current = observed if isinstance(observed, ChargeAction) else None
+        charging = current is None or current.effective_current_a > CURRENT_TOLERANCE_A
+        due: datetime | None = None
+        pause_now = False
+        if (
+            baseline.phases is not None
+            and control.phases_role is not None
+            and (current is None or current.phases != baseline.phases)
+        ):
+            pause = timedelta(seconds=control.phase_switch_pause_s)
+            if charging:
+                pause_now, due = True, now + pause
+            else:
+                since = self._ev_idle_since.get(device.id)
+                ready = (since if since is not None else now) + pause
+                if ready > now:
+                    due = ready
+        if device.para14a and baseline.effective_current_a > CURRENT_TOLERANCE_A:
+            inputs = self._inputs()
+            active = inputs is None or inputs.para14a_status is not Para14aStatus.INACTIVE
+            hold = para14a_hold_s(self._grid_memory, now, self._settings.safe_state_cooldown_s)
+            if active or hold > 0:
+                wait = EV_RELEASE_RECHECK_S if active else min(hold, EV_RELEASE_RECHECK_S)
+                recheck = now + timedelta(seconds=max(1.0, wait))
+                due = recheck if due is None else max(due, recheck)
+                pause_now = pause_now or charging
+        return pause_now, due
+
+    async def _stage_ev_release(  # noqa: PLR0917
+        self,
+        intent: Intent,
+        device: DeviceConfig,
+        runtime: DeviceRuntime,
+        actuator: Actuator,
+        observed: Action | None,
+        reason: Reason,
+        now: datetime,
+        mode: OperatingMode,
+    ) -> Decision | None:
+        """Pause a charger now and restore its baseline later (``poll``), or ``None``."""
+        pause_now, due = self._ev_release_due(device, runtime, observed, now)
+        if due is None:
+            return None
+        updated = runtime
+        if pause_now:
+            pause = ChargeAction(current_a=0.0)
+            try:
+                await actuator.apply(
+                    Intent(
+                        id=f"evpause:{device.id}:{now.isoformat()}",
+                        ts=now,
+                        asset_id=device.id,
+                        action=pause,
+                        reasons=(REASON_EV_RELEASE_STAGED, reason),
+                        origin=Origin.SAFETY,
+                    )
+                )
+            except Exception as exc:
+                log.warning("safety.release_failed", device_id=device.id, error=str(exc)[:200])
+                return await self._decide(
+                    intent, DecisionKind.FAILED, now, (REASON_RELEASE_FAILED, reason), mode
+                )
+            updated = updated.model_copy(
+                update={"last_written": pause, "last_write_ts": now}
+            ).with_switch(now, on=False)
+            self._ev_idle_since[device.id] = now
+        updated = updated.model_copy(
+            update={"release_due_ts": due, "release_due_reason": reason.key}
+        )
+        await self._save(updated)
+        return await self._decide(
+            intent,
+            DecisionKind.HELD,
+            now,
+            (REASON_EV_RELEASE_STAGED, reason),
+            mode,
+            held_until=due,
+        )
+
+    # --- grid (PR 6-F, ``safety.grid``) ------------------------------------------------------
+
+    @property
+    def grid_memory(self) -> GridMemory:
+        """The island and §14a history the cool-down (G6) is judged with."""
+        return self._grid_memory
+
+    def seed_grid_memory(self, memory: GridMemory) -> None:
+        """Add a remembered island/§14a history (the app restores it from grid events after a
+        restart); merged conservatively, so a seed never shortens a running hold."""
+        self._grid_memory = merge_grid_memory(self._grid_memory, memory)
+
+    def _observe_grid(self) -> None:
+        """Advance the island/§14a memory with the newest snapshot (idempotent per snapshot)."""
+        inputs = self._inputs()
+        if inputs is None or inputs.ts is None:
+            return
+        self._grid_memory = advance_grid_memory(
+            self._grid_memory, inputs.ts, inputs.grid_state, inputs.para14a_status
+        )
+
+    def _grid_safety(
+        self, inputs: GateInputs, now: datetime, device: DeviceConfig | None
+    ) -> GridSafety:
+        """The grid situation an intent is judged with (G2-G6).
+
+        The §14a sum of the *other* flagged devices takes the upper bound of each estimate,
+        raised to the expected power of a write still in flight (a pending read-back, or a
+        confirmed write within the device's settle time: the estimate may not show it yet), and,
+        conservatively, every increase already let through against the same snapshot; an
+        unknown estimate makes the sum unknown (no increase of a flagged device while dimmed).
+        """
+        self._observe_grid()
+        max_age = timedelta(seconds=self._settings.inputs_max_age_ticks * self._settings.tick_s)
+        fresh = inputs.ts is not None and now - inputs.ts <= max_age
+        others: float | None = 0.0
+        for device_id in inputs.para14a_devices:
+            if device is not None and device_id == device.id:
+                continue
+            estimate = inputs.estimates.get(device_id)
+            if estimate is None or estimate.quality not in (Quality.OK, Quality.STALE):
+                others = None
+                break
+            assert others is not None
+            others += self._para14a_power_w(device_id, estimate, inputs.ts)
+        if others is not None and inputs.ts is not None:
+            others += self._claimed_w()
+        cooldown = self._settings.safe_state_cooldown_s
+        return GridSafety(
+            grid_state=inputs.grid_state,
+            para14a_status=inputs.para14a_status,
+            para14a_budget_w=inputs.para14a_budget_w,
+            para14a_others_w=others,
+            island_hold_s=island_hold_s(self._grid_memory, now, cooldown),
+            para14a_hold_s=para14a_hold_s(self._grid_memory, now, cooldown),
+            fuse_limit_w=inputs.fuse_limit_w,
+            inputs_fresh=fresh,
+        )
+
+    def _para14a_power_w(
+        self, device_id: str, estimate: PowerEstimate, snapshot_ts: datetime | None
+    ) -> float:
+        """Upper power of another §14a device, including a write the estimate may not show.
+
+        A write is in flight while it is sent and not read back (the settle wait), while an
+        unconfirmed read-back is pending, or while the snapshot behind the estimate was taken
+        before the device settled (write + settle time + one tick).
+        """
+        power = estimate.upper_w
+        runtime = self._runtimes.get(device_id)
+        config = self._devices(device_id)
+        if config is None:
+            return power
+        in_flight: list[Action] = []
+        writing = self._writing.get(device_id)
+        if writing is not None:
+            in_flight.append(writing)
+        if runtime is None:
+            runtime = DeviceRuntime(device_id=device_id)
+        if runtime.pending_action is not None:
+            in_flight.append(runtime.pending_action)
+        if (
+            runtime.last_written is not None
+            and runtime.last_write_ts is not None
+            and (
+                snapshot_ts is None
+                or (snapshot_ts - runtime.last_write_ts).total_seconds()
+                < self._settle_s(config) + self._settings.tick_s
+            )
+        ):
+            in_flight.append(runtime.last_written)
+        for action in in_flight:
+            expected = expected_power_w(action, config, estimate)
+            if expected is not None:
+                power = max(power, expected)
+        return power
 
     def _settle_s(self, device: DeviceConfig | None) -> float:
         if device is not None and device.settle_s is not None:
@@ -1932,6 +3308,25 @@ def _was_transition(action: Action, device: DeviceConfig, runtime: DeviceRuntime
     before = action_turns_on(runtime.last_written, device)
     after = action_turns_on(action, device)
     return before is not None and after is not None and before != after
+
+
+def _observed_charge(state: DeviceState | None) -> ChargeAction | None:
+    """The charger's observed state as a ``ChargeAction`` (``None`` = unknown)."""
+    if state is None or not state.known or state.on is None:
+        return None
+    current = state.value if state.value is not None and state.value >= 0 else 0.0
+    return ChargeAction(current_a=current if state.on else 0.0, phases=state.phases)
+
+
+def _changes_phases(action: Action, state: DeviceState | None) -> bool:
+    """A charge that sets phases other than the observed ones (E2 bookkeeping)."""
+    return (
+        isinstance(action, ChargeAction)
+        and action.phases is not None
+        and state is not None
+        and state.phases is not None
+        and state.phases != action.phases
+    )
 
 
 def _no_device(_: str) -> DeviceConfig | None:

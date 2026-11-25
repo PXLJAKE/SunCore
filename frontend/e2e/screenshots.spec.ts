@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Documentation screenshots from the real demo mode (simulator, scenario summer_day, demo
 // started at 09:30 by playwright.config.ts). Nothing is mocked.
-// Run: SCREENSHOTS_DIR=../docs/assets/screenshots npx playwright test screenshots
+// Run: SCREENSHOTS_DIR=../docs/user/assets/screenshots npx playwright test screenshots
 import { expect, test } from '@playwright/test';
-import { resetDemo, STEP_IDS } from './helpers';
+import { openCard, resetDemo, STEP_IDS } from './helpers';
 
 const dir = process.env.SCREENSHOTS_DIR;
 test.skip(!dir, 'set SCREENSHOTS_DIR to take screenshots');
@@ -13,12 +13,16 @@ const shots = [
   { view: 'now', path: '/', scheme: 'dark', locale: 'en-US' },
   { view: 'now', path: '/', scheme: 'light', locale: 'de-DE' },
   { view: 'now', path: '/', scheme: 'dark', locale: 'de-DE' },
-  { view: 'settings', path: '/#/settings', scheme: 'light', locale: 'en-US' },
-  { view: 'settings', path: '/#/settings', scheme: 'light', locale: 'de-DE' },
-  { view: 'plan', path: '/#/plan', scheme: 'light', locale: 'en-US' },
-  { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'en-US' },
-  { view: 'plan', path: '/#/plan', scheme: 'light', locale: 'de-DE' },
-  { view: 'plan', path: '/#/plan', scheme: 'dark', locale: 'de-DE' },
+  { view: 'settings', path: '/#/settings/system', scheme: 'light', locale: 'en-US' },
+  { view: 'settings', path: '/#/settings/system', scheme: 'light', locale: 'de-DE' },
+  { view: 'plan', path: '/#/plan?day=2026-06-20', scheme: 'light', locale: 'en-US' },
+  { view: 'plan', path: '/#/plan?day=2026-06-20', scheme: 'dark', locale: 'en-US' },
+  { view: 'plan', path: '/#/plan?day=2026-06-20', scheme: 'light', locale: 'de-DE' },
+  { view: 'plan', path: '/#/plan?day=2026-06-20', scheme: 'dark', locale: 'de-DE' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'light', locale: 'en-US' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'dark', locale: 'en-US' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'light', locale: 'de-DE' },
+  { view: 'history', path: '/#/history?period=month', scheme: 'dark', locale: 'de-DE' },
 ] as const;
 
 for (const shot of shots) {
@@ -39,12 +43,22 @@ for (const shot of shots) {
     }
     if (shot.view === 'plan') {
       await expect(page.getByTestId('plan-chart').locator('canvas').first()).toBeVisible();
+      await openCard(page, 'fc-card');
       await expect(page.getByTestId('fc-accuracy')).toBeVisible();
+    }
+    if (shot.view === 'history') {
+      for (const chart of ['energy', 'sankey', 'heatmap', 'skill']) {
+        await expect(page.getByTestId(`chart-${chart}`).locator('canvas').first()).toBeVisible();
+      }
+      await expect(page.getByTestId('device-row').first()).toBeVisible();
     }
     // Let the live feed deliver a few updates before the capture.
     await page.waitForTimeout(1500);
     const name = `${shot.view}-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
-    await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
+    // The plan view is shown as its chart card (the page also holds long lists).
+    await (shot.view === 'plan'
+      ? page.getByTestId('plan-chart-card').screenshot({ path: `${dir}/${name}.png` })
+      : page.screenshot({ path: `${dir}/${name}.png`, fullPage: true }));
     await ctx.close();
   });
 }
@@ -118,7 +132,7 @@ for (const shot of controlShots) {
       await page.goto(shot.view === 'decisions' ? '/#/decisions' : '/');
       await expect(page.getByTestId('connection')).toHaveAttribute('data-status', 'live');
       if (shot.view === 'decisions') {
-        await expect(page.getByTestId('log-list').locator('li').first()).toBeVisible({
+        await expect(page.getByTestId('decision-table').locator('tbody tr').first()).toBeVisible({
           timeout: 40_000,
         });
       } else {
@@ -126,6 +140,7 @@ for (const shot of controlShots) {
         await page.getByTestId('estop').click();
         await expect(page.getByTestId('estop-banner')).toBeVisible();
       }
+      if (shot.view === 'decisions') await page.getByTestId('why-button').first().click();
       await page.waitForTimeout(1500);
       const name = `${shot.view}-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
       await page.screenshot({
@@ -241,5 +256,60 @@ for (const locale of ['en-US', 'de-DE'] as const) {
       await ctx.close();
       await resetDemo(request);
     }
+  });
+}
+
+// The what-if view with a finished replay (expert mode on; the run is started through the API).
+for (const shot of [
+  { scheme: 'light', locale: 'en-US' },
+  { scheme: 'dark', locale: 'en-US' },
+  { scheme: 'light', locale: 'de-DE' },
+  { scheme: 'dark', locale: 'de-DE' },
+] as const) {
+  test(`whatif ${shot.scheme} ${shot.locale}`, async ({ browser, request }, info) => {
+    test.skip(info.project.name === 'desktop', 'docs use phone and tablet');
+    const summary = await request.get('/api/v1/history/summary?period=day');
+    const today = ((await summary.json()) as { key: string }).key;
+    const day = (back: number) =>
+      new Date(Date.parse(`${today}T00:00:00Z`) - back * 86_400_000).toISOString().slice(0, 10);
+    const clear = async (cancelFirst: boolean) => {
+      const runs = (await (await request.get('/api/v1/backtests')).json()) as { id: number }[];
+      for (const r of runs) {
+        if (cancelFirst) await request.delete(`/api/v1/backtests/${r.id}`);
+        await request.delete(`/api/v1/backtests/${r.id}`);
+      }
+    };
+    await clear(true);
+    await expect(async () => {
+      const res = await request.post('/api/v1/backtests', {
+        data: {
+          start: day(4),
+          end: day(1),
+          params: { 'planner.mip_gap': 0.02 },
+          battery: { capacity_wh: 12000 },
+          tariff: { kind: 'fixed', import_price: 0.32, export_price: 0.08 },
+          perfect_foresight: true,
+        },
+      });
+      expect(res.status()).toBe(202);
+    }).toPass({ timeout: 30_000 });
+    const ctx = await browser.newContext({
+      colorScheme: shot.scheme,
+      locale: shot.locale,
+      viewport: info.project.use.viewport ?? { width: 1024, height: 768 },
+      hasTouch: info.project.use.hasTouch,
+    });
+    await ctx.addInitScript(() => localStorage.setItem('suncore.expert', '1'));
+    const page = await ctx.newPage();
+    await page.goto('/#/whatif');
+    await expect(page.getByTestId('whatif-result')).toBeVisible({ timeout: 90_000 });
+    for (const c of ['cost', 'soc', 'grid']) {
+      await expect(page.getByTestId(`whatif-plot-${c}`).locator('canvas').first()).toBeVisible();
+    }
+    await page.waitForTimeout(1000);
+    const name = `whatif-${info.project.name}-${shot.scheme}-${shot.locale.slice(0, 2)}`;
+    await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
+    await ctx.close();
+    await clear(false);
   });
 }

@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type { Reason } from '../api/types';
-  import { tDynamic } from '../i18n/index.svelte';
+  import { tReason } from '../control/reasonText';
 
   interface Props {
     reasons: readonly Reason[];
@@ -11,7 +11,7 @@
 
 <ul class="reasons">
   {#each reasons as r, i (i)}
-    <li>{tDynamic(r.key, r.args)}</li>
+    <li>{tReason(r)}</li>
   {/each}
 </ul>
 

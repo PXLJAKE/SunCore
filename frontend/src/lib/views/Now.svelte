@@ -3,17 +3,19 @@
   import BatteryCard from '../components/BatteryCard.svelte';
   import DecisionList from '../components/DecisionList.svelte';
   import ConfirmResult from '../components/ConfirmResult.svelte';
+  import GridBadges from '../components/GridBadges.svelte';
   import DeviceCard from '../components/DeviceCard.svelte';
   import ProposalList from '../components/ProposalList.svelte';
-  import SiteSummary from '../components/SiteSummary.svelte';
-  import EnergyFlow from '../components/EnergyFlow.svelte';
-  import FlowList from '../components/FlowList.svelte';
   import PlannedActions from '../components/PlannedActions.svelte';
+  import EnergyNow from '../components/EnergyNow.svelte';
+  import Card from '../ui/Card.svelte';
+  import SectionHeader from '../ui/SectionHeader.svelte';
   import { nameMap } from '../control/present';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { t } from '../i18n/index.svelte';
   import { isUsable } from '../flow';
   import { plannedActions, windowIntervals } from '../plan/model';
+  import { router } from '../router.svelte';
   import { app } from '../stores/app.svelte';
   import { live } from '../stores/live.svelte';
   import { plan } from '../stores/plan.svelte';
@@ -38,8 +40,21 @@
     void live.snapshotCount;
     plan.syncWithFeed();
   });
+  // `#/?device=<id>` (a link from the decision log) shows and focuses that device's card.
+  const wanted = $derived(router.query.get('device'));
+  let shown: string | null = null;
+  $effect(() => {
+    const id = wanted;
+    if (!id || id === shown || !devices.some((d) => d.device_id === id)) return;
+    shown = id;
+    void tick().then(() => {
+      const card = document.getElementById(`device-card-${id}`);
+      card?.scrollIntoView({ block: 'center' });
+      card?.focus({ preventScroll: true });
+    });
+  });
   const upcoming = $derived(
-    plannedActions(windowIntervals(plan.view, 24, new Date(plan.nowMs)), new Date(plan.nowMs), 4),
+    plannedActions(windowIntervals(plan.view, 24, new Date(plan.nowMs)), new Date(plan.nowMs), 3),
   );
   /** Unit of an adjustable load's value, from its configured control. */
   const unitOf = (id: string): string | undefined => {
@@ -61,101 +76,86 @@
       <a class="btn" href="#/setup">{t('now.open_settings')}</a>
     </div>
   {:else}
-    <div class="card diagram">
-      <EnergyFlow flows={live.flows} {hasBattery} />
-    </div>
-    <FlowList flows={live.flows} {hasBattery} />
+    <GridBadges />
+    <EnergyNow flows={live.flows} {hasBattery} site={live.control?.site ?? null} {devices} />
   {/if}
 
   <ConfirmResult {names} />
 
   <ProposalList proposals={live.control?.proposals ?? []} {names} />
 
-  {#if live.control?.site}<SiteSummary site={live.control.site} {devices} />{/if}
-
-  {#if battery}
-    <section aria-labelledby="battery-title" class="batt">
-      <h3 id="battery-title" class="sr-only">{t('battery.title')}</h3>
-      <BatteryCard {battery} {socPct} powerW={batteryW} />
-    </section>
-  {/if}
-
-  {#if plan.view && !plan.unavailable}
-    <section class="card next" aria-labelledby="next-title" data-testid="now-next-actions">
-      <div class="head">
-        <h3 id="next-title">{t('plan.next.title')}</h3>
-        <a href="#/plan">{t('plan.next.open')}</a>
-      </div>
-      {#if plan.outdated}
-        <p class="notice warn" data-testid="now-plan-outdated">{t('plan.now_outdated')}</p>
-      {:else}
-        <PlannedActions actions={upcoming} testid="now-planned-actions" />
+  {#if battery || (plan.view && !plan.unavailable)}
+    <div class="pair">
+      {#if battery}
+        <BatteryCard {battery} {socPct} powerW={batteryW} />
       {/if}
-    </section>
+      {#if plan.view && !plan.unavailable}
+        <Card title={t('plan.next.title')} testid="now-next-actions">
+          {#snippet actions()}<a href="#/plan">{t('plan.next.open')}</a>{/snippet}
+          {#if plan.outdated}
+            <p class="notice warn" data-testid="now-plan-outdated">{t('plan.now_outdated')}</p>
+          {:else}
+            <PlannedActions actions={upcoming} testid="now-planned-actions" />
+          {/if}
+        </Card>
+      {/if}
+    </div>
   {/if}
 
   <section aria-labelledby="devices-title" class="devices">
-    <h3 id="devices-title">{t('now.devices')}</h3>
+    <SectionHeader title={t('now.devices')} id="devices-title" />
     {#if devices.length === 0}
       <p class="hint" data-testid="no-devices">{t('now.no_devices')}</p>
     {:else}
       <div class="grid" data-testid="device-cards">
         {#each devices as d (d.device_id)}
-          <DeviceCard device={d} unit={unitOf(d.device_id)} />
+          <DeviceCard
+            device={d}
+            unit={unitOf(d.device_id)}
+            config={app.devices?.devices?.find((c) => c.id === d.device_id)}
+          />
         {/each}
       </div>
     {/if}
   </section>
 
-  <div class="card">
-    <div class="head">
-      <h3>{t('decisions.title')}</h3>
-      <a href="#/decisions">{t('decisions.open_log')}</a>
-    </div>
+  <Card title={t('decisions.title')} testid="now-decisions">
+    {#snippet actions()}<a href="#/decisions">{t('decisions.open_log')}</a>{/snippet}
     <DecisionList decisions={live.decisions} {names} />
-  </div>
+  </Card>
 </section>
 
 <style>
   .now {
     display: grid;
-    gap: var(--sc-gap);
+    gap: var(--sc-space-5);
+    min-width: 0;
   }
-  .diagram {
-    padding: 8px;
+  .pair {
+    display: grid;
+    gap: var(--sc-space-4);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    /* Each card keeps its own height: a stretched battery card would end in an empty gap. */
+    align-items: start;
   }
-  h3 {
-    font-size: 1rem;
-    margin-bottom: 8px;
+  .devices {
+    display: grid;
+    gap: var(--sc-space-3);
   }
   .devices .grid {
     display: grid;
-    gap: var(--sc-gap);
+    gap: var(--sc-space-4);
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
-    align-items: start;
-  }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 4px 12px;
   }
   .empty {
     display: grid;
-    gap: 12px;
+    gap: var(--sc-space-3);
     justify-items: start;
   }
   .empty p {
     margin: 0;
   }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    text-decoration: none;
-  }
   .notice.error {
     margin: 0;
-    color: var(--error-color);
   }
 </style>

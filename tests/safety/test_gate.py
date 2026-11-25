@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -99,6 +100,7 @@ def make_harness(
     observed: dict[str, Action | None] | None = None,
     modes: StaticModes | None = None,
     sleep: Sleeper | None = None,
+    actuator_overrides: Mapping[str, Actuator] | None = None,
 ) -> Harness:
     clock = FakeClock()
     actuators = {d.id: SpyActuator(d.id) for d in devices}
@@ -123,7 +125,7 @@ def make_harness(
     gate = SafetyGate(
         clock=clock,
         sink=sink,
-        actuators=actuators,
+        actuators={**actuators, **(actuator_overrides or {})},
         modes=modes,
         devices=by_id.get,
         states=states.get,
@@ -407,6 +409,18 @@ def test_assisted_proposes_then_confirm_writes_as_the_user() -> None:
     assert h.apply_calls == 1
     assert h.gate.proposals() == ()
     assert asyncio.run(h.gate.confirm("i-1")) is None
+
+
+def test_confirm_is_rejected_when_the_mode_is_no_longer_assisted() -> None:
+    h = make_harness(global_mode=ASSISTED)
+    asyncio.run(h.gate.submit(make_intent(SwitchAction(on=True))))
+    h.modes._global = AUTO  # type: ignore[attr-defined]  # assisted -> automatic meanwhile
+    d = asyncio.run(h.gate.confirm("i-1"))
+    assert d is not None
+    assert d.kind is DecisionKind.REJECTED
+    assert d.reasons[0].key == "safety.proposal_mode_changed"
+    assert h.apply_calls == 0
+    assert asyncio.run(h.gate.confirm("i-1")) is None  # spent
 
 
 def test_expired_proposal_is_rejected_on_confirm_and_hidden_from_the_list() -> None:

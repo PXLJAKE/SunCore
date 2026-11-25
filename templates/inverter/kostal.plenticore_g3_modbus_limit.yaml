@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../schema/inverter.schema.json
+# KOSTAL PLENTICORE G3 active power set-point (§3.3 register 533, 1..100 % of the nominal power,
+# U16, function code 0x06) written through Home Assistant's `modbus.write_register` with a single
+# int value. The register is VOLATILE: it is lost on an inverter reset, so SunCore re-writes it
+# every `inverter.modbus.heartbeat_s` while it holds a limit and restores 100 % on release.
+# Prerequisites (done by the user): a `modbus:` hub (port 1502, unit id 71 by default) and a
+# modbus sensor that reads register 533 back - whether 533 is readable is UNVERIFIED; without
+# a readable sensor SunCore never takes the inverter over.
+id: kostal.plenticore_g3_modbus_limit
+kind: inverter
+schema_version: 1
+name: template.kostal.plenticore_g3_modbus_limit.name
+source:
+  - title: "KOSTAL PLENTICORE Modbus TCP interface description rev. 2.9: §3.3 register 533 active power setpoint 1..100 %, FC 0x06, volatile (research summary)"
+    url: "https://github.com/pxljake/SunCore/blob/main/docs/research/kostal-plenticore-modbus.md"
+    date: 2026-10-12
+  - title: "home-assistant/core dev modbus/services.py (write_register: hub, slave, address, int value -> write single register 0x06)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/modbus/services.py"
+    date: 2026-11-24
+tested_with: []
+capabilities: [ac_limit]
+unverified:
+  - "Whether register 533 can be read back (Kostal lists only FC 0x06 for it)."
+  - "Whether 533 limits the AC output including battery discharge."
+  - "Not written on the maintainer's inverter yet: the adapter runs in the simulator only."
+  - "settle_s depends on the scan_interval of the user's modbus sensor (15 s assumed)."
+driver: kostal_modbus
+limit_capability: ac_limit
+min: 1
+max: 100
+settle_s: 15
+volatile: true
+modbus_register: 533
+default_pct: 100
+roles:
+  limit:
+    matcher: { domain: sensor, platforms: [modbus], units: ["%"] }
+    description: template.kostal.plenticore_g3_modbus_limit.role.limit

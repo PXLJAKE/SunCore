@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+name: ev_arrives_late
+description: >-
+  PR 6-I, BRIEF §4.14 "Auto kommt spät". A winter night: the car arrives at 23:00 with 30 %
+  and should have 80 % by 07:00 (mode target); the night prices are cheap from 01:00 to 05:00.
+  The real planner (every quarter hour, the 6-H EV model) places the charging in the cheap
+  hours; the controller charges only where a fresh plan permits grid power (ADR-0017 decision
+  4), and only while SunCore holds the home battery's discharge lock (E6: the house battery
+  never discharges into the car). The import limit holds throughout.
+start: "2026-12-08T22:30:00+01:00"
+duration_s: 30600
+step_s: 30
+house:
+  seed: 61
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 10000, max_charge_w: 5000, max_discharge_w: 5000, initial_soc_pct: 60}
+  inverter:
+    adapter: generic
+    min_soc_pct: 10
+control:
+  import_limit_w: 17000
+battery:
+  mode: automatic
+devices:
+  - id: wallbox
+    template: generic.wallbox
+    physics:
+      kind: wallbox
+      current_max: 16
+      initial_current_a: 16
+      initial_enabled: false
+      initial_soc_pct: 30
+      capacity_wh: 60000
+      arrive_s: 1800
+    control:
+      power_model: {kind: measured, power_role: charger_power, nominal_w: 11040}
+      ev: {capacity_wh: 60000, vehicle_soc_role: vehicle_soc, connected_role: connected}
+      behaviour_confirmed: true
+    ev_mode: target
+    ev_target: {soc_pct: 80, by: "2026-12-09T07:00:00+01:00"}

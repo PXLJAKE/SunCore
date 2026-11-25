@@ -196,10 +196,33 @@ _DEVICE_DOMAIN: Final[dict[str, str]] = {
 }
 
 
-def entity_registry_list_for_display(*, include: set[str] | None = None) -> dict[str, Any]:
+def _flex_registry() -> tuple[
+    tuple[RegEntity, ...], tuple[tuple[str, str, str, str, str | None, str | None], ...]
+]:
+    """Registry rows of the demo's flexible loads (``demo_flex``): one device each."""
+    from suncore.sim.demo_flex import demo_flex_specs  # noqa: PLC0415
+    from suncore.sim.devices import build_device  # noqa: PLC0415
+
+    entities: list[RegEntity] = []
+    devices: list[tuple[str, str, str, str, str | None, str | None]] = []
+    models = {"wallbox": "Wallbox", "program": "Smart plug", "heat_pump": "Heat pump"}
+    for spec in demo_flex_specs():
+        dev_id = f"sim_dev_{spec.id}"
+        sim = build_device(spec.id, spec.physics)
+        devices.append((dev_id, spec.name or spec.id, "SunCore Sim", models[sim.kind], None, None))
+        entities.extend(
+            RegEntity(eid, SIM_PLATFORM, f"{spec.name} {eid.split('_')[-1]}", dev_id)
+            for eid in sim.entity_ids()
+        )
+    return tuple(entities), tuple(devices)
+
+
+def entity_registry_list_for_display(
+    *, include: set[str] | None = None, flex: bool = False
+) -> dict[str, Any]:
     """Payload of ``config/entity_registry/list_for_display`` (compact, optional keys absent)."""
     rows: list[dict[str, Any]] = []
-    for e in ENTITIES:
+    for e in (*ENTITIES, *(_flex_registry()[0] if flex else ())):
         if include is not None and e.entity_id not in include:
             continue
         row: dict[str, Any] = {"ei": e.entity_id, "pl": e.platform}
@@ -216,10 +239,12 @@ def entity_registry_list_for_display(*, include: set[str] | None = None) -> dict
     return {"entity_categories": dict(ENTITY_CATEGORIES), "entities": rows}
 
 
-def entity_registry_list(*, include: set[str] | None = None) -> list[dict[str, Any]]:
+def entity_registry_list(
+    *, include: set[str] | None = None, flex: bool = False
+) -> list[dict[str, Any]]:
     """Payload of ``config/entity_registry/list`` (all keys present, ``null`` when unset)."""
     rows: list[dict[str, Any]] = []
-    for e in ENTITIES:
+    for e in (*ENTITIES, *(_flex_registry()[0] if flex else ())):
         if include is not None and e.entity_id not in include:
             continue
         rows.append(
@@ -251,10 +276,13 @@ def entity_registry_list(*, include: set[str] | None = None) -> list[dict[str, A
     return rows
 
 
-def device_registry_list() -> list[dict[str, Any]]:
+def device_registry_list(*, flex: bool = False) -> list[dict[str, Any]]:
     """Payload of ``config/device_registry/list``."""
     rows: list[dict[str, Any]] = []
-    for dev_id, name, manufacturer, model, area_id, entry_type in _DEVICES:
+    for dev_id, name, manufacturer, model, area_id, entry_type in (
+        *_DEVICES,
+        *(_flex_registry()[1] if flex else ()),
+    ):
         domain = _DEVICE_DOMAIN.get(dev_id, SIM_PLATFORM)
         rows.append(
             {

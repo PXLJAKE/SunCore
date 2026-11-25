@@ -9,6 +9,7 @@
     TemplateSummary,
   } from '../../api/types';
   import { FormError } from '../../api/errors';
+  import InverterVerify from '../../components/InverterVerify.svelte';
   import NumberField from '../../components/NumberField.svelte';
   import RolePicker from '../../components/RolePicker.svelte';
   import SignCheck from '../../components/SignCheck.svelte';
@@ -463,4 +464,6 @@
       <p class="hint">{t('bat.bridge_hint')}</p>
     </fieldset>
   {/if}
+
+  <InverterVerify />
 </WizardShell>

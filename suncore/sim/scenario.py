@@ -29,6 +29,8 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 
 from suncore.core.battery import GridChargePolicy
 from suncore.core.decisions import OperatingMode
+from suncore.core.flex import EvMode, EvTarget
+from suncore.core.grid import PARA14A_DEFAULT_LIMIT_W, Para14aSignalKind, PeakShaving
 from suncore.sim.devices import DeviceParams
 from suncore.sim.house import House, HouseParams
 
@@ -43,7 +45,13 @@ SIM_SIGNALS: Final[tuple[str, ...]] = (
 FaultKind = Literal["unavailable", "stale", "disconnect", "frozen"]
 """``frozen``: the entity keeps reporting its last value (an inverter that hangs)."""
 ManualAction = Literal[
-    "turn_on", "turn_off", "set_temperature", "set_hvac_mode", "set_value", "select_option"
+    "turn_on",
+    "turn_off",
+    "set_temperature",
+    "set_hvac_mode",
+    "set_value",
+    "select_option",
+    "set_contacts",
 ]
 ManualSource = Literal["remote", "ui"]
 """``remote``: a push with an id-only context (remote control, vendor app);
@@ -108,6 +116,23 @@ class OutdoorParams(BaseModel):
         return self.mean_c + self.amplitude_c * math.cos(2 * math.pi * (hour - self.peak_hour) / 24)
 
 
+class SimJob(BaseModel):
+    """PR 6-L: the user arms a program job at ``arm_at_s``, to be finished ``deadline_s`` after
+    the scenario start."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    arm_at_s: int = Field(ge=0)
+    deadline_s: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> SimJob:
+        if self.deadline_s <= self.arm_at_s:
+            msg = "deadline_s must be after arm_at_s"
+            raise ValueError(msg)
+        return self
+
+
 class SimDeviceSpec(BaseModel):
     """One simulated device and, optionally, how the controller sees it."""
 
@@ -123,6 +148,12 @@ class SimDeviceSpec(BaseModel):
     ``min_run_s`` ...) merged over the template defaults."""
     mode: OperatingMode = OperatingMode.AUTOMATIC
     """Operating mode of the device in the runner (the global mode is automatic)."""
+    ev_mode: EvMode | None = None
+    """PR 6-I: the runtime EV mode of a charger (``flex_state``); ``None`` = its default."""
+    ev_target: EvTarget | None = None
+    """PR 6-I: the charging target of mode ``target``."""
+    jobs: tuple[SimJob, ...] = ()
+    """PR 6-L: program jobs the user arms (a ``program`` device with a template)."""
 
     @model_validator(mode="after")
     def _control_needs_template(self) -> SimDeviceSpec:
@@ -154,6 +185,9 @@ class ControlParams(BaseModel):
     climate_before_export: bool = True
     settings: dict[str, float | int] = Field(default_factory=dict)
     """Overrides of ``ControlSettings`` (``smoothing_s``, ``min_write_interval_s`` ...)."""
+    site_battery: bool = True
+    """PR 6-I: ``False`` = the site has no home battery configured (the demo site has one, even
+    when ``house.battery.capacity_wh`` is 0); E6 then needs no discharge lock for EV grid power."""
 
 
 PriceProfile = Literal["default", "negative_midday"]
@@ -186,6 +220,74 @@ class SimBatteryControl(BaseModel):
     fallback_timeout_s: int = Field(default=60, ge=30, le=10_800)
 
 
+class SimInverterControl(BaseModel):
+    """The inverter limit as SunCore controls it in a scenario (PR 6-G; the limiter is
+    ``house.export_limiter``). Mapped onto ``InverterConfig`` by the runner."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mode: OperatingMode = OperatingMode.SHADOW
+    verified: bool = False
+    """``inverter.limit_verified`` (until then at most assisted, X6)."""
+    enforce_static: bool = False
+    heartbeat_s: float = Field(default=60.0, ge=10, le=3600)
+
+
+class SimWindow(BaseModel):
+    """A time window ``[from_s, to_s)`` after the scenario start."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    from_s: int = Field(ge=0)
+    to_s: int = Field(gt=0)
+    power_w: float | None = Field(default=None, ge=0)
+    """§14a ``power_w`` signal: the allowed power the control box reports (``None`` = 0 W)."""
+
+    @model_validator(mode="after")
+    def _ordered(self) -> SimWindow:
+        if self.to_s <= self.from_s:
+            msg = "to_s must be greater than from_s"
+            raise ValueError(msg)
+        return self
+
+    def covers(self, offset_s: float) -> bool:
+        return self.from_s <= offset_s < self.to_s
+
+
+class SimGrid(BaseModel):
+    """The grid connection of a scenario (PR 6-F): peak shaving, §14a and backup power.
+
+    The fake HA publishes ``sensor.sim_backup_state`` (``island`` / ``on_grid``) when
+    ``backup`` is set and the §14a signal (``binary_sensor.sim_para14a`` ``on``/``off``, or
+    ``sensor.sim_para14a_power`` in W, 0 = not dimmed) when ``para14a`` is set; the runner maps
+    them into the site's ``GridConfig``. During an ``outage`` the house runs in island: the
+    grid power is 0, the battery covers the deficit within its limits, PV beyond what the house
+    and the battery take is curtailed.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    peak_shaving: PeakShaving = PeakShaving()
+    para14a: bool = False
+    para14a_signal_kind: Para14aSignalKind = "binary"
+    para14a_limit_w: float = Field(default=PARA14A_DEFAULT_LIMIT_W, gt=0)
+    para14a_windows: tuple[SimWindow, ...] = ()
+    backup: bool = False
+    keep_devices: tuple[str, ...] = ()
+    outages: tuple[SimWindow, ...] = ()
+    export_limit_w: float | None = Field(default=None, ge=0)
+    """PR 6-G: the static export limit of the site's ``GridConfig``."""
+    zero_export: bool = False
+    export_dynamic: bool = False
+    """0 W at a negative export price (only with a verified inverter adapter)."""
+
+    def island_at(self, offset_s: float) -> bool:
+        return any(w.covers(offset_s) for w in self.outages)
+
+    def para14a_at(self, offset_s: float) -> SimWindow | None:
+        return next((w for w in self.para14a_windows if w.covers(offset_s)), None)
+
+
 class Scenario(BaseModel):
     """A complete simulator scenario."""
 
@@ -206,6 +308,10 @@ class Scenario(BaseModel):
     prices: PriceParams = PriceParams()
     battery: SimBatteryControl | None = None
     """WP10: SunCore controls the battery through ``house.inverter`` (``None`` = observe)."""
+    grid: SimGrid | None = None
+    """PR 6-F: peak shaving, §14a signal and grid outages (``None`` = a plain connection)."""
+    inverter: SimInverterControl | None = None
+    """PR 6-G: SunCore controls the inverter limit through ``house.export_limiter``."""
 
     @model_validator(mode="after")
     def _check(self) -> Scenario:
@@ -235,6 +341,9 @@ class Scenario(BaseModel):
     def _battery(self) -> Scenario:
         if self.battery is not None and self.house.inverter is None:
             msg = "battery control needs house.inverter"
+            raise ValueError(msg)
+        if self.inverter is not None and self.house.export_limiter is None:
+            msg = "inverter control needs house.export_limiter"
             raise ValueError(msg)
         return self
 

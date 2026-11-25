@@ -1,0 +1,221 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/*
+ * Design tokens (ADR-0019). Two layers:
+ *
+ * 1. Inputs carry the names of Home Assistant's theme variables (verified against the HA frontend,
+ *    ADR-0019). The theme bridge (bridge.ts) copies the user's HA theme onto them; the values
+ *    below are our defaults for a standalone browser and follow prefers-color-scheme.
+ *    `data-theme="light|dark"` on <html> forces a scheme (tests, ?theme=).
+ * 2. Semantic `--sc-*` tokens derive from the inputs. Components use only these.
+ *
+ * Tints use color-mix(). Custom properties cannot fall back declaration by declaration (an
+ * unsupported function inside var() makes the use invalid, not the previous value), so the static
+ * tints are declared per scheme and the color-mix() versions replace them inside @supports.
+ *
+ * Contrast of our defaults is checked by tokens.test.ts (text 4.5:1, UI and chart lines 3:1).
+ * The read-only mirror for charts and tests is tokens.ts.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* --- inputs (HA names) --- */
+  --primary-color: #0369a1;
+  --accent-color: #0369a1;
+  --primary-text-color: #1f2328;
+  --secondary-text-color: #57606a;
+  --text-primary-color: #ffffff;
+  --card-background-color: #ffffff;
+  --primary-background-color: #f3f4f6;
+  --secondary-background-color: #e9ebee;
+  --divider-color: #dde1e6;
+  --error-color: #b42318;
+  --warning-color: #8a5100;
+  --success-color: #1b6e2d;
+  --info-color: #0369a1;
+  --energy-solar-color: #b45f06;
+  --energy-grid-consumption-color: #2f6fa8;
+  --energy-grid-return-color: #7040b8;
+  --energy-battery-in-color: #00796b;
+  --energy-battery-out-color: #c2185b;
+
+  /* --- surfaces --- */
+  --sc-bg: var(--primary-background-color);
+  --sc-surface: var(--card-background-color);
+  --sc-surface-raised: var(--card-background-color);
+  --sc-surface-sunken: var(--primary-background-color);
+  --sc-outline: var(--divider-color);
+  --sc-outline-strong: #868d94;
+  --sc-scrim: rgb(15 20 25 / 0.5);
+
+  /* --- text --- */
+  --sc-text: var(--primary-text-color);
+  --sc-text-muted: var(--secondary-text-color);
+  --sc-text-on-accent: var(--text-primary-color);
+
+  /* --- accent and status: base (text and icons on surfaces), -bg tint, -fg on the solid base --- */
+  --sc-accent: var(--primary-color);
+  --sc-accent-bg: #e1edf4;
+  --sc-accent-fg: var(--text-primary-color);
+  --sc-ok: var(--success-color);
+  --sc-ok-bg: #e4eee6;
+  --sc-ok-fg: var(--card-background-color);
+  --sc-warn: var(--warning-color);
+  --sc-warn-bg: #f1eae0;
+  --sc-warn-fg: var(--card-background-color);
+  --sc-error: var(--error-color);
+  --sc-error-bg: #f6e5e3;
+  --sc-error-fg: var(--card-background-color);
+  --sc-info: var(--info-color);
+  --sc-info-bg: #e1edf4;
+  --sc-info-fg: var(--card-background-color);
+
+  /* --- energy: one palette for flow, cards and charts --- */
+  --sc-energy-pv: var(--energy-solar-color);
+  --sc-energy-grid-in: var(--energy-grid-consumption-color);
+  --sc-energy-grid-out: var(--energy-grid-return-color);
+  --sc-energy-bat-in: var(--energy-battery-in-color);
+  --sc-energy-bat-out: var(--energy-battery-out-color);
+  --sc-energy-house: #4b5563;
+  --sc-energy-device: #4d7c0f;
+
+  /* --- type --- */
+  --sc-font-family:
+    Roboto, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --sc-font-xs: 0.75rem;
+  --sc-font-sm: 0.875rem;
+  --sc-font-md: 1rem;
+  --sc-font-lg: 1.125rem;
+  --sc-font-xl: 1.375rem;
+  --sc-font-2xl: 1.75rem;
+  --sc-weight-regular: 400;
+  --sc-weight-strong: 600;
+  --sc-leading-tight: 1.2;
+  --sc-leading-normal: 1.45;
+
+  /* --- spacing (4, 8, 12, 16, 24, 32, 48, 64 px) --- */
+  --sc-space-1: 0.25rem;
+  --sc-space-2: 0.5rem;
+  --sc-space-3: 0.75rem;
+  --sc-space-4: 1rem;
+  --sc-space-5: 1.5rem;
+  --sc-space-6: 2rem;
+  --sc-space-7: 3rem;
+  --sc-space-8: 4rem;
+
+  /* --- radius --- */
+  --sc-radius-sm: 6px;
+  --sc-radius-md: 12px;
+  --sc-radius-lg: 16px;
+  --sc-radius-pill: 999px;
+
+  /* --- elevation: soft shadows in light --- */
+  --sc-elev-0: none;
+  --sc-elev-1: 0 1px 2px rgb(16 24 40 / 0.05), 0 1px 3px rgb(16 24 40 / 0.06);
+  --sc-elev-2: 0 10px 28px rgb(16 24 40 / 0.14), 0 2px 6px rgb(16 24 40 / 0.08);
+
+  /* --- motion --- */
+  --sc-motion-fast: 120ms;
+  --sc-motion-normal: 200ms;
+
+  /* --- layout (breakpoints 600 and 1024 px live in the media queries) --- */
+  --sc-content-max: 1200px;
+  --sc-appbar-h: 64px;
+  --sc-bottombar-h: 64px;
+  --sc-target: 44px;
+
+  /* --- aliases kept until the last view moved (ADR-0019) --- */
+  --sc-radius: var(--sc-radius-md);
+  --sc-gap: var(--sc-space-4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --primary-color: #4fb3e8;
+    --accent-color: #4fb3e8;
+    --primary-text-color: #e6e7e9;
+    --secondary-text-color: #a4a9b0;
+    --text-primary-color: #0b1620;
+    --card-background-color: #1c1d20;
+    --primary-background-color: #121315;
+    --secondary-background-color: #26282c;
+    --divider-color: #33363b;
+    --error-color: #ff8a80;
+    --warning-color: #ffb74d;
+    --success-color: #81c995;
+    --info-color: #4fb3e8;
+    --energy-solar-color: #ffb74d;
+    --energy-grid-consumption-color: #6fb1ea;
+    --energy-grid-return-color: #b794f4;
+    --energy-battery-in-color: #4db6ac;
+    --energy-battery-out-color: #f48fb1;
+    --sc-surface-raised: var(--secondary-background-color);
+    --sc-outline-strong: #7e8288;
+    --sc-scrim: rgb(0 0 0 / 0.6);
+    --sc-accent-bg: #222f38;
+    --sc-ok-bg: #28322e;
+    --sc-warn-bg: #372f25;
+    --sc-error-bg: #372a2c;
+    --sc-info-bg: #222f38;
+    --sc-energy-house: #c3c8cf;
+    --sc-energy-device: #a3d977;
+    --sc-elev-1: none;
+    --sc-elev-2: 0 10px 28px rgb(0 0 0 / 0.55);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --primary-color: #4fb3e8;
+  --accent-color: #4fb3e8;
+  --primary-text-color: #e6e7e9;
+  --secondary-text-color: #a4a9b0;
+  --text-primary-color: #0b1620;
+  --card-background-color: #1c1d20;
+  --primary-background-color: #121315;
+  --secondary-background-color: #26282c;
+  --divider-color: #33363b;
+  --error-color: #ff8a80;
+  --warning-color: #ffb74d;
+  --success-color: #81c995;
+  --info-color: #4fb3e8;
+  --energy-solar-color: #ffb74d;
+  --energy-grid-consumption-color: #6fb1ea;
+  --energy-grid-return-color: #b794f4;
+  --energy-battery-in-color: #4db6ac;
+  --energy-battery-out-color: #f48fb1;
+  --sc-surface-raised: var(--secondary-background-color);
+  --sc-outline-strong: #7e8288;
+  --sc-scrim: rgb(0 0 0 / 0.6);
+  --sc-accent-bg: #222f38;
+  --sc-ok-bg: #28322e;
+  --sc-warn-bg: #372f25;
+  --sc-error-bg: #372a2c;
+  --sc-info-bg: #222f38;
+  --sc-energy-house: #c3c8cf;
+  --sc-energy-device: #a3d977;
+  --sc-elev-1: none;
+  --sc-elev-2: 0 10px 28px rgb(0 0 0 / 0.55);
+}
+
+/* Tints and the strong outline follow the user's HA theme where color-mix() exists. */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  /* Tripled :root outranks the scheme blocks above, whatever the scheme. */
+  :root:root:root {
+    --sc-outline-strong: color-mix(in srgb, var(--sc-text-muted) 72%, var(--sc-surface));
+    --sc-accent-bg: color-mix(in srgb, var(--sc-accent) 12%, var(--sc-surface));
+    --sc-ok-bg: color-mix(in srgb, var(--sc-ok) 12%, var(--sc-surface));
+    --sc-warn-bg: color-mix(in srgb, var(--sc-warn) 12%, var(--sc-surface));
+    --sc-error-bg: color-mix(in srgb, var(--sc-error) 12%, var(--sc-surface));
+    --sc-info-bg: color-mix(in srgb, var(--sc-info) 12%, var(--sc-surface));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sc-motion-fast: 0ms;
+    --sc-motion-normal: 0ms;
+  }
+}

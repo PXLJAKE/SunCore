@@ -55,7 +55,14 @@
         "discharge_limit",
         "grid_charge",
         "battery_modes",
-        "hardware_fallback"
+        "hardware_fallback",
+        "ev_charging",
+        "phase_switching",
+        "sg_ready",
+        "remote_start",
+        "export_limit",
+        "ac_limit",
+        "backup_state"
       ],
       "title": "Capability",
       "type": "string"

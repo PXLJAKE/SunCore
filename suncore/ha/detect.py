@@ -187,6 +187,14 @@ SITE_ROLES: Final[Mapping[str, SiteRole]] = {
             keywords=("14a", "para14", "evu", "sperre", "rundsteuer", "netzbetreiber", "ripple"),
             require_keyword=True,
         ),
+        _role(
+            "backup_state",
+            (EntityMatcher(domain="sensor"), False),
+            (EntityMatcher(domain="binary_sensor"), False),
+            (EntityMatcher(domain="input_select"), False),
+            keywords=("backup", "ersatzstrom", "notstrom", "island", "inselbetrieb", "off-grid"),
+            require_keyword=True,
+        ),
     )
 }
 """All site roles by key (the ``?role=`` values of ``GET /api/v1/entities``)."""

@@ -7,6 +7,7 @@ Nothing outside this package knows which transport runs (ADR-0010).
 from suncore.ha.cache import CachedEntity, EntityCache
 from suncore.ha.candidates import EntityCandidate, entity_candidates
 from suncore.ha.connection import (
+    NOTIFY_ACTION_EVENT,
     REGISTRY_EVENT_TYPES,
     ActionNotAllowedError,
     ActionRateLimitedError,
@@ -22,6 +23,9 @@ from suncore.ha.connection import (
     HAError,
     HeartbeatTimeoutError,
     NotConnectedError,
+    NotificationAction,
+    NotificationActionListener,
+    NotifyNotAllowedError,
     ProtocolError,
     RateLimiter,
     RegistryListener,
@@ -64,6 +68,7 @@ from suncore.ha.websocket import Backoff, WebSocketConnection
 
 __all__ = [
     "CRITERION_KEYS",
+    "NOTIFY_ACTION_EVENT",
     "REGISTRY_EVENT_TYPES",
     "SITE_ROLES",
     "ActionNotAllowedError",
@@ -87,6 +92,9 @@ __all__ = [
     "HeartbeatTimeoutError",
     "Match",
     "NotConnectedError",
+    "NotificationAction",
+    "NotificationActionListener",
+    "NotifyNotAllowedError",
     "ProtocolError",
     "RateLimiter",
     "RegistryDevice",

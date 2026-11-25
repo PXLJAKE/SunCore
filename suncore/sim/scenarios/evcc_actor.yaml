@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+name: evcc_actor
+description: >-
+  PR 6-J. evcc as actor on the fake evcc (no broker): an evcc loadpoint starts in mode `off`
+  (evcc's own default); SunCore, in EV mode pv, sets it to `smart` with the wiring limit and lets
+  evcc follow the PV surplus. Only mode, maxCurrent and limitSoc of the loadpoint are ever
+  written; nothing is imported for the car. The car leaves at 11:30; SunCore does not raise
+  anything for an unplugged vehicle.
+start: "2026-05-10T08:00:00+02:00"
+duration_s: 14400
+step_s: 5
+house:
+  seed: 41
+  pv: {kwp: 9.0}
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 15.0, amplitude_c: 5.0}
+control:
+  import_limit_w: 16000
+  site_battery: false
+devices:
+  - id: evcc_lp
+    template: evcc.loadpoint
+    physics:
+      kind: loadpoint
+      initial_mode: "off"
+      initial_max_current_a: 10
+      initial_limit_soc_pct: 90
+      initial_soc_pct: 20
+      capacity_wh: 60000
+      depart_s: 12600
+    control:
+      behaviour_confirmed: true
+    ev_mode: pv
+clouds:
+  - {at_s: 0, factor: 0.9}
+  - {at_s: 3600, factor: 1.0}
+  - {at_s: 5400, factor: 0.7}
+  - {at_s: 7200, factor: 1.0}

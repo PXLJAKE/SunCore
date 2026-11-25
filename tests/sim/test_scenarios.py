@@ -488,7 +488,8 @@ def test_nothing_is_raised_while_the_grid_imports_above_the_limit() -> None:
     caused, _ = caused_import_wh("grid_limit")
     assert caused <= 10.0
     reasons = {r.key for d in result.accepted("rod") for r in d.reasons}
-    assert "controller.import_limit" in reasons
+    # The scenario's limit is the fuse limit (no peak shaving): shedding above it (PR 6-F).
+    assert "controller.grid.fuse_shed" in reasons
 
 
 def test_the_pool_pump_is_not_switched_on_without_a_real_surplus() -> None:

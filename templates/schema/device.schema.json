@@ -23,10 +23,142 @@
         "discharge_limit",
         "grid_charge",
         "battery_modes",
-        "hardware_fallback"
+        "hardware_fallback",
+        "ev_charging",
+        "phase_switching",
+        "sg_ready",
+        "remote_start",
+        "export_limit",
+        "ac_limit",
+        "backup_state"
       ],
       "title": "Capability",
       "type": "string"
+    },
+    "ChargerControl": {
+      "additionalProperties": false,
+      "description": "An EV charger driven through Home Assistant entities (ADR-0017 decision 1, PR 6-I).\n\n``role`` is the charging current (number entity, A); ``enable_role`` an optional switch;\n``phases_role`` an optional select or switch whose option for one and for three phases is\n``phase_option_1`` / ``phase_option_3``. ``phases`` is the number of phases the charger is\nwired with; ``phase_switching`` needs a ``phases_role`` and a three-phase charger (plan §0\ndecision 6). ``phase_switch_pause_s`` is the pause around a switch (vendor-dependent,\n``UNVERIFIED``), ``max_phase_switches_per_hour`` the wear limit. Written by ``ChargeAction``.",
+      "properties": {
+        "enable_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enable Role"
+        },
+        "kind": {
+          "const": "charger",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_current_a": {
+          "exclusiveMinimum": 1,
+          "maximum": 500,
+          "title": "Max Current A",
+          "type": "number"
+        },
+        "max_phase_switches_per_hour": {
+          "default": 4,
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Max Phase Switches Per Hour",
+          "type": "integer"
+        },
+        "min_current_a": {
+          "default": 6.0,
+          "maximum": 80,
+          "minimum": 1,
+          "title": "Min Current A",
+          "type": "number"
+        },
+        "phase_option_1": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phase Option 1"
+        },
+        "phase_option_3": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phase Option 3"
+        },
+        "phase_switch_pause_s": {
+          "default": 120,
+          "maximum": 900,
+          "minimum": 0,
+          "title": "Phase Switch Pause S",
+          "type": "integer"
+        },
+        "phase_switching": {
+          "default": false,
+          "title": "Phase Switching",
+          "type": "boolean"
+        },
+        "phases": {
+          "default": 3,
+          "enum": [
+            1,
+            3
+          ],
+          "title": "Phases",
+          "type": "integer"
+        },
+        "phases_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phases Role"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "voltage_v": {
+          "default": 230.0,
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "title": "Voltage V",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "max_current_a"
+      ],
+      "title": "ChargerControl",
+      "type": "object"
     },
     "ComfortBand": {
       "additionalProperties": false,
@@ -125,9 +257,58 @@
       "title": "ContinuousControl",
       "type": "object"
     },
+    "CopCurve": {
+      "additionalProperties": false,
+      "description": "COP over outdoor temperature: 2-8 points, piecewise linear, clamped at the ends.\n\n``assumed`` marks a curve that is not from a vendor source (the generic default); the UI\nlabels it as an assumption.",
+      "properties": {
+        "assumed": {
+          "default": false,
+          "title": "Assumed",
+          "type": "boolean"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/CopPoint"
+          },
+          "maxItems": 8,
+          "minItems": 2,
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "points"
+      ],
+      "title": "CopCurve",
+      "type": "object"
+    },
+    "CopPoint": {
+      "additionalProperties": false,
+      "description": "The coefficient of performance at one outdoor temperature.",
+      "properties": {
+        "cop": {
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "title": "Cop",
+          "type": "number"
+        },
+        "outdoor_c": {
+          "maximum": 50,
+          "minimum": -40,
+          "title": "Outdoor C",
+          "type": "number"
+        }
+      },
+      "required": [
+        "outdoor_c",
+        "cop"
+      ],
+      "title": "CopPoint",
+      "type": "object"
+    },
     "DeviceDefaults": {
       "additionalProperties": false,
-      "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.",
+      "description": "Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.\n\nPhase 6 (additive): ``ev`` (wallbox), ``program`` (program) and ``thermal`` (thermal kinds,\ne.g. a vendor COP curve with the template's ``source``) - the same models as on the device.",
       "properties": {
         "comfort": {
           "anyOf": [
@@ -143,11 +324,15 @@
         "control": {
           "discriminator": {
             "mapping": {
+              "charger": "#/$defs/ChargerControl",
               "continuous": "#/$defs/ContinuousControl",
+              "loadpoint": "#/$defs/LoadpointControl",
               "mode": "#/$defs/ModeControl",
+              "notify": "#/$defs/NotifyControl",
               "on_off": "#/$defs/OnOffControl",
               "relays": "#/$defs/RelaysControl",
               "setpoint": "#/$defs/SetpointControl",
+              "sg_ready": "#/$defs/SgReadyControl",
               "steps": "#/$defs/StepsControl"
             },
             "propertyName": "kind"
@@ -170,9 +355,32 @@
             },
             {
               "$ref": "#/$defs/RelaysControl"
+            },
+            {
+              "$ref": "#/$defs/ChargerControl"
+            },
+            {
+              "$ref": "#/$defs/SgReadyControl"
+            },
+            {
+              "$ref": "#/$defs/LoadpointControl"
+            },
+            {
+              "$ref": "#/$defs/NotifyControl"
             }
           ],
           "title": "Control"
+        },
+        "ev": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "hysteresis_delay_s": {
           "anyOf": [
@@ -233,6 +441,17 @@
         "power_model": {
           "$ref": "#/$defs/PowerModelDefault"
         },
+        "program": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProgramSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "settle_s": {
           "anyOf": [
             {
@@ -246,6 +465,17 @@
           ],
           "default": null,
           "title": "Settle S"
+        },
+        "thermal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ThermalSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -390,6 +620,189 @@
       "title": "EntityMatcher",
       "type": "object"
     },
+    "EvMode": {
+      "description": "User-chosen EV charging mode (BRIEF §4.5).",
+      "enum": [
+        "off",
+        "now",
+        "min_pv",
+        "pv",
+        "target"
+      ],
+      "title": "EvMode",
+      "type": "string"
+    },
+    "EvSpec": {
+      "additionalProperties": false,
+      "description": "The vehicle behind a charger (kind ``wallbox``; one vehicle per charger in v1).\n\nRoles (all optional, mapped in ``DeviceConfig.entities``): ``vehicle_soc_role`` (sensor %),\n``connected_role`` (binary sensor), ``charging_role`` (binary sensor). Without a SoC the\ntargets are energy-based. ``efficiency`` is the charging efficiency (losses, default 0.9).",
+      "properties": {
+        "capacity_wh": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 500000,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capacity Wh"
+        },
+        "charging_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charging Role"
+        },
+        "connected_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connected Role"
+        },
+        "default_mode": {
+          "$ref": "#/$defs/EvMode",
+          "default": "pv"
+        },
+        "efficiency": {
+          "default": 0.9,
+          "exclusiveMinimum": 0.5,
+          "maximum": 1,
+          "title": "Efficiency",
+          "type": "number"
+        },
+        "vehicle_soc_role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vehicle Soc Role"
+        }
+      },
+      "title": "EvSpec",
+      "type": "object"
+    },
+    "LearnedThermal": {
+      "additionalProperties": false,
+      "description": "A fitted model with its quality (``nrmse`` of a 24 h replay) and history length.",
+      "properties": {
+        "fitted_at": {
+          "format": "date-time",
+          "title": "Fitted At",
+          "type": "string"
+        },
+        "history_days": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "History Days",
+          "type": "integer"
+        },
+        "model": {
+          "$ref": "#/$defs/ThermalModel"
+        },
+        "nrmse": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Nrmse",
+          "type": "number"
+        }
+      },
+      "required": [
+        "model",
+        "nrmse",
+        "history_days",
+        "fitted_at"
+      ],
+      "title": "LearnedThermal",
+      "type": "object"
+    },
+    "LoadpointControl": {
+      "additionalProperties": false,
+      "description": "An evcc loadpoint driven over evcc's MQTT API (ADR-0017 decision 2, PR 6-J).\n\nNo Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and\n``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.\nLoadpoint ids start at 1 in the evcc source read on 2026-11-24 (``server/mqtt.go``).",
+      "properties": {
+        "kind": {
+          "const": "loadpoint",
+          "title": "Kind",
+          "type": "string"
+        },
+        "loadpoint_id": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Loadpoint Id",
+          "type": "integer"
+        },
+        "max_current_a": {
+          "default": 16.0,
+          "exclusiveMinimum": 0,
+          "maximum": 500,
+          "title": "Max Current A",
+          "type": "number"
+        },
+        "phases": {
+          "default": 3,
+          "enum": [
+            1,
+            3
+          ],
+          "title": "Phases",
+          "type": "integer"
+        },
+        "topic_prefix": {
+          "default": "evcc",
+          "pattern": "^[A-Za-z0-9_-]{1,32}(/[A-Za-z0-9_-]{1,32}){0,3}$",
+          "title": "Topic Prefix",
+          "type": "string"
+        },
+        "vehicle": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vehicle"
+        },
+        "voltage_v": {
+          "default": 230.0,
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "title": "Voltage V",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "loadpoint_id"
+      ],
+      "title": "LoadpointControl",
+      "type": "object"
+    },
     "Mode": {
       "additionalProperties": false,
       "description": "One mode of a mode-controlled device and the power it draws.",
@@ -444,6 +857,22 @@
         "modes"
       ],
       "title": "ModeControl",
+      "type": "object"
+    },
+    "NotifyControl": {
+      "additionalProperties": false,
+      "description": "A program that SunCore never switches (PR 6-L, plan §8 6-B question \"notify-only\").\n\nThe user is asked to start the appliance by a notification; SunCore writes nothing and\ndetects the start by the appliance's power. Valid only for kind ``program`` with\n``program.start_method: notify``.",
+      "properties": {
+        "kind": {
+          "const": "notify",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "NotifyControl",
       "type": "object"
     },
     "OnOffControl": {
@@ -546,6 +975,56 @@
       ],
       "title": "PowerModelKind",
       "type": "string"
+    },
+    "ProgramSpec": {
+      "additionalProperties": false,
+      "description": "A shiftable program (kind ``program``; ADR-0017 decision 7).\n\n``profile_wh`` is the energy per 15 minutes of a run (``None`` = nominal power x run time);\nits length must cover ``runtime_min``. ``start_method``: ``plug`` (a smart plug switched on;\nneeds ``resume_confirmed``, the user's statement that the appliance resumes after power\nreturns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or\n``notify`` (the user is asked to start it). ``idle_w`` is the \"finished\" threshold.\n\nPR 6-L: the ``resume_confirmed`` rule is checked on the device (``DeviceConfig``), not here,\nso a template can default to ``plug`` while the user still has to confirm on the device.",
+      "properties": {
+        "idle_w": {
+          "default": 5.0,
+          "exclusiveMinimum": 0,
+          "maximum": 500,
+          "title": "Idle W",
+          "type": "number"
+        },
+        "profile_wh": {
+          "default": [],
+          "items": {
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "maxItems": 96,
+          "title": "Profile Wh",
+          "type": "array"
+        },
+        "resume_confirmed": {
+          "default": false,
+          "title": "Resume Confirmed",
+          "type": "boolean"
+        },
+        "runtime_min": {
+          "maximum": 1440,
+          "minimum": 1,
+          "title": "Runtime Min",
+          "type": "integer"
+        },
+        "start_method": {
+          "enum": [
+            "plug",
+            "remote",
+            "notify"
+          ],
+          "title": "Start Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime_min",
+        "start_method"
+      ],
+      "title": "ProgramSpec",
+      "type": "object"
     },
     "RelayStep": {
       "additionalProperties": false,
@@ -686,6 +1165,85 @@
       "title": "SetpointControl",
       "type": "object"
     },
+    "SgContacts": {
+      "additionalProperties": false,
+      "description": "The two SG-Ready contacts of one state (``True`` = closed / switch on).",
+      "properties": {
+        "a": {
+          "title": "A",
+          "type": "boolean"
+        },
+        "b": {
+          "title": "B",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "title": "SgContacts",
+      "type": "object"
+    },
+    "SgReadyControl": {
+      "additionalProperties": false,
+      "description": "SG-Ready heat pump interface: two contact switches (ADR-0017 decision 5, PR 6-K).\n\nWritten with ``StepAction``: step 0 = SG state 2 (normal, the baseline and release),\n1 = state 3 (intensified), 2 = state 4 (forced on, only with ``allow_forced``). **State 1\n(utility block) has no step and is never written.** Which contact pair selects which state\nis vendor-specific: the template states it with a ``source`` (``UNVERIFIED`` otherwise).",
+      "properties": {
+        "allow_forced": {
+          "default": false,
+          "title": "Allow Forced",
+          "type": "boolean"
+        },
+        "contact_a": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Contact A",
+          "type": "string"
+        },
+        "contact_b": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Contact B",
+          "type": "string"
+        },
+        "forced": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SgContacts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "intensified": {
+          "$ref": "#/$defs/SgContacts"
+        },
+        "kind": {
+          "const": "sg_ready",
+          "title": "Kind",
+          "type": "string"
+        },
+        "min_dwell_s": {
+          "default": 600,
+          "maximum": 86400,
+          "minimum": 600,
+          "title": "Min Dwell S",
+          "type": "integer"
+        },
+        "normal": {
+          "$ref": "#/$defs/SgContacts"
+        }
+      },
+      "required": [
+        "kind",
+        "contact_a",
+        "contact_b",
+        "normal",
+        "intensified"
+      ],
+      "title": "SgReadyControl",
+      "type": "object"
+    },
     "SourceRef": {
       "additionalProperties": false,
       "description": "Documentation a template (or one of its facts) is based on.",
@@ -802,6 +1360,72 @@
         "version"
       ],
       "title": "TestedWith",
+      "type": "object"
+    },
+    "ThermalModel": {
+      "additionalProperties": false,
+      "description": "First-order RC parameters of a thermal store.",
+      "properties": {
+        "capacity_wh_per_k": {
+          "exclusiveMinimum": 0,
+          "maximum": 1000000,
+          "title": "Capacity Wh Per K",
+          "type": "number"
+        },
+        "internal_gain_w": {
+          "default": 0.0,
+          "maximum": 100000,
+          "minimum": -100000,
+          "title": "Internal Gain W",
+          "type": "number"
+        },
+        "loss_w_per_k": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Loss W Per K",
+          "type": "number"
+        }
+      },
+      "required": [
+        "capacity_wh_per_k",
+        "loss_w_per_k"
+      ],
+      "title": "ThermalModel",
+      "type": "object"
+    },
+    "ThermalSpec": {
+      "additionalProperties": false,
+      "description": "Heat-pump and thermal-store options (ADR-0017 decision 6; kinds with a comfort band).\n\n``cop`` ``None`` = the generic air/water assumption (``core.thermal``); ``learned`` is the\nfitted RC model (written by the learner, PR 6-K). ``grid_preheat`` allows pre-heating\nwith cheap grid energy (default off, plan §0 decision 8); the lift band is the device's\ncomfort band.",
+      "properties": {
+        "cop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CopCurve"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "grid_preheat": {
+          "default": false,
+          "title": "Grid Preheat",
+          "type": "boolean"
+        },
+        "learned": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearnedThermal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ThermalSpec",
       "type": "object"
     }
   },

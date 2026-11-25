@@ -27,7 +27,8 @@ median of the known prices of the same kind and counted (``prices_filled_slots``
 charging is never planned in a slot without a known price.
 
 Times are UTC, powers W (mean over the slot), energies Wh, prices currency/kWh; battery
-+ = charging (``core/units.py``).
++ = charging (``core/units.py``). Energy in slot ``t`` is ``power * hours[t]``: the first slot
+counts only the time left after ``now`` (:mod:`suncore.planner.slots`, late-car gap, WP9).
 """
 
 from __future__ import annotations
@@ -69,6 +70,19 @@ from suncore.core.series import (
 )
 from suncore.core.site import BatteryConfig
 from suncore.planner import reasons as rk
+from suncore.planner.flex import (
+    FlexLoad,
+    FlexRequest,
+    GridRequest,
+    PlannerEv,
+    PlannerGrid,
+    PlannerJob,
+    PlannerThermal,
+    build_flex,
+    build_grid,
+    cap_para14a_floors,
+)
+from suncore.planner.slots import slot_hours
 
 PLANNER_HORIZON: Final = timedelta(hours=48)
 DEFAULT_BUDGET_S: Final = 8.0
@@ -184,6 +198,9 @@ class PlannerWeights:
     target_penalty_per_kwh: float | None = None
     reserve_penalty_per_kwh: float | None = None
     terminal_value_per_kwh: float | None = None
+    comfort_penalty_per_kh: float | None = None
+    """Phase 6: per K and hour outside a thermal device's comfort band (``None`` = derived,
+    ``flexmodel.flex_economics``)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,12 +242,25 @@ class PlannerInputs:
     reasons: tuple[Reason, ...] = ()
     """Plan-level reasons about the inputs (no prices, missing forecasts)."""
     assumptions: Mapping[str, ScalarArg] = field(default_factory=dict)
+    # Phase 6 WP8 (module ``flex``): flexible loads and grid limits, each only when present.
+    evs: tuple[PlannerEv, ...] = ()
+    jobs: tuple[PlannerJob, ...] = ()
+    thermals: tuple[PlannerThermal, ...] = ()
+    grid: PlannerGrid | None = None
+    import_limits_w: tuple[float | None, ...] = ()
+    """Effective import limit per slot (``core.grid``); empty = ``import_limit_w`` everywhere."""
+    export_limits_w: tuple[float | None, ...] = ()
+    """Effective export limit per slot; empty = ``export_limit_w`` everywhere."""
+    hours: tuple[float, ...] = field(init=False, repr=False, compare=False)
+    """Usable hours per slot, derived from ``now`` (:func:`~suncore.planner.slots.slot_hours`):
+    the first slot only counts the time left. Every energy and cost is ``power * hours[t]``."""
 
     def __post_init__(self) -> None:
         n = len(self.starts)
         if n == 0:
             msg = "planner inputs: empty grid"
             raise ValueError(msg)
+        object.__setattr__(self, "hours", slot_hours(self.now, self.starts, self.step))
         series = (
             self.import_price,
             self.export_price,
@@ -254,6 +284,17 @@ class PlannerInputs:
         if any(len(d.allowed) != n for d in self.devices):
             msg = "planner inputs: device windows need one value per slot"
             raise ValueError(msg)
+        for limits in (self.import_limits_w, self.export_limits_w):
+            if limits and len(limits) != n:
+                msg = "planner inputs: per-slot limits need one value per slot"
+                raise ValueError(msg)
+        if any(len(f.max_w) != n or len(f.grid_max_w) != n for f in self.flex_loads):
+            msg = "planner inputs: flexible loads need one value per slot"
+            raise ValueError(msg)
+        ids = [f.device_id for f in self.flex_loads] + [d.device_id for d in self.devices]
+        if len(set(ids)) != len(ids):
+            msg = "planner inputs: a device is planned twice"
+            raise ValueError(msg)
         floats = (*series[:2], *series[3:])
         if any(not math.isfinite(v) for s in floats for v in s):
             msg = "planner inputs: values must be finite"
@@ -265,6 +306,7 @@ class PlannerInputs:
 
     @property
     def dt_h(self) -> float:
+        """The nominal slot length (h); energies use :attr:`hours` (the first slot is shorter)."""
         return self.step / timedelta(hours=1)
 
     @property
@@ -280,6 +322,29 @@ class PlannerInputs:
 
     def grid_charge_at(self, t: int) -> float:
         return self.grid_charge_w[t] if self.grid_charge_w else 0.0
+
+    @property
+    def flex_loads(self) -> tuple[FlexLoad, ...]:
+        """EVs, then program jobs, then thermal loads (the LP's column order)."""
+        return (*self.evs, *self.jobs, *self.thermals)
+
+    def import_limit_at(self, t: int) -> float | None:
+        return self.import_limits_w[t] if self.import_limits_w else self.import_limit_w
+
+    def export_limit_at(self, t: int) -> float | None:
+        return self.export_limits_w[t] if self.export_limits_w else self.export_limit_w
+
+    def para14a_at(self, t: int) -> float | None:
+        return None if self.grid is None else self.grid.para14a_at(t)
+
+    def peak_price(self) -> float:
+        return self.grid.peak_price_per_kw if self.grid is not None and self.grid.peak else 0.0
+
+    def month_of(self, t: int) -> int:
+        return self.grid.month_of_slot[t] if self.grid is not None and self.grid.peak else 0
+
+    def month_floors_w(self) -> tuple[float, ...]:
+        return self.grid.month_floor_w if self.grid is not None and self.grid.peak else ()
 
     def slot_of(self, at: datetime) -> int | None:
         """Index of the slot whose *end* is the first at or after ``at`` (``None`` = outside)."""
@@ -526,6 +591,7 @@ def buffer_goal(
     pv: Sequence[float],
     load: Sequence[float],
     until: datetime,
+    now: datetime | None = None,
 ) -> tuple[datetime, float] | None:
     """Where the morning buffer becomes a soft SoC target: ``(time, SoC %)`` or ``None``.
 
@@ -535,16 +601,18 @@ def buffer_goal(
     or above ``target_pct``; when PV cannot get there, the highest SoC the simulation reaches
     (at the first slot it reaches it). So the buffer only orders the surplus (battery before
     devices) and never makes the plan hold energy or buy it from the grid by itself.
-    ``None`` = the live SoC is already there, or PV adds nothing.
+    ``None`` = the live SoC is already there, or PV adds nothing. ``now``: the first slot
+    counts only the time left (:mod:`suncore.planner.slots`; ``None`` = whole slots).
     """
     model = battery.model
     target = model.soc_to_wh(target_pct)
     energy = battery.soc_wh
     if energy >= target - 1e-6:
         return None
-    hours = step / timedelta(hours=1)
+    hours_of = slot_hours(now if now is not None else starts[0], starts, step)
     best: tuple[datetime, float] | None = None
     for t, begin in enumerate(starts):
+        hours = hours_of[t]
         end = begin + step
         if end > until:
             break
@@ -594,6 +662,7 @@ def _battery(
 def _soc_goals(
     battery: PlannerBattery | None,
     *,
+    now: datetime,
     starts: Sequence[datetime],
     step: timedelta,
     tz: tzinfo,
@@ -629,7 +698,7 @@ def _soc_goals(
         until = evening if begin + step < evening <= end else (coming[0] if coming else end)
         until = min(until, end)
         reach = buffer_goal(
-            battery, buffer_pct, starts=starts, step=step, pv=pv, load=load, until=until
+            battery, buffer_pct, starts=starts, step=step, pv=pv, load=load, until=until, now=now
         )
         if reach is not None:
             kind: GoalKind = "morning_buffer" if morning_buffer is not None else "prefer_full"
@@ -683,7 +752,7 @@ def _deficit_start(
     return starts[first] if first > 0 else evening
 
 
-def build_inputs(
+def build_inputs(  # noqa: PLR0912, PLR0915 - one step per input family
     now: datetime,
     *,
     tz: tzinfo,
@@ -706,11 +775,19 @@ def build_inputs(
     horizon: timedelta = PLANNER_HORIZON,
     load_fallback_w: float | None = None,
     load_reasons: Sequence[Reason] = (),
+    flex: FlexRequest | None = None,
+    grid_limits: GridRequest | None = None,
 ) -> PlannerInputs:
     """The planner's snapshot (module doc); pure.
 
     ``load_reasons``: plan-level reasons about the load forecast from its producer (which load
     model it is, WP12); passed through unchanged, after the planner's own input reasons.
+
+    Phase 6 (module ``flex``): chargers with an ``ev`` spec, program devices and thermal
+    devices with a usable model are planned as flexible loads from ``flex`` (runtime state and
+    live values; ``None`` = defaults: EV in its default mode, no jobs, no temperatures). With
+    ``grid_limits`` the import and export limits are resolved per slot through ``core.grid``
+    (they replace ``import_limit_w``/``export_limit_w``), with the peak variable and §14a.
     """
     goals = goals or GoalsConfig()
     grid = planning_grid(now, horizon, PLANNING_STEP)
@@ -732,6 +809,17 @@ def build_inputs(
         found.extend(load_reasons)
     price_data = _prices(prices, grid, tz)
     found = price_data.reasons + found
+    import_limits: tuple[float | None, ...] = ()
+    export_limits: tuple[float | None, ...] = ()
+    planner_grid: PlannerGrid | None = None
+    if grid_limits is not None:
+        resolved = build_grid(
+            grid_limits, now=now, grid=grid, tz=tz, export_price=price_data.export_price
+        )
+        import_limits, export_limits = resolved.import_limits_w, resolved.export_limits_w
+        planner_grid = resolved.grid
+        import_limit_w, export_limit_w = import_limits[0], export_limits[0]
+        found.extend(resolved.reasons)
     planner_battery = _battery(battery, soc_pct, site_battery)
     if battery.model is not None and planner_battery is None:
         found.append(Reason(key=rk.INPUT_NO_BATTERY_SOC))
@@ -745,8 +833,16 @@ def build_inputs(
         tz=tz,
         import_limit_w=import_limit_w,
     )
+    if import_limits or planner_grid is not None:
+        for t in range(grid.count):
+            limit = import_limits[t] if import_limits else import_limit_w
+            if limit is not None:
+                allowance[t] = min(allowance[t], max(0.0, limit - l50[t]))
+            if planner_grid is not None and planner_grid.para14a_at(t) is not None:
+                allowance[t] = 0.0  # §14a: no grid charging while dimmed (ADR-0018 d. 5)
     soc_goals, buffer_pct = _soc_goals(
         planner_battery,
+        now=now,
         starts=starts,
         step=grid.step,
         tz=tz,
@@ -758,9 +854,20 @@ def build_inputs(
         evening_at=evening_at,
     )
     planned: list[PlannerDevice] = []
-    for device in [] if no_load else devices:
+    candidates = [] if no_load else list(devices)
+    max_power: dict[str, float | None] = {}
+    for device in candidates:
         override = None if device_max_w is None else device_max_w.get(device.id)
-        max_w = override if override is not None else device_max_power_w(device)
+        max_power[device.id] = override if override is not None else device_max_power_w(device)
+    flex_build = build_flex(candidates, flex, now=now, grid=grid, tz=tz, max_power=max_power)
+    found.extend(flex_build.reasons)
+    evs, thermals = flex_build.evs, flex_build.thermals
+    if planner_grid is not None:
+        evs, thermals = cap_para14a_floors(evs, thermals, planner_grid)
+    for device in candidates:
+        if device.id in flex_build.claimed:
+            continue
+        max_w = max_power[device.id]
         if max_w is None or max_w <= 0:
             found.append(Reason(key=rk.INPUT_DEVICE_POWER_UNKNOWN, args={"device": device.id}))
             continue
@@ -782,6 +889,7 @@ def build_inputs(
         "pv_missing_slots": pv_missing,
         "load_missing_slots": load_missing,
         "devices": len(planned),
+        "flex_loads": len(evs) + len(flex_build.jobs) + len(thermals),
         "risk": battery.risk.value,
         "strategy": battery.strategy.value,
     }
@@ -818,6 +926,12 @@ def build_inputs(
         weights=weights or PlannerWeights(autarky_per_kwh=battery.autarky_weight_per_kwh),
         reasons=tuple(found),
         assumptions=assumptions,
+        evs=evs,
+        jobs=flex_build.jobs,
+        thermals=thermals,
+        grid=planner_grid,
+        import_limits_w=import_limits,
+        export_limits_w=export_limits,
     )
 
 

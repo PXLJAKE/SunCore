@@ -10,13 +10,16 @@ uv run python scripts/export_openapi.py --check
 uv run python scripts/check_reasons.py
 uv run python scripts/gen_schemas.py --check
 uv run python scripts/gen_compat.py --check
+uv run python scripts/gen_backend_catalogue.py --check
+uv run python scripts/sync_beta_translations.py --check
+uv run python scripts/gen_params.py --check
 uv run python scripts/validate_templates.py --check
 if [ "${FAST:-0}" = "1" ]; then
   uv run pytest -q -x -m "not slow"
 else
   uv run pytest -q --cov --cov-report=term-missing
   # BRIEF §7: >= 80 % on the control-critical packages.
-  uv run coverage report --include="suncore/core/*,suncore/safety/*,suncore/planner/*,suncore/controller/*" --fail-under=80 >/dev/null
+  uv run coverage report --include="suncore/core/*,suncore/safety/*,suncore/planner/*,suncore/analysis/*,suncore/controller/*" --fail-under=80 >/dev/null
 fi
 
 # Frontend checks only where the toolchain is installed (the Python path works without Node).
@@ -25,6 +28,7 @@ if [ -d frontend/node_modules ]; then
   (
     cd frontend
     npm run --silent gen:api:check
+    npm run --silent check:tokens
     npm run --silent lint
     npm run --silent format:check
     npm run --silent check

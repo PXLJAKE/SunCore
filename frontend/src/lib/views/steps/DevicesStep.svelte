@@ -91,12 +91,11 @@
     const id = form.id ?? newDeviceId(form.name, taken);
     const device = deviceFromForm(form, id, template);
     const isNew = form.id === null;
-    const list = isNew
-      ? [...wizard.devices, device]
-      : wizard.devices.map((d) => (d.id === id ? device : d));
-    const index = list.findIndex((d) => d.id === id);
+    const merge = (cur: DeviceConfig[]): DeviceConfig[] =>
+      cur.some((d) => d.id === id) ? cur.map((d) => (d.id === id ? device : d)) : [...cur, device];
+    const index = merge(wizard.devices).findIndex((d) => d.id === id);
     try {
-      await wizard.saveDevices(list);
+      await wizard.saveDevices(merge);
       notice = isNew
         ? t('devices.added', { name: device.name })
         : t('devices.updated', { name: device.name });
@@ -113,7 +112,7 @@
   async function remove(d: DeviceConfig): Promise<void> {
     save.clear();
     try {
-      await wizard.saveDevices(wizard.devices.filter((x) => x.id !== d.id));
+      await wizard.saveDevices((cur) => cur.filter((x) => x.id !== d.id));
       notice = t('devices.removed', { name: d.name });
     } catch (e) {
       save.error = describeError(e).key;

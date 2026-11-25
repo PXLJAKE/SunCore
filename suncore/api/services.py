@@ -8,19 +8,26 @@ talks to this protocol. ``suncore.app.runtime`` implements it for the real proce
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import date, datetime, tzinfo
 from pathlib import Path
-from typing import Any, Final, Protocol
+from typing import Any, Final, Literal, Protocol
 
 from pydantic import BaseModel
 
+from suncore.api.diagnostics_models import DiagnosticsOut
+from suncore.api.flex_types import GridEvents, GridStatus
 from suncore.core.balance import FlowSnapshot
+from suncore.core.battery import BatteryModel
 from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.flex import EvMode, EvState, EvTarget, ProgramJob
+from suncore.core.haentities import HaEntitiesStatus
 from suncore.core.site import SiteConfig
+from suncore.core.verification_view import VerificationView
 from suncore.core.wizard import CheckItem, PreviewItem
 from suncore.forecast.views import (
     ForecastAccuracyView,
@@ -28,8 +35,11 @@ from suncore.forecast.views import (
     PvForecastView,
     RiskView,
 )
+from suncore.notify import NotifyStatus, TestResult
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
-from suncore.storage import HistoryEntry
+from suncore.sim.backtest_models import BacktestJobView, BacktestRequest
+from suncore.storage import DecisionLog, HistoryEntry, PlanSnapshotStore, TimeseriesStore
+from suncore.storage.summaries import DaySummaryRow
 from suncore.tariff.report import PriceReport
 from suncore.templates import TemplateCatalog
 
@@ -76,6 +86,55 @@ class EntityQuery:
     """Name of the device of an entity already chosen; ranks same-named candidates first."""
     include_hidden: bool = False
     """Also hidden, diagnostic and config entities (ranked lower); disabled stay excluded."""
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryContext:
+    """The configuration of the moment the history endpoints present figures in."""
+
+    tz: tzinfo
+    tz_name: str
+    battery: BatteryModel | None = None
+    """For the equivalent full cycles of a live day; ``None`` leaves them out."""
+    currency: str | None = None
+    devices: Mapping[str, str] = field(default_factory=dict)
+    """Controlled devices: id -> display name (the device history lists exactly these)."""
+
+
+@dataclass(frozen=True, slots=True)
+class HistorySources:
+    """Everything the history, plan-at and decision-explain endpoints read (Phase 5 WP4).
+
+    ``timeseries`` and ``plans`` are ``None`` when their database is unavailable (``timeseries.db``
+    too new or unopenable); the endpoints then answer ``api.error.history_unavailable``.
+    """
+
+    decision_log: DecisionLog
+    timeseries: TimeseriesStore | None
+    plans: PlanSnapshotStore | None
+    context: HistoryContext
+    clock: Callable[[], datetime]
+    live_day: Callable[[date], Awaitable[DaySummaryRow | None]] | None = None
+    """The row a not yet frozen day would get now (``None``: no live day)."""
+
+
+class BacktestService(Protocol):
+    """The backtest job runner (Phase 5 WP6, ``suncore.app.backtests.BacktestJobs``)."""
+
+    async def start(self, request: BacktestRequest) -> BacktestJobView:
+        """Start a run; raises ``BacktestWindowError``, ``BacktestBusyError``,
+        ``BacktestUnavailableError`` (``suncore.sim.backtest_models``)."""
+        ...
+
+    async def runs(self) -> list[BacktestJobView]:
+        """The kept runs, newest first, without results."""
+        ...
+
+    async def get(self, run_id: int) -> BacktestJobView | None: ...
+
+    async def cancel(self, run_id: int) -> Literal["cancelled", "deleted"] | None:
+        """Cancel a running run or delete a finished one; ``None`` if unknown."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +231,14 @@ class Services(Protocol):
         """Newest first; ``device_id`` filters by the decision's device, ``kinds`` by kind."""
         ...
 
+    def history_sources(self) -> HistorySources | None:
+        """What the history endpoints read; ``None`` while nothing can be read (tests, stub)."""
+        ...
+
+    def backtests(self) -> BacktestService | None:
+        """The backtest jobs; ``None`` without a time-series database (tests, stub)."""
+        ...
+
     # --- forecasts (Phase 4 WP5) ---------------------------------------------------------
 
     async def pv_forecast(self, hours: int) -> PvForecastView:
@@ -217,6 +284,33 @@ class Services(Protocol):
         """Open assisted-mode proposals, oldest first."""
         ...
 
+    async def flex_view(self, device_id: str) -> tuple[EvState | None, ProgramJob | None]:
+        """The runtime EV state and the open program job of a device (PR 6-M); raises
+        :class:`UnknownDeviceError`."""
+        ...
+
+    async def set_ev_state(self, device_id: str, mode: EvMode, target: EvTarget | None) -> EvState:
+        """Set a charger's mode and target; raises :class:`UnknownDeviceError` or
+        :class:`NotAnEvError`. Only the state the controller reads changes."""
+        ...
+
+    async def arm_program(self, device_id: str, deadline: datetime) -> ProgramJob:
+        """Arm a program job; raises :class:`UnknownDeviceError`, :class:`ProgramJobError`."""
+        ...
+
+    async def cancel_program(self, device_id: str) -> ProgramJob:
+        """Cancel the waiting job (the controller then releases the device); raises
+        :class:`UnknownDeviceError`, :class:`ProgramJobError`."""
+        ...
+
+    async def grid_status(self) -> GridStatus:
+        """Island, §14a and the month's peak."""
+        ...
+
+    async def grid_events(self, days: int) -> GridEvents:
+        """Grid events of the last ``days`` and the stored monthly peaks."""
+        ...
+
     async def confirm_proposal(self, intent_id: str) -> Decision:
         """Confirm a proposal (it is re-submitted as the user's intent) and return the gate's
         decision; raises :class:`UnknownProposalError`."""
@@ -242,6 +336,31 @@ class Services(Protocol):
         """Set the battery's mode (ADR-0013). Raising it above shadow needs the battery's current
         identity token (``BatteryControlState.identity``): raises
         :class:`BatteryNotControllableError` (no adapter), :class:`DeviceIdentityChangedError`."""
+        ...
+
+    async def set_inverter_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        """Set the inverter limit's mode (PR 6-G). Raising it above shadow needs the adapter's
+        current identity token (``InverterControlState.identity``): raises
+        :class:`InverterNotControllableError` (no adapter), :class:`DeviceIdentityChangedError`."""
+        ...
+
+    # --- inverter limit verification (PR 7-J, plan phase 7 WP8) ----------------------------
+
+    def inverter_verification(self) -> VerificationView:
+        """The verification procedure's state (``idle`` when none ran since the start)."""
+        ...
+
+    async def start_inverter_verification(self) -> VerificationView:
+        """Start the test; raises ``VerificationRefusedError`` with the reasons it cannot."""
+        ...
+
+    async def confirm_inverter_verification(self) -> VerificationView:
+        """The user confirmed the proposed test limit: it goes to the gate as their intent;
+        raises ``VerificationRefusedError`` when nothing waits for a confirmation."""
+        ...
+
+    async def abort_inverter_verification(self) -> VerificationView:
+        """Stop the test; a held test limit is released through the gate at once."""
         ...
 
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
@@ -274,11 +393,36 @@ class Services(Protocol):
         """The short form of the current plan for the live feed."""
         ...
 
+    def ha_entities_status(self) -> HaEntitiesStatus:
+        """State of the Home Assistant entity surface (MQTT discovery, ADR-0016)."""
+        ...
+
+    async def ha_entities_republish(self) -> bool:
+        """Announce the entities and their states again; ``False`` = no broker session."""
+        ...
+
+    def notifications_status(self) -> NotifyStatus:
+        """Whether push and action buttons work as configured, and why not (ADR-0016)."""
+        ...
+
+    def notify_entity_targets(self) -> list[str]:
+        """``notify.*`` entities Home Assistant knows (the choices for ``entity`` targets)."""
+        ...
+
+    async def notifications_test(self) -> TestResult:
+        """Send a test message to every configured push target."""
+        ...
+
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Call ``listener`` whenever a new plan was handed over."""
         ...
 
     async def export_config(self) -> dict[str, Any]: ...
+
+    async def diagnostics(self) -> DiagnosticsOut:
+        """The anonymised diagnostics document (BRIEF section 5, PR 7-I): built from an
+        allowlist, pseudonyms salted per call, secrets and coordinates never included."""
+        ...
 
     async def import_config(self, data: object) -> list[str]:
         """Validate and replace; raises ``ImportRejectedError`` on bad input."""

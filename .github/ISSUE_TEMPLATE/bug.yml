@@ -4,7 +4,12 @@ labels: ["bug", "triage"]
 body:
   - type: markdown
     attributes:
-      value: Please attach the anonymised diagnostics export from the SunCore panel (Diagnostics → Export). It contains no secrets.
+      value: |
+        Please attach the diagnostics export: Settings → Advanced → Diagnostics → Download
+        (the API route is `GET /api/v1/diagnostics`). Secrets are masked and entity ids, device
+        and area names are pseudonymised. If your version has no Diagnostics panel yet, attach
+        the app log (Log tab) instead and describe your setup in words. Never paste tokens or
+        passwords.
   - type: input
     id: version
     attributes:
@@ -38,7 +43,7 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics export / logs
-      render: text
+      description: Drag the downloaded JSON file here, or paste the relevant log lines.
   - type: checkboxes
     id: safety
     attributes:

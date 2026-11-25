@@ -118,7 +118,7 @@ Ein Gerät handelt im **niedrigeren** von Gesamtmodus und eigenem Modus. Automat
 Automatik gestellt. Jedes neue Gerät startet im Schattenmodus. Der Einrichtungsschritt setzt nur
 den Gesamtmodus; die Modi der Geräte änderst du in der Ansicht **Jetzt**.
 
-![Ansicht Jetzt: Überschuss-Karte und eine Karte je Gerät mit Modus-Umschalter](../../assets/screenshots/now-tablet-light-de.png)
+![Ansicht Jetzt: Überschuss-Karte und eine Karte je Gerät mit Modus-Umschalter](../assets/screenshots/now-tablet-light-de.png)
 
 - **Assistierte Vorschläge** erscheinen unter **Vorschläge warten auf dich**. **Bestätigen**
   führt die Aktion jetzt aus (sie muss trotzdem die Sicherheitsprüfungen bestehen und kann mit
@@ -187,6 +187,59 @@ Ein Schalter (Poolpumpe, Steckdose) geht mit der Hysterese und den oben genannte
 an und aus. Eine regelbare Last (ein Heizstab über eine Number-Entität) folgt dem Überschuss in
 ihrem eingestellten Bereich mit einer Totzone.
 
+### Verschiebbare Programme (Waschmaschine, Geschirrspüler)
+
+Du wählst das Programm, drückst Start und sagst SunCore, bis wann es fertig sein muss. Mit
+einer Steckdose schaltet SunCore sie direkt danach aus (solange das Gerät noch fast nichts
+zieht) und zum geplanten Start wieder ein; das Gerät muss sein Programm fortsetzen, wenn der
+Strom zurückkommt (das bestätigst du pro Gerät). Ein laufendes Programm wird nie ausgeschaltet.
+Immer wenn SunCore die Steckdose loslässt (du brichst den Auftrag ab, „Zurück zu normal“, ein
+Update oder ein Absturz), schaltet es sie **ein**: Die Maschine startet dann sofort.
+
+**Empfohlenes Sicherheitsnetz:** Läuft SunCore nicht, während die Steckdose aus ist, schaltet
+sie niemand wieder ein. Lege in Home Assistant eine Automation an, die die Steckdose einschaltet,
+wenn sie länger aus ist, als du ein Programm je verschieben würdest, zum Beispiel:
+
+```yaml
+alias: Steckdose Waschmaschine wieder ein
+triggers:
+  - trigger: state
+    entity_id: switch.steckdose_waschmaschine
+    to: "off"
+    for: {hours: 12}
+actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.steckdose_waschmaschine
+```
+
+Ersetze die Entitäts-ID durch deine Steckdose und wähle die Stunden passend zu deinem längsten
+„fertig bis“. Mehr zu Programmen unter [Programme](programs.md).
+
+### evcc-Ladepunkt (MQTT)
+
+Mit der Vorlage `evcc.loadpoint` steuert SunCore die Wallbox nicht selbst: Es sagt evcc über die
+MQTT-Schnittstelle, was es darf (Modus `off`, `smart` oder `now`, maximaler Strom, Ladelimit),
+und evcc regelt Strom und Phasen. SunCore ändert nie die Batterieeinstellungen von evcc und
+schreibt nie einen Fahrzeugplan. Gut zu wissen:
+
+- **Veraltetes oder schweigendes evcc:** SunCore hält evcc für ausgefallen, wenn sein Herzschlag
+  (`<prefix>/updated`) älter als 120 Sekunden ist. Dann wird nichts geschrieben und SunCore
+  versucht die Rückgabe an evcc mit wachsendem Abstand. evcc meldet nur bei Änderungen; ein sehr
+  ruhiges evcc kann das fälschlich auslösen, und eine vorgehende Uhr in evcc lässt einen alten
+  gespeicherten Zeitstempel frisch aussehen.
+- **Bezugsgrenze:** `smart` folgt dem PV-Überschuss, aber evcc kann nach eigenen Regeln aus dem
+  Netz laden (Fahrzeugplan, Smart-Cost-Limit, „immer laden“). SunCore senkt den maximalen Strom
+  von evcc (oder schaltet ihn aus), wenn der gemessene Netzbezug über deiner Grenze liegt,
+  während das Auto lädt. Das geschieht nach wenigen Sekunden, ein kurzes Überschreiten ist also
+  möglich. Gegen Flattern schaltet es erst nach einer Minute über der Grenze aus und erst nach
+  fünf Minuten mit etwas Spielraum wieder ein.
+- Einrichtung, Modi und die Restrisiken des evcc-Wegs stehen unter
+  [E-Auto laden](ev-charging.md#5-evcc-als-akteur).
+- **Hausbatterie:** In `smart` hat SunCore **keine Entladesperre** für die Hausbatterie: Die
+  eigenen Batterieregeln von evcc (z. B. der Puffer-SoC) können sie ins Auto entladen. Halte sie
+  in evcc neutral. Nur `now` und geplantes Laden aus dem Netz warten auf die Sperre von SunCore.
+
 ## 4. Wenn du selbst etwas änderst
 
 SunCore respektiert manuelle Änderungen. Es erkennt sie am **Wert**: Befindet sich ein Gerät
@@ -223,7 +276,7 @@ wird.
 
 Die Schaltfläche **Not-Aus** steht in der Kopfzeile jeder Ansicht, ein Klick, keine Rückfrage:
 
-![Not-Aus aktiv: Banner, pausierte Geräte, Schaltfläche „Zurück zum Normalbetrieb“](../../assets/screenshots/estop-tablet-light-de.png)
+![Not-Aus aktiv: Banner, pausierte Geräte, Schaltfläche „Zurück zum Normalbetrieb“](../assets/screenshots/estop-tablet-light-de.png)
 
 - Jedes gesteuerte Gerät wird innerhalb von 10 Sekunden zurückgegeben, und SunCore **schreibt
   nichts**, bis du den Not-Aus beendest.
@@ -254,7 +307,7 @@ Jede Gerätekarte hat **Warum?** mit den letzten Gründen in Klartext, etwa „W
 Mindestlaufzeit, noch 240 s“ oder „Nicht eingeschaltet: 1200 W nötig, nur 800 W sicherer
 Überschuss“, und die **Letzte Entscheidung**. Die Gründe stehen in deiner Sprache.
 
-![Entscheidungsprotokoll mit Filtern](../../assets/screenshots/decisions-tablet-light-de.png)
+![Entscheidungsprotokoll mit Filtern](../assets/screenshots/decisions-tablet-light-de.png)
 
 Das **Entscheidungsprotokoll** (Ansicht **Entscheidungen**) listet, was SunCore entschieden hat,
 neueste zuerst (bis zu 200 Einträge, Zeiten in deiner Zeitzone), und lässt sich nach Gerät und
@@ -322,22 +375,28 @@ anhand von Belegen, nicht aus Hoffnung.
   (Leistungssensor 60 s, Energiezähler 300 s, sofern nicht gesetzt) sind Annahmen.
 - **Der Plan ist neu.** Prognosen, Tarife, Planer und Akkusteuerung gibt es jetzt
   ([Planung und Akkusteuerung](planning-and-battery.md)), aber auch sie sind noch nie an echter
-  Hardware gelaufen. SunCore verschiebt keine Geräte-Last in günstigere Stunden, heizt nicht nach dem
-  Wetter vor und modelliert kein thermisches Verhalten von Geräten. Ohne Plan entscheiden die Ziele
+  Hardware gelaufen. Abgesehen von E-Auto, verschiebbaren Programmen und Wärmepumpe
+  ([E-Auto laden](ev-charging.md), [Programme](programs.md), [Wärmepumpe](heat-pump.md))
+  verschiebt SunCore keine Geräte-Last in günstigere Stunden und modelliert kein thermisches
+  Verhalten von Klimageräten und Warmwasserbereitern. Ohne Plan entscheiden die Ziele
   *Batterie-Ziel* und *Klimagerät vor Einspeisung* nur, ob die Ladeleistung der Batterie als
   Überschuss zählt, und die Uhrzeit des Ziels wird nicht ausgewertet.
 - **Zeitfenster und Ruhezeiten** beachtet der Regler, sie lassen sich im Panel aber noch nicht
   bearbeiten (nur über Vorlagen und importierte Konfiguration).
 - Ein entferntes oder neu zugeordnetes Gerät, das nicht zurückgegeben werden kann (etwa nach einem
   Absturz), wird gemeldet („bitte von Hand prüfen“), nicht endlos wiederholt.
-- **Downgrade**: Diese Version speichert ihre Daten in Datenbankschema 4, das frühere Versionen
-  nicht öffnen können. Exportiere die Konfiguration vor dem Update.
+- **Downgrade**: Diese Version speichert ihre Daten in Datenbankschema 6 (`timeseries.db`
+  Schema 3), das frühere Versionen nicht öffnen können. Exportiere die Konfiguration vor dem
+  Update.
 - **Im Vergleich zu evcc, EMHASS und Predbat**: evcc ist die bessere Wahl für Ladepunkte und hat
-  Jahre an Hardware-Erfahrung; SunCore hat noch keine Wallbox-Steuerung. EMHASS und Predbat
-  optimieren die Batterie über die Zeit, mit jahrelanger Praxis; SunCores Planer ist neu und an
+  Jahre an Hardware-Erfahrung; SunCores Wallbox-Steuerung ist neu und nur im Simulator erprobt.
+  EMHASS und Predbat optimieren die Batterie über die Zeit, mit jahrelanger Praxis; SunCores
+  Planer ist neu und an
   Hardware unerprobt. Was SunCore bietet, ist eine App mit Sicherheitsschicht, Schattenmodus und
-  einer Begründung zu jeder Entscheidung; siehe die [Roadmap](../../roadmap.md).
+  einer Begründung zu jeder Entscheidung; siehe die [Roadmap](https://github.com/pxljake/suncore/blob/main/docs/roadmap.md).
 
 Siehe auch: [Schnellstart](quick-start.md), [Planung und Akkusteuerung](planning-and-battery.md),
-[Gerätevorlage beitragen](device-templates.md),
-[Kompatibilitätsliste](../compatibility.md).
+[Home-Assistant-Entitäten](home-assistant-entities.md), [Benachrichtigungen](notifications.md),
+[Netzgrenzen](grid-limits.md), [E-Auto laden](ev-charging.md), [Wärmepumpe](heat-pump.md),
+[Programme](programs.md), [Gerätevorlage beitragen](device-templates.md),
+[Kompatibilitätsliste](compatibility.md).

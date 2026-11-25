@@ -1,205 +1,134 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '../api/client';
-  import { describeError } from '../api/errors';
-  import type { ConfigHistoryEntry, ConfigSectionName } from '../api/types';
-  import { t, tDateTime, tDynamic, tNumber, type MessageKey } from '../i18n/index.svelte';
-  import { router, stepHash } from '../router.svelte';
-  import { clearCandidateCache } from '../stores/candidates';
-  import { app } from '../stores/app.svelte';
+  import { onMount, tick, type Component } from 'svelte';
+  import { t, tDynamic, type MessageKey } from '../i18n/index.svelte';
+  import { router, settingsHash, type SettingsPage } from '../router.svelte';
+  import { stepSummary } from '../settings/summary';
   import { wizard } from '../stores/wizard.svelte';
-  import { STEPS, type StepId } from '../wizard/steps';
+  import Icon from '../ui/Icon.svelte';
+  import type { IconName } from '../ui/icons';
+  import AdvancedPage from './settings/AdvancedPage.svelte';
+  import DevicesPage from './settings/DevicesPage.svelte';
+  import GoalsPage from './settings/GoalsPage.svelte';
+  import HaPage from './settings/HaPage.svelte';
+  import SystemPage from './settings/SystemPage.svelte';
 
+  /*
+   * Settings (plan phase-7 WP5): an index of five groups, one sub-page per group
+   * (`#/settings/<page>`). Desktop shows both panes side by side and opens
+   * "Your system" for `#/settings`; phones and tablets show the index, then the page alone.
+   */
   const uid = $props.id();
-  const SECTIONS: Exclude<ConfigSectionName, 'wizard'>[] = [
-    'site',
-    'region',
-    'tariff',
-    'forecast',
-    'battery',
-    'devices',
-    'goals',
-    'operation',
+
+  interface PageDef {
+    id: SettingsPage;
+    icon: IconName;
+    title: MessageKey;
+    description: MessageKey;
+  }
+  const PAGES: readonly PageDef[] = [
+    {
+      id: 'system',
+      icon: 'house',
+      title: 'settings.page.system',
+      description: 'settings.page.system.description',
+    },
+    {
+      id: 'devices',
+      icon: 'plug',
+      title: 'settings.page.devices',
+      description: 'settings.page.devices.description',
+    },
+    {
+      id: 'goals',
+      icon: 'target',
+      title: 'settings.page.goals',
+      description: 'settings.page.goals.description',
+    },
+    {
+      id: 'ha',
+      icon: 'bell',
+      title: 'settings.page.ha',
+      description: 'settings.page.ha.description',
+    },
+    {
+      id: 'advanced',
+      icon: 'expert',
+      title: 'settings.page.advanced',
+      description: 'settings.page.advanced.description',
+    },
   ];
 
-  // Reload to pick up changes made elsewhere, but never over unsaved edits of the assistant.
+  // The pages ride in the Settings chunk, which is lazy as a whole: split further, every page
+  // chunk would add its own imports and gzip overhead to the standard path (plan §8, 7-G).
+  const VIEWS: Record<SettingsPage, Component> = {
+    system: SystemPage,
+    devices: DevicesPage,
+    goals: GoalsPage,
+    ha: HaPage,
+    advanced: AdvancedPage,
+  };
+
+  const WIDE = '(min-width: 1024px)';
+  let wide = $state(typeof window !== 'undefined' && !!window.matchMedia?.(WIDE).matches);
+
   onMount(() => {
-    if (wizard.loaded && wizard.dirty().length > 0) return;
-    wizard.invalidate();
-    void wizard.ensureLoaded();
+    const media = window.matchMedia?.(WIDE);
+    const onChange = (): void => {
+      wide = !!media?.matches;
+    };
+    media?.addEventListener('change', onChange);
+    // Reload to pick up changes made elsewhere, but never over unsaved edits of the assistant.
+    if (!(wizard.loaded && wizard.dirty().length > 0)) {
+      wizard.invalidate();
+      void wizard.ensureLoaded();
+    }
+    return () => media?.removeEventListener('change', onChange);
+  });
+
+  /** The page in the pane: the one in the URL, on desktop "Your system" for the index. */
+  const page = $derived<SettingsPage | null>(router.page ?? (wide ? 'system' : null));
+  const def = $derived(PAGES.find((p) => p.id === page) ?? null);
+  const View = $derived(page ? VIEWS[page] : null);
+  /** Phones and tablets show either the index or one page. */
+  const showIndex = $derived(wide || router.page === null);
+
+  const s = $derived(wizard.saved);
+  const hints = $derived<Record<SettingsPage, string>>({
+    system: t('settings.page.system.hint'),
+    devices: stepSummary('devices', s),
+    goals: stepSummary('mode', s),
+    ha: t('settings.page.ha.hint'),
+    advanced: t('settings.page.advanced.hint'),
   });
 
   const unsaved = $derived(wizard.dirty().length > 0);
 
-  async function discard(): Promise<void> {
-    await wizard.discard();
-  }
-
-  let restarting = $state(false);
-  let restartError = $state<string | null>(null);
-
-  /** "Run setup again": the steps count as not done again, the configuration stays. */
-  async function rerun(): Promise<void> {
-    restarting = true;
-    restartError = null;
-    try {
-      await wizard.restart();
-      router.go(stepHash('region'));
-    } catch (e) {
-      restartError = describeError(e).key;
-    } finally {
-      restarting = false;
-    }
-  }
-
-  const s = $derived(wizard.saved);
-  const rows = $derived.by((): { step: StepId; text: string }[] => {
-    const site = s.site;
-    const pvKwp =
-      site && (site.pv ?? []).length > 0 && (site.pv ?? []).every((a) => a.kwp != null)
-        ? (site.pv ?? []).reduce((sum, a) => sum + (a.kwp ?? 0), 0)
-        : null;
-    const tariff = s.tariff;
-    return [
-      {
-        step: 'region',
-        text: s.region
-          ? t('settings.sum.region', {
-              region: s.region.region_id,
-              currency: s.region.currency,
-              tz: s.region.timezone,
-            })
-          : t('settings.sum.none'),
-      },
-      { step: 'energy', text: t('settings.sum.energy') },
-      {
-        step: 'grid',
-        text: site
-          ? t('settings.sum.grid', {
-              kind: site.grid.power ? 'single' : 'pair',
-              entity: site.grid.power?.entity_id ?? site.grid.import_power?.entity_id ?? '',
-            })
-          : t('settings.sum.none'),
-      },
-      {
-        step: 'pv',
-        text: site
-          ? `${
-              pvKwp == null
-                ? t('settings.sum.pv', { count: (site.pv ?? []).length })
-                : t('settings.sum.pv_kwp', {
-                    count: (site.pv ?? []).length,
-                    kwp: tNumber(pvKwp, { maximumFractionDigits: 2 }),
-                  })
-            } · ${t('settings.sum.forecast', { count: s.forecast?.sources?.length ?? 0 })}`
-          : t('settings.sum.none'),
-      },
-      {
-        step: 'battery',
-        text: site
-          ? site.battery
-            ? `${t('settings.sum.battery', { entity: site.battery.power.entity_id })} · ${
-                s.battery?.adapter_template_id
-                  ? t('settings.sum.battery_control', { adapter: s.battery.adapter_template_id })
-                  : t('settings.sum.battery_observe')
-              }${
-                s.battery?.model
-                  ? ` · ${t('settings.sum.battery_plan', {
-                      strategy: t(`bat.strategy.${s.battery.strategy ?? 'self_consumption'}`),
-                      risk: t(`bat.risk.${s.battery.risk ?? 'cautious'}`),
-                    })}`
-                  : ''
-              }`
-            : t('settings.sum.battery_none')
-          : t('settings.sum.none'),
-      },
-      {
-        step: 'tariff',
-        text: tariff
-          ? t('settings.sum.tariff', { imp: tariff.import.kind, exp: tariff.export.kind })
-          : t('settings.sum.none'),
-      },
-      {
-        step: 'devices',
-        text: t('settings.sum.devices', { count: s.devices?.devices?.length ?? 0 }),
-      },
-      {
-        step: 'priorities',
-        text: s.goals ? t('settings.sum.goals') : t('settings.sum.none'),
-      },
-      {
-        step: 'mode',
-        text: s.operation ? t(`mode.${s.operation.mode}`) : t('settings.sum.mode_default'),
-      },
-    ];
+  // Opening a page moves the focus to its heading (the shell only does that between views).
+  let heading: HTMLHeadingElement | undefined = $state();
+  let lastPage: SettingsPage | null = router.page;
+  $effect(() => {
+    const current = router.page;
+    if (current === lastPage) return;
+    lastPage = current;
+    if (current) void tick().then(() => heading?.focus());
   });
-  const titleOf = (id: StepId): MessageKey => STEPS.find((x) => x.id === id)!.title;
-
-  // --- history / restore -------------------------------------------------------------
-  let histSection = $state<Exclude<ConfigSectionName, 'wizard'>>('site');
-  let history = $state.raw<ConfigHistoryEntry[] | null>(null);
-  let histError = $state<string | null>(null);
-  let confirming = $state<number | null>(null);
-  let restored = $state<string | null>(null);
-
-  async function loadHistory(): Promise<void> {
-    history = null;
-    histError = null;
-    confirming = null;
-    try {
-      history = await api.history(histSection);
-    } catch (e) {
-      histError = describeError(e).key;
-    }
-  }
-
-  async function restore(entry: ConfigHistoryEntry): Promise<void> {
-    try {
-      await api.restore(entry.section as ConfigSectionName, entry.id);
-      restored = t('settings.history.restored');
-      confirming = null;
-      clearCandidateCache();
-      await app.load();
-      wizard.invalidate();
-      await wizard.ensureLoaded();
-      await loadHistory();
-    } catch (e) {
-      histError = describeError(e).key;
-    }
-  }
-
-  // --- export / import -------------------------------------------------------------------
-  let importMsg = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
-
-  async function onFile(e: Event & { currentTarget: HTMLInputElement }): Promise<void> {
-    const file = e.currentTarget.files?.[0];
-    e.currentTarget.value = '';
-    if (!file) return;
-    try {
-      const res = await api.importConfig(await file.text());
-      importMsg = {
-        kind: 'ok',
-        text: t('settings.import.done', {
-          count: res.imported_sections.length,
-          sections: res.imported_sections.join(', '),
-        }),
-      };
-      await app.load();
-      wizard.invalidate();
-      await wizard.ensureLoaded();
-    } catch (err) {
-      importMsg = {
-        kind: 'error',
-        text: tDynamic(describeError(err).key, undefined, 'api.error.unknown'),
-      };
-    }
-  }
 </script>
 
 <section class="settings" aria-labelledby="{uid}-title">
-  <h2 id="{uid}-title">{t('settings.title')}</h2>
-  <p class="intro">{t('settings.intro')}</p>
+  {#if showIndex}
+    <header class="head">
+      <h2 id="{uid}-title">{t('settings.title')}</h2>
+      <p class="hint">{t('settings.intro')}</p>
+    </header>
+  {:else}
+    <!-- A page on its own: the view title is the way back to the index. -->
+    <h2 id="{uid}-title" class="crumb">
+      <a href="#/settings" data-testid="settings-back">
+        <Icon name="prev" size={18} />{t('settings.title')}
+      </a>
+    </h2>
+  {/if}
 
   {#if wizard.loadError}
     <p class="notice error" role="alert">
@@ -216,212 +145,165 @@
           type="button"
           class="btn secondary small"
           data-testid="unsaved-discard"
-          onclick={() => void discard()}>{t('settings.unsaved.discard')}</button
+          onclick={() => void wizard.discard()}>{t('settings.unsaved.discard')}</button
         >
       </div>
     </div>
   {/if}
 
-  <div class="card stack" data-testid="wizard-status">
-    <h3>{t('settings.wizard.title')}</h3>
-    <p>
-      {wizard.completed ? t('settings.wizard.done') : t('settings.wizard.open')}
-    </p>
-    {#if restartError}
-      <p class="notice error" role="alert">
-        {tDynamic(restartError, undefined, 'api.error.unknown')}
-      </p>
-    {/if}
-    <div class="row">
-      {#if wizard.completed}
-        <button
-          type="button"
-          class="btn"
-          data-testid="open-wizard"
-          disabled={restarting}
-          onclick={() => void rerun()}>{t('settings.wizard.rerun')}</button
-        >
-      {:else}
-        <a class="btn" href="#/setup" data-testid="open-wizard">{t('settings.wizard.continue')}</a>
-      {/if}
-    </div>
-  </div>
-
-  <ul class="overview" data-testid="overview">
-    {#each rows as row (row.step)}
-      <li class="card item" data-step={row.step}>
-        <div>
-          <h3>{t(titleOf(row.step))}</h3>
-          <p class="hint">{row.text}</p>
-        </div>
-        <a class="btn secondary small" href={stepHash(row.step)}>
-          {t('action.edit')}<span class="sr-only"> {t(titleOf(row.step))}</span>
-        </a>
-      </li>
-    {/each}
-    <li class="card item" data-step="summary">
-      <div>
-        <h3>{t(titleOf('summary'))}</h3>
-        <p class="hint">{t('settings.sum.check')}</p>
-      </div>
-      <a class="btn secondary small" href={stepHash('summary')}
-        >{t('settings.open')}<span class="sr-only"> {t(titleOf('summary'))}</span></a
-      >
-    </li>
-  </ul>
-
-  <section class="card stack" aria-labelledby="{uid}-hist">
-    <h3 id="{uid}-hist">{t('settings.history.title')}</h3>
-    <p class="hint">{t('settings.history.hint')}</p>
-    <div class="row">
-      <div class="field">
-        <label for="{uid}-sec">{t('settings.history.section')}</label>
-        <select id="{uid}-sec" class="input" bind:value={histSection}>
-          {#each SECTIONS as sec (sec)}
-            <option value={sec}>{t(`settings.section.${sec}`)}</option>
+  <div class="panes" class:wide>
+    {#if showIndex}
+      <nav class="index" aria-label={t('settings.index_label')} data-testid="settings-index">
+        <ul class="card">
+          {#each PAGES as p (p.id)}
+            <li>
+              <a
+                href={settingsHash(p.id)}
+                aria-current={wide && page === p.id ? 'page' : undefined}
+                data-testid="settings-link-{p.id}"
+              >
+                <span class="ico"><Icon name={p.icon} /></span>
+                <span class="text">
+                  <span class="name">{t(p.title)}</span>
+                  <span class="sub">{hints[p.id]}</span>
+                </span>
+                <span class="go"><Icon name="next" size={18} /></span>
+              </a>
+            </li>
           {/each}
-        </select>
-      </div>
-      <button type="button" class="btn secondary" onclick={() => void loadHistory()}
-        >{t('settings.history.show')}</button
-      >
-    </div>
-    {#if restored}<p class="notice ok" role="status">{restored}</p>{/if}
-    {#if histError}
-      <p class="notice error" role="alert">{tDynamic(histError, undefined, 'api.error.unknown')}</p>
+        </ul>
+      </nav>
     {/if}
-    {#if history}
-      <ul class="history" data-testid="history">
-        {#each history as entry (entry.id)}
-          <li class="entry">
-            <span>{tDateTime(new Date(entry.replaced_at))}</span>
-            {#if confirming === entry.id}
-              <button type="button" class="btn danger small" onclick={() => void restore(entry)}
-                >{t('settings.history.confirm')}</button
-              >
-              <button type="button" class="btn secondary small" onclick={() => (confirming = null)}
-                >{t('action.cancel')}</button
-              >
-            {:else}
-              <button
-                type="button"
-                class="btn secondary small"
-                onclick={() => (confirming = entry.id)}
-                >{t('settings.history.restore')}<span class="sr-only">
-                  {tDateTime(new Date(entry.replaced_at))}</span
-                ></button
-              >
-            {/if}
-          </li>
-        {:else}
-          <li class="hint">{t('settings.history.empty')}</li>
-        {/each}
-      </ul>
-    {/if}
-  </section>
 
-  <section class="card stack" aria-labelledby="{uid}-bak">
-    <h3 id="{uid}-bak">{t('settings.backup.title')}</h3>
-    <p class="hint">{t('settings.backup.hint')}</p>
-    <div class="row">
-      <a
-        class="btn secondary"
-        href={api.exportUrl()}
-        download="suncore-config.json"
-        data-testid="export">{t('settings.export')}</a
-      >
-      <label class="btn secondary file">
-        {t('settings.import')}
-        <input
-          type="file"
-          accept="application/json,.json"
-          class="sr-only-input"
-          data-testid="import-file"
-          onchange={(e) => void onFile(e)}
-        />
-      </label>
-    </div>
-    {#if importMsg}
-      <p
-        class="notice {importMsg.kind}"
-        role={importMsg.kind === 'error' ? 'alert' : 'status'}
-        data-testid="import-result"
-      >
-        {importMsg.text}
-      </p>
+    {#if page && def && View}
+      <div class="pane" data-testid="settings-page" data-page={page}>
+        <header class="pane-head">
+          <h3 tabindex="-1" bind:this={heading}>{t(def.title)}</h3>
+          <p class="hint">{t(def.description)}</p>
+        </header>
+        <View />
+      </div>
     {/if}
-  </section>
+  </div>
 </section>
 
 <style>
   .settings {
     display: grid;
-    gap: var(--sc-gap);
+    gap: var(--sc-space-4);
   }
-  .notice p {
-    margin: 0 0 8px;
-    color: var(--primary-text-color);
-  }
-  .intro {
-    margin: 0;
-    color: var(--secondary-text-color);
-  }
-  .overview {
+  .head {
     display: grid;
-    gap: 8px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
+    gap: var(--sc-space-1);
   }
-  .item {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 16px;
+  .head .hint {
+    max-width: 44rem;
+  }
+  .crumb {
+    font-size: var(--sc-font-sm);
+  }
+  .crumb a {
+    display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-  }
-  .item h3,
-  .item p {
-    margin: 0;
+    gap: var(--sc-space-1);
+    min-height: var(--sc-target);
+    padding-inline-end: var(--sc-space-2);
+    text-decoration: none;
   }
   .row {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    align-items: end;
+    gap: var(--sc-space-2);
+    margin-top: var(--sc-space-2);
   }
-  .history {
+
+  .panes {
     display: grid;
-    gap: 6px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sc-space-5);
+    align-items: start;
+  }
+  .panes.wide {
+    grid-template-columns: 19rem minmax(0, 1fr);
+  }
+  .wide .index {
+    position: sticky;
+    top: calc(var(--sc-sticky-top, 0px) + var(--sc-space-3));
+  }
+
+  /* --- the index: one card, a row per group --- */
+  .index ul {
     margin: 0;
-    padding: 0;
+    padding: var(--sc-space-1) 0;
     list-style: none;
   }
-  .entry {
+  .index li + li {
+    border-top: 1px solid var(--sc-outline);
+  }
+  .index a {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
     align-items: center;
+    gap: var(--sc-space-3);
+    min-height: 64px;
+    padding: var(--sc-space-2) var(--sc-space-4);
+    color: var(--sc-text);
+    text-decoration: none;
   }
-  .entry span {
+  .index a:hover {
+    background: var(--sc-surface-sunken);
+  }
+  .index a[aria-current='page'] {
+    background: var(--sc-accent-bg);
+  }
+  .ico {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--sc-radius-md);
+    background: var(--sc-surface-sunken);
+    color: var(--sc-text-muted);
+  }
+  [aria-current='page'] .ico {
+    background: var(--sc-accent);
+    color: var(--sc-accent-fg);
+  }
+  .text {
+    display: grid;
     flex: 1;
-    min-width: 12ch;
+    min-width: 0;
   }
-  .file {
-    position: relative;
-    cursor: pointer;
+  .name {
+    font-weight: var(--sc-weight-strong);
+  }
+  .sub {
+    overflow: hidden;
+    color: var(--sc-text-muted);
+    font-size: var(--sc-font-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .go {
     display: inline-flex;
-    align-items: center;
+    color: var(--sc-text-muted);
   }
-  .file:focus-within {
-    outline: 3px solid var(--primary-color);
-    outline-offset: 2px;
+
+  /* --- the page --- */
+  .pane {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sc-space-4);
+    min-width: 0;
   }
-  .sr-only-input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
-    width: 100%;
+  .pane-head {
+    display: grid;
+    gap: var(--sc-space-1);
+  }
+  .pane-head h3 {
+    font-size: var(--sc-font-xl);
+  }
+  .pane-head h3:focus {
+    outline: none;
   }
 </style>

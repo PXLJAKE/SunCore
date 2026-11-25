@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+name: inverter_verify_modbus
+description: The inverter limit verification test (PR 7-J) with the Kostal modbus adapter (register 533, AC output limit in % of 10 kW, volatile, assisted). About 6 kW are exported at a 500 W house load; the test writes 50 % and the export settles at the AC limit minus the house load (AC semantics, as configured). Releasing writes 100 % back and the export recovers.
+start: "2026-06-21T12:00:00+02:00"
+duration_s: 900
+step_s: 10
+house:
+  seed: 18
+  pv: {kwp: 8.0}
+  load:
+    noise_fraction: 0.02
+    hourly_w: [300, 300, 300, 300, 300, 300, 400, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 600, 700, 700, 600, 500, 400, 300]
+  battery: {capacity_wh: 0}
+  export_limiter:
+    adapter: kostal_modbus
+    nominal_ac_w: 10000
+    hardware_export_limit_w: 13500
+outdoor: {mean_c: 26.0, amplitude_c: 5.0}
+grid:
+  export_limit_w: 13500
+inverter:
+  mode: assisted
+  verified: false
+  heartbeat_s: 60

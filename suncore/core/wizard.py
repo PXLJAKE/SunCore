@@ -24,7 +24,7 @@ from typing import Any, Final, Literal
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.config import DevicesConfig, TariffConfig
 from suncore.core.decisions import Reason
-from suncore.core.devices import DeviceConfig, DeviceKind
+from suncore.core.devices import DeviceConfig, DeviceKind, control_roles
 from suncore.core.series import PriceIncludes
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import ENTITY_ID_PATTERN, EntityRef, SiteConfig
@@ -287,7 +287,8 @@ def normalise_name(name: str) -> str:
 
 
 def _control_entity(device: DeviceConfig) -> str | None:
-    ref = device.entities.get(device.control.role)
+    roles = control_roles(device.control)
+    ref = device.entities.get(roles[0]) if roles else None
     return ref.entity_id if ref is not None else None
 
 

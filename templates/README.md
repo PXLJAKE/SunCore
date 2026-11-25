@@ -2,7 +2,7 @@
 
 Declarative device, tariff, forecast and region templates (ADR-0006, ADR-0012, schema v1).
 Layout: `templates/<kind>/<id>.yaml` with `kind` in `device`, `tariff`, `forecast`,
-`region`, `battery`; user templates in `/data/templates/<kind>/` override built-in ones by
+`region`, `battery`, `inverter`; user templates in `/data/templates/<kind>/` override built-in ones by
 `id`. A `*.yaml` file in any other sub directory is reported as an error.
 The JSON Schemas in `schema/` are generated from the Pydantic
 models in `suncore/templates/models.py` and `suncore/core/devices.py` – never edit them by
@@ -10,7 +10,7 @@ hand (`uv run python scripts/gen_schemas.py`; CI fails on drift).
 
 Step-by-step guide for contributors: [Contribute a device
 template](../docs/user/en/device-templates.md); generated list of what exists:
-[compatibility list](../docs/user/compatibility.md) (`scripts/gen_compat.py`, CI fails on
+[compatibility list](../docs/user/en/compatibility.md) (`scripts/gen_compat.py`, CI fails on
 drift).
 
 ## Built-in templates
@@ -23,6 +23,11 @@ drift).
 | device | `generic.switch` | any switch, optional power sensor | generic |
 | device | `generic.climate` | any `climate` entity, power measured (sensor may be on another device) or nominal | generic |
 | device | `generic.number_load` | load set through a number entity (W, A or %) | generic |
+| device | `generic.wallbox` | wallbox: current number (A), pause switch, optional phase select, charging power, vehicle SoC and plug sensor | generic, simulator only (`UNVERIFIED`: no hardware) |
+| device | `generic.program_plug` | shiftable program behind a smart plug: switch and its power sensor; switched off at arming while idle, on at the planned start (needs `program.resume_confirmed`) | generic, simulator only (`UNVERIFIED`: resume after power loss per appliance) |
+| device | `generic.program_notify` | shiftable program SunCore never switches: power sensor only, a "start now" notification | generic, simulator only (`UNVERIFIED`: no hardware) |
+| device | `generic.program_remote` | shiftable program with a remote-start switch and a power sensor; only switched on | generic, simulator only (`UNVERIFIED` per integration; a `button` role is not supported yet) |
+| device | `evcc.loadpoint` | one evcc loadpoint driven over evcc's MQTT API (mode, max current, limit; evcc regulates current and phases), no entities to map | from the evcc source; fake evcc only (`UNVERIFIED`: no running evcc) |
 | device | `generic.water_heater_steps` | water heater with power levels through one select entity, optional tank probe | generic, simulator only (`UNVERIFIED`: no hardware) |
 | device | `generic.water_heater_relays` | water heater with 1-3 heating elements switched by relays | generic, simulator only (`UNVERIFIED`: no hardware) |
 | tariff | `tibber.price` | Tibber dynamic price, curve from `tibber.get_prices` | from integration source |
@@ -38,6 +43,9 @@ drift).
 | battery | `generic.battery` | battery limits through number entities (min SoC, charge/discharge caps, grid-charge power), driver `generic` | generic, simulator only (`UNVERIFIED`: no hardware) |
 | battery | `kostal.plenticore` | KOSTAL PLENTICORE through the core integration: min SoC only (reserve floor, discharge lock), driver `kostal_plenticore` | from integration source; no write made on hardware yet |
 | battery | `kostal.plenticore_g3_modbus` | KOSTAL PLENTICORE G3 §3.5 limits through `modbus.write_register` with the inverter's fallback timer, driver `kostal_modbus` | from the vendor document; simulator only, capped at assisted until the fallback is measured |
+| inverter | `generic.inverter_limit` | any `number` entity with the export limit (W/kW) or the AC output limit (%), driver `generic_number` | generic, simulator only (`UNVERIFIED`: no hardware) |
+| inverter | `kostal.plenticore_power_limit` | KOSTAL PLENTICORE "Active Power Limitation" number through the core integration (W), driver `kostal_rest` | from integration source; semantics `UNVERIFIED`, capped at assisted until verified |
+| inverter | `kostal.plenticore_g3_modbus_limit` | KOSTAL PLENTICORE G3 register 533 (active power set-point, %, volatile) through `modbus.write_register`, driver `kostal_modbus` | from the vendor document; simulator only, read-back of 533 `UNVERIFIED` |
 | region | `de` | Germany: EUR, `Europe/Berlin`, no remuneration at negative prices for new PV | law text `UNVERIFIED` here |
 | region | `generic` | neutral international profile | – |
 
@@ -114,6 +122,14 @@ unverified: []                     # facts you could not verify; required if tes
   `external_control`, `charge_limit`, `discharge_limit`, `fallback_charge_limit`,
   `fallback_discharge_limit`, `fallback_timeout`, `own_charge_limit`, `own_discharge_limit`).
   Every write goes through the safety gate; a battery starts in shadow mode like every device.
+- Inverter limit templates (`kind: inverter`, PR 6-G) have exactly one role, `limit`: a
+  `number` for the drivers `generic_number` and `kostal_rest`, a `modbus` `sensor` (the
+  read-back) for `kostal_modbus`. `limit_capability` (`export_limit` in W or `ac_limit` in %;
+  absent = the configuration chooses) must match `capabilities`; `min`/`max` bound the value in
+  that unit; `settle_s` is the read-back delay; `volatile`, `modbus_register` and `default_pct`
+  belong to `kostal_modbus` (a register lost on an inverter reset, re-written while SunCore
+  holds a limit; `default_pct` is the release value when nothing was read at takeover). The
+  inverter limit starts in shadow mode and runs at most assisted until `inverter.limit_verified`.
 - Do not invent attributes, services or registers. Cite the integration source or vendor
   document in `source`, otherwise list the fact under `unverified`.
 - Every template needs a simulator conformance scenario under
@@ -159,3 +175,6 @@ Every addition is recorded below with the SunCore version that introduced it.
 | 0.5.0 (unreleased, Phase 4) | New template kind `battery` (`battery.schema.json`): `roles`, `controls` (union on `kind`: `min_soc`, `max_charge`, `max_discharge`, `grid_charge_power` numbers; `mode` select with option meanings; `force_charge` switch), optional `settle_s`. New capabilities `battery_soc`, `min_soc_limit`, `charge_limit`, `discharge_limit`, `grid_charge`, `battery_modes`. `series` of `source: attribute` takes an optional `list_path` for the generic attribute adapter and an optional `shape` (`list` default, or `mapping` for `{iso_timestamp: value}` attributes such as Forecast.Solar `wh_hours` and Open-Meteo Solar Forecast `wh_period_15m`; `fields` then holds only `value_unit`, so `fields.timestamp_field`/`value_field` became optional and are required only for lists of point objects). Tariff `price_unit` and `price_series.fields.value_unit` may be per MWh (`{currency}/MWh`, `EUR/MWh`); the value unit's currency must match `price_unit`'s (or be `{currency}`), and adapters convert to currency/kWh (`price_unit_factor`: MWh / 1000). Battery mode option `value` is kept verbatim (no whitespace stripping). HT/NT needs no template change: time windows and prices are contract data in the `tariff` configuration section (v3). Battery templates (WP10, additive): `driver` (`generic` default, `kostal_plenticore`, `kostal_modbus`), `modbus` register map (`kostal_modbus` only), capability `hardware_fallback`. |
 | 0.5.0 (unreleased, Phase 4, WP4) | Tariff price curves (all additive): `series.fields.end_field` (slot end, slot length = `end - start`; lists only); action series take `date_field` (one call per delivery date, excludes `start_field`/`end_field`) with an optional `date_tz` (IANA zone of that delivery day, e.g. Nord Pool's CET day; default the site's zone) and `params` (`name`, `required`, `description` i18n key: request fields the user supplies in the tariff configuration, e.g. Nord Pool `config_entry`, `areas`, `currency`); `response_path` may start with `*` (every entry of the response, e.g. `*` for `{area: [...]}`); the read-only action allowlist gains `nordpool.get_prices_for_date`. The `tariff` configuration section (v3) gains optional `import.role_entities`, `import.action_params`, `import.series_key` and `import.price_includes` (the user's statement overriding the template's classification). Eight tariff templates: `tibber.price` (updated), `nordpool.price`, `entsoe.price`, `entsoe.price_mwh`, `epex_spot.total_price`, `epex_spot.market_price`, `octopus_energy.rates`, `generic.price_list`. The currency symbols `€`/`£` that EPEX Spot puts in front of `/kWh` need no schema change: the matcher lists the literal units and `suncore.tariff.units.normalise_price_unit` maps them to ISO codes. |
 | 0.5.0 (unreleased, Phase 4, PV forecasts) | Forecast templates: `series.source: energy_solar_forecast` (new union member, `fields` holds only `value_unit`, optional `missing_is_zero`) for the Energy dashboard's `energy/solar_forecast`; optional `fallback_series` (an `action` series) used when the attribute yields nothing. New templates `forecast_solar.pv`, `open_meteo_solar_forecast.pv`, `generic.pv_forecast`; `solcast.pv` gained the optional roles `forecast_d3`, `forecast_d4` and the fallback action `query_forecast_data`. |
+| 0.7.0 (unreleased, Phase 6, PR 6-B) | Device templates (all additive, ADR-0017): new `defaults.control` kinds `charger` (roles `role` current in A, optional `enable_role`, `phases_role` with `phase_option_1`/`phase_option_3`, `min_current_a` 6, `max_current_a`, `phases`, `phase_switching`, `voltage_v`, `phase_switch_pause_s` 120, `max_phase_switches_per_hour` 4; device kind `wallbox`), `sg_ready` (`contact_a`, `contact_b`, contact pairs `normal`, `intensified`, optional `forced` with `allow_forced`, `min_dwell_s` ≥ 600; state 1 has no step; device kind `heat_pump`) and `loadpoint` (evcc `loadpoint_id`, `vehicle`, `topic_prefix` `evcc`; no entity role; device kind `wallbox`); optional `defaults.ev`, `defaults.program` and `defaults.thermal` (COP curve with the template's `source`). New capabilities `ev_charging`, `phase_switching`, `sg_ready`, `remote_start` (device templates) and `export_limit`, `ac_limit`, `backup_state` (reserved for the inverter roles of battery templates, PR 6-G; rejected on device templates). Devices of the new controls run at most assisted until the user confirms the behaviour (`DeviceConfig.behaviour_confirmed`). |
+| 0.7.0 (unreleased, Phase 6, PR 6-L) | Device templates (additive): new `defaults.control` kind `notify` (no role; only with `defaults.program.start_method: notify`). `program.resume_confirmed` is checked on the device, not on the template, so a template can default to `start_method: plug`. |
+| 0.7.0 (unreleased, Phase 6, PR 6-G) | New template kind `inverter` (`inverter.schema.json`, additive): one role `limit`, `driver` (`generic_number`, `kostal_rest`, `kostal_modbus`), optional `limit_capability`, `min`, `max`, `settle_s` (default 10), `volatile`, `modbus_register`, `default_pct`. The capabilities `export_limit` and `ac_limit` are used by inverter templates (not by battery templates as reserved in 6-B). |

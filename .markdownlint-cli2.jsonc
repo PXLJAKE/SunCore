@@ -8,5 +8,5 @@
     "MD041": false
   },
   "globs": ["**/*.md"],
-  "ignores": ["node_modules", "frontend/node_modules", ".venv", "CHANGELOG.md", "CODE_OF_CONDUCT.md", "LICENSE", "docs/BRIEF.md"]
+  "ignores": ["node_modules", "frontend/node_modules", ".venv", "CHANGELOG.md", "CODE_OF_CONDUCT.md", "LICENSE", "docs/BRIEF.md", "site"]
 }

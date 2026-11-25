@@ -1,6 +1,8 @@
 # ADR-0005: Exposing SunCore entities and actions in Home Assistant
 
-- **Status:** accepted (maintainer delegated the decision on 2026-10-12)
+- **Status:** accepted (maintainer delegated the decision on 2026-10-12); the Phase 7 timing of
+  the companion integration is superseded by [ADR-0021](0021-ha-dashboard-surface-for-1-0.md)
+  (2026-11-25: after 1.0)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
 - **Research:**

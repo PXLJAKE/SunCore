@@ -21,6 +21,7 @@ classifiers = [
 # empty skeleton on purpose.
 dependencies = [
   "aiohttp>=3.14.5",
+  "aiomqtt>=2.5.1",
   "aiosqlite>=0.22.1",
   "fastapi>=0.143.0",
   "highspy>=1.11",
@@ -35,7 +36,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/pxljake/suncore"
-Documentation = "https://pxljake.github.io/SunCore"
+Documentation = "https://github.com/pxljake/suncore/tree/main/docs/user"
 Changelog = "https://github.com/pxljake/suncore/blob/main/CHANGELOG.md"
 Issues = "https://github.com/pxljake/suncore/issues"
 
@@ -52,6 +53,12 @@ dev = [
   "types-pyyaml",
   "pytest-asyncio>=1.4.0",
   "httpx>=0.28.1",
+]
+# Documentation site (ADR-0020). MkDocs 2.0 is incompatible with Material: stay below 2.
+docs = [
+  "mkdocs>=1.6,<2",
+  "mkdocs-material>=9.8,<9.9",
+  "mkdocs-static-i18n>=1.3,<1.4",
 ]
 
 [build-system]
@@ -98,10 +105,15 @@ plugins = ["pydantic.mypy"]
 module = [
   "suncore.core.*",
   "suncore.planner.*",
+  "suncore.analysis.*",
   "suncore.controller.*",
   "suncore.safety.*",
   "suncore.devices.*",
   "suncore.app.control",
+  "suncore.sim.backtest",
+  "suncore.sim.backtest_models",
+  "suncore.app.backtests",
+  "suncore.api.backtests",
 ]
 strict = true
 

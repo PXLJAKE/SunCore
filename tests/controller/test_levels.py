@@ -39,6 +39,7 @@ from tests.safety.helpers import (
     steps_device,
     switch_device,
 )
+from tests.safety.test_phase6_gate import PHASE6_DEVICES, loadpoint_device, program_device
 
 SETTINGS = ControlSettings()
 Q = ConfigQuantiser()
@@ -346,3 +347,16 @@ def test_observed_level_per_kind() -> None:
     assert observed_level(table, ac, DeviceState(on=True, mode="heat", setpoint_c=24.9)) is None
     assert observed_level(table, ac, DeviceState(on=True, mode="heat")) is None
     assert observed_level(table, ac, DeviceState(on=False, mode="off")) is None
+
+
+# --- Phase 6 (PR 6-B review A2) --------------------------------------------------------
+
+
+def test_programs_and_phase6_controls_have_no_levels() -> None:
+    """The gate rejects their writes until 6-J..6-L; no levels means no repeated intents
+    (the charger has levels since 6-I: ``tests/controller/test_ev.py``)."""
+    for device in (*PHASE6_DEVICES, loadpoint_device()):
+        assert build_levels(device, None, None, SETTINGS, Q) is None, device.id
+    plug = program_device()
+    assert plug.program is not None
+    assert build_levels(plug.model_copy(update={"program": None}), None, None, SETTINGS, Q)

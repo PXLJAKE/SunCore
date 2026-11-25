@@ -27,8 +27,10 @@ from pydantic import (
 from suncore.core.balance import FlowSnapshot
 from suncore.core.decisions import Reason
 from suncore.core.devices import RESUME_TIME_DEFAULT, DeviceConfig, SetpointControl
+from suncore.core.grid import GridState, Para14aStatus
 from suncore.core.signals import Quality
 from suncore.core.validation import invalid
+from suncore.core.verification import VerificationWindow
 
 
 class _Frozen(BaseModel):
@@ -82,6 +84,21 @@ class DeviceState(_Frozen):
     ``None`` = no probe, or the probe is unavailable, stale or not in °C (the control stack
     fills it from the entity cache, see :func:`heat_capped`)."""
 
+    # PR 6-I (additive): an EV charger (``ChargerControl``) and its vehicle (``EvSpec`` roles).
+    phases: Literal[1, 3] | None = None
+    """The charger's active phase setting (``None`` = no ``phases`` role or unknown)."""
+    connected: bool | None = None
+    """The vehicle is plugged in (``None`` = no ``connected`` role or unavailable)."""
+    soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    """The vehicle's state of charge (``None`` = no ``vehicle_soc`` role or unavailable)."""
+
+    # PR 6-J (additive): an evcc loadpoint (``LoadpointControl``); ``mode`` is the evcc mode
+    # (``off``/``smart``/``now``), ``on`` = charging, ``value`` = the charge power in W.
+    max_current_a: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    """The loadpoint's ``maxCurrent`` as evcc reports it (``None`` = unknown)."""
+    limit_soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    """The loadpoint's ``limitSoc`` as evcc reports it (``None`` = unknown)."""
+
     @property
     def known(self) -> bool:
         """Whether the state can be trusted for a decision (ok or stale, never missing)."""
@@ -107,9 +124,91 @@ class GateInputs:
     reserve_soc_pct: float | None = None
     ts: datetime | None = None
     """When the snapshot was computed (injected clock)."""
+    # Phase 6 (PR 6-B, ADR-0018 decision 1; computed by ``core.grid`` and judged from 6-F/6-G):
+    export_limit_w: float | None = None
+    """The effective export limit (``core.grid.effective_export_limit_w``); ``None`` = none."""
+    para14a_budget_w: float | None = None
+    """§14a: the summed power the flagged devices may draw while dimmed; ``None`` = not
+    dimmed (see ``para14a_status``)."""
+    para14a_status: Para14aStatus = Para14aStatus.INACTIVE
+    """``unknown`` = the signal is configured but unavailable: no increase of flagged devices
+    (G5, from 6-F)."""
+    grid_state: GridState = GridState.NOT_CONFIGURED
+    """Connected, island, unknown (backup entity unavailable: not island, with a warning) or
+    not configured (no backup entity). Only ``island`` applies island rules (from 6-F)."""
+    # PR 6-F (additive): what the grid invariants G2/G3 need beyond the 6-B fields.
+    fuse_limit_w: float | None = None
+    """The connection/fuse import limit (``GridConfig.import_limit_w``); ``import_limit_w`` is
+    the *effective* one (min of fuse and peak). Above the fuse limit shedding of non-thermal
+    kinds skips min run (G2)."""
+    para14a_devices: frozenset[str] = frozenset()
+    """Ids of the devices flagged ``para14a`` (the gate sums their power against the budget)."""
+    # PR 6-I (additive): the home battery and the EV (invariant E6).
+    battery_present: bool = True
+    """The site has a home battery that could discharge into an EV (``False`` = none
+    configured). The conservative default assumes one."""
+    # PR 6-G (additive): the export chain (ADR-0018 decision 3, invariant X3).
+    export_headroom_w: float | None = None
+    """What the controlled devices and the battery could still absorb this tick (W): devices
+    still rising and SunCore's own battery charge cap. ``None`` = unknown; the gate then never
+    lets an inverter limit go below the current export (X3)."""
+    # PR 7-J (additive): the inverter limit verification (ADR-0018 addendum, plan WP8).
+    verification_window: VerificationWindow | None = None
+    """The open verification window, the only waiver of X3 (``Origin.USER`` intents of that
+    window, not below its ``lowest``). The gate fills it from its own register and ignores what
+    an inputs provider passes, so only ``SafetyGate.open_verification_window`` can open one."""
 
 
 # --- settings -----------------------------------------------------------------
+
+
+SAFETY_LIMITS: Final[Mapping[str, tuple[float, float]]] = {
+    "reserve_w": (50.0, 10_000.0),
+    "deficit_delay_s": (5.0, 120.0),
+    "deficit_budget_wh": (0.0, 500.0),
+    "intent_max_age_s": (1.0, 120.0),
+    "inputs_max_age_ticks": (1, 10),
+    "default_settle_s": (1.0, 60.0),
+    "default_max_switches_per_hour": (1, 30),
+    "min_write_interval_s": (1.0, 60.0),
+    "release_deadline_s": (5.0, 10.0),
+    "safe_state_cooldown_s": (30.0, 3600.0),
+    "stale_cadence_factor": (1.5, 3.0),
+    "max_jump_w_per_s": (1_000.0, 50_000.0),
+    "frozen_pv_s": (60.0, 3600.0),
+    "frozen_pv_min_w": (50.0, 1000.0),
+    "balance_tolerance_w": (100.0, 1000.0),
+    "balance_tolerance_pct": (5.0, 30.0),
+}
+"""Hard bounds of the ``ControlSettings`` fields the safety layer relies on (ADR-0015 decision 4).
+
+``field -> (min, max)``, inclusive. The parameter registry (``core/params.py``) reads this
+table for the range of every ``safety``-tagged parameter, so expert mode cannot move a value
+outside it, and ``ExpertConfig`` rejects such a document. The bounds sit *inside* the model's
+own field bounds and contain the defaults. The direction that weakens a protection (a longer
+staleness window, a shorter write interval, more switches per hour, a wider plausibility
+tolerance) stops at the limit; no value disables a check. Per-device minimum run and pause
+times are device configuration, not part of this table.
+
+Why some upper bounds are tight (control-safety review of PR 5-E): ``default_settle_s`` and
+``min_write_interval_s`` also pace the back-off over the import limit and at the battery
+reserve (one step per settle time + tick, and no non-release write inside the write interval),
+so a long value would let SunCore-caused import last minutes. ``release_deadline_s`` bounds the
+release on shutdown: below 5 s a slow Home Assistant or Modbus call is cut off and the device
+stays held; above 10 s it outlives the Supervisor's stop timeout (10 s default, ``UNVERIFIED``
+for this app's config, which sets none). ``stale_cadence_factor`` below 1.5 trips on normal
+jitter of the 60 s resync (release/resume churn); above 3 a 300 s counter may be 15 min old.
+The balance tolerances above 1000 W / 30 % stop catching a battery sign error of ~1.5 kW."""
+
+INPUTS_MAX_AGE_LIMIT_S: Final = 180.0
+"""Hard bound of ``inputs_max_age_ticks * tick_s``: the age at which the gate's flows and
+surplus count as unknown (import limit, battery lease). 180 s = 3 ticks at the slowest app
+option tick (60 s), the worst case without expert mode; expert mode cannot go beyond it."""
+
+
+def inputs_max_age_ticks_within(tick_s: float, ticks: int) -> int:
+    """``ticks`` reduced so that ``ticks * tick_s <= INPUTS_MAX_AGE_LIMIT_S`` (at least 1)."""
+    return max(1, min(ticks, int(INPUTS_MAX_AGE_LIMIT_S // tick_s)))
 
 
 class ControlSettings(_Frozen):
@@ -177,6 +276,30 @@ class DeviceBand(_Frozen):
     preference: BandPreference = BandPreference.NEUTRAL
     max_power_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
     """Upper bound of the device's demand in this interval (``None`` = device limit)."""
+    grid_power_max_w: float | None = Field(default=None, allow_inf_nan=False, ge=0)
+    """ADR-0017 decision 4 (plan v2, additive): the most of the device's demand that may come
+    from the grid in this interval (W); ``None`` = none (the Phase 3 rule: surplus only). Set
+    by the planner only for EV ``target`` and heat-pump pre-heating with ``grid_preheat``.
+    Never above ``max_power_w``; the import, peak and §14a limits hold regardless."""
+    start: bool = False
+    """ADR-0017 decision 7: start the armed program job in this interval (one interval per
+    job). Requires ``allowed``."""
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        if self.start and not self.allowed:
+            raise invalid("band_start_not_allowed", "device band: `start` needs `allowed`")
+        if (
+            self.grid_power_max_w is not None
+            and self.max_power_w is not None
+            and self.grid_power_max_w > self.max_power_w
+        ):
+            raise invalid("band_grid_above_max", "device band: grid_power_max_w above max_power_w")
+        if self.grid_power_max_w is not None and self.grid_power_max_w > 0 and not self.allowed:
+            raise invalid(
+                "band_grid_not_allowed", "device band: grid power in a band that is not allowed"
+            )
+        return self
 
 
 class BatteryBand(_Frozen):
@@ -407,6 +530,19 @@ def battery_band_now(plan: Plan, at: datetime) -> tuple[BatteryBand | None, bool
     return interval.battery, fresh
 
 
+def device_band_now(plan: Plan, device_id: str, at: datetime) -> DeviceBand | None:
+    """The device's band of the interval covering ``at`` of a **fresh** plan, else ``None``.
+
+    Same freshness as :func:`battery_band_now`. Used where a band *permits* something beyond
+    the Phase 3 rule (EV grid power, ADR-0017 decision 4): a stale plan permits nothing.
+    """
+    interval = plan.interval_at(at)
+    _, fresh = battery_band_now(plan, at)
+    if interval is None or not fresh:
+        return None
+    return interval.devices.get(device_id)
+
+
 def plan_from_payload(payload: Mapping[str, Any]) -> Plan:
     """Load a stored plan of any known schema version (v1 rows are stamped v2).
 
@@ -476,6 +612,7 @@ __all__ = [  # RESUME_TIME_DEFAULT is re-exported from core.devices (single cons
     "PowerEstimate",
     "SolverStats",
     "battery_band_now",
+    "device_band_now",
     "has_heat_limit",
     "heat_capped",
     "plan_from_payload",

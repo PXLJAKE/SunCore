@@ -4,6 +4,58 @@
  */
 
 export interface paths {
+    "/api/v1/backtests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Backtests
+         * @description The kept runs (the last five), newest first, with progress but without results.
+         */
+        get: operations["list_backtests"];
+        put?: never;
+        /**
+         * Start Backtest
+         * @description Replay local days ``start..end`` (at most 30, all in the past) through the planner
+         *     with the overlay (``planner``/``forecast`` parameters tagged ``whatif``, battery
+         *     settings, a flat tariff). Returns at once; poll ``GET /backtests/{id}``. Nothing is
+         *     written to the configuration or to a device.
+         */
+        post: operations["start_backtest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/backtests/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Backtest
+         * @description One run: status, progress while running, the result when done, the reason when it
+         *     failed or was cancelled.
+         */
+        get: operations["get_backtest"];
+        put?: never;
+        post?: never;
+        /**
+         * Cancel Backtest
+         * @description Cancel a running run (kept as ``cancelled``) or delete a finished one.
+         */
+        delete: operations["cancel_backtest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/battery": {
         parameters: {
             query?: never;
@@ -33,6 +85,24 @@ export interface paths {
         get: operations["get_config_devices"];
         /** Replace the devices section */
         put: operations["put_config_devices"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/expert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the expert section */
+        get: operations["get_config_expert"];
+        /** Replace the expert section */
+        put: operations["put_config_expert"];
         post?: never;
         delete?: never;
         options?: never;
@@ -104,6 +174,60 @@ export interface paths {
         put?: never;
         /** Import Config */
         post: operations["import_config_api_v1_config_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/inverter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the inverter section */
+        get: operations["get_config_inverter"];
+        /** Replace the inverter section */
+        put: operations["put_config_inverter"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/mqtt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the mqtt section */
+        get: operations["get_config_mqtt"];
+        /** Replace the mqtt section */
+        put: operations["put_config_mqtt"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the notifications section */
+        get: operations["get_config_notifications"];
+        /** Replace the notifications section */
+        put: operations["put_config_notifications"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -311,10 +435,78 @@ export interface paths {
         };
         /**
          * Decisions
-         * @description The decision log, newest first. ``device_id`` keeps one device's decisions, ``kind``
-         *     (repeatable) the given kinds (``shadow``, ``accepted``, ``proposed``, ...).
+         * @description The decision log, newest first. Filters: ``device_id``, ``kind`` (repeatable;
+         *     ``shadow``, ``accepted``, ``proposed`` ...), ``from`` (inclusive) and ``to`` (exclusive),
+         *     ``layer`` (the layer that produced the intent), ``reason`` (a reason key, or a dotted
+         *     prefix of it) and ``q`` (case-insensitive text in the device id, reason keys and
+         *     arguments). ``offset`` pages; the headers ``X-Total-Count`` and ``X-Decision-Ids``
+         *     accompany the list. CSV: one row per decision.
          */
         get: operations["decisions_api_v1_decisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/decisions/{decision_id}/explain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Decision Explain
+         * @description The "Why?" of one decision: the decision with its reasons, the same device's
+         *     decisions before and after, the plan snapshot valid then (with the interval) and the
+         *     site readings of that moment.
+         */
+        get: operations["decision_explain"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{device_id}/ev": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Ev
+         * @description Set the charge mode (``off``, ``now``, ``min_pv``, ``pv``, ``target``) and, for
+         *     ``target``, the SoC or energy to reach by a time. The controller follows it within a
+         *     tick; the safety gate still judges every write.
+         */
+        put: operations["device_ev_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{device_id}/flex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Device Flex
+         * @description The device's runtime EV mode and target and its open program job (or ``null``).
+         */
+        get: operations["device_flex"];
         put?: never;
         post?: never;
         delete?: never;
@@ -337,6 +529,73 @@ export interface paths {
          * @description Boost (N minutes), pause (until a time or until resumed) or resume one device.
          */
         post: operations["override_api_v1_devices__device_id__override_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{device_id}/program/arm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Arm Program
+         * @description Arm one job "finished by ``deadline``". SunCore schedules the start; a smart plug is
+         *     switched off right after arming while the appliance is idle.
+         */
+        post: operations["device_program_arm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{device_id}/program/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Program
+         * @description Cancel the waiting job. SunCore lets go of the device: a smart plug is switched
+         *     **on**, so the appliance starts at once. A running job cannot be cancelled.
+         */
+        post: operations["device_program_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnostics
+         * @description Anonymised diagnostics for bug reports (BRIEF section 5).
+         *
+         *     Built from an allowlist: entity ids, device names and HA area names become pseudonyms
+         *     (a new salt per call, the same pseudonym for the same value inside one document),
+         *     secrets are masked, and coordinates, tokens, passwords and MQTT credentials are never
+         *     included. Contains the last 200 decisions and the last 500 warning lines.
+         */
+        get: operations["diagnostics_api_v1_diagnostics_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -471,6 +730,241 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grid/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Grid Events
+         * @description Grid events (island, §14a, new peak, import above the fuse limit) of the last
+         *     ``days`` (1-400) and the monthly peaks.
+         */
+        get: operations["grid_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grid/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Grid Status
+         * @description Island, §14a and the month's peak as the control stack sees them.
+         */
+        get: operations["grid_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ha-entities/republish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ha Entities Republish
+         * @description Publish the discovery configs and all states again (for a broker without the Home
+         *     Assistant birth message). ``republished`` is ``false`` when there is no broker session.
+         */
+        post: operations["ha_entities_republish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ha-entities/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ha Entities Status
+         * @description Whether SunCore's entities are published in Home Assistant: the state (``disabled``,
+         *     ``no_broker``, ``connecting``, ``connected``, ``error``), where the broker comes from,
+         *     the number of entities and, when something is wrong, a reason key and (without a
+         *     broker) the hint key for installing the Mosquitto broker app. Everything else in
+         *     SunCore works without it.
+         */
+        get: operations["ha_entities_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/cycles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Cycles
+         * @description Equivalent full cycles, charged and discharged energy and the state-of-charge range
+         *     per local day (default: the last 30 days, at most 400).
+         */
+        get: operations["history_cycles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Devices
+         * @description Run time, estimated energy and starts of every controlled device in a period.
+         */
+        get: operations["history_devices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/forecast-skill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Forecast Skill
+         * @description Daily forecast error (MAE, bias = actual - forecast) per source, kind and horizon
+         *     bucket, with the n-weighted mean over the range (default: the last 30 days).
+         */
+        get: operations["history_forecast_skill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/heatmap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Heatmap
+         * @description Mean of a key (default the house consumption) by local weekday x hour of day over
+         *     the range (default: the last 28 days, at most 400).
+         */
+        get: operations["history_heatmap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/sankey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Sankey
+         * @description The attributed energy flows of a period as Sankey nodes and links (Wh).
+         */
+        get: operations["history_sankey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Series
+         * @description Measured means of up to 8 keys (``site.pv_w``, ``site.grid_w``, ``site.battery_w``,
+         *     ``site.house_w``, ``site.soc_pct``, ``weather.temperature_c``,
+         *     ``device.<id>.power_w``, ``device.<id>.on``). The resolution follows the span (1 min up
+         *     to 2 days, 15 min up to 31 days, daily above) and is coarsened to at most 2000 points per
+         *     series. Times without offset are site time; default range: the last 24 hours.
+         */
+        get: operations["history_series"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Summary
+         * @description Energy, flows, autarky, self-consumption, cost and savings against both baselines of
+         *     a period, summed from the frozen days (the current day is computed live), with one bar
+         *     per day (week, month) or month (year). CSV: the bars.
+         */
+        get: operations["history_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/info": {
         parameters: {
             query?: never;
@@ -482,6 +976,138 @@ export interface paths {
         get: operations["info_api_v1_info_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inverter/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verification
+         * @description The procedure's state: phase, the reasons it waits or ended, the baseline and the
+         *     proposed test limit, live export, house load and battery, the last stored outcome.
+         */
+        get: operations["verification_api_v1_inverter_verification_get"];
+        put?: never;
+        /**
+         * Start Verification
+         * @description Start the test (the inverter asset must be assisted). 409 lists the reasons.
+         */
+        post: operations["start_verification_api_v1_inverter_verification_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inverter/verification/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abort Verification
+         * @description Stop the test; a held test limit is given back through the gate at once.
+         */
+        post: operations["abort_verification_api_v1_inverter_verification_abort_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inverter/verification/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Verification
+         * @description Confirm the proposed test limit: it goes to the safety gate as the user's intent.
+         */
+        post: operations["confirm_verification_api_v1_inverter_verification_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Settings
+         * @description Categories, push targets, quiet hours and the daily cap (the ``notifications``
+         *     section; defaults while nothing is stored).
+         */
+        get: operations["notifications_settings"];
+        /**
+         * Put Settings
+         * @description Replace the notification settings; the service picks them up at once.
+         */
+        put: operations["notifications_put_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Status
+         * @description Whether the confirm buttons work (``active``) or Home Assistant refused the event
+         *     subscription (``refused``: plain messages with a pointer to the panel), how many push
+         *     targets can carry buttons, and the ``notify`` entities to choose from.
+         */
+        get: operations["notifications_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test
+         * @description Send a test message to every push target (at most one every five seconds).
+         */
+        post: operations["notifications_test"];
         delete?: never;
         options?: never;
         head?: never;
@@ -531,6 +1157,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operation/inverter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Inverter Mode
+         * @description Set the inverter limit's mode (PR 6-G, ADR-0018 decision 3). Anything above shadow
+         *     needs the adapter's ``identity`` token from the control state; shadow never does. An
+         *     adapter whose limit is not verified (``inverter.limit_verified``) runs at most assisted
+         *     whatever is stored.
+         */
+        put: operations["set_inverter_mode_api_v1_operation_inverter_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operation/mode": {
         parameters: {
             query?: never;
@@ -552,6 +1201,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Params
+         * @description Every tunable parameter: type, unit, hard range, tags (``safety``: confirmation
+         *     needed, ``restart``), the catalogue keys of its name and help text, the default, the
+         *     current value and whether it differs from the default.
+         */
+        get: operations["get_params"];
+        /**
+         * Put Params
+         * @description Change parameters, all or nothing. A value outside its hard range, of the wrong type
+         *     or for an unknown key is a 422 (nothing is stored). Changing a ``safety``-tagged value
+         *     needs ``confirm_safety: true`` (422 otherwise); the range is never widened by it.
+         */
+        put: operations["put_params"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/params/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Params
+         * @description Restore the default of one ``key`` or of every parameter of a ``group``. Needs no
+         *     confirmation: a default is inside the hard range by construction.
+         */
+        post: operations["reset_params"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/plan": {
         parameters: {
             query?: never;
@@ -567,6 +1265,49 @@ export interface paths {
          *     the controller follows it (``in_use``; else ``fallback`` says why).
          */
         get: operations["get_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/at": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plan At
+         * @description The plan snapshot that was valid at ``ts`` (the newest one created at or before it)
+         *     and the index of the interval covering ``ts``. 404 when none is stored (snapshots are
+         *     kept 14 days / 200). CSV: the intervals.
+         */
+        get: operations["plan_at"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plan/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plan Compare
+         * @description Interval differences of two snapshots; ``a`` and ``b`` are a snapshot id or a time
+         *     (the snapshot valid then). Only intervals that differ or exist on one side.
+         */
+        get: operations["plan_compare"];
         put?: never;
         post?: never;
         delete?: never;
@@ -939,6 +1680,163 @@ export interface components {
              */
             source: "attribute";
         };
+        /** BacktestCancelOut */
+        BacktestCancelOut: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "cancelled" | "deleted";
+        };
+        /** BacktestProgressOut */
+        BacktestProgressOut: {
+            /** Done */
+            done: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * BacktestRequest
+         * @description One run: local days ``start..end`` (inclusive) and what to change.
+         */
+        BacktestRequest: {
+            battery?: components["schemas"]["BatteryOverlay"] | null;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Params */
+            params?: {
+                [key: string]: boolean | number | string | null;
+            };
+            /**
+             * Perfect Foresight
+             * @default false
+             */
+            perfect_foresight: boolean;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            tariff?: components["schemas"]["TariffOverlay"] | null;
+        };
+        /** BacktestResult */
+        BacktestResult: {
+            /** Currency */
+            currency: string | null;
+            /** Days */
+            days: components["schemas"]["DayResult"][];
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            hourly: components["schemas"]["HourlySeries"];
+            /**
+             * Label
+             * @default plan_with_perfect_execution
+             * @constant
+             */
+            label: "plan_with_perfect_execution";
+            /** Limitations */
+            limitations: components["schemas"]["Reason"][];
+            /** Params */
+            params: {
+                [key: string]: boolean | number | string | null;
+            };
+            /** Params Requested */
+            params_requested?: {
+                [key: string]: boolean | number | string | null;
+            };
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Skipped */
+            skipped: components["schemas"]["SkippedDay"][];
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            stats: components["schemas"]["SolveStats"];
+            /**
+             * Tariff
+             * @enum {string}
+             */
+            tariff: "stored" | "fixed";
+            totals: components["schemas"]["BacktestTotals"] | null;
+            /** Tz */
+            tz: string;
+        };
+        /**
+         * BacktestRunOut
+         * @description One run; ``result`` only from ``GET /backtests/{id}`` of a finished run.
+         */
+        BacktestRunOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            error: components["schemas"]["Reason"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: number;
+            progress: components["schemas"]["BacktestProgressOut"] | null;
+            request: components["schemas"]["BacktestRequest"] | null;
+            result: components["schemas"]["BacktestResult"] | null;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed" | "cancelled";
+        };
+        /** BacktestTotals */
+        BacktestTotals: {
+            actual: components["schemas"]["RunFigures"];
+            /** Baseline No Pv Cost */
+            baseline_no_pv_cost: number;
+            /** Baseline Pv Only Cost */
+            baseline_pv_only_cost: number;
+            /** Days */
+            days: number;
+            perfect?: components["schemas"]["RunFigures"] | null;
+            whatif: components["schemas"]["RunFigures"];
+        };
+        /**
+         * BackupConfig
+         * @description Backup power: the entity that shows island operation (entity only, no heuristic).
+         *
+         *     ``island_states`` are the state values that mean "island" (case-sensitive, as HA reports
+         *     them; ``UNVERIFIED`` per backup device - the user or the template names them).
+         *     ``keep_devices`` are device ids that are not shed in island operation.
+         */
+        BackupConfig: {
+            /** Entity Id */
+            entity_id: string;
+            /** Island States */
+            island_states: string[];
+            /**
+             * Keep Devices
+             * @default []
+             */
+            keep_devices: string[];
+        };
         /**
          * BandPreference
          * @description What the plan would like the controller to do inside an allowed band.
@@ -1141,6 +2039,24 @@ export interface components {
             reserve_pct: number;
         };
         /**
+         * BatteryOverlay
+         * @description Battery settings to try; ``None`` keeps the configured value.
+         */
+        BatteryOverlay: {
+            /** Autarky Weight Per Kwh */
+            autarky_weight_per_kwh?: number | null;
+            /** Capacity Wh */
+            capacity_wh?: number | null;
+            grid_charge?: components["schemas"]["GridChargePolicy"] | null;
+            /** Max Charge W */
+            max_charge_w?: number | null;
+            /** Max Discharge W */
+            max_discharge_w?: number | null;
+            /** Reserve Pct */
+            reserve_pct?: number | null;
+            strategy?: components["schemas"]["BatteryStrategy"] | null;
+        };
+        /**
          * BatterySettings
          * @description Configuration section ``battery`` (schema v1).
          *
@@ -1330,6 +2246,33 @@ export interface components {
             weights: components["schemas"]["BlendWeightsView"][];
         };
         /**
+         * BucketOut
+         * @description One bar of the period chart: a day (week, month) or a month (year).
+         */
+        BucketOut: {
+            /** Complete */
+            complete: boolean;
+            cost: components["schemas"]["CostOut"];
+            /** Days With Data */
+            days_with_data: number;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            energy: components["schemas"]["EnergyOut"];
+            /** Key */
+            key: string;
+            kpis: components["schemas"]["KpiOut"];
+            /** Live */
+            live: boolean;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /**
          * CalibrationCharge
          * @description Periodic full charge for the BMS's SoC calibration (off by default, question 11).
          *
@@ -1387,7 +2330,96 @@ export interface components {
          * @description What a template provides.
          * @enum {string}
          */
-        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback";
+        Capability: "power_measured" | "energy_counter" | "on_off" | "power_setpoint" | "temperature_setpoint" | "hvac_modes" | "preset_modes" | "fan_modes" | "price_now" | "price_curve" | "pv_curve" | "pv_quantiles" | "feed_in_tiers" | "negative_price_rule" | "battery_soc" | "min_soc_limit" | "charge_limit" | "discharge_limit" | "grid_charge" | "battery_modes" | "hardware_fallback" | "ev_charging" | "phase_switching" | "sg_ready" | "remote_start" | "export_limit" | "ac_limit" | "backup_state";
+        /**
+         * ChargeAction
+         * @description Desired state of an EV charger (ADR-0017 decision 1; judged since PR 6-I, E1-E9).
+         *
+         *     **Full desired state.** ``current_a`` 0 = paused (the car is not charged: the driver turns
+         *     the ``enable`` switch off, or writes 0 A where the current entity accepts it), otherwise
+         *     within the charger's ``[min_current_a, max_current_a]`` - the range check needs the device
+         *     and is invariant E1 of the gate, not of this contract. ``phases`` ``None`` = leave the
+         *     phases as they are. Release = the baseline captured at takeover (current, phases, enable).
+         *
+         *     ``enabled`` (PR 6-I, additive) is the charger's ``enable`` switch as a driver *reads it
+         *     back*: a baseline keeps the user's current setting **and** their switch, so a release
+         *     restores both (E9). ``None`` = derived from the current (enabled iff ``current_a > 0``);
+         *     the controller never sets it. :meth:`effective_current_a` is what the car may draw.
+         */
+        ChargeAction: {
+            /** Current A */
+            current_a: number;
+            /** Enabled */
+            enabled?: boolean | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "charge";
+            /** Phases */
+            phases?: (1 | 3) | null;
+        };
+        /**
+         * ChargerControl
+         * @description An EV charger driven through Home Assistant entities (ADR-0017 decision 1, PR 6-I).
+         *
+         *     ``role`` is the charging current (number entity, A); ``enable_role`` an optional switch;
+         *     ``phases_role`` an optional select or switch whose option for one and for three phases is
+         *     ``phase_option_1`` / ``phase_option_3``. ``phases`` is the number of phases the charger is
+         *     wired with; ``phase_switching`` needs a ``phases_role`` and a three-phase charger (plan §0
+         *     decision 6). ``phase_switch_pause_s`` is the pause around a switch (vendor-dependent,
+         *     ``UNVERIFIED``), ``max_phase_switches_per_hour`` the wear limit. Written by ``ChargeAction``.
+         */
+        ChargerControl: {
+            /** Enable Role */
+            enable_role?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "charger";
+            /** Max Current A */
+            max_current_a: number;
+            /**
+             * Max Phase Switches Per Hour
+             * @default 4
+             */
+            max_phase_switches_per_hour: number;
+            /**
+             * Min Current A
+             * @default 6
+             */
+            min_current_a: number;
+            /** Phase Option 1 */
+            phase_option_1?: string | null;
+            /** Phase Option 3 */
+            phase_option_3?: string | null;
+            /**
+             * Phase Switch Pause S
+             * @default 120
+             */
+            phase_switch_pause_s: number;
+            /**
+             * Phase Switching
+             * @default false
+             */
+            phase_switching: boolean;
+            /**
+             * Phases
+             * @default 3
+             * @enum {integer}
+             */
+            phases: 1 | 3;
+            /** Phases Role */
+            phases_role?: string | null;
+            /** Role */
+            role: string;
+            /**
+             * Voltage V
+             * @default 230
+             */
+            voltage_v: number;
+        };
         /** CheckItemOut */
         CheckItemOut: {
             reason: components["schemas"]["Reason"];
@@ -1504,11 +2536,124 @@ export interface components {
             /** Emergency Stop */
             emergency_stop: boolean;
             global_mode: components["schemas"]["OperatingMode"];
+            inverter?: components["schemas"]["InverterControlState"] | null;
             /** Proposals */
             proposals: components["schemas"]["Decision"][];
             site: components["schemas"]["SiteControlState"] | null;
             /** Ts */
             ts: string | null;
+        };
+        /**
+         * CopCurve
+         * @description COP over outdoor temperature: 2-8 points, piecewise linear, clamped at the ends.
+         *
+         *     ``assumed`` marks a curve that is not from a vendor source (the generic default); the UI
+         *     labels it as an assumption.
+         */
+        CopCurve: {
+            /**
+             * Assumed
+             * @default false
+             */
+            assumed: boolean;
+            /** Points */
+            points: components["schemas"]["CopPoint"][];
+        };
+        /**
+         * CopPoint
+         * @description The coefficient of performance at one outdoor temperature.
+         */
+        CopPoint: {
+            /** Cop */
+            cop: number;
+            /** Outdoor C */
+            outdoor_c: number;
+        };
+        /**
+         * CostOut
+         * @description Grid cost of the days that have stored prices, and the two baselines (ADR-0014).
+         *
+         *     ``savings_vs_no_pv`` is what the plant adds (house load entirely from the grid minus actual
+         *     cost), ``savings_vs_pv_only`` what SunCore adds on top of the plant (PV without battery and
+         *     control minus actual cost), ``pv_contribution`` the difference. Device shifting is not undone.
+         */
+        CostOut: {
+            /** Baseline No Pv Cost */
+            baseline_no_pv_cost: number | null;
+            /** Baseline Pv Only Cost */
+            baseline_pv_only_cost: number | null;
+            /** Cost Net */
+            cost_net: number | null;
+            /** Currency */
+            currency: string | null;
+            /** Export Revenue */
+            export_revenue: number | null;
+            /** Import Cost */
+            import_cost: number | null;
+            /** Priced Days */
+            priced_days: number;
+            /** Pv Contribution */
+            pv_contribution: number | null;
+            /** Savings Vs No Pv */
+            savings_vs_no_pv: number | null;
+            /** Savings Vs Pv Only */
+            savings_vs_pv_only: number | null;
+        };
+        /** CycleDayOut */
+        CycleDayOut: {
+            /** Charge Wh */
+            charge_wh: number;
+            /** Complete */
+            complete: boolean;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Discharge Wh */
+            discharge_wh: number;
+            /** Equivalent Full Cycles */
+            equivalent_full_cycles: number | null;
+            /** Soc Max Pct */
+            soc_max_pct: number | null;
+            /** Soc Min Pct */
+            soc_min_pct: number | null;
+        };
+        /** CyclesOut */
+        CyclesOut: {
+            /** Days */
+            days: components["schemas"]["CycleDayOut"][];
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Total Equivalent Full Cycles */
+            total_equivalent_full_cycles: number | null;
+        };
+        /** DayResult */
+        DayResult: {
+            actual: components["schemas"]["RunFigures"];
+            /** Baseline No Pv Cost */
+            baseline_no_pv_cost: number;
+            /** Baseline Pv Only Cost */
+            baseline_pv_only_cost: number;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            perfect?: components["schemas"]["RunFigures"] | null;
+            /** Priced Slots */
+            priced_slots: number;
+            /** Slots */
+            slots: number;
+            whatif: components["schemas"]["RunFigures"];
         };
         /**
          * DayType
@@ -1534,7 +2679,7 @@ export interface components {
             kind: components["schemas"]["DecisionKind"];
             mode: components["schemas"]["OperatingMode"];
             /** Observed */
-            observed?: (components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"]) | null;
+            observed?: (components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"] | components["schemas"]["ChargeAction"] | components["schemas"]["LoadpointAction"] | components["schemas"]["InverterLimitAction"]) | null;
             /**
              * Reasons
              * @default []
@@ -1550,6 +2695,32 @@ export interface components {
              * Format: date-time
              */
             ts: string;
+        };
+        /** DecisionEntryOut */
+        DecisionEntryOut: {
+            decision: components["schemas"]["Decision"];
+            /** Id */
+            id: number;
+        };
+        /**
+         * DecisionExplainOut
+         * @description Everything the "Why?" panel shows about one decision.
+         */
+        DecisionExplainOut: {
+            /** After */
+            after: components["schemas"]["DecisionEntryOut"][];
+            /** Before */
+            before: components["schemas"]["DecisionEntryOut"][];
+            decision: components["schemas"]["Decision"];
+            /** Id */
+            id: number;
+            /** Inputs */
+            inputs: components["schemas"]["ExplainInputOut"][];
+            /** Inputs At */
+            inputs_at: string | null;
+            /** Inputs Resolution */
+            inputs_resolution: ("1m" | "15m") | null;
+            plan: components["schemas"]["ExplainPlanOut"] | null;
         };
         /**
          * DecisionKind
@@ -1577,10 +2748,17 @@ export interface components {
              * @default true
              */
             allowed: boolean;
+            /** Grid Power Max W */
+            grid_power_max_w?: number | null;
             /** Max Power W */
             max_power_w?: number | null;
             /** @default neutral */
             preference: components["schemas"]["BandPreference"];
+            /**
+             * Start
+             * @default false
+             */
+            start: boolean;
         };
         /**
          * DeviceConfig
@@ -1600,13 +2778,19 @@ export interface components {
              * @default false
              */
             allow_switch_on: boolean;
+            /**
+             * Behaviour Confirmed
+             * @default false
+             */
+            behaviour_confirmed: boolean;
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"] | components["schemas"]["NotifyControl"];
             /** Entities */
             entities?: {
                 [key: string]: components["schemas"]["EntityRef"];
             };
+            ev?: components["schemas"]["EvSpec"] | null;
             /** Hysteresis Delay S */
             hysteresis_delay_s?: number | null;
             /** Hysteresis W */
@@ -1635,6 +2819,11 @@ export interface components {
              *     }
              */
             override_policy: components["schemas"]["OverridePolicy"];
+            /**
+             * Para14A
+             * @default false
+             */
+            para14a: boolean;
             /** Planner Value Per Kwh */
             planner_value_per_kwh?: number | null;
             power_model: components["schemas"]["PowerModel"];
@@ -1643,12 +2832,16 @@ export interface components {
              * @default 0
              */
             priority: number;
+            program?: components["schemas"]["ProgramSpec"] | null;
             /** Settle S */
             settle_s?: number | null;
+            /** Shed Rank */
+            shed_rank?: number | null;
             /** Switch On Hvac Mode */
             switch_on_hvac_mode?: ("heat" | "cool" | "heat_cool" | "auto") | null;
             /** Template Id */
             template_id: string;
+            thermal?: components["schemas"]["ThermalSpec"] | null;
             /**
              * Windows
              * @default []
@@ -1672,6 +2865,7 @@ export interface components {
             /** Expected Power W */
             expected_power_w: number | null;
             global_mode: components["schemas"]["OperatingMode"];
+            heat_pump?: components["schemas"]["HeatPumpLive"] | null;
             /** Held */
             held: boolean;
             /** Held Until */
@@ -1701,14 +2895,30 @@ export interface components {
             /** Under Control */
             under_control: boolean;
         };
+        /** DeviceDayOut */
+        DeviceDayOut: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Energy Wh */
+            energy_wh: number | null;
+            /** Run Hours */
+            run_hours: number | null;
+        };
         /**
          * DeviceDefaults
          * @description Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.
+         *
+         *     Phase 6 (additive): ``ev`` (wallbox), ``program`` (program) and ``thermal`` (thermal kinds,
+         *     e.g. a vendor COP curve with the template's ``source``) - the same models as on the device.
          */
         DeviceDefaults: {
             comfort?: components["schemas"]["ComfortBand"] | null;
             /** Control */
-            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"];
+            control: components["schemas"]["OnOffControl"] | components["schemas"]["StepsControl"] | components["schemas"]["ContinuousControl"] | components["schemas"]["SetpointControl"] | components["schemas"]["ModeControl"] | components["schemas"]["RelaysControl"] | components["schemas"]["ChargerControl"] | components["schemas"]["SgReadyControl"] | components["schemas"]["LoadpointControl"] | components["schemas"]["NotifyControl"];
+            ev?: components["schemas"]["EvSpec"] | null;
             /** Hysteresis Delay S */
             hysteresis_delay_s?: number | null;
             /** Hysteresis W */
@@ -1726,8 +2936,43 @@ export interface components {
              */
             min_run_s: number;
             power_model: components["schemas"]["PowerModelDefault"];
+            program?: components["schemas"]["ProgramSpec"] | null;
             /** Settle S */
             settle_s?: number | null;
+            thermal?: components["schemas"]["ThermalSpec"] | null;
+        };
+        /** DeviceHistoryItemOut */
+        DeviceHistoryItemOut: {
+            /** Days */
+            days: components["schemas"]["DeviceDayOut"][];
+            /** Device Id */
+            device_id: string;
+            /** Energy Wh */
+            energy_wh: number | null;
+            /** Name */
+            name: string;
+            /** Run Hours */
+            run_hours: number | null;
+            /** Starts */
+            starts: number | null;
+        };
+        /** DeviceHistoryOut */
+        DeviceHistoryOut: {
+            /** Devices */
+            devices: components["schemas"]["DeviceHistoryItemOut"][];
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Key */
+            key: string;
+            period: components["schemas"]["Granularity"];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
         };
         /**
          * DeviceKind
@@ -1757,14 +3002,24 @@ export interface components {
          *     and ``mode`` is the HVAC mode. ``quality`` is the worst quality of the entities read.
          */
         DeviceState: {
+            /** Connected */
+            connected?: boolean | null;
+            /** Limit Soc Pct */
+            limit_soc_pct?: number | null;
+            /** Max Current A */
+            max_current_a?: number | null;
             /** Mode */
             mode?: string | null;
             /** On */
             on?: boolean | null;
+            /** Phases */
+            phases?: (1 | 3) | null;
             /** @default ok */
             quality: components["schemas"]["Quality"];
             /** Setpoint C */
             setpoint_c?: number | null;
+            /** Soc Pct */
+            soc_pct?: number | null;
             /** Step */
             step?: number | null;
             /** Temperature C */
@@ -1820,6 +3075,265 @@ export interface components {
              */
             schema_version: number;
         };
+        /** DiagArchitecture */
+        DiagArchitecture: {
+            /** Cpu Count */
+            cpu_count: number | null;
+            /** Demo */
+            demo: boolean;
+            /** Machine */
+            machine: string;
+            /** Operating Mode */
+            operating_mode: string;
+            /** Supervised */
+            supervised: boolean;
+            /** System */
+            system: string;
+        };
+        /** DiagConnection */
+        DiagConnection: {
+            /** Db Ok */
+            db_ok: boolean;
+            /** Ha State */
+            ha_state: string;
+            /** Last Update Age S */
+            last_update_age_s: number | null;
+            /** Mqtt Reason Key */
+            mqtt_reason_key: string | null;
+            /** Mqtt State */
+            mqtt_state: string | null;
+            registry: components["schemas"]["DiagRegistryCounts"] | null;
+        };
+        /** DiagDecision */
+        DiagDecision: {
+            /** Action */
+            action: {
+                [key: string]: unknown;
+            };
+            /** Asset */
+            asset: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Held Until */
+            held_until: string | null;
+            /** Intent Reasons */
+            intent_reasons: components["schemas"]["DiagReason"][];
+            /** Kind */
+            kind: string;
+            /** Mode */
+            mode: string;
+            /** Observed */
+            observed: {
+                [key: string]: unknown;
+            } | null;
+            /** Origin */
+            origin: string;
+            /** Reasons */
+            reasons: components["schemas"]["DiagReason"][];
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+        };
+        /** DiagLogLine */
+        DiagLogLine: {
+            /** Event */
+            event: string;
+            /** Exception */
+            exception: string | null;
+            /** Fields */
+            fields: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** Level */
+            level: string;
+            /** Logger */
+            logger: string;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+        };
+        /** DiagMappedEntity */
+        DiagMappedEntity: {
+            /** Age S */
+            age_s: number | null;
+            /** Area */
+            area: string | null;
+            /** Device */
+            device: string | null;
+            /** Domain */
+            domain: string;
+            /** Entity */
+            entity: string;
+            /** Known */
+            known: boolean;
+            /** Stale */
+            stale: boolean | null;
+        };
+        /** DiagPlanRun */
+        DiagPlanRun: {
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Last Finished At */
+            last_finished_at: string | null;
+            /** Last Ok At */
+            last_ok_at: string | null;
+            /** Last Outcome */
+            last_outcome: string | null;
+            /** Last Started At */
+            last_started_at: string | null;
+            /** Last Trigger */
+            last_trigger: string | null;
+            /** Next Scheduled At */
+            next_scheduled_at: string | null;
+            /** Pending */
+            pending: string[];
+            reason: components["schemas"]["DiagReason"] | null;
+            /** Running */
+            running: boolean;
+        };
+        /** DiagPlanner */
+        DiagPlanner: {
+            run: components["schemas"]["DiagPlanRun"] | null;
+            solver: components["schemas"]["DiagSolver"] | null;
+        };
+        /** DiagReason */
+        DiagReason: {
+            /** Args */
+            args?: {
+                [key: string]: string | number | boolean;
+            };
+            /** Key */
+            key: string;
+        };
+        /** DiagRegistryCounts */
+        DiagRegistryCounts: {
+            /** Areas */
+            areas: number;
+            /** Devices */
+            devices: number;
+            /** Entities */
+            entities: number;
+        };
+        /** DiagSolver */
+        DiagSolver: {
+            /** Created At */
+            created_at: string | null;
+            /** In Use */
+            in_use: boolean;
+            /** Intervals */
+            intervals: number;
+            /** Last Duration S */
+            last_duration_s: number | null;
+            /** Reasons */
+            reasons: components["schemas"]["DiagReason"][];
+            /** Solve Time S */
+            solve_time_s: number | null;
+            /** Source */
+            source: string | null;
+            /** Stale */
+            stale: boolean;
+            /** Status */
+            status: string | null;
+        };
+        /** DiagTimeseries */
+        DiagTimeseries: {
+            /** Code Schema Version */
+            code_schema_version: number | null;
+            /** File Schema Version */
+            file_schema_version: number | null;
+            size: components["schemas"]["DiagTimeseriesSize"] | null;
+            /** State */
+            state: string;
+        };
+        /** DiagTimeseriesSize */
+        DiagTimeseriesSize: {
+            /** File Bytes */
+            file_bytes: number;
+            /** Free Bytes */
+            free_bytes: number;
+            /** Rows */
+            rows: {
+                [key: string]: number;
+            };
+            /** Total Bytes */
+            total_bytes: number;
+            /** Wal Bytes */
+            wal_bytes: number;
+        };
+        /** DiagVersions */
+        DiagVersions: {
+            /** App */
+            app: string;
+            /** Config Sections */
+            config_sections: {
+                [key: string]: number | null;
+            };
+            /** Ha Core */
+            ha_core: string | null;
+            /** Python */
+            python: string;
+            /** Schemas */
+            schemas: {
+                [key: string]: number | null;
+            };
+        };
+        /** DiagWatchdog */
+        DiagWatchdog: {
+            /** Connected */
+            connected: boolean | null;
+            /** Control Active */
+            control_active: boolean | null;
+            /** Emergency Stop */
+            emergency_stop: boolean | null;
+            /** Scopes */
+            scopes: components["schemas"]["DiagWatchdogScope"][];
+        };
+        /** DiagWatchdogScope */
+        DiagWatchdogScope: {
+            /** Faults */
+            faults: string[];
+            /** Scope */
+            scope: string;
+            /** State */
+            state: string;
+        };
+        /**
+         * DiagnosticsOut
+         * @description The whole export. Share it in a bug report; nothing in it names the installation.
+         */
+        DiagnosticsOut: {
+            architecture: components["schemas"]["DiagArchitecture"];
+            /** Configuration */
+            configuration: {
+                [key: string]: unknown;
+            };
+            connection: components["schemas"]["DiagConnection"];
+            /** Decisions */
+            decisions: components["schemas"]["DiagDecision"][];
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Logs */
+            logs: components["schemas"]["DiagLogLine"][];
+            /** Mapped Entities */
+            mapped_entities: components["schemas"]["DiagMappedEntity"][];
+            planner: components["schemas"]["DiagPlanner"];
+            /** Pseudonyms */
+            pseudonyms: string;
+            /** Schema Version */
+            schema_version: number;
+            timeseries: components["schemas"]["DiagTimeseries"];
+            /** Unavailable */
+            unavailable: string[];
+            versions: components["schemas"]["DiagVersions"];
+            watchdog: components["schemas"]["DiagWatchdog"];
+        };
         /**
          * EmergencyStopOut
          * @description State of the global emergency stop after the call.
@@ -1852,6 +3366,21 @@ export interface components {
              * @enum {string}
              */
             source: "energy_solar_forecast";
+        };
+        /** EnergyOut */
+        EnergyOut: {
+            /** Charge Wh */
+            charge_wh: number;
+            /** Discharge Wh */
+            discharge_wh: number;
+            /** Export Wh */
+            export_wh: number;
+            /** House Wh */
+            house_wh: number;
+            /** Import Wh */
+            import_wh: number;
+            /** Pv Wh */
+            pv_wh: number;
         };
         /**
          * EnergyPrefsOut
@@ -1980,6 +3509,112 @@ export interface components {
             detail: string;
         };
         /**
+         * EvMode
+         * @description User-chosen EV charging mode (BRIEF §4.5).
+         * @enum {string}
+         */
+        EvMode: "off" | "now" | "min_pv" | "pv" | "target";
+        /**
+         * EvSpec
+         * @description The vehicle behind a charger (kind ``wallbox``; one vehicle per charger in v1).
+         *
+         *     Roles (all optional, mapped in ``DeviceConfig.entities``): ``vehicle_soc_role`` (sensor %),
+         *     ``connected_role`` (binary sensor), ``charging_role`` (binary sensor). Without a SoC the
+         *     targets are energy-based. ``efficiency`` is the charging efficiency (losses, default 0.9).
+         */
+        EvSpec: {
+            /** Capacity Wh */
+            capacity_wh?: number | null;
+            /** Charging Role */
+            charging_role?: string | null;
+            /** Connected Role */
+            connected_role?: string | null;
+            /** @default pv */
+            default_mode: components["schemas"]["EvMode"];
+            /**
+             * Efficiency
+             * @default 0.9
+             */
+            efficiency: number;
+            /** Vehicle Soc Role */
+            vehicle_soc_role?: string | null;
+        };
+        /**
+         * EvState
+         * @description Runtime EV state of one charger device.
+         */
+        EvState: {
+            /** Device Id */
+            device_id: string;
+            /** @default pv */
+            mode: components["schemas"]["EvMode"];
+            target?: components["schemas"]["EvTarget"] | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** EvStateRequest */
+        EvStateRequest: {
+            mode: components["schemas"]["EvMode"];
+            target?: components["schemas"]["EvTarget"] | null;
+        };
+        /**
+         * EvTarget
+         * @description Be at ``soc_pct`` (vehicle SoC known) or have charged ``energy_wh`` by ``by``.
+         */
+        EvTarget: {
+            /**
+             * By
+             * Format: date-time
+             */
+            by: string;
+            /** Energy Wh */
+            energy_wh?: number | null;
+            /** Soc Pct */
+            soc_pct?: number | null;
+        };
+        /**
+         * ExpertConfig
+         * @description Configuration section ``expert``: overrides of expert-mode parameters.
+         */
+        ExpertConfig: {
+            /** Overrides */
+            overrides?: {
+                [key: string]: boolean | number | string;
+            };
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+        };
+        /** ExplainInputOut */
+        ExplainInputOut: {
+            /** Key */
+            key: string;
+            /** Unit */
+            unit: string;
+            /** Value */
+            value: number | null;
+        };
+        /** ExplainPlanOut */
+        ExplainPlanOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            interval: components["schemas"]["PlanInterval"] | null;
+            /** Interval Index */
+            interval_index: number | null;
+            /** Snapshot Id */
+            snapshot_id: number;
+            /** Source */
+            source: string;
+        };
+        /**
          * ExportTariff
          * @description Feed-in remuneration.
          */
@@ -1991,6 +3626,12 @@ export interface components {
              * @enum {string}
              */
             kind: "fixed" | "tiered" | "none";
+            negative_reference_entity?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Remunerate Negative
+             * @default false
+             */
+            remunerate_negative: boolean;
             /**
              * Tiers
              * @default []
@@ -2036,6 +3677,39 @@ export interface components {
          * @enum {string}
          */
         FetchStatus: "ok" | "partial" | "no_data" | "not_configured" | "not_linked" | "ambiguous_entry" | "entry_not_found" | "error";
+        /**
+         * FlexOut
+         * @description The runtime EV state and the open program job of one device.
+         */
+        FlexOut: {
+            /** Device Id */
+            device_id: string;
+            ev?: components["schemas"]["EvState"] | null;
+            job?: components["schemas"]["ProgramJob"] | null;
+        };
+        /**
+         * FlowBreakdownOut
+         * @description Attributed flows (ADR-0014 decision 2): PV serves the house, then the battery, then the
+         *     grid; the grid charges the battery only for what PV cannot.
+         */
+        FlowBreakdownOut: {
+            /** Battery To Grid Wh */
+            battery_to_grid_wh: number;
+            /** Battery To House Wh */
+            battery_to_house_wh: number;
+            /** Grid To Battery Wh */
+            grid_to_battery_wh: number;
+            /** Grid To House Wh */
+            grid_to_house_wh: number;
+            /** Pv To Battery Wh */
+            pv_to_battery_wh: number;
+            /** Pv To Grid Wh */
+            pv_to_grid_wh: number;
+            /** Pv To House Wh */
+            pv_to_house_wh: number;
+            /** Residual Wh */
+            residual_wh: number;
+        };
         /**
          * FlowOut
          * @description A value in W (or % for the state of charge) with its data quality.
@@ -2125,6 +3799,21 @@ export interface components {
             schema_version: number;
             /** Sources */
             sources?: components["schemas"]["ForecastSourceConfig"][];
+        };
+        /** ForecastSkillOut */
+        ForecastSkillOut: {
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Series */
+            series: components["schemas"]["SkillSeriesOut"][];
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
         };
         /**
          * ForecastSourceConfig
@@ -2220,6 +3909,11 @@ export interface components {
             schema_version: number;
         };
         /**
+         * Granularity
+         * @enum {string}
+         */
+        Granularity: "day" | "week" | "month" | "year";
+        /**
          * GridChargePolicy
          * @description When the battery may be charged from the grid (answers 2026-10-16, question 7).
          *
@@ -2246,10 +3940,22 @@ export interface components {
         /**
          * GridConfig
          * @description Grid connection: one signed sensor (+ = import) OR an import/export pair, plus limits.
+         *
+         *     Phase 6 (PR 6-B, all optional with defaults, no version bump; ADR-0018): ``peak_shaving`` (off),
+         *     ``export_dynamic`` (0 W at negative export prices, only with a verified inverter adapter),
+         *     ``zero_export`` (off), ``para14a_limit_w`` (4 200 W) and ``para14a_signal_kind``
+         *     (``binary`` relay/contact or ``power_w`` allowed power), ``backup`` (island entity).
+         *     ``import_limit_w`` is the fuse/connection limit; ``core.grid`` resolves the effective ones.
          */
         GridConfig: {
+            backup?: components["schemas"]["BackupConfig"] | null;
             energy_export?: components["schemas"]["EntityRef"] | null;
             energy_import?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Export Dynamic
+             * @default false
+             */
+            export_dynamic: boolean;
             /** Export Limit Pct Kwp */
             export_limit_pct_kwp?: number | null;
             /** Export Limit W */
@@ -2263,8 +3969,51 @@ export interface components {
              * @default false
              */
             para14a: boolean;
+            /**
+             * Para14A Limit W
+             * @default 4200
+             */
+            para14a_limit_w: number;
             para14a_signal?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Para14A Signal Kind
+             * @default binary
+             * @enum {string}
+             */
+            para14a_signal_kind: "binary" | "power_w";
+            /**
+             * @default {
+             *       "capacity_price_per_kw_month": 0,
+             *       "enabled": false,
+             *       "peak_floor_w": 2500
+             *     }
+             */
+            peak_shaving: components["schemas"]["PeakShaving"];
             power?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Zero Export
+             * @default false
+             */
+            zero_export: boolean;
+        };
+        /** GridEventOut */
+        GridEventOut: {
+            /** Kind */
+            kind: string;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /** Value W */
+            value_w: number | null;
+        };
+        /** GridEventsOut */
+        GridEventsOut: {
+            /** Events */
+            events: components["schemas"]["GridEventOut"][];
+            /** Peaks */
+            peaks: components["schemas"]["MonthPeakOut"][];
         };
         /**
          * GridFeeWindow
@@ -2280,6 +4029,46 @@ export interface components {
             /** Months */
             months?: number[] | null;
             window: components["schemas"]["TouWindow"];
+        };
+        /** GridStatusOut */
+        GridStatusOut: {
+            /** Month */
+            month: string;
+            /** Month Peak W */
+            month_peak_w: number | null;
+            /** Para14A */
+            para14a: string;
+            /** Peak Limit W */
+            peak_limit_w: number | null;
+            /** State */
+            state: string;
+        };
+        /**
+         * HaEntitiesRepublishOut
+         * @description Result of ``POST /api/v1/ha-entities/republish``.
+         */
+        HaEntitiesRepublishOut: {
+            /** Republished */
+            republished: boolean;
+        };
+        /**
+         * HaEntitiesStatusOut
+         * @description ``GET /api/v1/ha-entities/status``: the MQTT entity surface.
+         */
+        HaEntitiesStatusOut: {
+            /** Entity Count */
+            entity_count: number;
+            /** Hint Key */
+            hint_key: string | null;
+            /** Reason Key */
+            reason_key: string | null;
+            /** Source */
+            source: ("supervisor" | "manual") | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "disabled" | "no_broker" | "connecting" | "connected" | "error";
         };
         /** HealthMessage */
         HealthMessage: {
@@ -2303,6 +4092,49 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * HeatPumpLive
+         * @description Live thermal values of a heat pump or other thermal device (PR 7-I, additive).
+         *
+         *     ``None`` fields are unknown, never zero: no outdoor temperature source, no learned model.
+         */
+        HeatPumpLive: {
+            /** Cop */
+            cop?: number | null;
+            /**
+             * Cop Assumed
+             * @default true
+             */
+            cop_assumed: boolean;
+            model?: components["schemas"]["ThermalModelQuality"] | null;
+            /** Outdoor C */
+            outdoor_c?: number | null;
+        };
+        /** HeatmapOut */
+        HeatmapOut: {
+            /** Counts */
+            counts: number[][];
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Key */
+            key: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Tz */
+            tz: string;
+            /** Unit */
+            unit: string;
+            /** Values */
+            values: (number | null)[][];
+            /** Weekdays */
+            weekdays?: string[];
+        };
         /** HistoryRestoreOut */
         HistoryRestoreOut: {
             /** Body */
@@ -2318,6 +4150,28 @@ export interface components {
          * @enum {string}
          */
         HorizonBucket: "0_6h" | "6_24h" | "24_48h" | "48h_plus";
+        /**
+         * HourlySeries
+         * @description Hourly means for the comparison chart (W, %); ``None`` = not replayed.
+         */
+        HourlySeries: {
+            /** Actual Battery W */
+            actual_battery_w: (number | null)[];
+            /** Actual Grid W */
+            actual_grid_w: (number | null)[];
+            /** Actual Soc Pct */
+            actual_soc_pct: (number | null)[];
+            /** Perfect Soc Pct */
+            perfect_soc_pct?: (number | null)[] | null;
+            /** Starts */
+            starts: string[];
+            /** Whatif Battery W */
+            whatif_battery_w: (number | null)[];
+            /** Whatif Grid W */
+            whatif_grid_w: (number | null)[];
+            /** Whatif Soc Pct */
+            whatif_soc_pct: (number | null)[];
+        };
         /** ImportResultOut */
         ImportResultOut: {
             /** Imported Sections */
@@ -2377,7 +4231,7 @@ export interface components {
          */
         Intent: {
             /** Action */
-            action: components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"];
+            action: components["schemas"]["SwitchAction"] | components["schemas"]["PowerSetpointAction"] | components["schemas"]["SetpointAction"] | components["schemas"]["StepAction"] | components["schemas"]["ModeAction"] | components["schemas"]["ReleaseAction"] | components["schemas"]["BatteryAction"] | components["schemas"]["ChargeAction"] | components["schemas"]["LoadpointAction"] | components["schemas"]["InverterLimitAction"];
             /** Asset Id */
             asset_id: string;
             /** Id */
@@ -2393,6 +4247,42 @@ export interface components {
              * Format: date-time
              */
             ts: string;
+        };
+        /**
+         * IntervalDiffOut
+         * @description Differences of one interval start; a side without the interval is ``None``.
+         *
+         *     Deltas are ``b - a`` and only present where both sides have the value.
+         */
+        IntervalDiffOut: {
+            a: components["schemas"]["PlanInterval"] | null;
+            b: components["schemas"]["PlanInterval"] | null;
+            /** Battery W Delta */
+            battery_w_delta: number | null;
+            /** Devices Changed */
+            devices_changed: string[];
+            /** Devices W Delta */
+            devices_w_delta: number | null;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Export W Delta */
+            export_w_delta: number | null;
+            /** Import Price Delta */
+            import_price_delta: number | null;
+            /** Import W Delta */
+            import_w_delta: number | null;
+            /** Only In */
+            only_in: ("a" | "b") | null;
+            /** Soc Pct Delta */
+            soc_pct_delta: number | null;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
         };
         /**
          * IntervalFlows
@@ -2462,6 +4352,273 @@ export interface components {
             export_price: number;
             /** Import Price */
             import_price: number;
+        };
+        /**
+         * InverterConfig
+         * @description The inverter limit adapter (ADR-0018 decision 3; writes since PR 6-G).
+         *
+         *     ``limit_verified`` is set only after the documented verification test; until then the
+         *     inverter asset runs at most assisted (X6) and the dynamic 0 W limit at negative prices stays
+         *     off. A change of the adapter's identity (:meth:`identity_token`) resets it and drops
+         *     ``operation.inverter_mode`` to shadow (storage). ``nominal_ac_w`` is needed for ``ac_limit``
+         *     (the percent base, invariant X2). ``limit_entity`` is the entity that shows the limit: the
+         *     number entity of the generic adapter (W for ``export_limit``, % for ``ac_limit``) and of
+         *     ``kostal_rest`` (``Inverter:ActivePowerLimitation``), the modbus sensor that reads register
+         *     533 back for ``kostal_modbus``; without it the adapter cannot read back and is not built.
+         *     ``enforce_static``: ``False`` (default) = the static export limit is enforced by the
+         *     inverter's own setting (the maintainer's 13.5 kW, plan §6 question 6) and SunCore writes a
+         *     limit only below it (dynamic or zero export); ``True`` = SunCore enforces it too.
+         */
+        InverterConfig: {
+            /**
+             * Adapter
+             * @default none
+             * @enum {string}
+             */
+            adapter: "none" | "generic_number" | "kostal_rest" | "kostal_modbus";
+            /** Capability */
+            capability?: ("export_limit" | "ac_limit") | null;
+            /**
+             * Enforce Static
+             * @default false
+             */
+            enforce_static: boolean;
+            last_verification?: components["schemas"]["InverterVerificationRecord"] | null;
+            limit_entity?: components["schemas"]["EntityRef"] | null;
+            /**
+             * Limit Verified
+             * @default false
+             */
+            limit_verified: boolean;
+            modbus?: components["schemas"]["InverterModbusLink"] | null;
+            /** Nominal Ac W */
+            nominal_ac_w?: number | null;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Template Id */
+            template_id?: string | null;
+            /** Verified At */
+            verified_at?: string | null;
+            /** Verified Identity */
+            verified_identity?: string | null;
+        };
+        /**
+         * InverterControlState
+         * @description The inverter limit as a controlled asset (PR 6-G, ADR-0018 decision 3).
+         */
+        InverterControlState: {
+            /** Adapter */
+            adapter: string;
+            /** Adapter Template Id */
+            adapter_template_id: string;
+            baseline: components["schemas"]["InverterLimitAction"] | null;
+            /** Capability */
+            capability: string;
+            effective_mode: components["schemas"]["OperatingMode"];
+            global_mode: components["schemas"]["OperatingMode"];
+            held: components["schemas"]["InverterLimitAction"] | null;
+            /** Identity */
+            identity: string;
+            inverter_mode: components["schemas"]["OperatingMode"];
+            last_decision: components["schemas"]["Decision"] | null;
+            limit: components["schemas"]["InverterLimitAction"] | null;
+            /** Mode Capped */
+            mode_capped: boolean;
+            paused: components["schemas"]["Reason"] | null;
+            /** Reasons */
+            reasons: components["schemas"]["Reason"][];
+            /** Under Control */
+            under_control: boolean;
+            /** Verified */
+            verified: boolean;
+            wanted: components["schemas"]["InverterLimitAction"] | null;
+        };
+        /**
+         * InverterLimitAction
+         * @description An export or AC output limit for the inverter (ADR-0018 decision 3; PR 6-G).
+         *
+         *     Exactly one of ``max_export_w`` (capability ``export_limit``) and ``max_ac_pct``
+         *     (capability ``ac_limit``, % of the nominal AC power) is set. The asset id is ``inverter``.
+         *     Release = the baseline captured at takeover (100 % for a volatile register).
+         */
+        InverterLimitAction: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "inverter_limit";
+            /** Max Ac Pct */
+            max_ac_pct?: number | null;
+            /** Max Export W */
+            max_export_w?: number | null;
+        };
+        /**
+         * InverterModbusLink
+         * @description How the ``kostal_modbus`` inverter adapter writes register 533 (``modbus.write_register``).
+         *
+         *     ``hub`` is the ``name`` of the user's ``modbus:`` YAML hub, ``slave`` the inverter's unit id
+         *     (Kostal default 71; mandatory because the action defaults to 1). Register 533 is volatile
+         *     (lost on an inverter reset, Kostal §3.3): ``heartbeat_s`` is the re-write period while
+         *     SunCore holds a limit. Verified 2026-11-24 against ``home-assistant/core`` ``dev``
+         *     ``components/modbus/services.py``: an ``int`` value is written with function code 0x06
+         *     (write single register), which is what Kostal lists for 533.
+         */
+        InverterModbusLink: {
+            /**
+             * Heartbeat S
+             * @default 60
+             */
+            heartbeat_s: number;
+            /**
+             * Hub
+             * @default modbus_hub
+             */
+            hub: string;
+            /** Slave */
+            slave: number;
+        };
+        /**
+         * InverterModeRequest
+         * @description ``PUT /api/v1/operation/inverter``: the inverter limit's operating mode (PR 6-G).
+         *
+         *     Raising it above shadow needs ``identity`` (``inverter.identity`` of the control state); a
+         *     changed adapter answers 409. Until ``inverter.limit_verified`` it runs at most assisted.
+         */
+        InverterModeRequest: {
+            /** Identity */
+            identity?: string | null;
+            mode: components["schemas"]["OperatingMode"];
+        };
+        /**
+         * InverterTemplate
+         * @description Inverter limit adapter template (PR 6-G, ADR-0018 decision 3; kind ``inverter``).
+         *
+         *     Exactly one role, ``limit``: a ``number`` for ``generic_number`` and ``kostal_rest`` (it is
+         *     written with ``number.set_value`` and read back), a ``modbus`` ``sensor`` for
+         *     ``kostal_modbus`` (read-back of the register that ``modbus.write_register`` writes).
+         *     ``limit_capability`` ``None`` = the configuration chooses (generic: W or %). ``min``/``max``
+         *     bound the writable value in the capability's unit; ``volatile``: the value is lost on an
+         *     inverter reset and is re-written while SunCore holds a limit. Writes go through the safety
+         *     gate only (X1-X6, ``safety.inverter``).
+         */
+        InverterTemplate: {
+            /** Capabilities */
+            capabilities: components["schemas"]["Capability"][];
+            /**
+             * Default Pct
+             * @default 100
+             */
+            default_pct: number;
+            /**
+             * Driver
+             * @enum {string}
+             */
+            driver: "generic_number" | "kostal_rest" | "kostal_modbus";
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "inverter";
+            /** Limit Capability */
+            limit_capability?: ("export_limit" | "ac_limit") | null;
+            /** Max */
+            max?: number | null;
+            /**
+             * Min
+             * @default 0
+             */
+            min: number;
+            /** Min App Version */
+            min_app_version?: string | null;
+            /** Modbus Register */
+            modbus_register?: number | null;
+            /** Name */
+            name: string;
+            /** Roles */
+            roles: {
+                [key: string]: components["schemas"]["RoleSpec"];
+            };
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Settle S
+             * @default 10
+             */
+            settle_s: number;
+            /** Source */
+            source: components["schemas"]["SourceRef"][];
+            /** Tested With */
+            tested_with: components["schemas"]["TestedWith"][];
+            /** Unverified */
+            unverified?: string[];
+            /**
+             * Volatile
+             * @default false
+             */
+            volatile: boolean;
+        };
+        /**
+         * InverterVerificationRecord
+         * @description The outcome of the last finished verification test (PR 7-J, ADR-0018 addendum).
+         *
+         *     Written only by the verification procedure (``ConfigStore.record_inverter_verification``);
+         *     a ``PUT`` of the section keeps the stored record, an identity change drops it.
+         */
+        InverterVerificationRecord: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Identity */
+            identity: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "passed" | "failed";
+            /** Reason */
+            reason?: string | null;
+            /** Semantics */
+            semantics?: ("export_limit" | "ac_limit") | null;
+        };
+        /**
+         * JobState
+         * @enum {string}
+         */
+        JobState: "armed" | "scheduled" | "running" | "done" | "cancelled";
+        /** KpiOut */
+        KpiOut: {
+            /** Autarky */
+            autarky: number | null;
+            /** Equivalent Full Cycles */
+            equivalent_full_cycles: number | null;
+            /** Self Consumption */
+            self_consumption: number | null;
+        };
+        /**
+         * LearnedThermal
+         * @description A fitted model with its quality (``nrmse`` of a 24 h replay) and history length.
+         */
+        LearnedThermal: {
+            /**
+             * Fitted At
+             * Format: date-time
+             */
+            fitted_at: string;
+            /** History Days */
+            history_days: number;
+            model: components["schemas"]["ThermalModel"];
+            /** Nrmse */
+            nrmse: number;
         };
         /**
          * LearningSettings
@@ -2634,6 +4791,74 @@ export interface components {
             reason: "active" | "not_configured" | "too_few_days" | "no_spread";
         };
         /**
+         * LoadpointAction
+         * @description What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; judged since PR 6-J).
+         *
+         *     evcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle
+         *     plan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``
+         *     fields are left as evcc has them. SunCore never writes ``evcc/site/*``.
+         */
+        LoadpointAction: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "loadpoint";
+            /** Limit Soc Pct */
+            limit_soc_pct?: number | null;
+            /** Max Current A */
+            max_current_a?: number | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "off" | "smart" | "now";
+            /** Plan Soc Pct */
+            plan_soc_pct?: number | null;
+            /** Plan Time */
+            plan_time?: string | null;
+        };
+        /**
+         * LoadpointControl
+         * @description An evcc loadpoint driven over evcc's MQTT API (ADR-0017 decision 2, PR 6-J).
+         *
+         *     No Home Assistant entity is written; ``topic_prefix`` (evcc default ``evcc``) and
+         *     ``loadpoint_id`` address the loadpoint, ``vehicle`` the evcc vehicle name for plans.
+         *     Loadpoint ids start at 1 in the evcc source read on 2026-11-24 (``server/mqtt.go``).
+         */
+        LoadpointControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "loadpoint";
+            /** Loadpoint Id */
+            loadpoint_id: number;
+            /**
+             * Max Current A
+             * @default 16
+             */
+            max_current_a: number;
+            /**
+             * Phases
+             * @default 3
+             * @enum {integer}
+             */
+            phases: 1 | 3;
+            /**
+             * Topic Prefix
+             * @default evcc
+             */
+            topic_prefix: string;
+            /** Vehicle */
+            vehicle?: string | null;
+            /**
+             * Voltage V
+             * @default 230
+             */
+            voltage_v: number;
+        };
+        /**
          * ModbusByteOrder
          * @description Word order of 32-bit values (Kostal register 5: ``0x00`` little, ``0x01`` big).
          * @enum {string}
@@ -2760,12 +4985,286 @@ export interface components {
             /** Options */
             options: components["schemas"]["BatteryModeOption"][];
         };
+        /** MonthPeakOut */
+        MonthPeakOut: {
+            /** Month */
+            month: string;
+            /** Peak W */
+            peak_w: number;
+            /**
+             * Slot
+             * Format: date-time
+             */
+            slot: string;
+        };
+        /**
+         * MqttConfig
+         * @description The HA entity surface over MQTT discovery (ADR-0016 decisions 2, 5).
+         *
+         *     ``broker``: ``supervisor`` = host, port and credentials from the Supervisor services API
+         *     (the default; nothing to enter), ``manual`` = ``host``/``port``/``tls``/``username``/
+         *     ``password``. The password is a secret: masked in the API, the export and the history.
+         *     ``allow_mode_raise`` lets HA raise a mode or clear the emergency stop (default off).
+         *     Without a broker the feature is unavailable with a hint; nothing else depends on it.
+         */
+        "MqttConfig-Input": {
+            /**
+             * Allow Mode Raise
+             * @default false
+             */
+            allow_mode_raise: boolean;
+            /**
+             * Broker
+             * @default supervisor
+             * @enum {string}
+             */
+            broker: "supervisor" | "manual";
+            /**
+             * Discovery Prefix
+             * @default homeassistant
+             */
+            discovery_prefix: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Host */
+            host?: string | null;
+            /** Password */
+            password?: string | null;
+            /**
+             * Port
+             * @default 1883
+             */
+            port: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Tls
+             * @default false
+             */
+            tls: boolean;
+            /** Username */
+            username?: string | null;
+        };
+        /**
+         * MqttConfig
+         * @description The HA entity surface over MQTT discovery (ADR-0016 decisions 2, 5).
+         *
+         *     ``broker``: ``supervisor`` = host, port and credentials from the Supervisor services API
+         *     (the default; nothing to enter), ``manual`` = ``host``/``port``/``tls``/``username``/
+         *     ``password``. The password is a secret: masked in the API, the export and the history.
+         *     ``allow_mode_raise`` lets HA raise a mode or clear the emergency stop (default off).
+         *     Without a broker the feature is unavailable with a hint; nothing else depends on it.
+         */
+        "MqttConfig-Output": {
+            /**
+             * Allow Mode Raise
+             * @default false
+             */
+            allow_mode_raise: boolean;
+            /**
+             * Broker
+             * @default supervisor
+             * @enum {string}
+             */
+            broker: "supervisor" | "manual";
+            /**
+             * Discovery Prefix
+             * @default homeassistant
+             */
+            discovery_prefix: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Host */
+            host?: string | null;
+            /** Password */
+            password?: string | null;
+            /**
+             * Port
+             * @default 1883
+             */
+            port: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Tls
+             * @default false
+             */
+            tls: boolean;
+            /** Username */
+            username?: string | null;
+        };
         /**
          * NegativePriceRule
          * @description Feed-in remuneration during negative spot prices.
          * @enum {string}
          */
         NegativePriceRule: "none" | "no_remuneration" | "curtailment_required";
+        /**
+         * NotificationCategories
+         * @description Which categories notify (plan WP5 defaults).
+         */
+        NotificationCategories: {
+            /**
+             * Cheap Window
+             * @default false
+             */
+            cheap_window: boolean;
+            /**
+             * Daily Summary
+             * @default false
+             */
+            daily_summary: boolean;
+            /**
+             * Error
+             * @default true
+             */
+            error: boolean;
+            /**
+             * Ev Target
+             * @default true
+             */
+            ev_target: boolean;
+            /**
+             * Program
+             * @default true
+             */
+            program: boolean;
+            /**
+             * Proposal
+             * @default true
+             */
+            proposal: boolean;
+            /**
+             * Safety
+             * @default true
+             */
+            safety: boolean;
+        };
+        /**
+         * NotificationTestOut
+         * @description Result of ``POST /api/v1/notifications/test``.
+         */
+        NotificationTestOut: {
+            /** Failed */
+            failed: number;
+            /** Reason Key */
+            reason_key: string | null;
+            /** Sent */
+            sent: number;
+        };
+        /**
+         * NotificationsConfig
+         * @description Notification settings (ADR-0016 decision 7, plan WP5).
+         *
+         *     Persistent notifications are on by default (errors and safety events); push needs a
+         *     target the user picks. ``daily_push_cap`` limits push messages per local day.
+         */
+        NotificationsConfig: {
+            /**
+             * @default {
+             *       "cheap_window": false,
+             *       "daily_summary": false,
+             *       "error": true,
+             *       "ev_target": true,
+             *       "program": true,
+             *       "proposal": true,
+             *       "safety": true
+             *     }
+             */
+            categories: components["schemas"]["NotificationCategories"];
+            /**
+             * Daily Push Cap
+             * @default 20
+             */
+            daily_push_cap: number;
+            /**
+             * Persistent
+             * @default true
+             */
+            persistent: boolean;
+            /**
+             * @default {
+             *       "enabled": true,
+             *       "end": "07:00",
+             *       "start": "22:00"
+             *     }
+             */
+            quiet_hours: components["schemas"]["QuietHours"];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * Targets
+             * @default []
+             */
+            targets: components["schemas"]["NotifyTarget"][];
+        };
+        /**
+         * NotificationsStatusOut
+         * @description ``GET /api/v1/notifications/status``: do push and the confirm buttons work?
+         */
+        NotificationsStatusOut: {
+            /**
+             * Actions
+             * @enum {string}
+             */
+            actions: "pending" | "active" | "refused";
+            /** Button Targets */
+            button_targets: number;
+            /** Entity Targets */
+            entity_targets: string[];
+            /** Open Buttons */
+            open_buttons: number;
+            /** Push Targets */
+            push_targets: number;
+            /** Pushed Today */
+            pushed_today: number;
+            /** Reason Key */
+            reason_key: string | null;
+        };
+        /**
+         * NotifyControl
+         * @description A program that SunCore never switches (PR 6-L, plan §8 6-B question "notify-only").
+         *
+         *     The user is asked to start the appliance by a notification; SunCore writes nothing and
+         *     detects the start by the appliance's power. Valid only for kind ``program`` with
+         *     ``program.start_method: notify``.
+         */
+        NotifyControl: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "notify";
+        };
+        /**
+         * NotifyTarget
+         * @description A push target: a ``notify`` entity (``notify.send_message``) or a legacy service name
+         *     (``notify.<service>``, e.g. ``mobile_app_pixel``).
+         */
+        NotifyTarget: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "entity" | "service";
+        };
         /**
          * NumberLimitControl
          * @description A ``number`` role that sets a battery limit.
@@ -2826,6 +5325,8 @@ export interface components {
                 [key: string]: components["schemas"]["OperatingMode"];
             };
             /** @default shadow */
+            inverter_mode: components["schemas"]["OperatingMode"];
+            /** @default shadow */
             mode: components["schemas"]["OperatingMode"];
             /**
              * Schema Version
@@ -2883,6 +5384,108 @@ export interface components {
             resume_time: string;
         };
         /**
+         * ParamOut
+         * @description One parameter: spec, default, current value.
+         */
+        ParamOut: {
+            /** Available */
+            available: boolean;
+            /** Choices */
+            choices: string[];
+            /** Default */
+            default: boolean | number | string | null;
+            /** Group */
+            group: string;
+            /** Help Key */
+            help_key: string;
+            /** Key */
+            key: string;
+            /** Maximum */
+            maximum: number | null;
+            /** Minimum */
+            minimum: number | null;
+            /** Modified */
+            modified: boolean;
+            /** Name Key */
+            name_key: string;
+            /** Restart */
+            restart: boolean;
+            /** Safety */
+            safety: boolean;
+            /** See */
+            see: string | null;
+            /** Tags */
+            tags: string[];
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "float" | "int" | "bool" | "enum" | "entity";
+            /** Unit */
+            unit: string | null;
+            /** Value */
+            value: boolean | number | string | null;
+        };
+        /** ParamsApplied */
+        ParamsApplied: {
+            /** Changed */
+            changed: string[];
+            /** Groups */
+            groups: string[];
+            /** Params */
+            params: components["schemas"]["ParamOut"][];
+        };
+        /** ParamsOut */
+        ParamsOut: {
+            /** Groups */
+            groups: string[];
+            /** Params */
+            params: components["schemas"]["ParamOut"][];
+        };
+        /** ParamsPut */
+        ParamsPut: {
+            /** Changes */
+            changes: {
+                [key: string]: boolean | number | string | null;
+            };
+            /**
+             * Confirm Safety
+             * @default false
+             */
+            confirm_safety: boolean;
+        };
+        /**
+         * ParamsReset
+         * @description Exactly one of ``key`` and ``group``.
+         */
+        ParamsReset: {
+            /** Group */
+            group?: string | null;
+            /** Key */
+            key?: string | null;
+        };
+        /**
+         * PeakShaving
+         * @description Monthly peak shaving (capacity tariffs). Off by default (plan §0 decision 12).
+         */
+        PeakShaving: {
+            /**
+             * Capacity Price Per Kw Month
+             * @default 0
+             */
+            capacity_price_per_kw_month: number;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Peak Floor W
+             * @default 2500
+             */
+            peak_floor_w: number;
+        };
+        /**
          * Plan
          * @description The planner's output as the controller consumes it (ADR-0011).
          *
@@ -2923,6 +5526,40 @@ export interface components {
              */
             source: "solver" | "heuristic" | "default";
             stats?: components["schemas"]["SolverStats"] | null;
+        };
+        /**
+         * PlanAtOut
+         * @description The plan snapshot that was valid at a time.
+         */
+        PlanAtOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Interval Index */
+            interval_index: number | null;
+            plan: components["schemas"]["Plan"];
+            /** Schema Version */
+            schema_version: number;
+            /** Snapshot Id */
+            snapshot_id: number;
+            /** Source */
+            source: string;
+        };
+        /** PlanCompareOut */
+        PlanCompareOut: {
+            a: components["schemas"]["SnapshotRefOut"];
+            b: components["schemas"]["SnapshotRefOut"];
+            /** Changed */
+            changed: number;
+            /** Intervals */
+            intervals: components["schemas"]["IntervalDiffOut"][];
         };
         /**
          * PlanInterval
@@ -3345,6 +5982,87 @@ export interface components {
              */
             source_price_includes: "spot_only" | "all_in";
         };
+        /** ProgramArmRequest */
+        ProgramArmRequest: {
+            /**
+             * Deadline
+             * Format: date-time
+             */
+            deadline: string;
+        };
+        /**
+         * ProgramJob
+         * @description One armed run of a shiftable program ("finished by ``deadline``").
+         */
+        ProgramJob: {
+            /**
+             * Armed At
+             * Format: date-time
+             */
+            armed_at: string;
+            /**
+             * Armed By
+             * @default user
+             * @enum {string}
+             */
+            armed_by: "user" | "mqtt" | "notification";
+            /**
+             * Deadline
+             * Format: date-time
+             */
+            deadline: string;
+            /** Device Id */
+            device_id: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Id */
+            id: string;
+            /** Notified At */
+            notified_at?: string | null;
+            /** Planned Start */
+            planned_start?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** @default armed */
+            state: components["schemas"]["JobState"];
+        };
+        /**
+         * ProgramSpec
+         * @description A shiftable program (kind ``program``; ADR-0017 decision 7).
+         *
+         *     ``profile_wh`` is the energy per 15 minutes of a run (``None`` = nominal power x run time);
+         *     its length must cover ``runtime_min``. ``start_method``: ``plug`` (a smart plug switched on;
+         *     needs ``resume_confirmed``, the user's statement that the appliance resumes after power
+         *     returns - ``UNVERIFIED`` per appliance), ``remote`` (a ``button``/``switch`` role) or
+         *     ``notify`` (the user is asked to start it). ``idle_w`` is the "finished" threshold.
+         *
+         *     PR 6-L: the ``resume_confirmed`` rule is checked on the device (``DeviceConfig``), not here,
+         *     so a template can default to ``plug`` while the user still has to confirm on the device.
+         */
+        ProgramSpec: {
+            /**
+             * Idle W
+             * @default 5
+             */
+            idle_w: number;
+            /**
+             * Profile Wh
+             * @default []
+             */
+            profile_wh: number[];
+            /**
+             * Resume Confirmed
+             * @default false
+             */
+            resume_confirmed: boolean;
+            /** Runtime Min */
+            runtime_min: number;
+            /**
+             * Start Method
+             * @enum {string}
+             */
+            start_method: "plug" | "remote" | "notify";
+        };
         /**
          * PvArray
          * @description One PV array (roof plane / inverter input). Everything but ``name`` is optional.
@@ -3418,6 +6136,27 @@ export interface components {
          * @enum {string}
          */
         Quality: "ok" | "stale" | "unavailable" | "invalid";
+        /**
+         * QuietHours
+         * @description Local quiet hours for non-critical categories (default 22:00-07:00, may wrap).
+         */
+        QuietHours: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * End
+             * @default 07:00
+             */
+            end: string;
+            /**
+             * Start
+             * @default 22:00
+             */
+            start: string;
+        };
         /**
          * Reason
          * @description A structured, translatable explanation.
@@ -3683,6 +6422,80 @@ export interface components {
             same_device_as?: string | null;
         };
         /**
+         * RunFigures
+         * @description Energy (Wh), cost (currency) and KPIs of one run over the priced, replayed slots.
+         */
+        RunFigures: {
+            /** Autarky */
+            autarky: number | null;
+            /** Charge Wh */
+            charge_wh: number;
+            /** Cost Net */
+            cost_net: number;
+            /**
+             * Curtailed Wh
+             * @default 0
+             */
+            curtailed_wh: number;
+            /** Discharge Wh */
+            discharge_wh: number;
+            /** Equivalent Full Cycles */
+            equivalent_full_cycles: number | null;
+            /** Export Revenue */
+            export_revenue: number;
+            /** Export Wh */
+            export_wh: number;
+            /** House Wh */
+            house_wh: number;
+            /** Import Cost */
+            import_cost: number;
+            /** Import Wh */
+            import_wh: number;
+            /** Pv Wh */
+            pv_wh: number;
+            /** Self Consumption */
+            self_consumption: number | null;
+        };
+        /** SankeyLinkOut */
+        SankeyLinkOut: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "pv" | "grid_import" | "battery_discharge" | "house" | "battery_charge" | "grid_export";
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "pv" | "grid_import" | "battery_discharge" | "house" | "battery_charge" | "grid_export";
+            /** Wh */
+            wh: number;
+        };
+        /** SankeyOut */
+        SankeyOut: {
+            /** Complete */
+            complete: boolean;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Key */
+            key: string;
+            /** Links */
+            links: components["schemas"]["SankeyLinkOut"][];
+            /** Nodes */
+            nodes: ("pv" | "grid_import" | "battery_discharge" | "house" | "battery_charge" | "grid_export")[];
+            period: components["schemas"]["Granularity"];
+            /** Residual Wh */
+            residual_wh: number;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+        };
+        /**
          * SeriesFields
          * @description Names of the fields of one series point and the unit of its values.
          *
@@ -3704,6 +6517,39 @@ export interface components {
             value_field?: string | null;
             /** Value Unit */
             value_unit: string;
+        };
+        /** SeriesOut */
+        SeriesOut: {
+            /** Key */
+            key: string;
+            /** Unit */
+            unit: string;
+            /** Values */
+            values: (number | null)[];
+        };
+        /** SeriesResponse */
+        SeriesResponse: {
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /**
+             * Resolution
+             * @enum {string}
+             */
+            resolution: "1m" | "15m" | "1h" | "1d";
+            /** Resolution Reason */
+            resolution_reason: string;
+            /** Series */
+            series: components["schemas"]["SeriesOut"][];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Times */
+            times: string[];
         };
         /**
          * SetpointAction
@@ -3745,8 +6591,54 @@ export interface components {
             step_c: number;
         };
         /**
+         * SgContacts
+         * @description The two SG-Ready contacts of one state (``True`` = closed / switch on).
+         */
+        SgContacts: {
+            /** A */
+            a: boolean;
+            /** B */
+            b: boolean;
+        };
+        /**
+         * SgReadyControl
+         * @description SG-Ready heat pump interface: two contact switches (ADR-0017 decision 5, PR 6-K).
+         *
+         *     Written with ``StepAction``: step 0 = SG state 2 (normal, the baseline and release),
+         *     1 = state 3 (intensified), 2 = state 4 (forced on, only with ``allow_forced``). **State 1
+         *     (utility block) has no step and is never written.** Which contact pair selects which state
+         *     is vendor-specific: the template states it with a ``source`` (``UNVERIFIED`` otherwise).
+         */
+        SgReadyControl: {
+            /**
+             * Allow Forced
+             * @default false
+             */
+            allow_forced: boolean;
+            /** Contact A */
+            contact_a: string;
+            /** Contact B */
+            contact_b: string;
+            forced?: components["schemas"]["SgContacts"] | null;
+            intensified: components["schemas"]["SgContacts"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sg_ready";
+            /**
+             * Min Dwell S
+             * @default 600
+             */
+            min_dwell_s: number;
+            normal: components["schemas"]["SgContacts"];
+        };
+        /**
          * SiteConfig
          * @description Site description. Entity ids come from the user; none are hard-coded.
+         *
+         *     Phase 6 adds only optional grid fields with defaults (see :class:`GridConfig`) without a
+         *     version bump: every stored v2 document stays valid as it is (plan §8, PR 6-B).
          */
         SiteConfig: {
             battery?: components["schemas"]["BatteryConfig"] | null;
@@ -3785,6 +6677,49 @@ export interface components {
             /** Uncertainty W */
             uncertainty_w: number;
         };
+        /** SkillPointOut */
+        SkillPointOut: {
+            /** Bias W */
+            bias_w: number;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Mae W */
+            mae_w: number;
+            /** N */
+            n: number;
+        };
+        /** SkillSeriesOut */
+        SkillSeriesOut: {
+            /** Bias W */
+            bias_w: number | null;
+            /** Horizon */
+            horizon: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "pv" | "load";
+            /** Mae W */
+            mae_w: number | null;
+            /** N */
+            n: number;
+            /** Points */
+            points: components["schemas"]["SkillPointOut"][];
+            /** Source Id */
+            source_id: string;
+        };
+        /** SkippedDay */
+        SkippedDay: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            reason: components["schemas"]["Reason"];
+        };
         /** SnapshotMessage */
         SnapshotMessage: {
             control: components["schemas"]["ControlState"];
@@ -3797,6 +6732,35 @@ export interface components {
              * @enum {string}
              */
             type: "snapshot";
+        };
+        /** SnapshotRefOut */
+        SnapshotRefOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Intervals */
+            intervals: number;
+            /** Snapshot Id */
+            snapshot_id: number;
+            /** Source */
+            source: string;
+        };
+        /**
+         * SolveStats
+         * @description Planner runs of the replay; times vary between machines and are not part of the
+         *     deterministic result.
+         */
+        SolveStats: {
+            /** Fallbacks */
+            fallbacks: number;
+            /** Replans */
+            replans: number;
+            /** Solve S Max */
+            solve_s_max: number;
+            /** Solve S Total */
+            solve_s_total: number;
         };
         /**
          * SolverStats
@@ -3883,6 +6847,46 @@ export interface components {
             /** Value */
             value: unknown;
         };
+        /** SummaryOut */
+        SummaryOut: {
+            /** Buckets */
+            buckets: components["schemas"]["BucketOut"][];
+            /** Complete */
+            complete: boolean;
+            cost: components["schemas"]["CostOut"];
+            /** Coverage */
+            coverage: number | null;
+            /** Days */
+            days: number;
+            /** Days Complete */
+            days_complete: number;
+            /** Days With Data */
+            days_with_data: number;
+            /** Derived Share */
+            derived_share: number | null;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            energy: components["schemas"]["EnergyOut"];
+            flows: components["schemas"]["FlowBreakdownOut"];
+            /** In Progress */
+            in_progress: boolean;
+            /** Includes Live */
+            includes_live: boolean;
+            /** Key */
+            key: string;
+            kpis: components["schemas"]["KpiOut"];
+            period: components["schemas"]["Granularity"];
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Tz */
+            tz: string;
+        };
         /**
          * SwitchAction
          * @description Turn a device on or off.
@@ -3914,6 +6918,25 @@ export interface components {
              * @default 3
              */
             schema_version: number;
+        };
+        /**
+         * TariffOverlay
+         * @description A flat tariff to try instead of the stored prices (currency/kWh).
+         */
+        TariffOverlay: {
+            /**
+             * Export Price
+             * @default 0
+             */
+            export_price: number;
+            /** Import Price */
+            import_price: number;
+            /**
+             * Kind
+             * @default fixed
+             * @constant
+             */
+            kind: "fixed";
         };
         /** TariffTemplate */
         TariffTemplate: {
@@ -3972,7 +6995,7 @@ export interface components {
              */
             origin: "builtin" | "user";
             /** Template */
-            template: components["schemas"]["DeviceTemplate"] | components["schemas"]["TariffTemplate"] | components["schemas"]["ForecastTemplate"] | components["schemas"]["RegionTemplate"] | components["schemas"]["BatteryTemplate"];
+            template: components["schemas"]["DeviceTemplate"] | components["schemas"]["TariffTemplate"] | components["schemas"]["ForecastTemplate"] | components["schemas"]["RegionTemplate"] | components["schemas"]["BatteryTemplate"] | components["schemas"]["InverterTemplate"];
         };
         /**
          * TemplateErrorOut
@@ -4006,7 +7029,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "device" | "tariff" | "forecast" | "region" | "battery";
+            kind: "device" | "tariff" | "forecast" | "region" | "battery" | "inverter";
             /** Name */
             name: string;
             /**
@@ -4039,6 +7062,56 @@ export interface components {
             integration: string;
             /** Version */
             version: string;
+        };
+        /**
+         * ThermalModel
+         * @description First-order RC parameters of a thermal store.
+         */
+        ThermalModel: {
+            /** Capacity Wh Per K */
+            capacity_wh_per_k: number;
+            /**
+             * Internal Gain W
+             * @default 0
+             */
+            internal_gain_w: number;
+            /** Loss W Per K */
+            loss_w_per_k: number;
+        };
+        /**
+         * ThermalModelQuality
+         * @description How good the learned RC model of a heat pump is and whether the planner uses it.
+         */
+        ThermalModelQuality: {
+            /** Fit Error */
+            fit_error: number;
+            /**
+             * Fitted At
+             * Format: date-time
+             */
+            fitted_at: string;
+            /** History Days */
+            history_days: number;
+            /** Used By Planner */
+            used_by_planner: boolean;
+        };
+        /**
+         * ThermalSpec
+         * @description Heat-pump and thermal-store options (ADR-0017 decision 6; kinds with a comfort band).
+         *
+         *     ``cop`` ``None`` = the generic air/water assumption (``core.thermal``); ``learned`` is the
+         *     fitted RC model (written by the learner, PR 6-K). ``grid_preheat`` allows pre-heating
+         *     with cheap grid energy (default off, plan §0 decision 8); the lift band is the device's
+         *     comfort band.
+         */
+        ThermalSpec: {
+            cop?: components["schemas"]["CopCurve"] | null;
+            /**
+             * Grid Preheat
+             * @default false
+             */
+            grid_preheat: boolean;
+            learned?: components["schemas"]["LearnedThermal"] | null;
         };
         /**
          * TimeWindow
@@ -4156,6 +7229,78 @@ export interface components {
             loc: (string | number)[];
         };
         /**
+         * VerificationPhase
+         * @description Where the verification procedure is (``suncore.app.verification``).
+         * @enum {string}
+         */
+        VerificationPhase: "idle" | "checking" | "ready" | "writing" | "observing" | "releasing" | "passed" | "failed" | "aborted";
+        /**
+         * VerificationRefusedOut
+         * @description 409 of the inverter limit verification (PR 7-J): why it cannot start or go on.
+         */
+        VerificationRefusedOut: {
+            /** Detail */
+            detail: string;
+            /** Reasons */
+            reasons: components["schemas"]["Reason"][];
+        };
+        /**
+         * VerificationView
+         * @description The procedure as the dialog shows it (``GET /api/v1/inverter/verification``).
+         */
+        VerificationView: {
+            /**
+             * Adapter
+             * @default false
+             */
+            adapter: boolean;
+            baseline?: components["schemas"]["InverterLimitAction"] | null;
+            /** Battery W */
+            battery_w?: number | null;
+            /** Capability */
+            capability?: ("export_limit" | "ac_limit") | null;
+            /** Confirm By */
+            confirm_by?: string | null;
+            /** Export Before W */
+            export_before_w?: number | null;
+            /** Export During W */
+            export_during_w?: number | null;
+            /** Export W */
+            export_w?: number | null;
+            /** House W */
+            house_w?: number | null;
+            last?: components["schemas"]["InverterVerificationRecord"] | null;
+            /** @default idle */
+            phase: components["schemas"]["VerificationPhase"];
+            /**
+             * Reasons
+             * @default []
+             */
+            reasons: components["schemas"]["Reason"][];
+            /** Semantics */
+            semantics?: ("export_limit" | "ac_limit") | null;
+            /**
+             * Stable Needed S
+             * @default 0
+             */
+            stable_needed_s: number;
+            /**
+             * Stable S
+             * @default 0
+             */
+            stable_s: number;
+            test_limit?: components["schemas"]["InverterLimitAction"] | null;
+            /** Test Limit W */
+            test_limit_w?: number | null;
+            /**
+             * Verified
+             * @default false
+             */
+            verified: boolean;
+            /** Window Expires At */
+            window_expires_at?: string | null;
+        };
+        /**
          * WeeklySchedule
          * @description Union of weekly windows (grid-charge schedule, HT/NT windows, §14a module 3).
          */
@@ -4192,6 +7337,184 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_backtests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunOut"][];
+                };
+            };
+            /** @description No history */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    start_backtest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BacktestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunOut"];
+                };
+            };
+            /** @description A run or the planner is active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Window not past, or overlay unusable */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No history or no site configuration */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_backtest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunOut"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description No history */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    cancel_backtest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestCancelOut"];
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description No history */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     get_config_battery: {
         parameters: {
             query?: never;
@@ -4294,6 +7617,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DevicesConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    get_config_expert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpertConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_expert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpertConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpertConfig"];
                 };
             };
             /** @description Body too large */
@@ -4496,6 +7881,192 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    get_config_inverter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InverterConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_inverter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InverterConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InverterConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    get_config_mqtt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MqttConfig-Output"] | null;
+                };
+            };
+        };
+    };
+    put_config_mqtt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MqttConfig-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MqttConfig-Output"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    get_config_notifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsConfig"] | null;
+                };
+            };
+        };
+    };
+    put_config_notifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationsConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsConfig"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
                 };
             };
         };
@@ -4973,8 +8544,15 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                offset?: number;
                 device_id?: string | null;
                 kind?: components["schemas"]["DecisionKind"][] | null;
+                from?: string | null;
+                to?: string | null;
+                layer?: components["schemas"]["Origin"] | null;
+                reason?: string | null;
+                q?: string | null;
+                format?: "json" | "csv";
             };
             header?: never;
             path?: never;
@@ -4985,10 +8563,166 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    /** @description Row ids of the returned decisions, comma separated, in the order of the body (the key of /decisions/{id}/explain) */
+                    "X-Decision-Ids"?: string;
+                    /** @description Matching decisions before limit and offset */
+                    "X-Total-Count"?: number;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Decision"][];
+                    "text/csv": string;
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description Filters need the decision database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    decision_explain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionExplainOut"];
+                };
+            };
+            /** @description The decision was pruned or does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    device_ev_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvState"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Not an EV charger or the target time is out of range */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The state could not be stored */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    device_flex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlexOut"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Validation error */
@@ -5042,6 +8776,146 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    device_program_arm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProgramArmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramJob"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description A job is open already, none is open or it runs */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Not a program or the deadline is out of range */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The job could not be stored */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    device_program_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramJob"];
+                };
+            };
+            /** @description Unknown device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description A job is open already, none is open or it runs */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Not a program or the deadline is out of range */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The job could not be stored */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    diagnostics_api_v1_diagnostics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsOut"];
                 };
             };
         };
@@ -5210,6 +9084,412 @@ export interface operations {
             };
         };
     };
+    grid_events: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GridEventsOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    grid_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GridStatusOut"];
+                };
+            };
+        };
+    };
+    ha_entities_republish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HaEntitiesRepublishOut"];
+                };
+            };
+        };
+    };
+    ha_entities_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HaEntitiesStatusOut"];
+                };
+            };
+        };
+    };
+    history_cycles: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CyclesOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_devices: {
+        parameters: {
+            query?: {
+                /** @description day, week, month or year containing ``date`` */
+                period?: components["schemas"]["Granularity"];
+                date?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceHistoryOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_forecast_skill: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                source?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForecastSkillOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_heatmap: {
+        parameters: {
+            query?: {
+                key?: string;
+                from?: string | null;
+                to?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeatmapOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_sankey: {
+        parameters: {
+            query?: {
+                /** @description day, week, month or year containing ``date`` */
+                period?: components["schemas"]["Granularity"];
+                date?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SankeyOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_series: {
+        parameters: {
+            query: {
+                key: string[];
+                from?: string | null;
+                to?: string | null;
+                resolution?: ("1m" | "15m" | "1h" | "1d") | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesResponse"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    history_summary: {
+        parameters: {
+            query?: {
+                /** @description day, week, month or year containing ``date`` */
+                period?: components["schemas"]["Granularity"];
+                date?: string | null;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummaryOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     info_api_v1_info_get: {
         parameters: {
             query?: never;
@@ -5226,6 +9506,197 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InfoOut"];
+                };
+            };
+        };
+    };
+    verification_api_v1_inverter_verification_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationView"];
+                };
+            };
+        };
+    };
+    start_verification_api_v1_inverter_verification_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationView"];
+                };
+            };
+            /** @description Preconditions not met */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationRefusedOut"];
+                };
+            };
+        };
+    };
+    abort_verification_api_v1_inverter_verification_abort_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationView"];
+                };
+            };
+        };
+    };
+    confirm_verification_api_v1_inverter_verification_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationView"];
+                };
+            };
+            /** @description Preconditions not met */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationRefusedOut"];
+                };
+            };
+        };
+    };
+    notifications_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsConfig"];
+                };
+            };
+        };
+    };
+    notifications_put_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationsConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsConfig"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    notifications_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsStatusOut"];
+                };
+            };
+        };
+    };
+    notifications_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationTestOut"];
                 };
             };
         };
@@ -5334,6 +9805,57 @@ export interface operations {
             };
         };
     };
+    set_inverter_mode_api_v1_operation_inverter_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InverterModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description No inverter limit adapter */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description The inverter adapter changed since its identity was read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
     set_global_mode_api_v1_operation_mode_put: {
         parameters: {
             query?: never;
@@ -5354,6 +9876,119 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OperationConfig"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    get_params: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParamsOut"];
+                };
+            };
+        };
+    };
+    put_params: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParamsPut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParamsApplied"];
+                };
+            };
+            /** @description A parameter's section is not configured */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    reset_params: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParamsReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParamsApplied"];
+                };
+            };
+            /** @description Unknown key or group */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
             /** @description Validation error */
@@ -5403,6 +10038,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+        };
+    };
+    plan_at: {
+        parameters: {
+            query: {
+                ts: string;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanAtOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description No snapshot stored for that time (pruned) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
+    plan_compare: {
+        parameters: {
+            query: {
+                a: string;
+                b: string;
+                /** @description ``csv``: UTF-8, comma, dot */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON or CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanCompareOut"];
+                    "text/csv": string;
+                };
+            };
+            /** @description No snapshot stored for that time (pruned) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Invalid range, key or period */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description No time-series database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
         };
@@ -5650,7 +10390,7 @@ export interface operations {
     templates_api_v1_templates_get: {
         parameters: {
             query?: {
-                kind?: ("device" | "tariff" | "forecast" | "region" | "battery") | null;
+                kind?: ("device" | "tariff" | "forecast" | "region" | "battery" | "inverter") | null;
             };
             header?: never;
             path?: never;

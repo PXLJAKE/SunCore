@@ -1,6 +1,6 @@
 name: Device / tariff / forecast template
 description: Request or offer a template for a device, inverter, tariff source, forecast source or region.
-labels: ["template", "triage"]
+labels: ["device-template", "triage"]
 body:
   - type: dropdown
     id: kind

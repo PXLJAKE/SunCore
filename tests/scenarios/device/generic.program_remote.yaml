@@ -1,0 +1,25 @@
+template: generic.program_remote
+sim_scenario: program_deadline_plug
+user_input:
+  nominal_w: 2500
+# A remote-start switch and the appliance's power sensor as the simulator publishes them
+# (suncore/sim/devices.py SimProgram, start method remote).
+extra_entities:
+  - entity_id: switch.sim_washer_start
+    device_id: sim_dev_washer
+    state: "off"
+  - entity_id: sensor.sim_washer_power
+    unit: W
+    device_class: power
+    device_id: sim_dev_washer
+    state: "0.0"
+roles:
+  start:
+    tied: [switch.sim_pool_pump, switch.sim_water_heater_relay_1, switch.sim_water_heater_relay_2,
+           switch.sim_water_heater_relay_3, switch.sim_washer_start]
+    pick: switch.sim_washer_start
+  power:
+    tied: [sensor.sim_battery_power, sensor.sim_grid_power, sensor.sim_house_power,
+           sensor.sim_living_room_ac_energy_current, sensor.sim_pool_pump_power,
+           sensor.sim_pv_power, sensor.sim_washer_power]
+    pick: sensor.sim_washer_power

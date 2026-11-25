@@ -1,6 +1,7 @@
 # ADR-0008: Documentation tooling
 
-- **Status:** accepted (maintainer delegated the decision on 2026-10-12)
+- **Status:** superseded by [ADR-0020](0020-docs-site-and-translation.md) (2026-11-25; was
+  accepted, maintainer delegated the decision on 2026-10-12)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
 - **Research:** BRIEF §7

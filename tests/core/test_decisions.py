@@ -121,6 +121,9 @@ def test_enums_are_stable_strings() -> None:
         "mode",
         "release",
         "battery",
+        "charge",
+        "loadpoint",
+        "inverter_limit",
     ]
 
 

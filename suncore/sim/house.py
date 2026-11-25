@@ -22,6 +22,7 @@ from typing import Annotated
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from suncore.sim.inverter import InverterParams, SimInverter
+from suncore.sim.limiter import ExportLimiterParams, SimExportLimiter
 
 _DEFAULT_LOAD_PROFILE_W: tuple[float, ...] = (
     250, 220, 210, 210, 220, 300, 550, 700, 500, 400, 380, 450,
@@ -40,6 +41,17 @@ class PVParams(BaseModel):
     performance_ratio: float = Field(default=0.85, gt=0, le=1)
 
 
+class LoadEvent(BaseModel):
+    """PR 7-J: an extra house load ``extra_w`` during ``[from_s, to_s)`` after the start (a kettle
+    or an oven switched on in the middle of a test)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    from_s: int = Field(ge=0)
+    to_s: int = Field(gt=0)
+    extra_w: float = Field(ge=0, le=50_000)
+
+
 class LoadParams(BaseModel):
     """Base load: 24 hourly values (local clock of the start time) plus noise."""
 
@@ -49,6 +61,7 @@ class LoadParams(BaseModel):
         default=_DEFAULT_LOAD_PROFILE_W, min_length=24, max_length=24
     )
     noise_fraction: float = Field(default=0.0, ge=0, le=1)
+    events: tuple[LoadEvent, ...] = ()
 
     @model_validator(mode="after")
     def _non_negative(self) -> LoadParams:
@@ -94,6 +107,8 @@ class HouseParams(BaseModel):
     inverter: InverterParams | None = None
     """Phase 4 WP10: a controllable hybrid inverter (limits, fallback timer, BMS drift) instead
     of the plain self-consumption battery; ``None`` = the plain battery."""
+    export_limiter: ExportLimiterParams | None = None
+    """PR 6-G: the inverter's export / AC output limit (``None`` = no limit at all)."""
 
 
 class HouseState(BaseModel):
@@ -113,6 +128,12 @@ class HouseState(BaseModel):
     """Draw of the simulated devices (already part of ``load_w``)."""
     true_soc_pct: float | None = None
     """The battery's true SoC when it differs from the reported one (BMS drift, WP10)."""
+    island: bool = False
+    """Grid outage (PR 6-F): the grid power is 0; the battery and PV carry the house."""
+    unserved_w: float = 0.0
+    """Island: the load neither PV nor the battery could cover (a brown-out in reality)."""
+    curtailed_w: float = 0.0
+    """PV the inverter's export / AC limit curtailed this step (PR 6-G)."""
 
 
 def sin_elevation(when: datetime, latitude: float, longitude: float) -> float:
@@ -189,6 +210,11 @@ class House:
                 start=start,
             )
         )
+        self.limiter: SimExportLimiter | None = (
+            None
+            if params.export_limiter is None
+            else SimExportLimiter(params.export_limiter, start=start)
+        )
 
     @property
     def index(self) -> int:
@@ -207,10 +233,13 @@ class House:
 
     def _load_w(self, when: datetime) -> float:
         p = self.params.load
+        offset = (when - self.start).total_seconds()
+        extra = sum(e.extra_w for e in p.events if e.from_s <= offset < e.to_s)
         base = p.hourly_w[when.hour]
         if p.noise_fraction == 0:
-            return base
-        return max(0.0, base * (1 + self._rng.uniform(-p.noise_fraction, p.noise_fraction)))
+            return base + extra
+        noisy = base * (1 + self._rng.uniform(-p.noise_fraction, p.noise_fraction))
+        return max(0.0, noisy) + extra
 
     def _dispatch(self, surplus_w: float) -> float:
         """Battery AC power (+ = charging) absorbing surplus / covering deficit."""
@@ -232,11 +261,13 @@ class House:
         self._soc_pct = min(b.soc_max_pct, max(b.soc_min_pct, self._soc_pct))
         return power
 
-    def step(self, extra_load_w: float = 0.0) -> HouseState:
+    def step(self, extra_load_w: float = 0.0, *, island: bool = False) -> HouseState:
         """Simulate one step and advance the clock.
 
         ``extra_load_w`` is the draw of the simulated devices on top of the base load
         profile: ``grid = base + devices + battery - pv`` (the balance still closes).
+        ``island``: no grid - the battery covers the deficit within its limits, surplus PV
+        the battery cannot take is curtailed, the rest of the load is ``unserved_w``.
         """
         if extra_load_w < 0:
             msg = "extra_load_w must not be negative"
@@ -252,16 +283,31 @@ class House:
             true_soc = self.inverter.soc_pct
         else:
             battery_w = self._dispatch(pv_w - load_w)
+        curtailed = 0.0
+        if self.limiter is not None and not island:
+            limited = self.limiter.curtail(when, pv_w, load_w, battery_w)
+            curtailed, pv_w = pv_w - limited, limited
+        grid_w = load_w + battery_w - pv_w
+        unserved = 0.0
+        if island:
+            if grid_w < 0:
+                pv_w += grid_w  # curtailed: nowhere to go
+            else:
+                unserved = grid_w
+            grid_w = 0.0
         state = HouseState(
             time=when,
             pv_w=pv_w,
             load_w=load_w,
             battery_w=battery_w,
             soc_pct=self._soc_pct,
-            grid_w=load_w + battery_w - pv_w,
+            grid_w=grid_w,
             cloud_factor=cloud,
             devices_w=extra_load_w,
             true_soc_pct=true_soc,
+            island=island,
+            unserved_w=unserved,
+            curtailed_w=curtailed,
         )
         self._index += 1
         return state

@@ -27,6 +27,9 @@ class DeviceIdentity:
     template_id: str
     entities: frozenset[tuple[str, str]]
     """``(role, entity_id)`` pairs; ``invert_sign`` is a setting, not identity."""
+    behaviour_confirmed: bool = False
+    """Plan §0 decision 17: confirming (or withdrawing) the vendor behaviour makes it a new
+    device for the safety layer (back to shadow)."""
 
 
 def device_identity(device: DeviceConfig) -> DeviceIdentity:
@@ -34,7 +37,21 @@ def device_identity(device: DeviceConfig) -> DeviceIdentity:
         id=device.id,
         template_id=device.template_id,
         entities=frozenset((role, ref.entity_id) for role, ref in device.entities.items()),
+        behaviour_confirmed=device.behaviour_confirmed,
     )
+
+
+def identity_parts(identity: DeviceIdentity) -> list[object]:
+    """The identity as JSON-able parts (template, sorted entities, a confirmation marker).
+
+    The marker is appended only when ``behaviour_confirmed`` is true, so tokens and stored
+    fingerprints of every pre-Phase-6 device stay byte-identical (no device drops to shadow
+    on the update).
+    """
+    parts: list[object] = [identity.template_id, sorted(identity.entities)]
+    if identity.behaviour_confirmed:
+        parts.append("behaviour_confirmed")
+    return parts
 
 
 def identity_token(device: DeviceConfig) -> str:
@@ -44,9 +61,7 @@ def identity_token(device: DeviceConfig) -> str:
     back, so a stale UI cannot grant a mode to a device that was re-mapped meanwhile.
     """
     identity = device_identity(device)
-    payload = json.dumps(
-        [identity.id, identity.template_id, sorted(identity.entities)], separators=(",", ":")
-    )
+    payload = json.dumps([identity.id, *identity_parts(identity)], separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -133,6 +148,7 @@ __all__ = [
     "battery_identity",
     "battery_identity_token",
     "device_identity",
+    "identity_parts",
     "identity_token",
     "is_new_device",
     "new_device_ids",

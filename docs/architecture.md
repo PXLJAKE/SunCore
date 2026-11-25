@@ -1,14 +1,15 @@
 # SunCore architecture
 
-Status: Phase 0 blueprint. Decisions referenced as ADR-NNNN live in
-[`adr/`](adr/). Requirements are in [`BRIEF.md`](BRIEF.md).
+Status: updated at the end of Phase 6 (every claim checked against the code on 2026-11-25).
+Decisions referenced as ADR-NNNN live in [`adr/`](adr/). Requirements are in
+[`BRIEF.md`](BRIEF.md).
 
 ## 1. System context
 
 SunCore is one container, installed as a Home Assistant app (ADR-0010). It
-reads everything through Home Assistant, writes through Home Assistant where
-an integration exists, and talks to hardware directly only via explicitly
-approved adapters (Kostal Modbus, evcc over MQTT).
+reads everything through Home Assistant and writes through Home Assistant services
+(including `modbus.write_register` for the Kostal registers). The only system it talks to
+outside Home Assistant's own API is evcc, over MQTT, and only as an actor (ADR-0017).
 
 ```mermaid
 flowchart LR
@@ -25,17 +26,21 @@ flowchart LR
     Inverter["Inverter / battery<br/>(Kostal Plenticore)"]
     Devices["Climate, wallbox,<br/>heat pump, plugs"]
     evcc["evcc (optional actor)"]
-    Cloud["Forecast & price APIs<br/>(fallback only)"]
 
     Browser -- ingress --> Supervisor --> SunCore
     SunCore <-- "subscribe_entities, call_service" --> Core
     Core <--> Integrations <--> Devices
     Integrations <--> Inverter
-    SunCore -- "discovery + state" --> MQTT --> Core
-    SunCore -- "Modbus TCP (adapter)" --> Inverter
-    SunCore -- "MQTT set topics" --> evcc --> Devices
-    SunCore -. "Open-Meteo, Energy-Charts" .-> Cloud
+    SunCore -- "discovery, state, commands" --> MQTT --> Core
+    SunCore -- "modbus.write_register<br/>(HA service)" --> Core
+    SunCore -- "MQTT set topics<br/>(same broker)" --> MQTT
+    MQTT --> evcc --> Devices
+    SunCore -- "notify.* / persistent_notification" --> Core
 ```
+
+SunCore makes no cloud requests of its own: forecasts and prices come from the integrations the
+user runs in Home Assistant. Built-in internet fallbacks (Open-Meteo, Energy-Charts) are not part
+of Phase 6 (plan §7).
 
 ## 2. Modules
 
@@ -45,71 +50,103 @@ flowchart TB
         api["api/<br/>FastAPI REST + WebSocket"]
         frontend["frontend/<br/>Svelte SPA"]
         ha["ha/<br/>HAConnection, entity cache,<br/>service calls, write limiter"]
-        mqttpub["ha/mqtt<br/>discovery publisher"]
+        mqtt["ha/mqtt<br/>discovery, states, commands"]
+        notify["notify/<br/>rules, limiter, sink,<br/>action tokens"]
     end
     subgraph domain["Domain"]
-        core["core/<br/>assets, signals, units,<br/>capabilities, Plan/Intent/Decision"]
-        forecast["forecast/<br/>PV, load, price, temperature<br/>adapters, blending, calibration"]
-        tariff["tariff/<br/>import/export prices,<br/>price formula, regions"]
-        planner["planner/<br/>LP/MILP model, heuristic,<br/>explanations"]
-        controller["controller/<br/>surplus distribution,<br/>peak shaving, export limit"]
-        safety["safety/<br/>invariants, guards,<br/>watchdogs, modes"]
+        core["core/<br/>assets, signals, units, config,<br/>Plan/Intent/Decision, grid resolver,<br/>flex state, thermal model"]
+        forecast["forecast/<br/>PV, load, risk, thermal learner"]
+        tariff["tariff/<br/>prices, formula, regions"]
+        planner["planner/<br/>LP/MILP, flexible loads,<br/>heuristic, explanations"]
+        controller["controller/<br/>surplus, grid chain, export,<br/>EV, evcc, programs, battery"]
+        safety["safety/<br/>gate, invariants G X E L H P B,<br/>watchdogs, modes"]
         templates["templates/<br/>schema v1, loader,<br/>role matcher"]
-        devices["devices/<br/>generic drivers,<br/>power models"]
+        devices["devices/<br/>drivers, evcc driver,<br/>inverter and battery adapters"]
+        analysis["analysis/<br/>KPIs, baselines, backtests"]
     end
     subgraph infra["Infrastructure"]
-        storage["storage/<br/>SQLite config + timeseries,<br/>decision log, migrations"]
-        sim["sim/<br/>virtual house, scenarios,<br/>backtesting, demo"]
-        sched["scheduler<br/>asyncio tasks, solver worker"]
+        storage["storage/<br/>SQLite config + timeseries,<br/>decision log, flex_state, migrations"]
+        sim["sim/<br/>virtual house, EV, heat pump,<br/>program, inverter, fake evcc"]
+        app["app/<br/>composition root: ControlStack,<br/>PlanningService, GridMonitor,<br/>ProgramJobBook, EvccLink"]
     end
 
     frontend --> api
     api --> core
     api --> storage
+    api --> analysis
+    api --> notify
+    api --> planner
     ha --> core
-    forecast --> ha
+    mqtt --> core
+    mqtt --> ha
+    notify --> core
+    notify --> ha
+    forecast --> core
+    forecast --> templates
+    tariff --> core
     tariff --> templates
+    templates --> core
     planner --> core
     controller --> core
-    controller --> devices
-    safety --> devices
-    devices --> ha
-    devices --> templates
-    tariff --> templates
-    forecast --> templates
-    api --> templates
-    templates --> core
-    mqttpub --> core
+    safety --> core
+    devices --> core
+    analysis --> core
     storage --> core
+    storage --> safety
     sim -. replaces .-> ha
-    sched --> planner
-    sched --> controller
-    sched --> forecast
-    sched --> tariff
+    app --> api
+    app --> mqtt
+    app --> notify
+    app --> controller
+    app --> safety
+    app --> devices
+    app --> planner
+    app --> forecast
+    app --> tariff
 ```
 
 Dependency rule: arrows point inward to `core/`; `core/` imports nothing
-from the other packages. `planner/`, `controller/` and `safety/` depend on
-`core/` types only, never on `ha/`, `api/` or `storage/` – this is what
-makes them unit-testable and `mypy --strict` clean (BRIEF §7).
+from the other packages. `planner/`, `controller/`, `safety/` and `analysis/` depend on
+`core/` types only, never on `ha/`, `api/` or `storage/` – this is what makes them
+unit-testable and `mypy --strict` clean (BRIEF §7). Phase 6 keeps it and adds three more
+rules, all enforced by AST tests:
+
+- `notify/` and `ha/mqtt` never write to a device: they import neither `safety`, `controller`,
+  `devices`, `api` nor `app` (`ha/mqtt` imports only `core`, `i18n` and `ha`), never call
+  `apply()` or `release()`, and reach the system only through an injected port (`CommandPort`,
+  `ProposalPort`) that `app/` implements over the same service methods the web UI uses
+  (`tests/ha/mqtt/test_boundary.py`, `tests/notify/test_boundary.py`).
+- Only `notify/` (its sink) calls `HAConnection.notify`, and the connection refuses anything but
+  `persistent_notification.create|dismiss` and `notify.*` before it reaches the wire
+  (`tests/ha/test_websocket_notify.py`). The only Supervisor REST path is
+  `GET /services/mqtt`, so the app configs ask for `services: [mqtt:want]` and **not** for
+  `hassio_api` (`tests/ha/mqtt/test_boundary.py`).
+- `core/grid.py` is the one resolver of the effective import limit, the effective export limit
+  and the §14a budget; planner, controller and gate call only it (ADR-0018 decision 1), so the
+  three layers cannot drift. The Phase 6 `core` modules (`grid`, `flex`, `thermal`, `sgready`,
+  `inverter`, `haentities`) import no sibling package.
 
 Package map (ADR-0001):
 
 | Package | Responsibility | Depends on |
 |---|---|---|
-| `suncore/core` | Domain model: `Site`, `Asset` (grid, pv, battery, device), `Signal` (typed time series with unit and quality), `Capability`, `Plan`, `Intent`, `Decision`, `Reason`, units and sign conventions | stdlib, pydantic |
-| `suncore/ha` | `HAConnection` (Supervisor or Direct transport), entity subscription with staleness tracking, service calls with read-back, write rate limiter, registry queries, MQTT discovery publisher | core, aiohttp |
-| `suncore/forecast` | Adapter protocol + Solcast, Forecast.Solar, Open-Meteo, generic-attribute, built-in model; blending by measured skill; bias calibration; load profiles | core, ha, templates |
-| `suncore/tariff` | Import/export price sources (Tibber, Nord Pool, ENTSO-E/EPEX via HACS, fixed, HT/NT), price formula, region profiles, negative-price rules (Home Assistant reaches it through an injected action caller and entity reader wired in `suncore/app/adapters.py`) | core, templates |
-| `suncore/planner` | Model builder, HiGHS solver worker, heuristic fallback, plan explanation, what-if | core, highspy, numpy |
-| `suncore/controller` | Surplus computation, priority allocation, hysteresis state machines, peak shaving, export limiting, §14a limit | core |
-| `suncore/safety` | Invariant checks, operating modes, override detection, watchdogs, fail-safe transitions; the only caller of actuators | core, devices |
-| `suncore/templates` | Template schema v1 (device, tariff, forecast, region; battery from Phase 4), loader with user overrides, role matcher, read-only action allowlist check (ADR-0012) | core, yaml, pydantic |
-| `suncore/devices` | Generic drivers (HA entity, Modbus via HA, MQTT/evcc), power models (measured, counter-derived, learned, nominal), battery adapters | core, ha, templates |
-| `suncore/api` | FastAPI app, auth (ingress headers or token), REST, WebSocket live feed, OpenAPI | core, storage, templates |
-| `suncore/storage` | SQLite repositories, migrations, downsampling, export/import | core, aiosqlite |
-| `suncore/sim` | Virtual house physics, scenario files, fake `HAConnection`, backtest runner | core |
-| `suncore/app` | Composition root: settings, scheduler, wiring, health endpoint | all |
+| `suncore/core` | Domain model: `Site`, `Asset`, `Signal`, `Capability`, `Plan`, `Intent`, `Decision`, `Reason`, units and signs; config sections (`mqtt`, `notifications`, `inverter`, grid with peak shaving, §14a, backup); `grid` resolvers; `flex` (EV modes and targets, program jobs); `thermal` (RC model, COP); `sgready`; `inverter` helpers | stdlib, pydantic |
+| `suncore/ha` | `HAConnection` (Supervisor or Direct transport), entity subscription with staleness tracking, service calls with read-back, write rate limiter, registry queries, notify allowlist | core, aiohttp, templates |
+| `suncore/ha/mqtt` | The HA entity surface (ADR-0016): broker lookup (Supervisor or manual), discovery payloads from a catalogue, state publisher with deadbands, event entity, command handler (parse, validate, rate limit, dispatch to a port), `no_broker` status and hint | core, ha, i18n, aiomqtt |
+| `suncore/notify` | Notification engine (ADR-0016 decision 7): pure rules per category, rate limiter (dedupe, quiet hours, daily cap), sinks (persistent, `notify.send_message`, legacy `notify.<service>`), single-use action tokens for confirm and reject | core, ha, i18n |
+| `suncore/i18n` | ICU message rendering for `Reason(key, args)` in Python (backend catalogue en/de, generated, golden-tested against the frontend renderer) | stdlib |
+| `suncore/forecast` | PV, load (profiles, optional KNN), risk model, thermal learner for heat pumps; blending by measured skill; bias calibration | core, templates |
+| `suncore/tariff` | Import/export price sources, price formula, region profiles, negative-price rules (Home Assistant reaches it through an injected action caller and entity reader wired in `suncore/app/adapters.py`) | core, templates |
+| `suncore/planner` | Model builder, HiGHS behind `SolverBackend`, heuristic fallback, plan explanation; flexible loads (EV targets, program windows, thermal stores) and the monthly peak variable (`flex`, `flexmodel`, `flexheuristic`) | core, highspy, numpy |
+| `suncore/controller` | Surplus, allocation, hysteresis machines, battery intents; `grid` (caps for island, §14a budget, shed order), `export` (export chain), `ev` (levels, modes, phase switching), `evcc` (intents), `programs` (job state machine) | core |
+| `suncore/safety` | Gate, invariants (devices, battery B1-B9, grid G1-G6, inverter X1-X6, EV E1-E9, evcc L1-L5, heat pump H1-H5, programs P1-P6), watchdog, operating modes, overrides, fail-safe transitions; the only caller of `apply()` and `release()` | core |
+| `suncore/templates` | Template schema v1 (device, tariff, forecast, region, battery, inverter), loader with user overrides, role matcher, read-only action allowlist check (ADR-0012) | core, yaml, pydantic |
+| `suncore/devices` | Drivers (HA entity: onoff, climate, steps, number, mode, charger, sgready, program, water heater), the evcc driver (`LoadpointControl`), inverter and battery adapters, power models | core |
+| `suncore/analysis` | Pure KPI, baseline and backtest functions over quarter-hour energy (ADR-0014) | core |
+| `suncore/api` | FastAPI app, auth (ingress headers or token), REST, WebSocket live feed, OpenAPI; never imports `safety`, `ha`, `devices` | core, analysis, forecast, notify, planner, storage, tariff, templates |
+| `suncore/storage` | SQLite repositories, migrations (`suncore.db` schema 6, `timeseries.db` schema 3), downsampling, export/import | core, safety (runtime records), aiosqlite |
+| `suncore/sim` | Virtual house physics, EV, heat pump, program and inverter simulators, a fake evcc on a stub MQTT broker, scenario files, fake `HAConnection`, backtest runner, demo | all (test bed) |
+| `suncore/app` | Composition root: settings, scheduler, `ControlStack`, `PlanningService`, `GridMonitor`, `ProgramJobBook`, `EvccLink`, `HaEntitySource` and the command port, notification composition, health endpoint | all |
 
 ## 3. Data flow
 
@@ -122,12 +159,18 @@ flowchart LR
     signals --> loadfc["forecast/load<br/>profiles from statistics"]
     signals & tariffmod & blend & loadfc & config["Config<br/>devices, limits, goals"] --> plannerN["planner/<br/>every 15 min + events"]
     plannerN --> plan["Plan<br/>bands + reasons"]
-    plan & signals --> ctrl["controller/<br/>every 5–10 s"]
-    ctrl --> intents["Intents"]
+    gridres["core/grid<br/>effective import and export limit,<br/>§14a budget, island state"] --> plannerN
+    gridres --> ctrl
+    gridres --> safe
+    flex["flex_state<br/>EV mode and target,<br/>program jobs"] --> ctrl
+    plan & signals --> ctrl["controller/<br/>every 5 s"]
+    ctrl --> intents["Intents<br/>(devices, battery, charger, evcc loadpoint,<br/>program, inverter limit)"]
     intents --> safe["safety/<br/>validate, rewrite, reject,<br/>mode & overrides"]
     safe --> act["devices/ drivers<br/>write + read-back"]
-    act --> HAout["HA call_service /<br/>Modbus / evcc MQTT"]
+    act --> HAout["HA call_service (incl. modbus) /<br/>evcc MQTT set topics"]
     safe --> log["Decision log"]
+    ctrl & safe & plan -. "read only" .-> surface["ha/mqtt entities and events,<br/>notify/ messages"]
+    surface -. "commands and confirmations<br/>through the services layer" .-> safe
     plan --> log
     signals & plan & log --> ts["storage/ timeseries"]
     ts & log & plan --> ui["api/ WebSocket → UI<br/>Now, Plan, History, Why?"]
@@ -197,8 +240,11 @@ sequenceDiagram
 simulator follows it too):
 
 1. One injected `now` for the whole tick; nothing else reads a clock.
-2. Inputs come from the entity cache. `check_site` feeds the site watchdog; per device
-   `check_device` (watchdog), then the power model `observe` and `estimate`.
+2. Inputs come from the entity cache. `check_site` feeds the site watchdog, `check_battery` and
+   `check_inverter` the battery and inverter scopes; per device `check_device` (watchdog), then
+   the power model `observe` and `estimate`. Then the tick's grid inputs are resolved once
+   (`core/grid.py`), together with the EV modes and targets and the open program jobs from the
+   runtime `flex_state`, and the inverter inputs.
 3. `blocked` collects every device the controller must leave alone with the gate's reason:
    emergency stop, watchdog pause, orphaned runtime, release pending, manual hold.
 4. `Controller.step`: smoothed surplus (median over `smoothing_s` with a spread as uncertainty),
@@ -217,7 +263,8 @@ its safe state.
 
 **The gate's order** for one intent: stale intent, emergency stop, effective mode, watchdog
 pause, manual hold, invariants (grid import caused by SunCore, import limit, comfort band, min
-run and pause, switches per hour, write rate, write only on change, battery reserve, heat limit),
+run and pause, switches per hour, write rate, write only on change, battery reserve, heat limit,
+and the Phase 6 families G, E, L, H, P and X of the Phase 6 paragraph below),
 then by mode: shadow logs `shadow` (the invariants that would have fired are included), assisted
 logs `proposed` (valid `proposal_ttl_s`; `confirm` re-submits as `Origin.USER` through the same
 checks), automatic acquires the rate limiter, records the takeover baseline on the first write,
@@ -245,6 +292,95 @@ only when the read-back shows the original baseline; until then the release is r
 back-off (also during an emergency stop) and nothing else is written. Devices keep the
 Phase 3 rule "no SunCore-caused import" unchanged, and the charging power of a forced grid charge
 is never surplus for them.
+
+**Phase 6: grid chain and flexible loads** (ADR-0016, ADR-0017, ADR-0018). Every new write is a
+typed action that the gate judges; `NOT_YET_SUPPORTED_KINDS` is empty, each kind left it in the PR
+that brought its invariants, simulator scenarios and `control-safety` sign-off. Shadow stays the
+default for each new device and asset, and a device of a Phase 6 family runs at most assisted
+until the user confirms its behaviour (`behaviour_confirmed`, the same cap as the Kostal
+fallback).
+
+- **Grid inputs once per tick.** `ControlStack._grid_inputs` calls
+  `controller.grid.resolve_grid_inputs`, which uses only the resolvers of `core/grid.py`: the
+  effective import limit (the smaller of the fuse and the peak limit, never above the fuse), the
+  effective export limit, the §14a budget and the grid state (`connected`, `island`, `unknown`,
+  `not_configured`). `GridMonitor` (`app/grid.py`) tracks the month's highest 15-minute mean
+  import and writes `grid_event` and `grid_peak` rows. In island operation the controller ignores
+  the plan (it assumes a grid) and uses `Plan.default()` plus the island caps.
+- **Caps instead of new allocators.** `controller.grid.grid_caps` only ever lowers a device's
+  level: island sheds everything off the keep list, an active §14a signal shares its budget among
+  the flagged devices by priority, an unknown signal freezes them, and a cool-down
+  (`safe_state_cooldown_s`) follows both. Above the import limit the back-off sheds in the order
+  continuous loads, `shed_rank`, reverse priority. Rises still need real surplus.
+- **Gate invariants.** G1 to G6 (`safety/grid.py`; import limit, reductions always pass, §14a,
+  island, unknown inputs, cool-down) are called by the device path and the battery path alike.
+  Further families, all pure functions over plain values: E1-E9 for a charger (`safety/flex.py`:
+  current range, phase switching, bounded grid allowance, no raise when unplugged or off, the
+  home battery never discharges into the car, mode capped until confirmed), L1-L5 for an evcc
+  loadpoint (`safety/evcc.py`), H1-H5 for SG-Ready and the heat pump's set-point lift
+  (`safety/heatpump.py`: never state 1, state 4 only with opt-in, dwell, comfort band, fail-safe
+  to state 2), P1-P6 for programs (`safety/programs.py`: start only with a fresh power reading,
+  never switch a running program off, the plug's safe state is on) and X1-X6 for the inverter
+  limit (`safety/inverter.py`: bounds, no import caused, chain order, lease, capped at assisted
+  until `limit_verified`). A `ReleaseAction` is never judged: "back to normal" works from any
+  state.
+- **Export chain.** `controller/export.py` orders the use of surplus: controlled devices first,
+  then the hybrid inverter charges the battery (SunCore only lifts its own charge cap while the
+  export exceeds the limit), and only then an `InverterLimitAction` (an export limit in W or an
+  AC limit in %, Kostal register 533). The inverter is an asset of its own with a lease and a
+  heartbeat like the battery; a held limit is restored to the user's own value on any release.
+- **EV.** A charger is one more continuous load in the level allocator (`controller/ev.py`:
+  paused level, one level per ampere from the 6 A floor) with the modes `off`, `now`, `min_pv`,
+  `pv` and `target` read from `flex_state`. A floor (a rise without the surplus guard) is offered
+  only inside the bounded import exception of ADR-0017 decision 4 and only while the house
+  battery cannot discharge into the car. 1/3-phase switching is a state machine that pauses
+  first. **evcc as actor** is different: `controller/evcc.py` (`EvccIntents`) says only what
+  evcc may do (`off`, `smart`, `now`, maximum current) and cuts any wish down to what evcc shows
+  now whenever an input is unknown. `app/evcc_link.py` is a second MQTT session to the same broker
+  as the entity surface; evcc counts as alive only while `<prefix>/updated` is younger than 120 s.
+  The driver (`devices/evcc.py`) is dumb and writes only mode, `maxCurrent` and `limitSoc`.
+- **Heat pump.** SG-Ready steps and a hot-water set-point lift are levels of the same allocator.
+  The planner models the store with the RC model and COP curve of `core/thermal.py`, which
+  `forecast/thermal.py` learns from history.
+- **Programs.** `core/flex.py` holds the job rules (`armed -> scheduled -> running -> done`;
+  `cancelled` when the deadline passed). `controller/programs.py` is the state machine and
+  `app/programs.py` (`ProgramJobBook`) persists the jobs in `flex_state` and turns events into
+  notifications. The planner picks the start window; the latest start that meets the deadline
+  applies without a plan.
+
+**The HA surface and notifications** run beside the control layer, never on its tick, and write
+to no device:
+
+```mermaid
+flowchart LR
+    subgraph app["app/ (composition)"]
+        src["HaEntitySource<br/>reads control state"]
+        port["RuntimeCommandPort /<br/>ProposalPort"]
+        obs["notification Observation"]
+    end
+    svc["services layer<br/>(modes, emergency stop,<br/>overrides, confirm)"]
+    gate["safety gate"]
+    mq["ha/mqtt<br/>HaEntityService"]
+    nt["notify/<br/>NotificationService"]
+    broker["MQTT broker"]
+    hacore["Home Assistant"]
+
+    src --> mq --> broker --> hacore
+    broker -- "commands" --> mq --> port --> svc --> gate
+    obs --> nt --> hacore
+    hacore -- "mobile_app_notification_action" --> nt --> port
+```
+
+`HaEntityService` owns one MQTT session (birth message and last will, discovery from a
+catalogue, deadbanded states, an event entity). It tells the user when there is no broker and
+retries every minute. Commands are parsed, validated and rate limited, then handed to the port;
+raising a mode or clearing the emergency stop is refused unless `mqtt.allow_mode_raise` is on.
+`NotificationService` evaluates pure rules over an observation, limits the result (dedupe, quiet
+hours, daily cap; safety events exempt) and sends it through the sinks; a confirm button carries
+a single-use token and ends in the same `confirm_proposal` the panel uses, which re-checks the
+device's effective mode and every invariant. The data flow of an evcc loadpoint, the entity
+surface and the notifications is therefore: control state -> read-only publish; user input ->
+services layer -> gate.
 
 Deviation events: the planning service itself watches the live state of charge against the plan
 (more than 10 %-points off) and the grid power against the planned net power (more than 1500 W
@@ -299,6 +435,10 @@ takeover (climate: set-point and HVAC mode). Paths:
 | Mode lowered to shadow, device trip, restored connection, pause | deferred | writing stops at once; the write waits for the device's min run or pause time (`release_due_ts`, persisted, executed by `poll`) |
 | Configuration change (`gate.handover(keep)`) | unchanged devices deferred, changed ones at once | the successor stack executes the deferral (`recover(after_handover=True)`); a failed release survives in `predecessor` |
 | Removed or re-mapped device | with the old actuator | `predecessor` gate or reported as `safety.orphan_dropped` |
+| Charger, evcc loadpoint | as above; a staged release waits for the phase pause or the end of §14a | the charger is left **paused**, the safe state; an evcc release restores mode, `maxCurrent` and `limitSoc` and waits for evcc's echo, refused while evcc is silent and retried with back-off |
+| SG-Ready, set-point lift | as above | the baseline step if it is writable, else nothing (a lock someone else set stays); never state 1; the fail-safe return to state 2 ignores dwell, minimum run and the switch limit |
+| Shiftable program (plug) | as above | the safe state is **on**: the release switches the plug on and never off, so a waiting machine starts early rather than never |
+| Inverter limit | as above | complete only when the read-back shows the user's own limit; a held limit is a lease with a heartbeat |
 
 **Observed-baseline rule.** A release gives back what the user left, not the state of the
 takeover: when the override detection sees a manual change, the observed state becomes the
@@ -320,7 +460,13 @@ classDiagram
     class DeviceConfig {
         template_id
         priority: int
-        control: onoff|steps|relays|continuous|setpoint|mode
+        control: on_off|notify|steps|relays|continuous|setpoint|mode|charger|sg_ready|loadpoint
+        ev: EvSpec
+        program: ProgramSpec
+        thermal: ThermalSpec
+        para14a: bool
+        shed_rank: int
+        behaviour_confirmed: bool
         power_model: PowerModelSpec
         min_run_s
         min_pause_s
@@ -359,6 +505,10 @@ classDiagram
     class StepsDriver
     class NumberDriver
     class ModeDriver
+    class ChargerDriver
+    class SgReadyDriver
+    class ProgramDriver
+    class EvccDriver
     class Template {
         id
         kind
@@ -384,6 +534,10 @@ classDiagram
     Actuator <|.. StepsDriver
     Actuator <|.. NumberDriver
     Actuator <|.. ModeDriver
+    Actuator <|.. ChargerDriver
+    Actuator <|.. SgReadyDriver
+    Actuator <|.. ProgramDriver
+    Actuator <|.. EvccDriver
     SafetyGate --> Actuator : only caller of apply and release
 ```
 
@@ -403,6 +557,10 @@ the gate calls `apply()` and `release()` (`tests/safety/test_boundary.py`).
 
 ## 7. Storage layout (ADR-0004)
 
+Two SQLite files, each with its own migration line: `suncore.db` (schema 6) and
+`timeseries.db` (schema 3). Migrations only add; a downgrade cannot open a newer file, so the
+release notes say "export the configuration before updating".
+
 ```mermaid
 erDiagram
     CONFIG_DOC {
@@ -411,9 +569,12 @@ erDiagram
         json body
         datetime updated_at
     }
-    TEMPLATE_OVERRIDE {
-        text template_id PK
-        yaml body
+    CONFIG_HISTORY {
+        int id PK
+        text section
+        int schema_version
+        json body
+        datetime replaced_at
     }
     DECISION {
         int id PK
@@ -426,85 +587,107 @@ erDiagram
     }
     PLAN_SNAPSHOT {
         int id PK
-        datetime issued_at
-        json plan_gz
-        json assumptions
-    }
-    LEARNED {
-        text key PK
-        json value
-        datetime updated_at
-    }
-    SAMPLE {
-        datetime ts
-        text signal_id
-        real value
-        int quality
-    }
-    AGG_1M {
-        datetime ts
-        text signal_id
-        real mean
-        real min
-        real max
-    }
-    AGG_15M {
-        datetime ts
-        text signal_id
-        real mean
-        real min
-        real max
-        real energy_wh
-    }
-    FORECAST_VERSION {
-        int id PK
-        datetime issued_at
+        datetime created_at
         text source
-        text target "pv|load|price|temp"
-        json series
+        int schema_version
+        blob payload
     }
+    FLEX_STATE {
+        text key PK
+        text kind "ev|job"
+        text device_id
+        int final
+        json payload
+    }
+    MEASUREMENT_15M {
+        datetime ts
+        text signal_id
+        real mean
+        real min
+        real max
+    }
+    GRID_EVENT {
+        int id PK
+        int ts
+        text kind "island|para14a|peak_new|limit exceeded"
+        real value_w
+    }
+    GRID_PEAK {
+        text month PK
+        real peak_w
+        int slot_ts
+    }
+    CONFIG_DOC ||--o{ CONFIG_HISTORY : "every change"
     CONFIG_DOC ||--o{ DECISION : "asset ids"
+    CONFIG_DOC ||--o{ FLEX_STATE : "device ids"
     PLAN_SNAPSHOT ||--o{ DECISION : "explains"
 ```
 
-`suncore.db` holds the first five tables and is backed up; `timeseries.db`
-holds the rest and is excluded from backups.
+`suncore.db` is backed up and holds `config_doc`, `config_history`, `decision`, `device_runtime`,
+`safety_state`, `power_model_state`, `plan_snapshot`, `learned_param`, `backtest_run` and, since
+schema 6, **`flex_state`**: the *runtime* state of flexible loads (an EV's mode and target, the
+open program jobs). It is runtime state and not configuration, because it changes many times a
+day; a row that does not parse is skipped (an EV then falls back to the conservative mode `pv`,
+a job is simply gone and nothing is started for it), and finished jobs are pruned. (`learned` of
+migration 0001 is unused.) User templates are files under `/data/templates`, not a table.
+
+`timeseries.db` is excluded from the app backup and rebuilt from Home Assistant's statistics. It
+holds `measurement`, `measurement_1m`, `measurement_15m`, `forecast`, `price`, `meta`,
+`day_summary`, `accuracy_day` and, since schema 3, **`grid_event`** (island and §14a start and
+end, new monthly peaks, limit breaches) and **`grid_peak`** (the highest 15-minute mean import
+per local month, kept for good).
 
 ## 8. Process model inside the container
 
-One Python process (ADR-0001): an asyncio event loop runs the HA
-connection, the scheduler (controller tick, planner trigger, forecast
-refresh, downsampling), the FastAPI server (Uvicorn in-process) and the MQTT
-publisher. The solver runs in a `ProcessPoolExecutor` with one worker so a
-slow MILP never delays the controller. s6-overlay (from the HA base image)
-supervises the process; `/health` answers for the Supervisor watchdog and
-reports HA connection, last controller tick age, last plan age.
+One Python process (ADR-0001): an asyncio event loop runs the HA connection, the controller tick,
+the scheduler tasks (planner trigger, price and forecast refresh, history rebuild, downsampling
+and pruning), the FastAPI server (Uvicorn in-process), the **HA entity service** (one MQTT
+session), the **evcc link** (a second MQTT session, only when an evcc loadpoint is configured) and
+the **notification service**. The three Phase 6 services each run in their own task, never on the
+controller's tick, and a missing broker or a failing service never stops the controller. The
+planner's solve runs in a **daemon thread** with a time budget (8 s by default,
+`SUNCORE_PLANNER_BUDGET_S`): HiGHS releases the GIL (`tests/planner/test_gil.py`, measured on
+amd64), so a slow MILP never delays the controller, and the rule-based plan covers a miss.
+s6-overlay (from the HA base image) supervises the process; `/health` answers for the Supervisor
+watchdog and reports the HA connection, the last controller tick age and the last plan age.
 
 ```mermaid
 flowchart LR
     s6["s6-overlay"] --> py["python -m suncore"]
     subgraph py["suncore process (asyncio)"]
         hacon["HA connection task"]
-        tick["Controller tick 5–10 s"]
+        tick["Controller tick 5 s"]
         ptrig["Planner trigger"]
-        fref["Forecast refresh"]
+        fref["Forecast and price refresh"]
         web["Uvicorn :8099 (ingress)"]
-        pub["MQTT publisher"]
-        down["Downsampler (nightly)"]
+        haent["HA entity service<br/>(MQTT session 1)"]
+        evl["evcc link<br/>(MQTT session 2)"]
+        notif["Notification service"]
+        down["Downsampler and pruning"]
     end
-    ptrig --> worker["Solver worker<br/>(ProcessPoolExecutor)"]
+    ptrig --> worker["Planner thread<br/>(daemon, time budget)"]
     web --> health["/health"]
     health --> Supervisor["Supervisor watchdog"]
 ```
 
+Pi 4 budgets (plan §1 item 7): a full-house plan (one EV, one heat pump, two programs) took
+0.26 s on amd64; the aarch64 run and the resident memory with MQTT and notifications are
+`UNVERIFIED` until measured.
+
 ## 9. Frontend structure (ADR-0002)
 
-Routes: `/` Now, `/plan`, `/history`, `/devices/:id`, `/log`, `/setup`
-(wizard), `/settings` (with expert toggle), `/diagnostics`. One WebSocket
-subscription delivers `Signals`, current `Plan`, latest `Decisions` and
-health; REST for configuration and history queries. All asset paths are
-relative so the ingress base path works. Theme tokens map to HA CSS
-variable names.
+A hash router (`#/`, `#/plan`, `#/history`, `#/decisions`, `#/settings`, `#/setup[/<step>]`) that
+does not depend on the ingress base path; the views are Now, Plan, History, Decisions, Settings
+and the setup wizard (ten steps; step 3 *Grid connection* carries peak shaving, the export chain,
+§14a and the backup entity, step 5 the inverter limit block, step 7 the device gallery with the
+wallbox, evcc, heat pump and program templates). Settings has the sections *Home Assistant
+entities* and *Notifications*. One WebSocket subscription delivers `Signals`, the current `Plan`,
+the latest `Decisions` and health; REST for configuration and history. The EV, heat pump and
+program cards and the grid badges poll `/devices/{id}/flex` every 10 s and `/grid/status` every
+15 s (no extra WebSocket message type; the live feed stays the one channel). The SPA loads only
+the active language's ICU catalogue; the bundle budget counts the largest one (228.6 kB of
+250 kB, first paint 123.5 kB of 125 kB at the end of Phase 6). All asset paths are relative so
+the ingress base path works. Theme tokens map to HA CSS variable names.
 
 ## 10. Cross-cutting
 

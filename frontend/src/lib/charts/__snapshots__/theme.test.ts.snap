@@ -1,0 +1,53 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`chart theme > builds the option defaults from the tokens 1`] = `
+{
+  "axis": {
+    "axisLabel": {
+      "color": "#57606a",
+      "fontSize": 12,
+      "hideOverlap": true,
+    },
+    "axisLine": {
+      "lineStyle": {
+        "color": "#dde1e6",
+      },
+    },
+    "axisTick": {
+      "show": false,
+    },
+    "splitLine": {
+      "lineStyle": {
+        "color": "#dde1e6",
+        "opacity": 0.7,
+      },
+    },
+  },
+  "legend": {
+    "icon": "roundRect",
+    "inactiveColor": "#57606a",
+    "textStyle": {
+      "color": "#1f2328",
+      "fontSize": 12,
+    },
+  },
+  "textStyle": {
+    "color": "#1f2328",
+    "fontSize": 12,
+  },
+  "tooltip": {
+    "backgroundColor": "#ffffff",
+    "borderColor": "#dde1e6",
+    "borderWidth": 1,
+    "extraCssText": "border-radius: var(--sc-radius-md); box-shadow: var(--sc-elev-2);",
+    "padding": [
+      8,
+      12,
+    ],
+    "textStyle": {
+      "color": "#1f2328",
+      "fontSize": 12,
+    },
+  },
+}
+`;

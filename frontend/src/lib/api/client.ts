@@ -3,16 +3,33 @@
 // ingress base path (dynamic, unknown at build time) never matters. Never use `/api/...`.
 import type {
   CheckResult,
+  Diagnostics,
   ConfigHistoryEntry,
   ConfigSectionName,
   ControlState,
   Decision,
+  DecisionExplain,
+  DecisionPage,
   DecisionKind,
   DeviceControlState,
   OperatingMode,
   OperationConfig,
   OverrideCommand,
+  ParamValue,
+  ParamsApplied,
+  ParamsListing,
   EnergyPrefs,
+  EvMode,
+  EvState,
+  EvTarget,
+  FlexView,
+  GridEvents,
+  GridStatus,
+  HaEntitiesStatus,
+  NotificationTest,
+  NotificationsConfig,
+  NotificationsStatus,
+  ProgramJob,
   EntityCandidate,
   ForecastAccuracyView,
   HistoryRestore,
@@ -30,6 +47,8 @@ import type {
   TemplateKind,
   TemplateList,
   ValidationIssue,
+  Reason,
+  VerificationView,
 } from './types';
 
 export const API_PREFIX = 'api/v1/';
@@ -62,12 +81,19 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * Sent with every request: the server refuses a write without it (security review SEC-13). A
+ * cross-site page cannot set a custom header without a CORS preflight, which SunCore never
+ * answers.
+ */
+export const REQUEST_HEADER = { 'X-SunCore-Request': '1' } as const;
+
+async function fetchOk(path: string, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(apiUrl(path), {
       ...init,
-      headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
+      headers: { Accept: 'application/json', ...(init?.headers ?? {}), ...REQUEST_HEADER },
     });
   } catch {
     throw new ApiError(0, 'api.error.network');
@@ -84,6 +110,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, key, issues);
   }
+  return res;
+}
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetchOk(path, init);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -147,6 +178,8 @@ export const api = {
     request<HistoryRestore>(`${API_PREFIX}config/${section}/history/${id}/restore`, {
       method: 'POST',
     }),
+  /** The pseudonymised diagnostics export (`GET /api/v1/diagnostics`, Settings > Advanced). */
+  diagnostics: () => request<Diagnostics>(`${API_PREFIX}diagnostics`),
   /** URL of the configuration export (a plain download link, resolved against the document). */
   exportUrl: (): string => apiUrl(`${API_PREFIX}config/export`).toString(),
   /** Import an export file (raw JSON text, validated by the server). */
@@ -177,6 +210,54 @@ export const api = {
     }),
 };
 
+/** Answer of a verification command: the new view, or the reasons it was refused (409). */
+export type VerificationAnswer =
+  { ok: true; view: VerificationView } | { ok: false; reasons: Reason[] };
+
+async function verificationCommand(path: string): Promise<VerificationAnswer> {
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: { Accept: 'application/json', ...REQUEST_HEADER },
+    });
+  } catch {
+    throw new ApiError(0, 'api.error.network');
+  }
+  if (res.status === 409) {
+    let reasons: Reason[] = [];
+    try {
+      const body = (await res.json()) as { reasons?: unknown };
+      if (Array.isArray(body.reasons)) reasons = body.reasons as Reason[];
+    } catch {
+      // not JSON: no reasons to show
+    }
+    return { ok: false, reasons };
+  }
+  if (!res.ok) {
+    let key: string | null = null;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === 'string') key = body.detail;
+    } catch {
+      // not JSON
+    }
+    throw new ApiError(res.status, key);
+  }
+  return { ok: true, view: (await res.json()) as VerificationView };
+}
+
+/**
+ * The inverter limit verification (PR 7-J). No command carries a body: the server alone
+ * decides the test limit; every write goes through the safety gate as the user's intent.
+ */
+export const verificationApi = {
+  get: () => request<VerificationView>(`${API_PREFIX}inverter/verification`),
+  start: () => verificationCommand(`${API_PREFIX}inverter/verification`),
+  confirm: () => verificationCommand(`${API_PREFIX}inverter/verification/confirm`),
+  abort: () => verificationCommand(`${API_PREFIX}inverter/verification/abort`),
+};
+
 export const controlApi = {
   state: () => request<ControlState>(`${API_PREFIX}control/state`),
   emergencyStop: () => send<{ active: boolean }>('POST', `${API_PREFIX}control/emergency-stop`),
@@ -203,6 +284,31 @@ export const controlApi = {
     for (const k of opts.kinds ?? []) search.append('kind', k);
     return request<Decision[]>(`${API_PREFIX}decisions?${search.toString()}`);
   },
+  /** One page of the filtered decision log with the total and the row ids (for `explain`). */
+  decisionPage: async (params: URLSearchParams): Promise<DecisionPage> => {
+    const res = await fetchOk(`${API_PREFIX}decisions?${params.toString()}`);
+    const items = (await res.json()) as Decision[];
+    const total = Number(res.headers.get('X-Total-Count'));
+    const ids = (res.headers.get('X-Decision-Ids') ?? '')
+      .split(',')
+      .filter((s) => s !== '')
+      .map(Number);
+    return {
+      items,
+      ids,
+      total: Number.isFinite(total) && total >= items.length ? total : items.length,
+    };
+  },
+  /** Plain download link of the filtered log as CSV. */
+  decisionsCsvUrl: (params: URLSearchParams): string => {
+    const url = apiUrl(`${API_PREFIX}decisions`);
+    url.search = params.toString();
+    url.searchParams.set('format', 'csv');
+    return url.toString();
+  },
+  /** The "Why?" of one decision (row id from `decisionPage`). */
+  explain: (id: number) =>
+    request<DecisionExplain>(`${API_PREFIX}decisions/${encodeURIComponent(String(id))}/explain`),
   setGlobalMode: (mode: OperatingMode) =>
     request<OperationConfig>(`${API_PREFIX}operation/mode`, {
       method: 'PUT',
@@ -224,6 +330,37 @@ export const controlApi = {
     }),
 };
 
+/** EV mode and target, program jobs, grid status (PR 6-M). None of these writes a device. */
+export const flexApi = {
+  flex: (deviceId: string) =>
+    request<FlexView>(`${API_PREFIX}devices/${encodeURIComponent(deviceId)}/flex`),
+  setEv: (deviceId: string, mode: EvMode, target: EvTarget | null) =>
+    send<EvState>('PUT', `${API_PREFIX}devices/${encodeURIComponent(deviceId)}/ev`, {
+      mode,
+      target,
+    }),
+  armProgram: (deviceId: string, deadline: string) =>
+    send<ProgramJob>('POST', `${API_PREFIX}devices/${encodeURIComponent(deviceId)}/program/arm`, {
+      deadline,
+    }),
+  cancelProgram: (deviceId: string) =>
+    send<ProgramJob>('POST', `${API_PREFIX}devices/${encodeURIComponent(deviceId)}/program/cancel`),
+  gridStatus: () => request<GridStatus>(`${API_PREFIX}grid/status`),
+  gridEvents: (days = 30) =>
+    request<GridEvents>(`${API_PREFIX}grid/events${query({ days: String(days) })}`),
+};
+
+/** MQTT entity surface and notifications (Phase 6). */
+export const surfaceApi = {
+  haEntities: () => request<HaEntitiesStatus>(`${API_PREFIX}ha-entities/status`),
+  republish: () => send<{ republished: boolean }>('POST', `${API_PREFIX}ha-entities/republish`),
+  notifications: () => request<NotificationsConfig>(`${API_PREFIX}notifications/settings`),
+  putNotifications: (body: NotificationsConfig) =>
+    send<NotificationsConfig>('PUT', `${API_PREFIX}notifications/settings`, body),
+  notificationsStatus: () => request<NotificationsStatus>(`${API_PREFIX}notifications/status`),
+  notificationsTest: () => send<NotificationTest>('POST', `${API_PREFIX}notifications/test`),
+};
+
 /** The planner and its inputs (WP9): plan, status, prices and forecasts (all read only). */
 export const planApi = {
   plan: (hours = 48) => request<PlanView>(`${API_PREFIX}plan${query({ hours: String(hours) })}`),
@@ -238,7 +375,21 @@ export const planApi = {
   forecastRisk: () => request<RiskView>(`${API_PREFIX}forecast/risk`),
 };
 
-function query(params: Record<string, string | undefined>): string {
+/** The parameter registry (expert mode): every tunable value with its hard range and tags. */
+export const paramsApi = {
+  list: () => request<ParamsListing>(`${API_PREFIX}params`),
+  /** Change values; a changed `safety` parameter needs `confirmSafety` (422 otherwise). */
+  put: (changes: Record<string, ParamValue>, confirmSafety = false) =>
+    send<ParamsApplied>('PUT', `${API_PREFIX}params`, {
+      changes,
+      confirm_safety: confirmSafety,
+    }),
+  resetKey: (key: string) => send<ParamsApplied>('POST', `${API_PREFIX}params/reset`, { key }),
+  resetGroup: (group: string) =>
+    send<ParamsApplied>('POST', `${API_PREFIX}params/reset`, { group }),
+};
+
+export function query(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) search.set(key, value);

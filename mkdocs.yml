@@ -1,0 +1,110 @@
+# MkDocs site of the user documentation (ADR-0020). Build: uv run --group docs mkdocs build --strict
+site_name: SunCore
+site_description: Energy management for Home Assistant - forecasts, planner and real-time surplus control
+# Set SUNCORE_DOCS_URL to the public address, e.g. https://<domain>/docs/suncore/ (subpath ok).
+site_url: !ENV [SUNCORE_DOCS_URL, ""]
+repo_url: https://github.com/pxljake/suncore
+repo_name: pxljake/suncore
+edit_uri: ""
+docs_dir: docs/user
+site_dir: site
+strict: true
+use_directory_urls: true
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+theme:
+  name: material
+  language: en
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    # navigation.instant stays off: the site is static hosting (plan WP10)
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: de
+          name: Deutsch
+          build: true
+          nav_translations:
+            Getting started: Erste Schritte
+            Guides: Anleitungen
+            Reference: Nachschlagen
+            Help and project: Hilfe und Projekt
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+      # Keep umlauts in anchors: the German guides link to headings such as "#5-zurückgeben".
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - quick-start.md
+      - concepts.md
+      - device-templates.md
+  - Guides:
+      - surplus-control.md
+      - planning-and-battery.md
+      - ev-charging.md
+      - heat-pump.md
+      - programs.md
+      - grid-limits.md
+      - history-and-analysis.md
+      - decision-log.md
+      - plan-chart.md
+      - what-if-and-backtesting.md
+      - expert-mode.md
+      - home-assistant-entities.md
+      - notifications.md
+      - dashboard-recipe.md
+  - Reference:
+      - compatibility.md
+      - reference/parameters.md
+  - Help and project:
+      - faq.md
+      - troubleshooting.md
+      - release-notes.md
+      - security.md
+      - translate.md

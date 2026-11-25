@@ -25,6 +25,11 @@ configuration.
   the end price itself is negative, i.e. fewer slots than the true negative-spot slots
   (UNVERIFIED approximation: the planner may see a remuneration in a slot with a slightly
   negative spot price). A slot whose price is unknown gets an unknown export price.
+  With a **reference spot source** (``tariff.export.negative_reference_entity``, Phase 5 WP5)
+  the rule uses its price in the slots it covers (the current one: a price sensor has no
+  curve) and the proxy elsewhere.
+* The per-plant switch ``tariff.export.remunerate_negative`` (§51 EEG) turns the rule off for
+  one plant: the adapter then hands this module ``NegativePriceRule.NONE``.
 * ``curtailment_required`` and ``none``: prices are not changed here (curtailment is a
   planner/controller matter, not a price).
 """
@@ -100,11 +105,14 @@ def planning_prices(
     rule: NegativePriceRule,
     tz: tzinfo,
     source_id: str | None = None,
+    reference_spot: Sequence[PriceSeries] = (),
 ) -> tuple[PriceSeries, int]:
     """Import and export prices on ``grid`` and how many slots the negative-price rule zeroed.
 
     ``segments`` are one source's segments (any mix of 15/60 minutes). Slots no source value
-    covers are ``None`` in both series.
+    covers are ``None`` in both series. ``reference_spot`` (all-in sources only) are spot price
+    segments of a reference sensor; where they have a value, the negative-price rule judges the
+    spot price instead of the import end price.
     """
     if not segments:
         empty = TimeSeries(
@@ -125,6 +133,9 @@ def planning_prices(
     resampled = resample_prices(list(segments), grid)
     spot = resampled.import_price
     end, includes = apply_import_formula(spot, resampled.price_includes, formula, tz)
+    reference_values: tuple[float | None, ...] = ()
+    if reference_spot and resampled.price_includes != "spot_only":
+        reference_values = resample_prices(list(reference_spot), grid).import_price.values
     zeroed = 0
     export_values: list[float | None] = []
     for i, end_price in enumerate(end.values):
@@ -132,6 +143,8 @@ def planning_prices(
             export_values.append(resampled.export_price.values[i])
             continue
         reference = spot.values[i] if resampled.price_includes == "spot_only" else end_price
+        if reference_values and reference_values[i] is not None:
+            reference = reference_values[i]
         if end_price is None or reference is None:
             export_values.append(None)
         elif rule is NegativePriceRule.NO_REMUNERATION and reference < 0:

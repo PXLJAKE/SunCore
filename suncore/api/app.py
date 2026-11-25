@@ -12,7 +12,7 @@ import contextlib
 import json
 import logging
 import re
-from typing import Annotated, Any, Final
+from typing import Any, Final
 
 from fastapi import (
     FastAPI,
@@ -28,6 +28,10 @@ from pydantic import BaseModel, TypeAdapter
 from pydantic_core import PydanticCustomError
 from starlette.websockets import WebSocketState
 
+from suncore.api.backtests import register_backtests
+from suncore.api.diagnostics import register_diagnostics
+from suncore.api.flex import register_flex
+from suncore.api.history import register_decisions, register_history
 from suncore.api.limits import BodyLimitMiddleware
 from suncore.api.models import (
     CheckOut,
@@ -42,6 +46,8 @@ from suncore.api.models import (
     ErrorOut,
     FlowsMessage,
     FlowsOut,
+    HaEntitiesRepublishOut,
+    HaEntitiesStatusOut,
     HealthMessage,
     HealthOut,
     HistoryRestoreOut,
@@ -49,6 +55,8 @@ from suncore.api.models import (
     InfoOut,
     LiveMessage,
     ModeRequest,
+    NotificationsStatusOut,
+    NotificationTestOut,
     PlanMessage,
     PreviewItemOut,
     PreviewOut,
@@ -56,9 +64,15 @@ from suncore.api.models import (
     TemplateDetailOut,
     TemplateListOut,
     ValidationErrorOut,
+    VerificationRefusedOut,
     template_list,
 )
-from suncore.api.security import PeerCheckMiddleware
+from suncore.api.params import PARAMS_MAX_BYTES, guard_expert_document, register_params
+from suncore.api.security import (
+    PeerCheckMiddleware,
+    RequireHeaderMiddleware,
+    SecurityHeadersMiddleware,
+)
 from suncore.api.services import (
     EnergyPrefsFailedError,
     EntityQuery,
@@ -71,10 +85,13 @@ from suncore.api.services import (
 from suncore.api.validation import validation_exception_handler
 from suncore.core.config import (
     SECTION_MODELS,
+    MqttPasswordIsMaskError,
+    NotificationsConfig,
     OperationConfig,
     TariffConfig,
     formula_on_all_in_source,
     missing_action_params,
+    mqtt_password_is_mask,
 )
 from suncore.core.controlstate import (
     BatteryModeRequest,
@@ -82,6 +99,8 @@ from suncore.core.controlstate import (
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
+    InverterModeRequest,
+    InverterNotControllableError,
     ModeRaiseRejectedError,
     OverrideCommand,
     OverrideUntilPastError,
@@ -89,8 +108,9 @@ from suncore.core.controlstate import (
     UnknownProposalError,
     override_until_past,
 )
-from suncore.core.decisions import Decision, DecisionKind
+from suncore.core.decisions import Decision
 from suncore.core.site import SiteConfig
+from suncore.core.verification_view import VerificationRefusedError, VerificationView
 from suncore.core.wizard import PreviewTooLargeError
 from suncore.forecast.views import (
     MAX_VIEW_HOURS,
@@ -139,14 +159,29 @@ ERR_MODE_RAISE_REJECTED: Final = "api.error.mode_raise_rejected"
 ERR_TARIFF_NOT_CONFIGURED: Final = "api.error.tariff_not_configured"
 ERR_PLANNING_UNAVAILABLE: Final = "api.error.planning_unavailable"
 ERR_BATTERY_NOT_CONTROLLABLE: Final = "api.error.battery_not_controllable"
+ERR_INVERTER_NOT_CONTROLLABLE: Final = "api.error.inverter_not_controllable"
+ERR_VERIFICATION_REFUSED: Final = "api.error.verification_refused"
 BODY_MAX_BYTES: Final = 64 * 1024
 """Limit of the small JSON bodies of the wizard endpoints (check, preview)."""
 SECTION_MAX_BYTES: Final = 256 * 1024
 """Limit of ``PUT /config/<section>``."""
 BODY_LIMITS: Final = [
     ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/config/[^/]+"), SECTION_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/params"), PARAMS_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/params/reset"), PARAMS_MAX_BYTES),
     ("POST", re.compile(rf"{re.escape(API_PREFIX)}/wizard/check"), BODY_MAX_BYTES),
     ("POST", re.compile(rf"{re.escape(API_PREFIX)}/preview"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/ev"), BODY_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/program/arm"), BODY_MAX_BYTES),
+    # Security review 1.0 (SEC-06): every other route that takes a JSON body. Their bodies are
+    # a few hundred bytes; the cap only stops a huge body before it is parsed.
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/notifications/settings"), BODY_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/devices/[^/]+/override"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/operation/mode"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/operation/devices/[^/]+"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/operation/battery"), BODY_MAX_BYTES),
+    ("PUT", re.compile(rf"{re.escape(API_PREFIX)}/operation/inverter"), BODY_MAX_BYTES),
+    ("POST", re.compile(rf"{re.escape(API_PREFIX)}/backtests"), BODY_MAX_BYTES),
 ]
 SNAPSHOT_DECISIONS: Final = 20
 
@@ -165,11 +200,20 @@ def create_app(
         redoc_url=None,
     )
     app.add_middleware(BodyLimitMiddleware, rules=BODY_LIMITS)
+    app.add_middleware(RequireHeaderMiddleware)  # SEC-13: inside the peer check
     app.add_middleware(PeerCheckMiddleware, policy=services.peer_policy)
+    app.add_middleware(SecurityHeadersMiddleware)  # outermost: the 403 carries them too
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     _register_http(app, services)
     _register_prices(app, services)
     _register_plan(app, services)
+    _register_ha_entities(app, services)
+    _register_notifications(app, services)
+    register_history(app, services)
+    register_flex(app, services)
+    register_diagnostics(app, services)
+    register_params(app, services)
+    register_backtests(app, services)
     _register_live(app, services, live_min_interval_s, live_health_interval_s)
     _mount_spa(app, services)
     app.openapi = lambda: _openapi(app)  # type: ignore[method-assign]
@@ -192,7 +236,10 @@ def _register_http(app: FastAPI, services: Services) -> None:
     _register_sections(app, services)
     _register_history(app, services)
     _register_control(app, services)
+    _register_inverter_mode(app, services)
+    _register_inverter_verification(app, services)
     _register_forecast(app, services)
+    register_decisions(app, services)
 
     @app.get(
         f"{API_PREFIX}/entities",
@@ -277,18 +324,6 @@ def _register_http(app: FastAPI, services: Services) -> None:
             log.info("config import rejected: %s", exc)  # reason stays in the log
             raise HTTPException(status_code=422, detail=ERR_IMPORT_REJECTED) from exc
         return ImportResultOut(imported_sections=sections)
-
-    @app.get(f"{API_PREFIX}/decisions", response_model=list[Decision])
-    async def decisions(
-        limit: int = Query(default=100, ge=1, le=DECISIONS_MAX),
-        device_id: str | None = Query(default=None, max_length=128),
-        kind: Annotated[list[DecisionKind] | None, Query()] = None,
-    ) -> list[Decision]:
-        """The decision log, newest first. ``device_id`` keeps one device's decisions, ``kind``
-        (repeatable) the given kinds (``shadow``, ``accepted``, ``proposed``, ...)."""
-        if device_id is None and not kind:
-            return await services.decisions(limit)
-        return await services.decisions(limit, device_id=device_id, kinds=kind)
 
 
 def _register_forecast(app: FastAPI, services: Services) -> None:
@@ -408,6 +443,81 @@ def _register_plan(app: FastAPI, services: Services) -> None:
             return await services.replan()
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=ERR_PLANNING_UNAVAILABLE) from exc
+
+
+def _register_ha_entities(app: FastAPI, services: Services) -> None:
+    """Status of the MQTT entity surface and a manual republish (Phase 6 WP3)."""
+
+    @app.get(
+        f"{API_PREFIX}/ha-entities/status",
+        response_model=HaEntitiesStatusOut,
+        operation_id="ha_entities_status",
+    )
+    async def ha_entities_status() -> HaEntitiesStatusOut:
+        """Whether SunCore's entities are published in Home Assistant: the state (``disabled``,
+        ``no_broker``, ``connecting``, ``connected``, ``error``), where the broker comes from,
+        the number of entities and, when something is wrong, a reason key and (without a
+        broker) the hint key for installing the Mosquitto broker app. Everything else in
+        SunCore works without it."""
+        return HaEntitiesStatusOut.from_core(services.ha_entities_status())
+
+    @app.post(
+        f"{API_PREFIX}/ha-entities/republish",
+        response_model=HaEntitiesRepublishOut,
+        operation_id="ha_entities_republish",
+    )
+    async def ha_entities_republish() -> HaEntitiesRepublishOut:
+        """Publish the discovery configs and all states again (for a broker without the Home
+        Assistant birth message). ``republished`` is ``false`` when there is no broker session."""
+        return HaEntitiesRepublishOut(republished=await services.ha_entities_republish())
+
+
+def _register_notifications(app: FastAPI, services: Services) -> None:
+    """Notification settings, status and a test message (Phase 6 WP5)."""
+
+    @app.get(
+        f"{API_PREFIX}/notifications/settings",
+        response_model=NotificationsConfig,
+        operation_id="notifications_settings",
+    )
+    async def settings() -> NotificationsConfig:
+        """Categories, push targets, quiet hours and the daily cap (the ``notifications``
+        section; defaults while nothing is stored)."""
+        stored = await services.get_section("notifications")
+        return stored if isinstance(stored, NotificationsConfig) else NotificationsConfig()
+
+    @app.put(
+        f"{API_PREFIX}/notifications/settings",
+        response_model=NotificationsConfig,
+        operation_id="notifications_put_settings",
+    )
+    async def put_settings(body: NotificationsConfig) -> NotificationsConfig:
+        """Replace the notification settings; the service picks them up at once."""
+        stored = await services.put_section("notifications", body)
+        assert isinstance(stored, NotificationsConfig)
+        return stored
+
+    @app.get(
+        f"{API_PREFIX}/notifications/status",
+        response_model=NotificationsStatusOut,
+        operation_id="notifications_status",
+    )
+    async def status() -> NotificationsStatusOut:
+        """Whether the confirm buttons work (``active``) or Home Assistant refused the event
+        subscription (``refused``: plain messages with a pointer to the panel), how many push
+        targets can carry buttons, and the ``notify`` entities to choose from."""
+        return NotificationsStatusOut.from_core(
+            services.notifications_status(), services.notify_entity_targets()
+        )
+
+    @app.post(
+        f"{API_PREFIX}/notifications/test",
+        response_model=NotificationTestOut,
+        operation_id="notifications_test",
+    )
+    async def test() -> NotificationTestOut:
+        """Send a test message to every push target (at most one every five seconds)."""
+        return NotificationTestOut.from_core(await services.notifications_test())
 
 
 def _register_control(app: FastAPI, services: Services) -> None:
@@ -530,6 +640,79 @@ def _register_control(app: FastAPI, services: Services) -> None:
             raise HTTPException(status_code=409, detail=ERR_DEVICE_IDENTITY_CHANGED) from exc
 
 
+def _register_inverter_mode(app: FastAPI, services: Services) -> None:
+    """``PUT /api/v1/operation/inverter`` (PR 6-G)."""
+
+    @app.put(
+        f"{API_PREFIX}/operation/inverter",
+        response_model=OperationConfig,
+        responses={
+            404: {"model": ErrorOut, "description": "No inverter limit adapter"},
+            409: {
+                "model": ErrorOut,
+                "description": "The inverter adapter changed since its identity was read",
+            },
+        },
+    )
+    async def set_inverter_mode(body: InverterModeRequest) -> OperationConfig:
+        """Set the inverter limit's mode (PR 6-G, ADR-0018 decision 3). Anything above shadow
+        needs the adapter's ``identity`` token from the control state; shadow never does. An
+        adapter whose limit is not verified (``inverter.limit_verified``) runs at most assisted
+        whatever is stored."""
+        try:
+            return await services.set_inverter_mode(body.mode, body.identity)
+        except InverterNotControllableError as exc:
+            raise HTTPException(status_code=404, detail=ERR_INVERTER_NOT_CONTROLLABLE) from exc
+        except DeviceIdentityChangedError as exc:
+            raise HTTPException(status_code=409, detail=ERR_DEVICE_IDENTITY_CHANGED) from exc
+
+
+def _refused(exc: VerificationRefusedError) -> JSONResponse:
+    body = VerificationRefusedOut(detail=ERR_VERIFICATION_REFUSED, reasons=list(exc.reasons))
+    return JSONResponse(body.model_dump(mode="json"), status_code=409)
+
+
+def _register_inverter_verification(app: FastAPI, services: Services) -> None:
+    """The inverter limit verification (PR 7-J, plan phase 7 WP8, ADR-0018 addendum).
+
+    The procedure proposes; every write goes through the safety gate as the user's intent. No
+    body: nothing the client sends can choose a limit, a window or a duration.
+    """
+    path = f"{API_PREFIX}/inverter/verification"
+    refused: dict[int | str, dict[str, Any]] = {
+        409: {"model": VerificationRefusedOut, "description": "Preconditions not met"}
+    }
+
+    @app.get(path, response_model=VerificationView)
+    async def verification() -> VerificationView:
+        """The procedure's state: phase, the reasons it waits or ended, the baseline and the
+        proposed test limit, live export, house load and battery, the last stored outcome."""
+        return services.inverter_verification()
+
+    @app.post(path, response_model=VerificationView, responses=refused)
+    async def start_verification() -> Response:
+        """Start the test (the inverter asset must be assisted). 409 lists the reasons."""
+        try:
+            view = await services.start_inverter_verification()
+        except VerificationRefusedError as exc:
+            return _refused(exc)
+        return JSONResponse(view.model_dump(mode="json"))
+
+    @app.post(f"{path}/confirm", response_model=VerificationView, responses=refused)
+    async def confirm_verification() -> Response:
+        """Confirm the proposed test limit: it goes to the safety gate as the user's intent."""
+        try:
+            view = await services.confirm_inverter_verification()
+        except VerificationRefusedError as exc:
+            return _refused(exc)
+        return JSONResponse(view.model_dump(mode="json"))
+
+    @app.post(f"{path}/abort", response_model=VerificationView)
+    async def abort_verification() -> VerificationView:
+        """Stop the test; a held test limit is given back through the gate at once."""
+        return await services.abort_inverter_verification()
+
+
 def _register_sections(app: FastAPI, services: Services) -> None:
     """``GET``/``PUT /api/v1/config/<section>`` for every section, typed by its model.
 
@@ -555,10 +738,18 @@ def _register_section(app: FastAPI, services: Services, name: str, model: type[B
             return body
         if isinstance(body, TariffConfig):
             _check_tariff_against_catalog(body, services.templates())
+        if name == "expert":
+            guard_expert_document(await services.get_section(name), body)
         try:
             return await services.put_section(name, body)
         except ModeRaiseRejectedError as exc:
             raise HTTPException(status_code=409, detail=ERR_MODE_RAISE_REJECTED) from exc
+        except MqttPasswordIsMaskError as exc:
+            # Same 422 body as model validation: only the store knows whether a secret exists.
+            error = mqtt_password_is_mask()
+            raise RequestValidationError(
+                [{"type": error.type, "loc": ("body", "password"), "msg": error.message()}]
+            ) from exc
 
     # FastAPI reads the body type from the annotations; they are per section, hence dynamic.
     put_section.__annotations__ = {"body": model, "return": model}

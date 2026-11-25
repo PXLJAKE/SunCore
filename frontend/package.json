@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "size": "node scripts/bundle-size.mjs",
-    "verify": "npm run gen:api:check && npm run lint && npm run format:check && npm run check && npm run test && npm run build && npm run size"
+    "check:tokens": "node scripts/check-tokens.mjs",
+    "verify": "npm run gen:api:check && npm run check:tokens && npm run lint && npm run format:check && npm run check && npm run test && npm run build && npm run size"
   },
   "dependencies": {
     "echarts": "5.6.0",

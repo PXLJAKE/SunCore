@@ -37,7 +37,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from suncore.app.control import BatteryWiring, PlanProvider
+from suncore.app.control import BatteryWiring, InverterWiring, PlanProvider
+from suncore.app.programs import ProgramJobBook
 from suncore.core.battery import (
     BATTERY_ASSET_ID,
     BatteryModel,
@@ -45,7 +46,7 @@ from suncore.core.battery import (
     ModbusLink,
     effective_reserve_pct,
 )
-from suncore.core.config import GoalsConfig
+from suncore.core.config import GoalsConfig, InverterConfig, InverterModbusLink
 from suncore.core.control import ControlSettings
 from suncore.core.decisions import (
     Action,
@@ -58,17 +59,28 @@ from suncore.core.decisions import (
     SwitchAction,
 )
 from suncore.core.devices import DeviceConfig, step_power_w
+from suncore.core.flex import EvState
 from suncore.core.identity import battery_identity_token
+from suncore.core.inverter import INVERTER_ASSET_ID
+from suncore.core.site import EntityRef, SiteConfig
 from suncore.ha.connection import RateLimiter
 from suncore.safety.modes import StaticModes
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
 from suncore.sim.demo_devices import sim_price
-from suncore.sim.devices import SimClimate, SimDevice, SimWaterHeater
-from suncore.sim.fake_ha import FakeHAConnection, demo_site_config
+from suncore.sim.devices import SimClimate, SimDevice, SimHeatPump, SimLoadpoint, SimWaterHeater
+from suncore.sim.fake_evcc import FakeEvccBus
+from suncore.sim.fake_ha import (
+    BACKUP_ID,
+    PARA14A_BINARY_ID,
+    PARA14A_POWER_ID,
+    FakeHAConnection,
+    demo_site_config,
+)
 from suncore.sim.inverter import MODBUS_HUB, MODBUS_SLAVE, SimInverter
+from suncore.sim.limiter import SimExportLimiter
 from suncore.sim.scenario import Scenario, SimDeviceSpec
 from suncore.sim.stack import ControlStack
-from suncore.templates import BatteryTemplate, DeviceTemplate, TemplateCatalog
+from suncore.templates import BatteryTemplate, DeviceTemplate, InverterTemplate, TemplateCatalog
 
 SETTLE_ROUNDS: Final = 6
 """Event-loop rounds that let woken tasks run until they block again."""
@@ -180,6 +192,12 @@ def build_device_config(
         "settle_s": d.settle_s,
         "comfort": d.comfort.model_dump(mode="json") if d.comfort else None,
     }
+    if d.ev is not None:
+        base["ev"] = d.ev.model_dump(mode="json", exclude_none=True)
+    if d.program is not None:
+        base["program"] = d.program.model_dump(mode="json", exclude_none=True)
+    if d.thermal is not None:  # PR 6-K: heat pumps carry their thermal options
+        base["thermal"] = d.thermal.model_dump(mode="json", exclude_none=True)
     return DeviceConfig.model_validate(_merge(base, spec.control))
 
 
@@ -226,6 +244,10 @@ class StepLog:
     devices_w: float
     true_soc_pct: float | None = None
     """The battery's true SoC (BMS drift; ``None`` without the inverter model)."""
+    island: bool = False
+    unserved_w: float = 0.0
+    curtailed_w: float = 0.0
+    """PV the inverter's limit curtailed (PR 6-G)."""
 
 
 @dataclass(slots=True)
@@ -383,6 +405,7 @@ class ScenarioRunner:
         configs: Sequence[DeviceConfig] | None = None,
         plan_provider: PlanProvider | None = None,
         import_price: Callable[[datetime], float | None] | None = None,
+        export_price: Callable[[datetime], float | None] | None = None,
     ) -> None:
         self.scenario = scenario
         self.catalog = catalog
@@ -391,7 +414,13 @@ class ScenarioRunner:
         self.import_price: Callable[[datetime], float | None] = import_price or (
             lambda now: sim_price(now, profile)
         )
+        # The sim's export price is the spot price (direct marketing: negative when it is).
+        self.export_price: Callable[[datetime], float | None] = export_price or (
+            lambda now: sim_price(now, profile)
+        )
         self.vt = VirtualTime(scenario.start)
+        self.evcc = FakeEvccBus(self.vt.clock)
+        """PR 6-J: the fake evcc the simulated loadpoints publish to (no broker)."""
         self.limiter = RateLimiter(clock=self.vt.monotonic, sleep=self.vt.sleep)
         self.conn = FakeHAConnection(
             scenario,
@@ -420,7 +449,12 @@ class ScenarioRunner:
         battery_mode = (
             scenario.battery.mode if scenario.battery is not None else OperatingMode.SHADOW
         )
-        self.modes = StaticModes(global_mode, device_mode_map, battery=battery_mode)
+        inverter_mode = (
+            scenario.inverter.mode if scenario.inverter is not None else OperatingMode.SHADOW
+        )
+        self.modes = StaticModes(
+            global_mode, device_mode_map, battery=battery_mode, inverter=inverter_mode
+        )
         self.decisions: list[Decision] = []
         self.stack: ControlStack | None = None
         self.configs: dict[str, DeviceConfig] = {}
@@ -431,12 +465,31 @@ class ScenarioRunner:
         self._steps: list[StepLog] = []
         self._device_logs: dict[str, DeviceLog] = {}
         self._connected = False
+        self.ev_states: dict[str, EvState] = {
+            spec.id: EvState(
+                device_id=spec.id,
+                mode=spec.ev_mode,
+                target=spec.ev_target,
+                updated_at=scenario.start,
+            )
+            for spec in scenario.devices
+            if spec.ev_mode is not None
+        }
+        """PR 6-I: the chargers' runtime EV state (``flex_state``); a test may change it."""
+        self.programs = ProgramJobBook()
+        """PR 6-L: the open program jobs (in memory; kept across a simulated restart)."""
+        self.program_events: list[object] = []
+        """PR 6-L: every program event of the run (``controller.programs.ProgramEvent``)."""
 
     # --- composition -------------------------------------------------------------------------
 
     @property
     def sim_devices(self) -> Mapping[str, SimDevice]:
         return self.conn.demo.devices.devices
+
+    def loadpoints(self) -> dict[str, SimLoadpoint]:
+        """The simulated evcc loadpoints of the scenario."""
+        return {k: d for k, d in self.sim_devices.items() if isinstance(d, SimLoadpoint)}
 
     def new_stack(self) -> ControlStack:
         """A control stack on the running connection (also used for a simulated restart)."""
@@ -446,7 +499,7 @@ class ScenarioRunner:
         assert tz is not None
         return ControlStack(
             self.conn,
-            site=demo_site_config(),
+            site=self.site_config(),
             devices=list(self.configs.values()),
             clock=self.vt.clock,
             sleep=self.vt.sleep,
@@ -461,7 +514,43 @@ class ScenarioRunner:
             decisions=self.decisions,
             plan_provider=self.plan_provider,
             battery=self.battery_wiring(),
+            ev_states=self.ev_states.get,
+            programs=self.programs,
+            on_program_event=self.program_events.append,
+            evcc=self.evcc if self.loadpoints() else None,
+            inverter=self.inverter_wiring(),
         )
+
+    def site_config(self) -> SiteConfig:
+        """The simulator's site with the scenario's grid connection (PR 6-F)."""
+        site = demo_site_config()
+        if not self.scenario.control.site_battery:
+            site = site.model_copy(update={"battery": None})
+        grid = self.scenario.grid
+        if grid is None:
+            return site
+        body = site.grid.model_dump(mode="json", exclude_none=True)
+        body["import_limit_w"] = self.scenario.control.import_limit_w
+        body["peak_shaving"] = grid.peak_shaving.model_dump(mode="json")
+        if grid.para14a:
+            signal = PARA14A_BINARY_ID if grid.para14a_signal_kind == "binary" else PARA14A_POWER_ID
+            body.update(
+                para14a=True,
+                para14a_signal={"entity_id": signal},
+                para14a_signal_kind=grid.para14a_signal_kind,
+                para14a_limit_w=grid.para14a_limit_w,
+            )
+        if grid.export_limit_w is not None:
+            body["export_limit_w"] = grid.export_limit_w
+        body["zero_export"] = grid.zero_export
+        body["export_dynamic"] = grid.export_dynamic
+        if grid.backup:
+            body["backup"] = {
+                "entity_id": BACKUP_ID,
+                "island_states": ["island"],
+                "keep_devices": list(grid.keep_devices),
+            }
+        return site.model_copy(update={"grid": type(site.grid).model_validate(body)})
 
     @property
     def inverter(self) -> SimInverter | None:
@@ -526,6 +615,60 @@ class ScenarioRunner:
             import_price=self.import_price,
         )
 
+    @property
+    def export_limiter(self) -> SimExportLimiter | None:
+        house = self.conn._house
+        return None if house is None else house.limiter
+
+    def inverter_config(self) -> InverterConfig | None:
+        """What the wizard would store for the scenario's inverter limit (``None`` = none)."""
+        control, params = self.scenario.inverter, self.scenario.house.export_limiter
+        if control is None or params is None:
+            return None
+        limiter = self.export_limiter
+        assert limiter is not None
+        config = InverterConfig(
+            adapter=params.adapter,
+            capability=limiter.capability,
+            limit_entity=EntityRef(entity_id=limiter.limit_entity),
+            nominal_ac_w=params.nominal_ac_w,
+            enforce_static=control.enforce_static,
+            modbus=InverterModbusLink(
+                hub=MODBUS_HUB, slave=MODBUS_SLAVE, heartbeat_s=control.heartbeat_s
+            )
+            if params.adapter == "kostal_modbus"
+            else None,
+        )
+        if not control.verified:
+            return config
+        # PR 7-J: a verified limit is bound to the identity the test ran against.
+        return config.model_copy(
+            update={"limit_verified": True, "verified_identity": config.identity_token()}
+        )
+
+    def inverter_wiring(self) -> InverterWiring | None:
+        config = self.inverter_config()
+        if config is None:
+            return None
+        template_id = {
+            "generic_number": "generic.inverter_limit",
+            "kostal_rest": "kostal.plenticore_power_limit",
+            "kostal_modbus": "kostal.plenticore_g3_modbus_limit",
+        }[config.adapter]
+        template = self.catalog.get(template_id)
+        assert isinstance(template, InverterTemplate)
+        identity = config.identity_token()
+        assert identity is not None
+        return InverterWiring(
+            config=config,
+            spec=template.adapter_spec(),
+            identity=identity,
+            export_price=self.export_price,
+        )
+
+    def inverter_decisions(self) -> list[Decision]:
+        return [d for d in self.decisions if d.intent.asset_id == INVERTER_ASSET_ID]
+
     def battery_decisions(self) -> list[Decision]:
         return [d for d in self.decisions if d.intent.asset_id == BATTERY_ASSET_ID]
 
@@ -534,6 +677,8 @@ class ScenarioRunner:
             return
         await self.conn.connect()
         self._connected = True
+        for loadpoint in self.loadpoints().values():
+            loadpoint.attach(self.evcc, self._grid_w)
         configs = (
             self._explicit_configs
             if self._explicit_configs is not None
@@ -542,8 +687,23 @@ class ScenarioRunner:
         self.configs = {c.id: c for c in configs}
         self._device_logs = {k: DeviceLog() for k in self.sim_devices}
         self.stack = self.new_stack()
+        for spec in self.scenario.devices:
+            for job in spec.jobs:
+                self.at(job.arm_at_s, self._arm(spec.id, job.deadline_s))
         await self.stack.start()
         await self.vt.settle()
+
+    def _arm(self, device_id: str, deadline_s: int) -> Action_:
+        async def arm(runner: ScenarioRunner) -> None:
+            deadline = runner.scenario.start + timedelta(seconds=deadline_s)
+            await runner.programs.arm(runner.configs[device_id], deadline, now=runner.vt.clock())
+
+        return arm
+
+    def _grid_w(self) -> float:
+        """The site's grid power of the previous step (what evcc's meter shows), + = import."""
+        house = self.conn._house_state
+        return 0.0 if house is None else house.grid_w
 
     # --- scheduling --------------------------------------------------------------------------
 
@@ -574,6 +734,9 @@ class ScenarioRunner:
                 house.soc_pct,
                 house.devices_w,
                 house.true_soc_pct,
+                house.island,
+                house.unserved_w,
+                house.curtailed_w,
             )
         )
         for device_id, device in self.sim_devices.items():
@@ -583,7 +746,7 @@ class ScenarioRunner:
             setpoint = device.setpoint_c if isinstance(device, SimClimate) else None
             if isinstance(device, SimClimate):
                 temp: float | None = device.temp_c
-            elif isinstance(device, SimWaterHeater):
+            elif isinstance(device, SimWaterHeater | SimHeatPump):
                 temp = device.temp_c
             else:
                 temp = None

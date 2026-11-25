@@ -13,12 +13,16 @@ export type OperatingMode = S['OperatingMode'];
 export type Decision = S['Decision'];
 export type ControlState = S['ControlState'];
 export type DeviceControlState = S['DeviceControlState'];
+export type HeatPumpLive = S['HeatPumpLive'];
+export type Diagnostics = S['DiagnosticsOut'];
 export type DecisionKind = S['DecisionKind'];
 export type SiteControlState = S['SiteControlState'];
 export type PowerEstimate = S['PowerEstimate'];
 export type OverrideCommand = S['OverrideCommand'];
 export type OverridePolicy = S['OverridePolicy'];
 export type Reason = S['Reason'];
+export type VerificationView = S['VerificationView'];
+export type VerificationPhase = S['VerificationPhase'];
 export type SiteConfig = S['SiteConfig'];
 export type PvArray = S['PvArray'];
 export type GridConfig = S['GridConfig'];
@@ -26,6 +30,12 @@ export type BatteryConfig = S['BatteryConfig'];
 export type EntityRef = S['EntityRef'];
 export type EntityCandidate = S['EntityCandidateOut'];
 export type ValidationIssue = S['ValidationIssueOut'];
+
+export type Param = S['ParamOut'];
+export type ParamsListing = S['ParamsOut'];
+export type ParamsApplied = S['ParamsApplied'];
+export type ParamValue = Param['value'];
+export type SolverStats = S['SolverStats'];
 
 export type ConfigSectionName =
   | 'site'
@@ -36,7 +46,10 @@ export type ConfigSectionName =
   | 'goals'
   | 'operation'
   | 'wizard'
-  | 'battery';
+  | 'battery'
+  | 'mqtt'
+  | 'notifications'
+  | 'inverter';
 export type RegionConfig = S['RegionConfig'];
 export type TariffConfig = S['TariffConfig'];
 export type ForecastConfig = S['ForecastConfig'];
@@ -110,6 +123,19 @@ export type BatteryTemplate = S['BatteryTemplate'];
 export type ForecastSourceConfig = S['ForecastSourceConfig'];
 export type LoadForecastConfig = S['LoadForecastConfig'];
 
+export type Granularity = S['Granularity'];
+export type HistorySummary = S['SummaryOut'];
+export type HistoryBucket = S['BucketOut'];
+export type HistorySankey = S['SankeyOut'];
+export type HistoryHeatmap = S['HeatmapOut'];
+export type HistoryCycles = S['CyclesOut'];
+export type HistorySkill = S['ForecastSkillOut'];
+export type HistoryDevices = S['DeviceHistoryOut'];
+export type HistorySeries = S['SeriesResponse'];
+export type PlanAt = S['PlanAtOut'];
+export type PlanCompare = S['PlanCompareOut'];
+export type IntervalDiff = S['IntervalDiffOut'];
+
 export type SnapshotMessage = S['SnapshotMessage'];
 export type PlanMessage = S['PlanMessage'];
 export type FlowsMessage = S['FlowsMessage'];
@@ -118,3 +144,43 @@ export type DecisionsMessage = S['DecisionsMessage'];
 export type ControlMessage = S['ControlMessage'];
 export type LiveMessage =
   SnapshotMessage | FlowsMessage | HealthMessage | DecisionsMessage | ControlMessage | PlanMessage;
+
+export type EvSpec = S['EvSpec'];
+export type ProgramSpec = S['ProgramSpec'];
+export type ThermalSpec = S['ThermalSpec'];
+export type LoadpointControl = S['LoadpointControl'];
+export type ChargerControl = S['ChargerControl'];
+export type FlexView = S['FlexOut'];
+export type EvState = S['EvState'];
+export type EvMode = S['EvMode'];
+export type EvTarget = S['EvTarget'];
+export type ProgramJob = S['ProgramJob'];
+export type JobState = S['JobState'];
+export type GridStatus = S['GridStatusOut'];
+export type GridEvent = S['GridEventOut'];
+export type MonthPeak = S['MonthPeakOut'];
+export type GridEvents = S['GridEventsOut'];
+export type HaEntitiesStatus = S['HaEntitiesStatusOut'];
+export type NotificationsConfig = S['NotificationsConfig'];
+export type NotificationsStatus = S['NotificationsStatusOut'];
+export type NotificationTest = S['NotificationTestOut'];
+export type MqttConfig = S['MqttConfig-Output'];
+
+export type DecisionExplain = S['DecisionExplainOut'];
+export type DecisionOrigin = S['Origin'];
+
+/** One page of the decision log: `ids[i]` is the row id of `items[i]`. */
+export interface DecisionPage {
+  items: Decision[];
+  ids: number[];
+  total: number;
+}
+
+export type BacktestRun = S['BacktestRunOut'];
+export type BacktestRequest = S['BacktestRequest'];
+export type BacktestResult = S['BacktestResult'];
+export type BacktestTotals = S['BacktestTotals'];
+export type BacktestDay = S['DayResult'];
+export type BacktestFigures = S['RunFigures'];
+export type BatteryOverlay = S['BatteryOverlay'];
+export type TariffOverlay = S['TariffOverlay'];

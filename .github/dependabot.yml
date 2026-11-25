@@ -20,3 +20,14 @@ updates:
       - /addon/suncore_beta
     schedule:
       interval: weekly
+  # Security review 1.0 (SEC-09): the SPA's npm lockfile was not watched. Runtime and
+  # development dependencies in separate groups, so a test tool bump cannot hide a runtime one.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      npm-runtime:
+        dependency-type: production
+      npm-dev:
+        dependency-type: development

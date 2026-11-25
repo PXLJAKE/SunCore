@@ -50,8 +50,140 @@ BATTERY_GRID_CHARGE_UNSUPPORTED: Final = "controller.battery.grid_charge_unsuppo
 BATTERY_DISCHARGE_LOCK_UNSUPPORTED: Final = "controller.battery.discharge_lock_unsupported"
 BATTERY_NO_PLAN: Final = "controller.battery.no_plan"
 BATTERY_BLOCKED: Final = "controller.battery.blocked"
+# Phase 6 PR 6-F: import side, §14a, island (``controller.grid``).
+GRID_ISLAND_SHED: Final = "controller.grid.island_shed"
+GRID_ISLAND_KEEP: Final = "controller.grid.island_keep"
+GRID_COOLDOWN: Final = "controller.grid.cooldown"
+GRID_PARA14A_DIM: Final = "controller.grid.para14a_dim"
+GRID_PARA14A_UNKNOWN: Final = "controller.grid.para14a_unknown"
+GRID_PARA14A_COOLDOWN: Final = "controller.grid.para14a_cooldown"
+GRID_PARA14A_NO_SIGNAL: Final = "controller.grid.para14a_no_signal"
+GRID_BACKUP_UNKNOWN: Final = "controller.grid.backup_unknown"
+GRID_ISLAND: Final = "controller.grid.island"
+GRID_PARA14A_ACTIVE: Final = "controller.grid.para14a_active"
+GRID_SHED: Final = "controller.grid.shed"
+GRID_FUSE_SHED: Final = "controller.grid.fuse_shed"
+GRID_PEAK_LIMIT: Final = "controller.grid.peak_limit"
+GRID_BATTERY_SUPPORT: Final = "controller.grid.battery_support"
+GRID_BATTERY_ISLAND: Final = "controller.grid.battery_island"
+GRID_BATTERY_NO_GRID_CHARGE: Final = "controller.grid.battery_no_grid_charge"
+# Phase 6 PR 6-I: EV charging (``controller.ev``) and the battery lock for it (E6).
+BATTERY_EV_LOCK: Final = "controller.battery.ev_lock"
+EV_MODE_OFF: Final = "controller.ev.mode_off"
+EV_NOT_CONNECTED: Final = "controller.ev.not_connected"
+EV_NOW: Final = "controller.ev.now"
+EV_MIN_PV: Final = "controller.ev.min_pv"
+EV_TARGET_GRID: Final = "controller.ev.target_grid"
+EV_BATTERY_WAIT: Final = "controller.ev.battery_wait"
+EV_INPUTS_UNKNOWN: Final = "controller.ev.inputs_unknown"
+EV_PHASE_SWITCH: Final = "controller.ev.phase_switch"
+EV_PHASE_PAUSE: Final = "controller.ev.phase_pause"
+# Phase 6 PR 6-L: shiftable programs (``controller.programs``).
+PROGRAM_START: Final = "controller.program.start"
+PROGRAM_DEADLINE_START: Final = "controller.program.deadline_start"
+PROGRAM_ARM_OFF: Final = "controller.program.arm_off"
+PROGRAM_RELEASE: Final = "controller.program.release"
+PROGRAM_NO_JOB: Final = "controller.program.no_job"
+PROGRAM_ARMED: Final = "controller.program.armed"
+PROGRAM_SCHEDULED: Final = "controller.program.scheduled"
+PROGRAM_RUNNING: Final = "controller.program.running"
+PROGRAM_START_NOW: Final = "controller.program.start_now"
+PROGRAM_INPUTS_UNKNOWN: Final = "controller.program.inputs_unknown"
+PROGRAM_ISLAND: Final = "controller.program.island"
+PROGRAM_BLOCKED: Final = "controller.program.blocked"
+PROGRAM_NO_POWER_SENSOR: Final = "controller.program.no_power_sensor"
+# Phase 6 PR 6-J: evcc as actor (``controller.evcc``).
+EVCC_SMART: Final = "controller.evcc.smart"
+EVCC_MIN_PV: Final = "controller.evcc.min_pv"
+EVCC_CAP: Final = "controller.evcc.cap"
+EVCC_NO_RAISE: Final = "controller.evcc.no_raise"
+EVCC_PARA14A_OFF: Final = "controller.evcc.para14a_off"
+EVCC_BATTERY_WARNING: Final = "controller.evcc.battery_warning"
+EVCC_IMPORT_CUT: Final = "controller.evcc.import_cut"
+EVCC_IMPORT_OFF: Final = "controller.evcc.import_off"
+
+# Phase 6 PR 6-K: heat pump (``controller.heat_pump``).
+HP_FAILSAFE: Final = "controller.heat_pump.failsafe"
+HP_DWELL_WAIT: Final = "controller.heat_pump.dwell_wait"
+HP_STATE_UNKNOWN: Final = "controller.heat_pump.state_unknown"
+HP_NO_PROBE: Final = "controller.heat_pump.no_probe"
+HP_RESTART_WAIT: Final = "controller.heat_pump.restart_wait"
+
+# Phase 6 PR 6-G: the export chain (``controller.export``).
+EXPORT_LIMIT: Final = "controller.export.limit"
+EXPORT_AC_LIMIT: Final = "controller.export.ac_limit"
+EXPORT_NOT_NEEDED: Final = "controller.export.not_needed"
+EXPORT_ABSORBING: Final = "controller.export.absorbing"
+EXPORT_WAITING: Final = "controller.export.waiting"
+EXPORT_INPUTS_UNKNOWN: Final = "controller.export.inputs_unknown"
+EXPORT_ISLAND: Final = "controller.export.island"
+EXPORT_BLOCKED: Final = "controller.export.blocked"
+EXPORT_RELEASE: Final = "controller.export.release"
+EXPORT_BATTERY_CAP_LIFTED: Final = "controller.export.battery_cap_lifted"
 
 ALL_KEYS: Final[tuple[str, ...]] = (
+    EXPORT_LIMIT,
+    EXPORT_AC_LIMIT,
+    EXPORT_NOT_NEEDED,
+    EXPORT_ABSORBING,
+    EXPORT_WAITING,
+    EXPORT_INPUTS_UNKNOWN,
+    EXPORT_ISLAND,
+    EXPORT_BLOCKED,
+    EXPORT_RELEASE,
+    EXPORT_BATTERY_CAP_LIFTED,
+    HP_FAILSAFE,
+    HP_DWELL_WAIT,
+    HP_STATE_UNKNOWN,
+    HP_NO_PROBE,
+    HP_RESTART_WAIT,
+    PROGRAM_START,
+    PROGRAM_DEADLINE_START,
+    PROGRAM_ARM_OFF,
+    PROGRAM_RELEASE,
+    PROGRAM_NO_JOB,
+    PROGRAM_ARMED,
+    PROGRAM_SCHEDULED,
+    PROGRAM_RUNNING,
+    PROGRAM_START_NOW,
+    PROGRAM_INPUTS_UNKNOWN,
+    PROGRAM_ISLAND,
+    PROGRAM_BLOCKED,
+    PROGRAM_NO_POWER_SENSOR,
+    BATTERY_EV_LOCK,
+    EV_MODE_OFF,
+    EV_NOT_CONNECTED,
+    EV_NOW,
+    EV_MIN_PV,
+    EV_TARGET_GRID,
+    EV_BATTERY_WAIT,
+    EV_INPUTS_UNKNOWN,
+    EV_PHASE_SWITCH,
+    EV_PHASE_PAUSE,
+    EVCC_SMART,
+    EVCC_MIN_PV,
+    EVCC_CAP,
+    EVCC_NO_RAISE,
+    EVCC_PARA14A_OFF,
+    EVCC_BATTERY_WARNING,
+    EVCC_IMPORT_CUT,
+    EVCC_IMPORT_OFF,
+    GRID_ISLAND_SHED,
+    GRID_ISLAND_KEEP,
+    GRID_COOLDOWN,
+    GRID_PARA14A_DIM,
+    GRID_PARA14A_UNKNOWN,
+    GRID_PARA14A_COOLDOWN,
+    GRID_PARA14A_NO_SIGNAL,
+    GRID_BACKUP_UNKNOWN,
+    GRID_ISLAND,
+    GRID_PARA14A_ACTIVE,
+    GRID_SHED,
+    GRID_FUSE_SHED,
+    GRID_PEAK_LIMIT,
+    GRID_BATTERY_SUPPORT,
+    GRID_BATTERY_ISLAND,
+    GRID_BATTERY_NO_GRID_CHARGE,
     BATTERY_GRID_CHARGE,
     BATTERY_DISCHARGE_LOCK,
     BATTERY_RELEASE,
@@ -171,6 +303,63 @@ def waiting_delay(remaining_s: float) -> Reason:
 
 def no_surplus(surplus_w: float, need_w: float) -> Reason:
     return Reason(key=NO_SURPLUS, args={"surplus_w": round(surplus_w), "need_w": round(need_w)})
+
+
+def grid_shed(grid_w: float, limit_w: float, *, fuse: bool) -> Reason:
+    """Shedding above the import limit (``fuse``: above the connection limit, G2)."""
+    key = GRID_FUSE_SHED if fuse else GRID_SHED
+    return Reason(key=key, args={"grid_w": round(grid_w), "limit_w": round(limit_w)})
+
+
+def para14a_dim(budget_w: float) -> Reason:
+    return Reason(key=GRID_PARA14A_DIM, args={"budget_w": round(budget_w)})
+
+
+def grid_cooldown(remaining_s: float) -> Reason:
+    return Reason(key=GRID_COOLDOWN, args={"remaining_s": _ceil(min(remaining_s, 3600.0))})
+
+
+def para14a_cooldown(remaining_s: float) -> Reason:
+    return Reason(key=GRID_PARA14A_COOLDOWN, args={"remaining_s": _ceil(remaining_s)})
+
+
+def ev_floor(key: str, power_w: float) -> Reason:
+    """A user-demanded or plan-permitted EV floor (``now``, ``min_pv``, ``target`` grid)."""
+    return Reason(key=key, args={"power_w": round(power_w)})
+
+
+def ev_phase_switch(phases: int) -> Reason:
+    return Reason(key=EV_PHASE_SWITCH, args={"phases": phases})
+
+
+def ev_phase_pause(remaining_s: float) -> Reason:
+    return Reason(key=EV_PHASE_PAUSE, args={"remaining_s": _ceil(remaining_s)})
+
+
+def evcc_cap(current_a: float) -> Reason:
+    """evcc's maximum current is held below the wiring limit by a grid limit."""
+    return Reason(key=EVCC_CAP, args={"current_a": round(current_a)})
+
+
+def evcc_import_cut(current_a: float) -> Reason:
+    """The grid import is over the limit while evcc charges: ``maxCurrent`` is lowered."""
+    return Reason(key=EVCC_IMPORT_CUT, args={"current_a": round(current_a)})
+
+
+def heat_pump_failsafe(cause: str) -> Reason:
+    """Back to SG state 2 / the base set-point at once (``core.sgready.FailsafeCause``)."""
+    return Reason(key=HP_FAILSAFE, args={"cause": cause})
+
+
+def heat_pump_dwell(remaining_s: float) -> Reason:
+    return Reason(key=HP_DWELL_WAIT, args={"remaining_s": _ceil(remaining_s)})
+
+
+def heat_pump_restart(temperature_c: float, restart_c: float) -> Reason:
+    return Reason(
+        key=HP_RESTART_WAIT,
+        args={"temperature_c": round(temperature_c, 1), "restart_c": round(restart_c, 1)},
+    )
 
 
 def plain(key: str) -> Reason:

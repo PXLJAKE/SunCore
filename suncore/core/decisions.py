@@ -122,6 +122,19 @@ class ActionKind(StrEnum):
     MODE = "mode"
     RELEASE = "release"
     BATTERY = "battery"
+    # Phase 6 (PR 6-B, additive; rejected by the gate until their invariants exist):
+    CHARGE = "charge"
+    LOADPOINT = "loadpoint"
+    INVERTER_LIMIT = "inverter_limit"
+
+
+NOT_YET_SUPPORTED_KINDS: Final[frozenset[ActionKind]] = frozenset()
+"""Action kinds that are in the contract but not judged by any invariant yet (ADR-0011
+addendum): the safety gate rejects each with ``safety.<kind>_not_supported`` before mode
+handling. A kind leaves this set only in the PR that adds its invariants, scenarios and the
+``control-safety`` sign-off. Empty since Phase 6: ``charge`` left in 6-I (E1-E9,
+``safety.flex``), ``loadpoint`` in 6-J (L1-L5, ``safety.evcc``), ``inverter_limit`` in 6-G
+(X1-X6, ``safety.inverter``)."""
 
 
 class SwitchAction(_FrozenModel):
@@ -232,6 +245,100 @@ class BatteryAction(_FrozenModel):
         return self
 
 
+class ChargeAction(_FrozenModel):
+    """Desired state of an EV charger (ADR-0017 decision 1; judged since PR 6-I, E1-E9).
+
+    **Full desired state.** ``current_a`` 0 = paused (the car is not charged: the driver turns
+    the ``enable`` switch off, or writes 0 A where the current entity accepts it), otherwise
+    within the charger's ``[min_current_a, max_current_a]`` - the range check needs the device
+    and is invariant E1 of the gate, not of this contract. ``phases`` ``None`` = leave the
+    phases as they are. Release = the baseline captured at takeover (current, phases, enable).
+
+    ``enabled`` (PR 6-I, additive) is the charger's ``enable`` switch as a driver *reads it
+    back*: a baseline keeps the user's current setting **and** their switch, so a release
+    restores both (E9). ``None`` = derived from the current (enabled iff ``current_a > 0``);
+    the controller never sets it. :meth:`effective_current_a` is what the car may draw.
+    """
+
+    kind: Literal[ActionKind.CHARGE] = ActionKind.CHARGE
+    current_a: float = Field(ge=0, le=500, allow_inf_nan=False)
+    phases: Literal[1, 3] | None = None
+    enabled: bool | None = None
+
+    @property
+    def effective_current_a(self) -> float:
+        """The current the car may draw: 0 while the enable switch is off."""
+        return 0.0 if self.enabled is False else self.current_a
+
+
+LOADPOINT_CURRENT_TOLERANCE_A: Final = 0.05
+"""Two ``maxCurrent`` values closer than this are the same (evcc rounds to three decimals)."""
+
+EVCC_MODES: Final = ("off", "smart", "now")
+"""evcc loadpoint ``mode`` values (evcc MQTT API, read 2026-11-24; ``pv``/``minpv`` are gone)."""
+
+
+class LoadpointAction(_FrozenModel):
+    """What SunCore asks of an evcc loadpoint (ADR-0017 decision 2; judged since PR 6-J).
+
+    evcc regulates current and phases itself; SunCore sets the mode, the limit SoC, a vehicle
+    plan (``plan_soc_pct`` and ``plan_time`` together or neither) and a maximum current. ``None``
+    fields are left as evcc has them. SunCore never writes ``evcc/site/*``.
+    """
+
+    kind: Literal[ActionKind.LOADPOINT] = ActionKind.LOADPOINT
+    mode: Literal["off", "smart", "now"]
+    limit_soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    plan_soc_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    plan_time: AwareDatetime | None = None
+    max_current_a: float | None = Field(default=None, gt=0, le=500, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _plan_pair(self) -> Self:
+        if (self.plan_soc_pct is None) != (self.plan_time is None):
+            raise invalid(
+                "loadpoint_plan_pair",
+                "loadpoint action: `plan_soc_pct` and `plan_time` are set together",
+            )
+        return self
+
+    def matches(self, observed: LoadpointAction) -> bool:
+        """Read-back: ``observed`` shows the mode and every value this action sets."""
+        if self.mode != observed.mode:
+            return False
+        if self.max_current_a is not None and (
+            observed.max_current_a is None
+            or abs(self.max_current_a - observed.max_current_a) > LOADPOINT_CURRENT_TOLERANCE_A
+        ):
+            return False
+        return self.limit_soc_pct is None or (
+            observed.limit_soc_pct is not None
+            and round(self.limit_soc_pct) == round(observed.limit_soc_pct)
+        )
+
+
+class InverterLimitAction(_FrozenModel):
+    """An export or AC output limit for the inverter (ADR-0018 decision 3; PR 6-G).
+
+    Exactly one of ``max_export_w`` (capability ``export_limit``) and ``max_ac_pct``
+    (capability ``ac_limit``, % of the nominal AC power) is set. The asset id is ``inverter``.
+    Release = the baseline captured at takeover (100 % for a volatile register).
+    """
+
+    kind: Literal[ActionKind.INVERTER_LIMIT] = ActionKind.INVERTER_LIMIT
+    max_export_w: float | None = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
+    max_ac_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> Self:
+        if (self.max_export_w is None) == (self.max_ac_pct is None):
+            raise invalid(
+                "inverter_limit_one",
+                "inverter limit: set exactly one of `max_export_w` and `max_ac_pct`",
+            )
+        return self
+
+
 Action = Annotated[
     SwitchAction
     | PowerSetpointAction
@@ -239,7 +346,10 @@ Action = Annotated[
     | StepAction
     | ModeAction
     | ReleaseAction
-    | BatteryAction,
+    | BatteryAction
+    | ChargeAction
+    | LoadpointAction
+    | InverterLimitAction,
     Field(discriminator="kind"),
 ]
 """Typed action target; the ``kind`` field selects the variant."""
@@ -327,13 +437,18 @@ def decision_from_json(text: str) -> Decision:
 
 __all__ = [
     "DECISION_SCHEMA_VERSION",
+    "EVCC_MODES",
+    "NOT_YET_SUPPORTED_KINDS",
     "REASON_KEY_PATTERN",
     "Action",
     "ActionKind",
     "BatteryAction",
+    "ChargeAction",
     "Decision",
     "DecisionKind",
     "Intent",
+    "InverterLimitAction",
+    "LoadpointAction",
     "ModeAction",
     "OperatingMode",
     "Origin",

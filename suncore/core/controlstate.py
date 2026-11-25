@@ -16,7 +16,7 @@ from pydantic_core import PydanticCustomError
 
 from suncore.core.battery import BatteryAction
 from suncore.core.control import DeviceState, PowerEstimate
-from suncore.core.decisions import Decision, OperatingMode, Reason
+from suncore.core.decisions import Decision, InverterLimitAction, OperatingMode, Reason
 from suncore.core.devices import DeviceKind
 from suncore.core.signals import Quality
 from suncore.core.validation import invalid
@@ -68,6 +68,39 @@ class DeviceControlState(_Frozen):
     since: AwareDatetime | None
     last_decision: Decision | None
     """The newest decision the gate made for this device."""
+    heat_pump: HeatPumpLive | None = None
+    """Live COP and thermal-model quality of a device with a ``thermal`` section (PR 7-I,
+    additive); ``None`` for every other device."""
+
+
+class ThermalModelQuality(_Frozen):
+    """How good the learned RC model of a heat pump is and whether the planner uses it."""
+
+    fit_error: float = Field(ge=0, allow_inf_nan=False)
+    """Normalised RMSE of a 24 h replay of the learned model (``LearnedThermal.nrmse``)."""
+    history_days: int = Field(ge=0)
+    fitted_at: AwareDatetime
+    used_by_planner: bool
+    """``core.thermal.model_usable``: enough history and an error within the limit. If not, the
+    planner treats the device as energy-only."""
+
+
+class HeatPumpLive(_Frozen):
+    """Live thermal values of a heat pump or other thermal device (PR 7-I, additive).
+
+    ``None`` fields are unknown, never zero: no outdoor temperature source, no learned model.
+    """
+
+    outdoor_c: float | None = Field(default=None, allow_inf_nan=False)
+    """Outdoor temperature of the current hour from the weather entity's forecast
+    (``LoadForecastService.outdoor_forecast``); ``None`` without a weather entity."""
+    cop: float | None = Field(default=None, allow_inf_nan=False)
+    """The COP at ``outdoor_c`` from the device's COP curve (``CopCurve.cop_at``)."""
+    cop_assumed: bool = True
+    """The curve is the generic air/water assumption (the UI labels it "assumed"); ``False``
+    only for a curve from the template or the user."""
+    model: ThermalModelQuality | None = None
+    """``None`` = no model was learned yet."""
 
 
 class SiteControlState(_Frozen):
@@ -120,6 +153,38 @@ class BatteryControlState(_Frozen):
     last_decision: Decision | None
 
 
+class InverterControlState(_Frozen):
+    """The inverter limit as a controlled asset (PR 6-G, ADR-0018 decision 3)."""
+
+    identity: str
+    """Opaque adapter identity token; send it back when raising the inverter's mode."""
+    adapter: str
+    adapter_template_id: str
+    capability: str
+    """``export_limit`` (W) or ``ac_limit`` (% of the nominal AC power)."""
+    verified: bool
+    """``inverter.limit_verified``: the documented verification test was passed."""
+    global_mode: OperatingMode
+    inverter_mode: OperatingMode
+    """The stored mode (``operation.inverter_mode``)."""
+    effective_mode: OperatingMode
+    """``min(global, inverter)``, capped at assisted while ``mode_capped``."""
+    mode_capped: bool
+    """Not verified yet: at most assisted (X6)."""
+    limit: InverterLimitAction | None
+    """What the adapter's entity shows now (``None`` = unknown)."""
+    held: InverterLimitAction | None
+    """What SunCore holds (``None`` = the inverter's own limit)."""
+    baseline: InverterLimitAction | None
+    """The user's own limit found at takeover, restored by a release."""
+    under_control: bool
+    wanted: InverterLimitAction | None
+    """What the export chain asks for now (``None`` = the inverter's own limit)."""
+    reasons: list[Reason]
+    paused: Reason | None
+    last_decision: Decision | None
+
+
 class ControlState(_Frozen):
     """Everything the control layer exposes after a tick."""
 
@@ -135,6 +200,8 @@ class ControlState(_Frozen):
     """Open assisted-mode proposals (``DecisionKind.PROPOSED`` with ``expires_at``)."""
     battery: BatteryControlState | None = None
     """``None`` = no battery adapter (observe-only); Phase 4 WP10."""
+    inverter: InverterControlState | None = None
+    """``None`` = no inverter limit adapter; PR 6-G."""
 
 
 OverrideAction = Literal["boost", "pause", "resume"]
@@ -211,6 +278,18 @@ class BatteryModeRequest(_Frozen):
         return self
 
 
+class InverterModeRequest(BatteryModeRequest):
+    """``PUT /api/v1/operation/inverter``: the inverter limit's operating mode (PR 6-G).
+
+    Raising it above shadow needs ``identity`` (``inverter.identity`` of the control state); a
+    changed adapter answers 409. Until ``inverter.limit_verified`` it runs at most assisted.
+    """
+
+
+class InverterNotControllableError(LookupError):
+    """No inverter limit adapter is configured: there is no inverter mode to raise."""
+
+
 class BatteryNotControllableError(LookupError):
     """No battery adapter is configured (observe-only): there is no battery mode to raise."""
 
@@ -248,12 +327,17 @@ __all__ = [
     "DeviceControlState",
     "DeviceIdentityChangedError",
     "DeviceModeRequest",
+    "HeatPumpLive",
+    "InverterControlState",
+    "InverterModeRequest",
+    "InverterNotControllableError",
     "ModeRaiseRejectedError",
     "ModeRequest",
     "OverrideAction",
     "OverrideCommand",
     "OverrideUntilPastError",
     "SiteControlState",
+    "ThermalModelQuality",
     "UnknownDeviceError",
     "UnknownProposalError",
     "override_until_past",

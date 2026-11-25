@@ -54,7 +54,7 @@ Documentation screenshots come from the same setup – follow the
 `demo-screenshots` skill (`.claude/skills/demo-screenshots/SKILL.md`):
 
 ```bash
-cd frontend && SCREENSHOTS_DIR=../docs/assets/screenshots npx playwright test screenshots
+cd frontend && SCREENSHOTS_DIR=../docs/user/assets/screenshots npx playwright test screenshots
 ```
 
 Never edit screenshots by hand.
@@ -87,6 +87,14 @@ it in an app configuration. Settings are read from `/data/options.json`
 (or `$SUNCORE_OPTIONS_PATH`), then overridden by `SUNCORE_<FIELD>`
 environment variables.
 
+## Issues
+
+Use the issue forms (bug, feature, device template). A bug report should carry the diagnostics
+export (Settings → Advanced → Diagnostics, or the app log if your version has no panel yet).
+The labels the forms use are listed in [`.github/labels.yml`](.github/labels.yml). Security
+problems go through [`SECURITY.md`](SECURITY.md); conduct questions through
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
 ## Pull requests
 
 Use the PR template. Describe what, why, how it was tested, risks and open
@@ -99,17 +107,33 @@ Templates live in `templates/<kind>/` and are validated against the JSON
 Schemas in `templates/schema/`. Every template needs a `source` (the
 documentation it was built from) and a simulator scenario. See
 [`docs/user/en/device-templates.md`](docs/user/en/device-templates.md).
-Run `uv run python scripts/gen_compat.py` to regenerate the compatibility list.
+Run `uv run python scripts/gen_compat.py` to regenerate the compatibility lists (en and de).
 
 ## Translations
 
-Translations are managed on Weblate (from Phase 7). Until then, edit the
-JSON catalogues directly. UI strings are keys only: add each key to
-`frontend/src/lib/i18n/locales/en.json` (source) and `de.json` in the same
-change, written as ICU MessageFormat. `uv run python scripts/check_reasons.py`
-verifies that backend reason and error keys exist in both catalogues.
-User documentation is English under `docs/user/en/` with the German
-translation at the same path under `docs/user/de/` (ADR-0008).
+UI and app-option texts are translated on Hosted Weblate once the project exists (WP12; until
+then by pull request, see `docs/user/en/translate.md`). The component settings and the pull
+request round trip are in [`docs/i18n-weblate.md`](docs/i18n-weblate.md).
+
+- **Panel texts:** keys only, never English text. Add each key to
+  `frontend/src/lib/i18n/locales/en.json` (source) and `de.json` in the same change, written as
+  ICU MessageFormat. `uv run python scripts/check_reasons.py` verifies that backend reason and
+  error keys exist in both catalogues. Keys with the prefixes `mqtt.`, `notify.`, `safety.`,
+  `controller.`, `planner.`, `device.` and `grid.` are also rendered by the backend, which
+  supports only a subset of ICU (literal text, `{arg}`, `number`, `plural`, `select`; see
+  `suncore/i18n/renderer.py`). After changing them run
+  `uv run python scripts/gen_backend_catalogue.py`; a message outside the subset fails there.
+- **App options:** `addon/suncore/translations/{en,de}.yaml` must cover every option of
+  `config.yaml`. The beta app's copies are generated: run
+  `uv run python scripts/sync_beta_translations.py` (CI checks it).
+- **Weblate pull requests:** they come from the branch `weblate`. The workflow
+  `weblate-sync.yml` regenerates the backend catalogue and the beta translations on that branch
+  and runs `check_reasons.py`. Do not edit generated files by hand.
+- **Documentation:** English under `docs/user/en/` with the German translation at the same path
+  under `docs/user/de/` (ADR-0020; by pull request, not Weblate). The pages of the site are
+  built with `uv run --group docs mkdocs build --strict` (CI runs it on pull requests);
+  `parameters.md` and `compatibility.md` are generated per language by `scripts/gen_params.py`
+  and `scripts/gen_compat.py`: fix the generator, not the page.
 
 ## Checks before you push
 

@@ -25,6 +25,9 @@ from suncore.core.conversion import value_to_power_w
 from suncore.core.decisions import (
     Action,
     BatteryAction,
+    ChargeAction,
+    InverterLimitAction,
+    LoadpointAction,
     ModeAction,
     PowerSetpointAction,
     Reason,
@@ -34,13 +37,62 @@ from suncore.core.decisions import (
     SwitchAction,
 )
 from suncore.core.devices import (
+    ChargerControl,
     ContinuousControl,
     DeviceConfig,
     DeviceKind,
+    LoadpointControl,
     ModeControl,
+    SgReadyControl,
+    program_peak_w,
     step_power_w,
 )
+from suncore.core.sgready import SG_NORMAL
 from suncore.core.signals import Quality
+from suncore.safety.evcc import (
+    IEC_MIN_CURRENT_A,
+    NO_LOADPOINT_SAFETY,
+    LoadpointSafety,
+    check_raise,
+    check_values,
+    loadpoint_raises,
+    potential_power_w,
+)
+from suncore.safety.flex import (
+    CURRENT_TOLERANCE_A,
+    NO_EV_SAFETY,
+    EvSafety,
+    active_phases,
+    charge_matches,
+    charge_power_w,
+    check_charge_grid,
+    check_current_range,
+    check_ev_mode,
+    check_phases,
+    ev_unlocked_shed_waiver,
+)
+from suncore.safety.grid import (
+    NO_GRID_SAFETY,
+    GridSafety,
+    device_grid_violation,
+    fuse_shed_waiver,
+)
+from suncore.safety.heatpump import (
+    check_heat_pump_failsafe,
+    check_lift_base,
+    check_sg_action,
+    check_sg_dwell,
+    check_sg_probe,
+    failsafe_reduction,
+)
+from suncore.safety.programs import (
+    NO_PROGRAM_SAFETY,
+    ProgramSafety,
+    check_program_grid,
+    program_allowance_w,
+    program_running,
+)
+from suncore.safety.programs import check_program as _check_program
 from suncore.safety.runtime import DeviceRuntime
 
 HVAC_OFF: Final = "off"
@@ -74,6 +126,14 @@ class InvariantContext:
     """Load increases the gate already let through against the same ``GateInputs``
     snapshot (other intents of the same tick, a confirmed proposal): not yet visible in
     ``surplus`` or ``flows``, so the grid check subtracts them (review 3-B, G1)."""
+    grid: GridSafety = NO_GRID_SAFETY
+    """Island, §14a, cool-down and the fuse limit (PR 6-F, ``safety.grid``)."""
+    ev: EvSafety = NO_EV_SAFETY
+    """EV mode, allowance, connection, battery lock and the read-back (PR 6-I, E1-E9)."""
+    program: ProgramSafety = NO_PROGRAM_SAFETY
+    """The program's open job, fresh power and deadline binding (PR 6-L, P1-P6)."""
+    lp: LoadpointSafety = NO_LOADPOINT_SAFETY
+    """An evcc loadpoint's observed state and evcc's own ``minCurrent`` (PR 6-J, L1-L5)."""
 
 
 # --- helpers ------------------------------------------------------------------
@@ -108,8 +168,16 @@ def action_turns_on(action: Action, device: DeviceConfig) -> bool | None:  # noq
             return power > 0
         case SetpointAction():
             return True
-        case ReleaseAction() | BatteryAction():  # battery: rejected by the gate before (WP10)
+        case ChargeAction():
+            return action.effective_current_a > 0
+        case ReleaseAction() | BatteryAction():  # battery: judged by safety.battery (WP10)
             return None
+        case LoadpointAction():
+            # off <-> on/smart/now is a switch of the loadpoint (R1: counted, min run/pause);
+            # whether the car draws is evcc's decision (L2/L3), so this follows the mode only
+            return action.mode != "off"
+        case InverterLimitAction():
+            return None  # rejected by the gate before the invariants (6-B, not supported)
     return None  # pragma: no cover - exhaustive
 
 
@@ -118,21 +186,41 @@ def is_switch_transition(action: Action, device: DeviceConfig, state: DeviceStat
     target = action_turns_on(action, device)
     if target is None:
         return False
+    if isinstance(action, LoadpointAction):
+        if state is None or not state.known or state.mode is None:
+            return True
+        return (state.mode != "off") != target
     current = device_is_on(state)
     return current is None or current != target
 
 
-def expected_power_w(  # noqa: PLR0911 - one branch per action kind
-    action: Action, device: DeviceConfig, estimate: PowerEstimate | None
+def expected_power_w(  # noqa: PLR0911, PLR0912 - one branch per action kind
+    action: Action,
+    device: DeviceConfig,
+    estimate: PowerEstimate | None,
+    observed: ChargeAction | None = None,
+    ctx_observed: LoadpointAction | None = None,
 ) -> float | None:
-    """Power the device is expected to draw after the action (``None`` = unknown)."""
+    """Power the device is expected to draw after the action (``None`` = unknown).
+
+    A ``ChargeAction`` without ``phases`` runs on the ``observed`` phases, else on the wired
+    ones (the upper bound). A ``LoadpointAction`` is the **potential** power (``maxCurrent`` on
+    the wired phases, 0 for ``off``); ``ctx_observed`` is evcc's state for an unset current."""
     nominal = device.power_model.nominal_w
     match action:
         case SwitchAction(on=on):
             if not on:
                 return 0.0
+            if device.program is not None:
+                return program_peak_w(device)  # P5: a start draws up to the profile's peak
             return nominal if nominal is not None else _upper(estimate)
         case StepAction(step=step):
+            if isinstance(device.control, SgReadyControl):
+                # SG state 2 is the heat pump's own operation (nothing SunCore adds, like a
+                # climate base set-point); states 3/4 may run it flat out (H4, PR 6-K).
+                if step == SG_NORMAL:
+                    return 0.0
+                return nominal if nominal is not None else _upper(estimate)
             return step_power_w(device.control, step)
         case ModeAction(mode=mode):
             if mode == HVAC_OFF:
@@ -150,8 +238,21 @@ def expected_power_w(  # noqa: PLR0911 - one branch per action kind
             return max(0.0, power)
         case SetpointAction():
             return nominal if nominal is not None else _upper(estimate)
-        case ReleaseAction() | BatteryAction():  # battery: rejected by the gate before (WP10)
+        case ChargeAction():
+            control = device.control
+            if not isinstance(control, ChargerControl):
+                return None  # a charge on another control is rejected by the gate
+            phases = active_phases(control, action, observed)
+            return charge_power_w(action.effective_current_a, phases, control.voltage_v)
+        case ReleaseAction() | BatteryAction():  # battery: judged by safety.battery (WP10)
             return None
+        case LoadpointAction():
+            control = device.control
+            if not isinstance(control, LoadpointControl):
+                return None  # a loadpoint action on another control is rejected by the gate
+            return potential_power_w(action, control, ctx_observed)
+        case InverterLimitAction():
+            return None  # rejected by the gate before the invariants (6-B, not supported)
     return None  # pragma: no cover - exhaustive
 
 
@@ -170,7 +271,9 @@ def power_delta_w(ctx: InvariantContext) -> float | None:
     the base on a running unit adds an unknown amount up to the nominal power, so the
     delta is ``nominal - estimate.lower`` (the full nominal without an estimate).
     """
-    expected = expected_power_w(ctx.action, ctx.device, ctx.estimate)
+    expected = expected_power_w(
+        ctx.action, ctx.device, ctx.estimate, ctx.ev.observed, ctx.lp.observed
+    )
     if expected is None:
         return None
     has_estimate = ctx.estimate is not None and ctx.estimate.quality in (
@@ -204,16 +307,29 @@ def _toward_base(action: SetpointAction, runtime: DeviceRuntime, state: DeviceSt
 # --- invariants -----------------------------------------------------------------
 
 
+REASON_POWER_UNKNOWN: Final = Reason(key="safety.power_unknown")
+
+
 def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one per rule
     """No grid import caused by SunCore and never above the import limit (plan WP7).
 
     Adding ``delta`` W needs a known surplus with ``surplus - uncertainty - claimed >=
     delta``, no current import and ``grid + claimed + delta <= import_limit_w`` where
     configured (``claimed`` = increases already accepted against the same snapshot).
+    A load increase of unknown size (no nominal power, no estimate) is rejected: it could
+    exceed any of these bounds (G1, the conservative direction).
     """
+    if isinstance(ctx.action, LoadpointAction) and ctx.action.mode != "now":
+        return _check_smart_import(ctx, ctx.action)
     delta = power_delta_w(ctx)
-    if delta is None or delta <= 0:
+    if delta is None:
+        return REASON_POWER_UNKNOWN if is_load_increase(ctx) else None
+    if delta <= 0:
         return None
+    if _charge_with_allowance(ctx):
+        return _check_charge_grid(ctx, delta)
+    if _program_with_allowance(ctx):
+        return _check_program_grid(ctx, delta)
     if ctx.surplus is None or ctx.surplus.quality is not Quality.OK:
         return Reason(key="safety.surplus_unknown")
     grid = None if ctx.flows is None else ctx.flows.grid_w
@@ -237,6 +353,128 @@ def check_grid(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911 - one p
     return None
 
 
+def _check_smart_import(ctx: InvariantContext, action: LoadpointAction) -> Reason | None:
+    """L3 for a raise to ``smart``: evcc follows the surplus by design but may import by its own
+    rules (vehicle plan, smart-cost limit, ``alwaysCharge``), so a raise is judged against the
+    import limit (fuse or peak, whichever is lower) with the worst case ``minCurrent x phases x
+    V`` on top of the current import. ``off`` and a lowering draw nothing more."""
+    control = ctx.device.control
+    if (
+        action.mode == "off"
+        or not isinstance(control, LoadpointControl)
+        or ctx.import_limit_w is None
+        or not loadpoint_raises(action, ctx.lp.observed)
+    ):
+        return None
+    grid = None if ctx.flows is None else ctx.flows.grid_w.value
+    if grid is None:
+        return Reason(key="safety.grid_unknown")
+    floor_a = min(max(IEC_MIN_CURRENT_A, ctx.lp.min_current_a or 0.0), control.max_current_a)
+    worst = charge_power_w(floor_a, control.phases, control.voltage_v)
+    if grid + max(0.0, ctx.claimed_w) + worst > ctx.import_limit_w:
+        return Reason(
+            key="safety.grid_import_limit",
+            args={"limit_w": round(ctx.import_limit_w), "grid_w": round(grid)},
+        )
+    return None
+
+
+def _charge_with_allowance(ctx: InvariantContext) -> bool:
+    """A charge (or an evcc ``now``) that may use the bounded import exception (E3/L2): judged
+    by ``safety.flex``."""
+    return (
+        isinstance(ctx.action, ChargeAction | LoadpointAction)
+        and ctx.ev.allowance_w > POWER_TOLERANCE_W
+    )
+
+
+def _check_charge_grid(ctx: InvariantContext, delta: float) -> Reason | None:
+    surplus = ctx.surplus
+    lower = None if surplus is None or surplus.quality is not Quality.OK else surplus.lower_w
+    grid = None if ctx.flows is None else ctx.flows.grid_w.value
+    after = expected_power_w(ctx.action, ctx.device, ctx.estimate, ctx.ev.observed, ctx.lp.observed)
+    assert after is not None  # a known delta has a known expected power
+    return check_charge_grid(
+        after_w=after,
+        current_lower_w=after - delta,
+        surplus_lower_w=lower,
+        claimed_w=ctx.claimed_w,
+        grid_w=grid,
+        import_limit_w=ctx.import_limit_w,
+        ev=ctx.ev,
+    )
+
+
+def _program_with_allowance(ctx: InvariantContext) -> bool:
+    """A deadline-bound program start (P5): judged by ``safety.programs``."""
+    return (
+        isinstance(ctx.action, SwitchAction)
+        and ctx.action.on
+        and program_allowance_w(ctx.device, ctx.program) > POWER_TOLERANCE_W
+    )
+
+
+def _check_program_grid(ctx: InvariantContext, delta: float) -> Reason | None:
+    surplus = ctx.surplus
+    lower = None if surplus is None or surplus.quality is not Quality.OK else surplus.lower_w
+    grid = None if ctx.flows is None else ctx.flows.grid_w.value
+    after = expected_power_w(ctx.action, ctx.device, ctx.estimate)
+    assert after is not None  # a known delta has a known expected power
+    return check_program_grid(
+        after_w=after,
+        current_lower_w=after - delta,
+        surplus_lower_w=lower,
+        claimed_w=ctx.claimed_w,
+        grid_w=grid,
+        import_limit_w=ctx.import_limit_w,
+        allowance_w=program_allowance_w(ctx.device, ctx.program),
+    )
+
+
+def check_program(ctx: InvariantContext) -> Reason | None:
+    """P1, P2, P4 (``safety.programs``) for an action on a job-driven program device."""
+    return _check_program(ctx.action, ctx.device, ctx.program, ctx.now)
+
+
+def check_ev(ctx: InvariantContext) -> Reason | None:
+    """E1, E2, E5 and mode ``off`` for a ``ChargeAction`` (``safety.flex``); E3/E6 live in
+    :func:`check_grid`, E4 in :func:`check_grid_situation`."""
+    action = ctx.action
+    if not isinstance(action, ChargeAction):
+        return None
+    control = ctx.device.control
+    if not isinstance(control, ChargerControl):
+        return Reason(key="safety.charge_not_charger")
+    for reason in (
+        check_current_range(action, control, ctx.ev),
+        check_ev_mode(is_load_increase(ctx), ctx.ev),
+        check_phases(
+            action,
+            control,
+            ctx.ev,
+            now=ctx.now,
+            paused_since=ctx.ev.idle_since,
+            last_phase_switch=ctx.runtime.last_phase_switch_ts,
+            phase_switches_last_hour=ctx.runtime.phase_switches_in_window(ctx.now),
+        ),
+    ):
+        if reason is not None:
+            return reason
+    return None
+
+
+def check_loadpoint(ctx: InvariantContext) -> Reason | None:
+    """L1 and L2 for a ``LoadpointAction`` (``safety.evcc``); L3 lives in :func:`check_grid`
+    and :func:`check_grid_situation`, L4 in the unchanged write path, L5 in the driver."""
+    action = ctx.action
+    if not isinstance(action, LoadpointAction):
+        return None
+    control = ctx.device.control
+    if not isinstance(control, LoadpointControl):
+        return Reason(key="safety.loadpoint_not_loadpoint")
+    return check_values(action, control, ctx.lp) or check_raise(action, ctx.ev, ctx.lp)
+
+
 def check_comfort(ctx: InvariantContext) -> Reason | None:
     """A set-point never leaves the comfort band."""
     if not isinstance(ctx.action, SetpointAction):
@@ -252,13 +490,19 @@ def check_comfort(ctx: InvariantContext) -> Reason | None:
     return None
 
 
-def check_min_run_pause(ctx: InvariantContext) -> Reason | None:
+def check_min_run_pause(ctx: InvariantContext) -> Reason | None:  # noqa: PLR0911
     """Minimum run time before a switch-off, minimum pause before a switch-on."""
     if isinstance(ctx.action, ReleaseAction):
         return None
     if not is_switch_transition(ctx.action, ctx.device, ctx.state):
         return None
     target = action_turns_on(ctx.action, ctx.device)
+    if target is False and _fuse_shed(ctx):
+        return None  # G2: shedding above the fuse limit (non-thermal kinds)
+    if target is False and isinstance(ctx.action, LoadpointAction):
+        return None  # off is the safe direction for a loadpoint (counted, never blocked)
+    if _failsafe(ctx):
+        return None  # H5: back to SG state 2 for a fail-safe cause
     if target is True:
         since, limit = ctx.runtime.last_off_ts, ctx.device.min_pause_s
     else:
@@ -280,6 +524,12 @@ def check_switch_rate(ctx: InvariantContext) -> Reason | None:
         return None
     if not is_switch_transition(ctx.action, ctx.device, ctx.state):
         return None
+    if action_turns_on(ctx.action, ctx.device) is False and (
+        _fuse_shed(ctx) or isinstance(ctx.action, LoadpointAction)
+    ):
+        return None  # G2 shedding; a loadpoint's off is counted but never blocked (R1)
+    if _failsafe(ctx):
+        return None  # H5: back to SG state 2 for a fail-safe cause
     limit = ctx.device.max_switches_per_hour
     if limit is None:
         limit = ctx.settings.default_max_switches_per_hour
@@ -317,6 +567,8 @@ def check_battery_reserve(ctx: InvariantContext) -> Reason | None:
     delta = power_delta_w(ctx)
     if delta is None or delta <= 0 or ctx.flows is None or ctx.reserve_soc_pct is None:
         return None
+    if _charge_with_allowance(ctx) and ctx.ev.battery_locked:
+        return None  # E6: SunCore holds the battery's energy; the charge is grid-fed (E3)
     soc = ctx.flows.battery_soc_pct.value
     battery = ctx.flows.battery_w.value
     if soc is None or battery is None:
@@ -380,7 +632,100 @@ def check_heat_limit(ctx: InvariantContext) -> Reason | None:
     )
 
 
+def _fuse_shed(ctx: InvariantContext) -> bool:
+    if ctx.device.program is not None and program_running(ctx.device, ctx.program, ctx.now) in (
+        True,
+        None,
+    ):
+        return False  # review 6-F H3: the G2 waiver never interrupts a running program
+    return fuse_shed_waiver(ctx.device.kind, True, ctx.flows, ctx.grid) or ev_unlocked_shed_waiver(
+        ctx.device.control, ctx.ev, True, ctx.flows
+    )
+
+
+def _user_base_c(runtime: DeviceRuntime) -> float | None:
+    """The user's own set-point for H4 (review 6-K, A3): the takeover baseline the gate read
+    back (renewed after a detected override), never the controller's ``base_c`` that the gate
+    copies into ``base_setpoint_c`` on every write."""
+    baseline = runtime.baseline
+    if isinstance(baseline, SetpointAction):
+        return baseline.setpoint_c
+    return runtime.base_setpoint_c
+
+
+def _failsafe(ctx: InvariantContext) -> bool:
+    return failsafe_reduction(
+        ctx.action, ctx.device, ctx.state, ctx.grid.grid_state, ctx.grid.para14a_status
+    )
+
+
+def check_heat_pump(ctx: InvariantContext) -> Reason | None:
+    """H1-H5 of a heat pump (``safety.heatpump``): writable SG states only, state 4 only with
+    ``allow_forced``, a probe for intensifying, the SG dwell, a lift never below the base, no
+    increase while §14a dims a flagged heat pump or in island."""
+    action, device = ctx.action, ctx.device
+    if isinstance(action, ReleaseAction):
+        return None
+    for reason in (
+        check_sg_action(action, device),
+        check_sg_probe(action, device),
+        check_sg_dwell(
+            action,
+            device,
+            ctx.state,
+            ctx.runtime.last_write_ts,
+            ctx.now,
+            waived=_failsafe(ctx),
+        ),
+        check_lift_base(action, device, _user_base_c(ctx.runtime)),
+        check_heat_pump_failsafe(
+            is_load_increase(ctx),
+            device,
+            ctx.state,
+            ctx.grid.grid_state,
+            ctx.grid.para14a_status,
+        ),
+    ):
+        if reason is not None:
+            return reason
+    return None
+
+
+def is_load_increase(ctx: InvariantContext) -> bool:
+    """The action may add load: not a release, not a switch-off, and a positive or unknown
+    added demand (an unknown one counts as an increase - the conservative direction)."""
+    if isinstance(ctx.action, ReleaseAction | BatteryAction):
+        return False
+    if isinstance(ctx.action, LoadpointAction):
+        return loadpoint_raises(ctx.action, ctx.lp.observed)
+    if action_turns_on(ctx.action, ctx.device) is False:
+        return False
+    delta = power_delta_w(ctx)
+    return delta is None or delta > POWER_TOLERANCE_W
+
+
+def check_grid_situation(ctx: InvariantContext) -> Reason | None:
+    """G3-G6 (``safety.grid``): island, §14a budget, cool-down and unknown grid inputs."""
+    increase = is_load_increase(ctx)
+    if not increase:
+        return None
+    return device_grid_violation(
+        kind=ctx.device.kind,
+        flagged=ctx.device.para14a,
+        increase=increase,
+        after_w=expected_power_w(
+            ctx.action, ctx.device, ctx.estimate, ctx.ev.observed, ctx.lp.observed
+        ),
+        flows=ctx.flows,
+        grid=ctx.grid,
+    )
+
+
 ALL_CHECKS: Final = (
+    check_program,
+    check_ev,
+    check_loadpoint,
+    check_heat_pump,
     check_climate_switch_on,
     check_comfort,
     check_heat_limit,
@@ -389,6 +734,7 @@ ALL_CHECKS: Final = (
     check_switch_rate,
     check_write_rate,
     check_grid,
+    check_grid_situation,
     check_battery_reserve,
 )
 
@@ -431,9 +777,44 @@ def action_matches_state(  # noqa: PLR0911
             if device is not None and isinstance(device.control, ContinuousControl):
                 current = _continuous_power_w(current, device.control, device.power_model.nominal_w)
             return abs(current - power) <= POWER_TOLERANCE_W
-        case ReleaseAction() | BatteryAction():  # battery: rejected by the gate before (WP10)
+        case ChargeAction():
+            return _charge_matches_state(action, state)
+        case ReleaseAction() | BatteryAction():  # battery: judged by safety.battery (WP10)
             return False
+        case LoadpointAction():
+            return _loadpoint_matches_state(action, state)
+        case InverterLimitAction():
+            return False  # rejected by the gate before the invariants (6-B, not supported)
     return False  # pragma: no cover - exhaustive
+
+
+def _loadpoint_matches_state(action: LoadpointAction, state: DeviceState) -> bool:
+    """evcc already shows the action's mode and the values it sets (nothing to write)."""
+    if state.mode != action.mode:
+        return False
+    if action.max_current_a is not None and (
+        state.max_current_a is None
+        or abs(state.max_current_a - action.max_current_a) > CURRENT_TOLERANCE_A
+    ):
+        return False
+    return action.limit_soc_pct is None or (
+        state.limit_soc_pct is not None
+        and round(state.limit_soc_pct) == round(action.limit_soc_pct)
+    )
+
+
+def _charge_matches_state(action: ChargeAction, state: DeviceState) -> bool:
+    """The charger shows the action's effective current (0 = not charging) and phases."""
+    if action.phases is not None and state.phases is not None and state.phases != action.phases:
+        return False
+    current = action.effective_current_a
+    if current <= 0:
+        return state.on is False
+    return (
+        state.on is True
+        and state.value is not None
+        and abs(state.value - current) <= CURRENT_TOLERANCE_A
+    )
 
 
 def action_matches(expected: Action, observed: Action | None) -> bool:
@@ -445,6 +826,10 @@ def action_matches(expected: Action, observed: Action | None) -> bool:
             return abs(a - b) <= SETPOINT_TOLERANCE_C
         case PowerSetpointAction(power_w=a), PowerSetpointAction(power_w=b):
             return abs(a - b) <= POWER_TOLERANCE_W
+        case ChargeAction(), ChargeAction():
+            return charge_matches(expected, observed)
+        case LoadpointAction(), LoadpointAction():
+            return expected.matches(observed)
         case _:
             return expected == observed
 
@@ -459,13 +844,19 @@ __all__ = [
     "check_change",
     "check_climate_switch_on",
     "check_comfort",
+    "check_ev",
     "check_grid",
+    "check_grid_situation",
+    "check_heat_pump",
+    "check_loadpoint",
     "check_min_run_pause",
+    "check_program",
     "check_switch_rate",
     "check_write_rate",
     "device_is_on",
     "evaluate",
     "expected_power_w",
+    "is_load_increase",
     "is_switch_transition",
     "power_delta_w",
 ]

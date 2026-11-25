@@ -6,9 +6,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import tempfile
-from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Collection,
+    Coroutine,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, time, timedelta, tzinfo
+from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -17,11 +25,23 @@ import structlog
 from pydantic import BaseModel
 
 from suncore import __version__
+from suncore.api.diagnostics_models import DiagnosticsOut
+from suncore.api.flex_types import (
+    EvTargetError,
+    FlexStoreError,
+    GridEventRow,
+    GridEvents,
+    GridStatus,
+    MonthPeakRow,
+    NotAnEvError,
+)
 from suncore.api.services import (
     EnergyPrefsFailedError,
     EntityQuery,
     HAUnavailableError,
     HealthReport,
+    HistoryContext,
+    HistorySources,
     PeerPolicy,
     TariffNotConfiguredError,
     UnknownRoleError,
@@ -32,24 +52,46 @@ from suncore.app.adapters import (
     build_pv_forecast_service,
     build_tariff_service,
 )
+from suncore.app.backtests import BacktestJobs
 from suncore.app.cadence import device_cadences, merge_cadences
-from suncore.app.control import BatteryWiring, ControlStack
-from suncore.app.history import rebuild_history
+from suncore.app.control import BatteryWiring, ControlStack, InverterWiring, probe_temperature_c
+from suncore.app.diagnostics_collect import collect_diagnostics
+from suncore.app.evcc_link import EvccLink
+from suncore.app.grid import GridMonitor
+from suncore.app.ha_entities import SiteEventBuffer, build_ha_entities
+from suncore.app.history import backfill_history, rebuild_history
 from suncore.app.modes import ConfigModes
+from suncore.app.notifications import build_notifications
 from suncore.app.planning import (
     LiveReading,
     PlanningService,
     PlanningSettings,
     PlanningSnapshot,
 )
+from suncore.app.programs import ProgramJobBook, program_notice
 from suncore.app.recorder import FLUSH_INTERVAL_S, MeasurementRecorder
 from suncore.app.settings import SUPERVISOR_INGRESS_PEER, Settings
+from suncore.app.summaries import (
+    AccuracySource,
+    DaySummaryJob,
+    SummaryContext,
+    battery_model_of,
+    export_fallback_of,
+    record_accuracy_days,
+    tariff_fingerprint,
+)
+from suncore.app.thermal_live import heat_pump_live, outdoor_now
+from suncore.app.verification import InverterVerification
+from suncore.controller.programs import ProgramEvent
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.battery import BatterySettings, effective_reserve_pct
 from suncore.core.config import (
     DevicesConfig,
     ForecastConfig,
     GoalsConfig,
+    InverterConfig,
+    InverterVerificationRecord,
+    MqttConfig,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -61,6 +103,7 @@ from suncore.core.controlstate import (
     ControlState,
     DeviceControlState,
     DeviceIdentityChangedError,
+    InverterNotControllableError,
     ModeRaiseRejectedError,
     OverrideCommand,
     OverrideUntilPastError,
@@ -69,11 +112,21 @@ from suncore.core.controlstate import (
 )
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode, Origin, Reason
 from suncore.core.detection import DetectedEntity, EnergySuggestions
-from suncore.core.devices import DeviceConfig
+from suncore.core.devices import ChargerControl, DeviceConfig, LoadpointControl
+from suncore.core.expert import ExpertConfig
+from suncore.core.flex import MAX_HORIZON, EvMode, EvState, EvTarget, ProgramJob
+from suncore.core.grid import GridState, Para14aStatus, month_key, peak_limit_w
+from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.identity import battery_identity_token, identity_token
-from suncore.core.series import QuantileSeries
+from suncore.core.params import apply_controller, overrides_for
+from suncore.core.series import QuantileSeries, TimeRange
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
+from suncore.core.verification_view import (
+    VerificationPhase,
+    VerificationRefusedError,
+    VerificationView,
+)
 from suncore.core.wizard import (
     CheckItem,
     PreviewItem,
@@ -91,6 +144,7 @@ from suncore.forecast.pv.learning import BLENDED_SOURCE_ID, LearningContext, run
 from suncore.forecast.pv.service import BlendContext, PvForecastService
 from suncore.forecast.risk import ErrorModel
 from suncore.forecast.risk_learning import learn_net_errors, load_error_model, risk_view
+from suncore.forecast.thermal import ThermalLearner, learnable, with_learned
 from suncore.forecast.views import (
     ForecastAccuracyView,
     LoadForecastView,
@@ -112,10 +166,24 @@ from suncore.ha import (
     legacy_entities,
     suggest_from_prefs,
 )
+from suncore.ha.mqtt import HaEntityService, SiteEvent, supervisor_services_from_env
+from suncore.ha.mqtt.check import check_ha_entities
+from suncore.notify import (
+    ActionsState,
+    Category,
+    NotificationService,
+    NotifyEvent,
+    NotifyStatus,
+    SiteSignal,
+    TestResult,
+)
 from suncore.planner import build_inputs
 from suncore.planner import reasons as planner_reasons
+from suncore.planner.flex import EvLive, FlexRequest
+from suncore.planner.inputs import DEFAULT_MIP_GAP
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck, Trigger
 from suncore.safety.gate import REASON_OVERRIDE_HELD, Clock, SafetyGate
+from suncore.sim.backtest import BACKTEST_BUDGET_S, BacktestSite
 from suncore.storage import (
     ConfigStore,
     Database,
@@ -127,15 +195,25 @@ from suncore.storage import (
     SqliteRuntimeStore,
     TimeseriesStore,
 )
-from suncore.storage.timeseries import META_HISTORY_REBUILT
+from suncore.storage.backtests import BacktestRunStore
+from suncore.storage.flex import FlexStateStore
+from suncore.storage.grid import GridStore
+from suncore.storage.summaries import AccuracyDayRow, DaySummaryRow
+from suncore.storage.timeseries import META_HISTORY_BACKFILLED, META_HISTORY_REBUILT
 from suncore.tariff import ExportConfigError, TariffService
 from suncore.tariff.report import PriceReport
-from suncore.templates import BatteryTemplate, TariffTemplate, TemplateCatalog
+from suncore.templates import BatteryTemplate, InverterTemplate, TariffTemplate, TemplateCatalog
 
 PLANNING_SECTIONS = frozenset(
-    {"site", "region", "tariff", "forecast", "battery", "goals", "devices"}
+    {"site", "region", "tariff", "forecast", "battery", "goals", "devices", "expert"}
 )
 """Configuration sections whose change asks for a new plan."""
+DEFAULT_INVERTER_TEMPLATES: dict[str, str] = {
+    "generic_number": "generic.inverter_limit",
+    "kostal_rest": "kostal.plenticore_power_limit",
+    "kostal_modbus": "kostal.plenticore_g3_modbus_limit",
+}
+"""The built-in ``inverter`` template of each adapter when ``inverter.template_id`` is unset."""
 LOOPBACK_PEERS: tuple[str, ...] = ("127.0.0.1", "::1")
 
 log = structlog.get_logger(__name__)
@@ -194,6 +272,10 @@ class Runtime:
     tariff_config: TariffConfig | None = None
     battery_config: BatterySettings | None = None
     """The ``battery`` section (adapter, model, policy); ``None`` = never stored."""
+    inverter_config: InverterConfig | None = None
+    """The ``inverter`` section (limit adapter, PR 6-G); ``None`` = never stored."""
+    expert: ExpertConfig | None = None
+    """The ``expert`` section (parameter overrides); ``None`` = never stored = all defaults."""
     tariff: TariffService | None = None
     """Keeps the prices fresh (``None``: no tariff, no region or an unusable template)."""
     timeseries_db: Database | None = None
@@ -201,6 +283,8 @@ class Runtime:
     timeseries: TimeseriesStore | None = None
     plans: PlanSnapshotStore | None = None
     learned: LearnedParamStore | None = None
+    thermal: ThermalLearner | None = None
+    """The RC models of the heat pumps (PR 6-K; ``None`` without ``timeseries.db``)."""
     recorder: MeasurementRecorder = field(default_factory=lambda: MeasurementRecorder(None))
     """Batched writer of the controller's measurements (disabled without ``timeseries``)."""
     flush_interval_s: float = FLUSH_INTERVAL_S
@@ -225,6 +309,9 @@ class Runtime:
     _unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _tempdir: tempfile.TemporaryDirectory[str] | None = None
     _prune_task: asyncio.Task[None] | None = None
+    demo_user: Callable[[Runtime], Coroutine[Any, Any, None]] | None = None
+    """Demo only: a coroutine that plays the user (arms jobs); set by the demo seeding."""
+    _demo_user_task: asyncio.Task[None] | None = None
     _flush_task: asyncio.Task[None] | None = None
     _maintenance_task: asyncio.Task[None] | None = None
     _history_task: asyncio.Task[None] | None = None
@@ -232,9 +319,17 @@ class Runtime:
     _load_task: asyncio.Task[None] | None = None
     _accuracy_task: asyncio.Future[None] | None = None
     _tariff_task: asyncio.Task[None] | None = None
+    flex_store: FlexStateStore | None = None
+    """``flex_state`` (EV modes/targets, PR 6-B); ``None`` = every charger in its default mode."""
+    _ev_states: dict[str, EvState] = field(default_factory=dict)
+    """The EV states as last loaded (the control stack reads them synchronously, PR 6-I)."""
+    _programs: ProgramJobBook | None = None
+    """The open program jobs (PR 6-L), persisted to ``flex_state``; built in :meth:`prepare`."""
     planning: PlanningService | None = None
     """The planner runtime (built in :meth:`prepare`; the control stack reads its plan)."""
     _planning_task: asyncio.Task[None] | None = None
+    backtest_jobs: BacktestJobs | None = None
+    """Backtest runs (Phase 5 WP6); ``None`` without ``timeseries.db``."""
     _plan_unsubscribers: list[Callable[[], None]] = field(default_factory=list)
     _history_done: bool = False
     """The statistics rebuild ran (or was not needed) in this process."""
@@ -247,6 +342,21 @@ class Runtime:
     _tz_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _ha_location: tuple[float, float] | None = None
     """Home Assistant's ``latitude``/``longitude`` (``get_config``), for the PV clear-sky model."""
+    ha_core_version: str | None = None
+    """Home Assistant's core version (``get_config`` key ``version``); diagnostics only."""
+    ha_language: str | None = None
+    """Home Assistant's UI language (``get_config``, key ``language``: ``UNVERIFIED``), used for
+    the entity names while ``region.language`` is ``auto``."""
+    ha_entities: HaEntityService | None = None
+    notifications: NotificationService | None = None
+    site_events: SiteEventBuffer | None = None
+    """Events for the MQTT ``events`` entity (the notification rules fill it)."""
+    """The MQTT entity surface (``None`` in demo mode); never needed by anything else."""
+    evcc_link: EvccLink | None = None
+    """The MQTT link to evcc (PR 6-J); built with the first stack when a loadpoint exists."""
+    _verification: InverterVerification | None = None
+    """The latest inverter limit verification (PR 7-J; memory only, a restart forgets it)."""
+    _verification_tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     @property
     def gate(self) -> SafetyGate:
@@ -256,6 +366,11 @@ class Runtime:
             raise RuntimeError(msg)
         return self.stack.gate
 
+    @property
+    def ha_location(self) -> tuple[float, float] | None:
+        """Home Assistant's latitude and longitude; only the diagnostics export masks them."""
+        return self._ha_location
+
     # --- lifecycle ------------------------------------------------------------
 
     async def prepare(self) -> None:
@@ -264,6 +379,8 @@ class Runtime:
         Called by ``build_runtime`` so that the gate exists before :meth:`start`.
         """
         await self._load_live_sections()
+        await self.reload_ev_states()
+        await self.program_jobs.load()
         self.planning = self._new_planning()
         self.stack = self._new_stack()
         self.pv_service = self._new_pv_service()
@@ -271,6 +388,9 @@ class Runtime:
         self.load_service = self._new_load_service()
         await self._load_risk_model()
         self._build_tariff()
+        if self.timeseries is not None:
+            self.thermal = ThermalLearner(self.timeseries, self.learned, clock=self.clock)
+        await self._prepare_backtests()
 
     async def start(self) -> None:
         """Wire the control stack and the connection and start connecting in the background.
@@ -292,15 +412,89 @@ class Runtime:
         self.stack.start_ticking()
         self._connect_task = asyncio.create_task(self._connect(), name="suncore-ha-connect")
         self._prune_task = asyncio.create_task(self._prune_loop(), name="suncore-prune")
+        if self.demo_user is not None:
+            self._demo_user_task = asyncio.create_task(
+                self.demo_user(self), name="suncore-demo-user"
+            )
         self._start_pv_task()
         self._start_load_task()
         self._start_tariff()
         self._start_planning()
+        await self._start_ha_entities()
+        await self._start_notifications()
+        if self.evcc_link is not None:
+            await self.evcc_link.start()
         if self.timeseries is not None:
             self._flush_task = asyncio.create_task(self._flush_loop(), name="suncore-ts-flush")
             self._maintenance_task = asyncio.create_task(
                 self._maintenance_loop(), name="suncore-ts-maintenance"
             )
+
+    async def _start_ha_entities(self) -> None:
+        """The MQTT entity surface runs beside the control layer and never blocks it."""
+        events = SiteEventBuffer(self.clock)
+        service = build_ha_entities(self, self._on_mqtt_refusal, events)
+        if service is None:
+            return
+        self.site_events = events
+        self.ha_entities = service
+        self._unsubscribers.append(self.add_change_listener(service.refresh))
+        self._unsubscribers.append(self.add_control_listener(service.refresh))
+        await service.start()
+
+    async def _start_notifications(self) -> None:
+        """Notifications run beside the control layer; a failure never stops the application."""
+        service = build_notifications(self)
+        if service is None:
+            return
+        self.notifications = service
+        service.add_signal_listener(self._on_site_signal)
+        await service.start()
+
+    def _on_site_signal(self, signal: SiteSignal) -> None:
+        """An island, section 14a, program, cheap window or EV target event of the notification
+        rules becomes an entry of the MQTT ``events`` entity (whatever the push says)."""
+        if self.site_events is None:
+            return
+        self.site_events.offer(SiteEvent(signal.type, dict(signal.attrs)))
+        if self.ha_entities is not None:
+            self.ha_entities.refresh()
+
+    def _on_mqtt_refusal(self, object_id: str, reason: Reason) -> None:  # noqa: ARG002
+        """A raise from Home Assistant was refused: tell the user once an hour per entity."""
+        service = self.notifications
+        if service is None:
+            return
+        now = self.clock()
+        service.post(
+            NotifyEvent(
+                Category.SAFETY,
+                f"mqtt_raise_refused:{object_id}:{now:%Y%m%d%H}",
+                Reason(key="notify.safety.mqtt_raise_refused", args={"entity": object_id}),
+                now,
+            )
+        )
+
+    def ha_entities_status(self) -> HaEntitiesStatus:
+        if self.ha_entities is None:
+            return HaEntitiesStatus(BrokerState.DISABLED, None, 0, "mqtt.reason.not_enabled")
+        return self.ha_entities.status
+
+    async def ha_entities_republish(self) -> bool:
+        return self.ha_entities is not None and await self.ha_entities.republish()
+
+    def notifications_status(self) -> NotifyStatus:
+        if self.notifications is None:
+            return NotifyStatus(ActionsState.PENDING, "notify.reason.no_targets", 0, 0, 0, 0)
+        return self.notifications.status
+
+    def notify_entity_targets(self) -> list[str]:
+        return [m.entity_id for m in self.catalogue.metas() if m.domain == "notify"]
+
+    async def notifications_test(self) -> TestResult:
+        if self.notifications is None:
+            return TestResult(0, 0, "notify.reason.no_targets")
+        return await self.notifications.send_test()
 
     async def _load_live_sections(self) -> None:
         self.site = await self.config.get_site()
@@ -322,12 +516,22 @@ class Runtime:
         battery = await self.config.get("battery")
         assert battery is None or isinstance(battery, BatterySettings)
         self.battery_config = battery
+        inverter = await self.config.get("inverter")
+        assert inverter is None or isinstance(inverter, InverterConfig)
+        self.inverter_config = inverter
+        expert = await self.config.get("expert")
+        assert expert is None or isinstance(expert, ExpertConfig)
+        self.expert = expert
         await self._load_modes()
 
     async def _load_modes(self) -> None:
         operation = await self.config.get("operation")
         assert operation is None or isinstance(operation, OperationConfig)
         self.modes.update(operation)
+
+    def timezone(self) -> tzinfo:
+        """The site's time zone (the notification service reads it)."""
+        return self._timezone()
 
     def _timezone(self) -> tzinfo:
         """The site time zone: the region's, else Home Assistant's, else UTC (a warning)."""
@@ -349,11 +553,17 @@ class Runtime:
             self._live_reading,
             clock=self.clock,
             sleep=self.control_sleep,
-            settings=PlanningSettings(
-                budget_s=self.settings.planner_budget_s, mip_gap=self.settings.planner_mip_gap
-            ),
+            settings=self._planning_settings(),
             store=self.plans,
         )
+
+    def _planning_settings(self) -> PlanningSettings:
+        """The app options, then the expert overrides on top (``planner.*`` parameters)."""
+        base = PlanningSettings(
+            budget_s=self.settings.planner_budget_s, mip_gap=self.settings.planner_mip_gap
+        )
+        changes = overrides_for(self.expert, "planner")
+        return replace(base, **changes) if changes else base
 
     def _start_planning(self) -> None:
         if self.planning is not None and self._started and self._planning_task is None:
@@ -392,6 +602,15 @@ class Runtime:
             load_reasons = self.load_service.planning_reasons(choice)
         risk = self._risk(now, battery, pv, load)
         devices = [] if self.devices is None else list(self.devices.devices)
+        devices, thermal = await self._thermal_inputs(now, devices)
+        await self.reload_ev_states()
+        flex = FlexRequest(
+            ev_states=dict(self._ev_states),
+            ev_live=self._ev_live(),
+            jobs=tuple(self.program_jobs.all_open()),
+            temperatures_c={} if thermal is None else thermal.temperatures_c,
+            outdoor_c=None if thermal is None else thermal.outdoor_c,
+        )
         inputs = build_inputs(
             now,
             tz=self._blend_tz(),
@@ -410,6 +629,7 @@ class Runtime:
             export_limit_w=export_limit_w(site),
             previous=previous,
             load_reasons=load_reasons,
+            flex=flex,
         )
         complete = (
             (prices is None or any(v is not None for v in prices.import_price.values))
@@ -417,6 +637,29 @@ class Runtime:
             and (self.load_service is None or load is not None)
         )
         return PlanningSnapshot(inputs, complete=complete)
+
+    async def _thermal_inputs(
+        self, now: datetime, devices: list[DeviceConfig]
+    ) -> tuple[list[DeviceConfig], FlexRequest | None]:
+        """The heat pumps' learned models, probe temperatures and the outdoor forecast for the
+        6-H thermal planner (PR 6-K). Without a thermal device the planner sees ``None``."""
+        thermal = [d for d in devices if d.thermal is not None]
+        if not thermal:
+            return devices, None
+        if self.thermal is not None:
+            if self.thermal.due(now):
+                try:
+                    await self.thermal.refit([d for d in thermal if learnable(d)])
+                except Exception:
+                    log.exception("planning.thermal_refit_failed")
+            devices = with_learned(devices, self.thermal.models)
+        temperatures: dict[str, float] = {}
+        for device in thermal:
+            value = probe_temperature_c(self.cache, device)
+            if value is not None:
+                temperatures[device.id] = value
+        outdoor = None if self.load_service is None else self.load_service.outdoor_forecast(now)
+        return devices, FlexRequest(temperatures_c=temperatures, outdoor_c=outdoor)
 
     async def plan_view(self, hours: int) -> PlanView:
         if self.planning is None:
@@ -443,6 +686,54 @@ class Runtime:
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         assert self.planning is not None
         return self.planning.add_listener(listener)
+
+    # --- backtests (Phase 5 WP6) ---------------------------------------------------------
+
+    async def _prepare_backtests(self) -> None:
+        if self.timeseries is None or self.backtest_jobs is not None:
+            return
+        timeseries = self.timeseries
+        self.backtest_jobs = BacktestJobs(
+            BacktestRunStore(self.db, clock=self.clock),
+            history=lambda: timeseries,
+            site=self._backtest_site,
+            today=lambda: self.clock().astimezone(self._blend_tz()).date(),
+            busy=lambda: self.planning is not None and self.planning.busy,
+        )
+        await self.backtest_jobs.recover()
+
+    def backtests(self) -> BacktestJobs | None:
+        return self.backtest_jobs
+
+    async def _backtest_site(self) -> BacktestSite | None:
+        """The configuration of the moment as a plain value for a backtest (never written)."""
+        site = self.site
+        if site is None or not self._time_zone_settled():
+            return None
+        context = self._summary_context()
+        pv_sources: tuple[str, ...] = ()
+        if self.pv_service is not None:
+            pv_sources = (BLENDED_SOURCE_ID, *self.pv_service.source_ids)
+        load_sources = (
+            ("load_profile",) if self.load_service is None else self.load_service.source_ids
+        )
+        planning = None if self.planning is None else self.planning.settings
+        return BacktestSite(
+            tz=context.tz,
+            tz_name=context.tz_name,
+            battery=await self._battery_settings(),
+            site_battery=site.battery,
+            goals=self.goals,
+            import_limit_w=site.grid.import_limit_w,
+            export_limit_w=export_limit_w(site),
+            price_source_id=context.price_source_id,
+            export_fallback=context.export_fallback,
+            currency=context.currency,
+            pv_source_ids=pv_sources,
+            load_source_ids=load_sources,
+            budget_s=BACKTEST_BUDGET_S,
+            mip_gap=DEFAULT_MIP_GAP if planning is None else planning.mip_gap,
+        )
 
     # --- tariff (prices) --------------------------------------------------------
 
@@ -508,8 +799,10 @@ class Runtime:
     ) -> ControlStack:
         devices = list(self.devices.devices) if self.devices is not None else []
         site = self.site
-        settings = self.control_settings or ControlSettings(
-            tick_s=float(self.settings.controller_interval_s)
+        settings = apply_controller(
+            self.control_settings
+            or ControlSettings(tick_s=float(self.settings.controller_interval_s)),
+            self.expert,
         )
         stack = ControlStack(
             self.connection,
@@ -535,9 +828,109 @@ class Runtime:
             defer_recover=not self._time_zone_settled(),
             plan_provider=None if self.planning is None else self.planning.active_plan,
             battery=self._battery_wiring(),
+            grid_monitor=self._grid_monitor(),
+            ev_states=self._ev_states.get,
+            programs=self.program_jobs,
+            on_program_event=self._program_event,
+            evcc=self._evcc_bus(devices),
+            inverter=self._inverter_wiring(),
         )
         stack.add_listener(self._notify_control)
         return stack
+
+    @property
+    def program_jobs(self) -> ProgramJobBook:
+        """The open program jobs (PR 6-L); one book for the life of the process, so a rebuilt
+        control stack keeps them."""
+        if self._programs is None:
+            self._programs = ProgramJobBook(self.flex_store)
+        return self._programs
+
+    def _program_event(self, event: ProgramEvent) -> None:
+        """A program event (start now, done, missed) as a notification (6-E)."""
+        service = self.notifications
+        if service is None:
+            return
+        notice = program_notice(event, self._program_name, self._timezone())
+        if notice is not None:
+            service.post(notice)
+
+    def _program_name(self, device_id: str) -> str:
+        if self.devices is not None:
+            for device in self.devices.devices:
+                if device.id == device_id:
+                    return device.name
+        return device_id
+
+    def _evcc_bus(self, devices: list[DeviceConfig]) -> EvccLink | None:
+        """The MQTT link to evcc for the loadpoints of ``devices`` (PR 6-J), built on first need.
+
+        The link outlives a rebuilt stack; its subscriptions follow the configured loadpoints.
+        No loadpoint, demo mode or no learned store: no link (a loadpoint driver then reports
+        its state unavailable and is never written).
+        """
+        if self.demo:
+            return None
+        if self.evcc_link is None:
+            if not any(isinstance(d.control, LoadpointControl) for d in devices):
+                return None
+
+            async def load_config() -> MqttConfig | None:
+                stored = await self.config.get("mqtt")
+                return stored if isinstance(stored, MqttConfig) else None
+
+            self.evcc_link = EvccLink(
+                load_config=load_config,
+                services=supervisor_services_from_env(),
+                clock=self.clock,
+            )
+        self.evcc_link.configure(devices)
+        if self._started:
+            self.evcc_link.ensure_started()  # first loadpoint added after start-up (B2)
+        return self.evcc_link
+
+    async def reload_ev_states(self) -> None:
+        """Re-read ``flex_state`` (at start and every planning round, PR 6-I).
+
+        A failed read keeps the last known states.
+        """
+        if self.flex_store is None:
+            return
+        try:
+            states = await self.flex_store.all_ev()
+        except Exception:
+            log.exception("runtime.ev_states_failed")
+            return
+        self._ev_states.clear()
+        self._ev_states.update({s.device_id: s for s in states})
+
+    def _ev_live(self) -> dict[str, EvLive]:
+        """Live vehicle data of every charger (``connected``, SoC) for the planner (PR 6-I)."""
+        if self.stack is None or self.devices is None:
+            return {}
+        out: dict[str, EvLive] = {}
+        for device in self.devices.devices:
+            if not isinstance(device.control, ChargerControl | LoadpointControl):
+                continue
+            state = self.stack.device_state(device.id)
+            if state is None:
+                continue
+            out[device.id] = EvLive(soc_pct=state.soc_pct, connected=state.connected)
+        return out
+
+    def _grid_monitor(self) -> GridMonitor:
+        """Monthly peak and grid events (PR 6-F): persisted in ``timeseries.db`` when it is open;
+        a rebuilt stack keeps the month's peak of the one it replaces."""
+        tz = self._timezone()
+        store = None if self.timeseries_db is None else GridStore(self.timeseries_db)
+        monitor = GridMonitor(tz, store=store)
+        previous = self.stack
+        if previous is not None:
+            now = self.clock()
+            peak = previous.grid_monitor.month_peak_w(now)
+            if peak is not None:
+                monitor.seed(month_key(now, tz), peak)
+        return monitor
 
     def _battery_policy_changed(self) -> bool:
         """A goals change moved the battery's effective grid-charge policy (the gate's copy)."""
@@ -586,6 +979,40 @@ class Runtime:
             reserve_pct=self._reserve_soc_pct(),
             policy=effective_grid_charge_policy(goals, settings),
             import_price=self._live_import_price,
+        )
+
+    def _live_export_price(self, now: datetime) -> float | None:
+        """The current quarter hour's export price (``None`` = unknown: no dynamic 0 W)."""
+        tariff = self.tariff
+        if tariff is None:
+            return None
+        try:
+            series = tariff.prices(0.25, now).export_price
+        except Exception:
+            log.exception("inverter.price_failed")
+            return None
+        values = None if series is None else series.values
+        return values[0] if values else None
+
+    def _inverter_wiring(self) -> InverterWiring | None:
+        """The inverter limit as a controlled asset, or ``None`` (none or an unusable template).
+
+        Without ``template_id`` the adapter's built-in template is used
+        (:data:`DEFAULT_INVERTER_TEMPLATES`)."""
+        config = self.inverter_config
+        if config is None or config.adapter == "none":
+            return None
+        identity = config.identity_token()
+        template_id = config.template_id or DEFAULT_INVERTER_TEMPLATES.get(config.adapter)
+        template = None if template_id is None else self.template_catalog.get(template_id)
+        if identity is None or not isinstance(template, InverterTemplate):
+            log.warning("inverter.adapter_template_missing", template=template_id)
+            return None
+        return InverterWiring(
+            config=config,
+            spec=template.adapter_spec(),
+            identity=identity,
+            export_price=self._live_export_price,
         )
 
     async def _rebuild_stack(self) -> None:
@@ -672,8 +1099,41 @@ class Runtime:
         except Exception:
             log.exception("timeseries.maintenance_failed")
             return False
+        await self.update_day_summaries()
         self._schedule_forecast_accuracy()
         return True
+
+    def _summary_context(self) -> SummaryContext:
+        """What the day summaries are computed with, read anew on every use."""
+        tz = self._blend_context().tz
+        source = None if self.tariff is None else self.tariff.plan.source.source_id
+        return SummaryContext(
+            tz=tz,
+            tz_name=self.region.timezone if self.region is not None else str(tz),
+            has_battery=self.site is not None and self.site.battery is not None,
+            battery=battery_model_of(self.site),
+            price_source_id=source,
+            export_fallback=export_fallback_of(self.tariff_config),
+            tariff_fingerprint=tariff_fingerprint(self.tariff_config),
+            currency=None if self.region is None else self.region.currency,
+        )
+
+    async def update_day_summaries(self, *, catch_up: bool = False) -> None:
+        """The frozen daily summaries (never raises): yesterday and a repair of the last week,
+        or - after a statistics rebuild or backfill, and on the first run - the whole stored
+        history. Skipped while the time zone is not known (a day cut at the wrong midnight
+        would be frozen)."""
+        if self.timeseries is None or not self._time_zone_settled():
+            return
+        job = DaySummaryJob(self.timeseries, self.clock)
+        try:
+            context = self._summary_context()
+            if catch_up:
+                await job.catch_up(context)
+            else:
+                await job.nightly(context)
+        except Exception:
+            log.exception("day_summary.failed")
 
     def _schedule_forecast_accuracy(self) -> None:
         """Run the accuracy statistics in the background (nightly timing unchanged)."""
@@ -691,6 +1151,35 @@ class Runtime:
         forecast (accuracy, refit)."""
         await self._update_pv_learning()
         await self._update_load_learning()
+        await self._record_accuracy_days()
+
+    async def _record_accuracy_days(self) -> None:
+        """``accuracy_day``: yesterday's error per source (never raises)."""
+        if self.timeseries is None or not self._time_zone_settled():
+            return
+        sources: list[AccuracySource] = []
+        if self.pv_service is not None:
+            sources.extend(
+                AccuracySource(source_id, "pv")
+                for source_id in (*self.pv_service.source_ids, BLENDED_SOURCE_ID)
+            )
+        if self.load_service is not None:
+            sources.extend(
+                AccuracySource(source_id, "load", self.load_service.base_load_series)
+                for source_id in self.load_service.source_ids
+            )
+        if not sources:
+            return
+        try:
+            await record_accuracy_days(
+                self.timeseries,
+                sources,
+                now=self.clock(),
+                tz=self._blend_context().tz,
+                is_clipped=clip_filter(self._clipped),
+            )
+        except Exception:
+            log.exception("accuracy_day.failed")
 
     async def _update_load_learning(self) -> None:
         service = self.load_service
@@ -820,6 +1309,17 @@ class Runtime:
         arrays = [] if self.site is None else self.site.pv
         return BlendContext(tz=tz, plant=plant_geometry(lat, lon, arrays))
 
+    def _remember_ha_version(self, config: Mapping[str, Any]) -> None:
+        """``version`` of ``get_config`` (``Config.as_dict``, see ``ha-websocket-api.md``); the
+        connection's ``auth_ok`` ``ha_version`` is the fallback."""
+        version = config.get("version")
+        if isinstance(version, str) and version:
+            self.ha_core_version = version
+            return
+        fallback = getattr(self.connection, "ha_version", None)
+        if self.ha_core_version is None and isinstance(fallback, str) and fallback:
+            self.ha_core_version = fallback
+
     async def _learn_ha_location(self) -> None:
         """Home Assistant's ``latitude``/``longitude`` from ``get_config`` (verified in
         ``homeassistant/core_config.py`` ``Config.as_dict``); a failure keeps the fallback."""
@@ -828,6 +1328,12 @@ class Runtime:
         except (HAError, TimeoutError) as exc:
             log.warning("ha.get_config_failed", error=str(exc))
             return
+        self._remember_ha_version(config)
+        language = config.get("language")
+        if isinstance(language, str) and language:
+            self.ha_language = language
+            if self.ha_entities is not None:
+                self.ha_entities.refresh()
         lat, lon = config.get("latitude"), config.get("longitude")
         if (
             isinstance(lat, int | float)
@@ -998,6 +1504,13 @@ class Runtime:
                     await store.set_meta(META_HISTORY_REBUILT, self.clock().isoformat())
                     if self.load_service is not None:
                         self.load_service.request_refit()  # the profiles can use it now
+                if await store.get_meta(META_HISTORY_BACKFILLED) is None:
+                    devices = () if self.devices is None else self.devices.devices
+                    await backfill_history(
+                        self.connection, store, site, self.clock(), devices=devices
+                    )
+                    await store.set_meta(META_HISTORY_BACKFILLED, self.clock().isoformat())
+                    await self.update_day_summaries(catch_up=True)
             except asyncio.CancelledError:
                 raise
             except CommandError as exc:
@@ -1056,11 +1569,22 @@ class Runtime:
         except (HAError, TimeoutError) as exc:
             log.warning("ha.get_config_failed", error=str(exc))
             return
+        self._remember_ha_version(config)
         name = config.get("time_zone")
         if isinstance(name, str) and name and name != self._ha_timezone:
             self._ha_timezone = name
             if self.region is None and self._started:
                 await self._rebuild_stack()
+
+    async def _stop_ha_surface(self) -> None:
+        if self.notifications is not None:
+            await self.notifications.stop()
+            self.notifications = None
+        if self.ha_entities is not None:
+            await self.ha_entities.stop()
+            self.ha_entities = None
+        if self.evcc_link is not None:
+            await self.evcc_link.stop()
 
     async def stop(self) -> None:
         """Close in reverse order: release hardware control, connection, then database.
@@ -1084,6 +1608,7 @@ class Runtime:
             self._accuracy_task,
             self._tariff_task,
             self._planning_task,
+            self._demo_user_task,
         )
         for task in (*control_tasks, *storage_tasks):
             if task is not None:
@@ -1097,12 +1622,15 @@ class Runtime:
         self._pv_task = self._load_task = None
         self._tariff_task = None
         self._planning_task = None
+        self._demo_user_task = None
         # Hardware release comes first: a running downsample or retention statement keeps the
         # (shielded) rollback of its cancelled task waiting, and a Pi can need seconds for it.
         # The storage tasks are awaited only after the devices are released.
         async with self._stack_lock:
             if self.stack is not None:
                 await self.stack.shutdown()
+        if self.backtest_jobs is not None:
+            await self.backtest_jobs.shutdown()
         for task in storage_tasks:
             if task is not None:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -1112,6 +1640,7 @@ class Runtime:
             late.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await late
+        await self._stop_ha_surface()
         await self.catalogue.stop()
         await self.connection.close()
         await self.recorder.flush()
@@ -1180,6 +1709,8 @@ class Runtime:
             refs.extend(self.tariff_config.entity_refs())
         if self.battery_config is not None:
             refs.extend(self.battery_config.entity_refs())
+        if self.inverter_config is not None and self.inverter_config.limit_entity is not None:
+            refs.append(self.inverter_config.limit_entity)
         ids = list(dict.fromkeys(r.entity_id for r in refs))
         try:
             await self.connection.subscribe_entities(ids)
@@ -1257,7 +1788,7 @@ class Runtime:
           identity token, so a stale document cannot grant a mode to a device that was re-mapped
           meanwhile (``ModeRaiseRejectedError``). Lowered devices are released.
         """
-        if name in ("operation", "devices", "battery", "site"):
+        if name in ("operation", "devices", "battery", "site", "inverter"):
             # Serialised with the mode changes: the raise check and the identity rule of a
             # devices put judge the modes that are stored when they run.
             async with self._operation_lock:
@@ -1266,6 +1797,12 @@ class Runtime:
             stored = await self._put_section(name, model)
         if name in PLANNING_SECTIONS:
             self._planning_event("config")
+        if name == "mqtt" and self.ha_entities is not None:
+            self.ha_entities.reconfigure()
+        if name == "notifications" and self.notifications is not None:
+            self.notifications.reconfigure()
+        if name == "mqtt" and self.evcc_link is not None:
+            self.evcc_link.reconfigure()
         self._notify()
         return stored
 
@@ -1315,13 +1852,20 @@ class Runtime:
             assert isinstance(stored, BatterySettings)
             self.battery_config = stored
             await self._load_modes()  # the identity rule may have dropped the battery mode
+        elif name == "inverter":
+            assert isinstance(stored, InverterConfig)
+            self.inverter_config = stored
+            await self._load_modes()  # a changed adapter dropped the inverter mode
+        elif name == "expert":
+            assert isinstance(stored, ExpertConfig)
+            await self._apply_expert(stored)
         else:
             self._store_planning_input(name, stored)
         if name == "site":
             await self._load_modes()  # the site's battery entities are battery identity
-        if name in ("site", "devices", "forecast", "tariff", "battery"):
+        if name in ("site", "devices", "forecast", "tariff", "battery", "inverter"):
             await self._resubscribe()
-        if name == "battery" or (name == "goals" and self._battery_policy_changed()):
+        if name in ("battery", "inverter") or (name == "goals" and self._battery_policy_changed()):
             await self._rebuild_stack()  # adapter, reserve or grid-charge policy changed
         if name == "tariff" or (self.site, self.region) != before[::2]:
             await self._rebuild_tariff()
@@ -1334,6 +1878,18 @@ class Runtime:
         if name == "devices":
             await self._sync_modes()
 
+    async def _apply_expert(self, stored: ExpertConfig) -> None:
+        """Hot-apply the expert overrides (Phase 5 WP5): the planner settings are swapped in
+        place, a changed controller or safety value rebuilds the control stack - the same
+        hand-over every device edit goes through (the old gate releases, the new one recovers),
+        so a new write interval or switch limit never applies half-way."""
+        before = overrides_for(self.expert, "controller")
+        self.expert = stored
+        if self.planning is not None:
+            self.planning.update_settings(self._planning_settings())
+        if overrides_for(stored, "controller") != before:
+            await self._rebuild_stack()
+
     # --- operating modes ----------------------------------------------------------
 
     def _reject_raise(self, new: OperationConfig) -> None:
@@ -1345,6 +1901,8 @@ class Runtime:
                 raise ModeRaiseRejectedError(device_id)
         if new.battery_mode.rank > current.battery_mode.rank:
             raise ModeRaiseRejectedError("battery")
+        if new.inverter_mode.rank > current.inverter_mode.rank:
+            raise ModeRaiseRejectedError("inverter")
 
     async def _sync_modes(self) -> None:
         if self.stack is not None:
@@ -1410,6 +1968,193 @@ class Runtime:
         self._notify()
         return stored
 
+    async def set_inverter_mode(self, mode: OperatingMode, identity: str | None) -> OperationConfig:
+        """The inverter limit's mode (PR 6-G): raising it needs the adapter's identity token;
+        until ``inverter.limit_verified`` the gate runs it at most assisted (X6)."""
+        async with self._operation_lock:
+            config = self.inverter_config
+            token = None if config is None else config.identity_token()
+            if mode is not OperatingMode.SHADOW:
+                if token is None:
+                    raise InverterNotControllableError("inverter")
+                if identity != token:
+                    raise DeviceIdentityChangedError("inverter")
+            current = self.modes.operation
+            stored = await self.config.put(
+                "operation", current.model_copy(update={"inverter_mode": mode})
+            )
+            assert isinstance(stored, OperationConfig)
+            await self._apply_operation(stored)
+        self._notify()
+        return stored
+
+    # --- inverter limit verification (PR 7-J, plan phase 7 WP8) ---------------------------
+
+    def inverter_verification(self) -> VerificationView:
+        """The procedure's view, with the adapter facts of the *current* configuration."""
+        procedure = self._verification
+        view = procedure.view() if procedure is not None else VerificationView()
+        stack, config = self.stack, self.inverter_config
+        driver = None if stack is None else stack.inverter_driver
+        return view.model_copy(
+            update={
+                "adapter": driver is not None,
+                "capability": None if driver is None else driver.capability,
+                "verified": config is not None and config.verified,
+                "last": None if config is None else config.last_verification,
+            }
+        )
+
+    async def start_inverter_verification(self) -> VerificationView:
+        stack = self.stack
+        if stack is None or stack.inverter_driver is None:
+            raise VerificationRefusedError((Reason(key="verify.no_adapter"),))
+        current = self._verification
+        if current is not None and current.active:
+            raise VerificationRefusedError((Reason(key="verify.already_running"),))
+        procedure = InverterVerification(stack, on_finished=self._verification_finished)
+        reasons = procedure.start()
+        if reasons:
+            raise VerificationRefusedError(reasons)
+        self._verification = procedure
+        stack.verification = procedure
+        self._notify_control()
+        return self.inverter_verification()
+
+    async def confirm_inverter_verification(self) -> VerificationView:
+        procedure = self._verification
+        if procedure is None or procedure.phase is not VerificationPhase.READY:
+            raise VerificationRefusedError((Reason(key="verify.nothing_to_confirm"),))
+        await procedure.confirm()
+        self._notify_control()
+        return self.inverter_verification()
+
+    async def abort_inverter_verification(self) -> VerificationView:
+        procedure = self._verification
+        if procedure is not None:
+            await procedure.abort()
+        self._notify_control()
+        return self.inverter_verification()
+
+    def _verification_finished(
+        self, record: InverterVerificationRecord, verified: bool | None
+    ) -> None:
+        """Store the outcome in a task of its own: the call comes from inside the stack's tick,
+        and storing the ``inverter`` section rebuilds the stack."""
+        task = asyncio.ensure_future(self._store_verification(record, verified))
+        self._verification_tasks.add(task)
+        task.add_done_callback(self._verification_tasks.discard)
+
+    async def _store_verification(
+        self, record: InverterVerificationRecord, verified: bool | None
+    ) -> None:
+        try:
+            async with self._operation_lock:
+                before = (self.site, self.devices, self.region)
+                stored = await self.config.record_inverter_verification(record, verified=verified)
+                if stored is not None:
+                    await self._apply_stored("inverter", stored, before)
+        except Exception:
+            log.exception("runtime.verification_store_failed")
+        self._notify_control()
+
+    # --- EV, programs, grid (PR 6-M) ----------------------------------------------------
+
+    def _device_config(self, device_id: str) -> DeviceConfig:
+        device = next(
+            (d for d in (self.devices.devices if self.devices else []) if d.id == device_id), None
+        )
+        if device is None:
+            raise UnknownDeviceError(device_id)
+        return device
+
+    def ev_state_snapshot(self) -> dict[str, EvState]:
+        """The runtime EV mode and target of every charger (a copy; read only)."""
+        return dict(self._ev_states)
+
+    async def flex_view(self, device_id: str) -> tuple[EvState | None, ProgramJob | None]:
+        self._device_config(device_id)
+        return self._ev_states.get(device_id), self.program_jobs.current(device_id)
+
+    async def set_ev_state(self, device_id: str, mode: EvMode, target: EvTarget | None) -> EvState:
+        """The runtime EV mode and target (``flex_state``); the controller reads it next tick."""
+        device = self._device_config(device_id)
+        if not isinstance(device.control, ChargerControl | LoadpointControl):
+            raise NotAnEvError(device_id)
+        now = self.clock()
+        if mode is EvMode.TARGET and target is not None:
+            if target.by <= now:
+                raise EvTargetError("api.error.ev_target_past")
+            if target.by > now + MAX_HORIZON:
+                raise EvTargetError("api.error.ev_target_far")
+        state = EvState(
+            device_id=device_id,
+            mode=mode,
+            target=target if mode is EvMode.TARGET else None,
+            updated_at=self.clock(),
+        )
+        if self.flex_store is not None:
+            try:
+                await self.flex_store.put_ev(state)
+            except Exception as exc:
+                log.exception("runtime.ev_persist_failed", device_id=device_id)
+                raise FlexStoreError(device_id) from exc
+        self._ev_states[device_id] = state
+        self._planning_event("manual")
+        self._notify_control()
+        return state
+
+    async def arm_program(self, device_id: str, deadline: datetime) -> ProgramJob:
+        device = self._device_config(device_id)
+        job = await self.program_jobs.arm(device, deadline, now=self.clock())
+        self._planning_event("manual")
+        self._notify_control()
+        return job
+
+    async def cancel_program(self, device_id: str) -> ProgramJob:
+        self._device_config(device_id)
+        job = await self.program_jobs.cancel(device_id, now=self.clock())
+        self._planning_event("manual")
+        self._notify_control()
+        return job
+
+    async def grid_status(self) -> GridStatus:
+        now = self.clock()
+        tz = self._timezone()
+        monitor = None if self.stack is None else self.stack.grid_monitor
+        peak = None if monitor is None else monitor.month_peak_w(now)
+        shaving = None if self.site is None else self.site.grid.peak_shaving
+        state = None if monitor is None else monitor.grid_state
+        para = None if monitor is None else monitor.para14a_status
+        # Not configured: nothing to show. Configured but no reading yet: unknown.
+        configured = self.site is not None and self.site.grid.para14a
+        para14a = "not_configured" if not configured else (para or Para14aStatus.UNKNOWN).value
+        return GridStatus(
+            state=(state or GridState.UNKNOWN).value,
+            para14a=para14a,
+            month=month_key(now, tz),
+            month_peak_w=peak,
+            peak_limit_w=None if shaving is None else peak_limit_w(shaving, peak),
+        )
+
+    async def grid_events(self, days: int) -> GridEvents:
+        if self.timeseries_db is None:
+            return GridEvents((), ())
+        store = GridStore(self.timeseries_db)
+        now = self.clock()
+        try:
+            events = await store.events(
+                TimeRange(start=now - timedelta(days=days), end=now + timedelta(seconds=1))
+            )
+            peaks = await store.peaks()
+        except Exception:
+            log.exception("runtime.grid_events_failed")
+            return GridEvents((), ())
+        return GridEvents(
+            tuple(GridEventRow(e.ts, e.kind, e.value_w) for e in events),
+            tuple(MonthPeakRow(p.month, p.peak_w, p.slot) for p in peaks),
+        )
+
     # --- control ----------------------------------------------------------------------
 
     def control_state(self) -> ControlState:
@@ -1423,7 +2168,26 @@ class Runtime:
                 devices=[],
                 proposals=[],
             )
-        return self.stack.control_state()
+        return self._with_heat_pumps(self.stack.control_state())
+
+    def _with_heat_pumps(self, state: ControlState) -> ControlState:
+        """Add the live COP and thermal-model quality to the devices with a ``thermal`` section
+        (PR 7-I). Read only: the stack's own state is not touched."""
+        thermal = [d for d in (self.devices.devices if self.devices else []) if d.thermal]
+        if not thermal:
+            return state
+        by_id = {d.id: d for d in thermal}
+        now = self.clock()
+        outdoor = None
+        if self.load_service is not None:
+            outdoor = outdoor_now(self.load_service.outdoor_forecast(now), now)
+        learned = {} if self.thermal is None else self.thermal.models
+        devices = []
+        for entry in state.devices:
+            config = by_id.get(entry.device_id)
+            live = None if config is None else heat_pump_live(config, learned, outdoor)
+            devices.append(entry if live is None else entry.model_copy(update={"heat_pump": live}))
+        return state.model_copy(update={"devices": devices})
 
     def add_control_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         self._control_listeners.append(listener)
@@ -1433,6 +2197,10 @@ class Runtime:
                 self._control_listeners.remove(listener)
 
         return remove
+
+    def emergency_stop_active(self) -> bool:
+        """The gate's stop flag now (synchronous); ``False`` while the stack is being rebuilt."""
+        return self.stack is not None and self.stack.gate.emergency_stopped
 
     async def emergency_stop(self) -> None:
         if self.stack is not None:
@@ -1545,7 +2313,7 @@ class Runtime:
     async def restore_section(self, name: str, entry_id: int) -> BaseModel:
         """Restore a history entry; live sections are reloaded like after a normal save."""
         restored = await self.config.restore(name, entry_id)
-        if name in ("site", "devices", "region", "goals", "operation", "forecast"):
+        if name in ("site", "devices", "region", "goals", "operation", "forecast", "expert"):
             await self._reload_live_sections(resubscribe=name in ("site", "devices", "forecast"))
         self._notify()
         return restored
@@ -1592,7 +2360,11 @@ class Runtime:
             else None
         )
         includes = template.price_includes if isinstance(template, TariffTemplate) else None
-        return [*items, *check_tariff(self.tariff_config, includes)]
+        return [
+            *items,
+            *check_tariff(self.tariff_config, includes),
+            *check_ha_entities(self.ha_entities_status()),
+        ]
 
     async def preview(self, fragment: Mapping[str, Any]) -> list[PreviewItem]:
         ids = list(dict.fromkeys(entity_id for _, entity_id, _ in collect_refs(fragment)))
@@ -1604,6 +2376,52 @@ class Runtime:
             return None
         ids = [r.entity_id for r in self.site.entity_refs()]
         return compute_flows(self.site, self.cache.samples(ids))
+
+    def history_sources(self) -> HistorySources | None:
+        context = self._summary_context()
+        devices = {} if self.devices is None else {d.id: d.name for d in self.devices.devices}
+        timeseries = self.timeseries
+
+        async def live_day(day: date) -> DaySummaryRow | None:
+            assert timeseries is not None
+            return await DaySummaryJob(timeseries, self.clock).preview(day, self._summary_context())
+
+        return HistorySources(
+            decision_log=self.decision_log,
+            timeseries=timeseries,
+            plans=self.plans,
+            context=HistoryContext(
+                tz=context.tz,
+                tz_name=context.tz_name,
+                battery=context.battery,
+                currency=context.currency,
+                devices=devices,
+            ),
+            clock=self.clock,
+            live_day=None if timeseries is None or not self._time_zone_settled() else live_day,
+        )
+
+    async def today_summary(self) -> DaySummaryRow | None:
+        """The row today's ``day_summary`` would get now (the history API's live day), for the
+        HA site sensors; ``None`` without a time series, a settled time zone or a measured slot."""
+        timeseries = self.timeseries
+        if timeseries is None or not self._time_zone_settled():
+            return None
+        context = self._summary_context()
+        today = self.clock().astimezone(context.tz).date()
+        return await DaySummaryJob(timeseries, self.clock).preview(today, context)
+
+    async def recent_pv_accuracy(self) -> tuple[list[AccuracyDayRow], str]:
+        """The PV ``accuracy_day`` rows of the last three local days and the id of the blended
+        source (the HA site sensor prefers it); no rows without a time series."""
+        timeseries = self.timeseries
+        if timeseries is None or not self._time_zone_settled():
+            return [], BLENDED_SOURCE_ID
+        today = self.clock().astimezone(self._blend_context().tz).date()
+        rows = await timeseries.accuracy_days.between(
+            today - timedelta(days=3), today - timedelta(days=1)
+        )
+        return [r for r in rows if r.kind == "pv"], BLENDED_SOURCE_ID
 
     async def decisions(
         self,
@@ -1617,9 +2435,16 @@ class Runtime:
     async def export_config(self) -> dict[str, Any]:
         return await self.config.export_json()
 
+    async def diagnostics(self) -> DiagnosticsOut:
+        return await collect_diagnostics(self)
+
     async def import_config(self, data: object) -> list[str]:
         sections = await self.config.import_json(data)
         await self._reload_live_sections(resubscribe=True)
+        if self.ha_entities is not None:
+            self.ha_entities.reconfigure()
+        if self.notifications is not None:
+            self.notifications.reconfigure()
         self._notify()
         return sections
 
@@ -1629,12 +2454,19 @@ class Runtime:
         forecast_before = self.forecast
         devices_before = self.devices
         tariff_before = self.tariff_config
+        controller_before = overrides_for(self.expert, "controller")
         await self._load_live_sections()
         if resubscribe:
             await self._resubscribe()
         if self.tariff_config != tariff_before or (self.site, self.region) != before[::2]:
             await self._rebuild_tariff()
-        if (self.site, self.devices, self.region) != before:
+        if self.planning is not None:
+            self.planning.update_settings(self._planning_settings())
+        # A restored or imported ``expert`` section takes effect through the same hand-over as
+        # a ``PUT`` (control-safety review of PR 5-E): never only at the next restart.
+        if (self.site, self.devices, self.region) != before or overrides_for(
+            self.expert, "controller"
+        ) != controller_before:
             await self._rebuild_stack()
         elif self.stack is not None and self.goals is not None:
             self.stack.set_goals(self.goals)

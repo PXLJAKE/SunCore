@@ -1,6 +1,7 @@
 # ADR-0007: Internationalisation and translation platform
 
-- **Status:** accepted (maintainer delegated the decision on 2026-10-12)
+- **Status:** accepted (maintainer delegated the decision on 2026-10-12); the Weblate component
+  list is superseded by [ADR-0020](0020-docs-site-and-translation.md) (2026-11-25)
 - **Date:** 2026-10-12
 - **Deciders:** maintainer, lead engineer
 - **Research:** BRIEF §7; Weblate repository README (hosting page unreachable)

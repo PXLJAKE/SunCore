@@ -66,6 +66,11 @@ class DeviceRuntime(BaseModel):
     belongs to another device (removed or re-mapped): it is never used for writes, its release
     needs the old device's actuator (``SafetyGate`` ``release_only``)."""
 
+    phase_switch_times: tuple[AwareDatetime, ...] = ()
+    """EV charger (PR 6-I): instants SunCore changed the phases, last hour (E2 wear limit)."""
+    last_phase_switch_ts: AwareDatetime | None = None
+    """EV charger: the latest phase change SunCore wrote (E2: pause after the switch)."""
+
     @property
     def release_pending(self) -> bool:
         return self.release_due_ts is not None
@@ -94,6 +99,18 @@ class DeviceRuntime(BaseModel):
         update: dict[str, object] = {"switch_times": (*pruned.switch_times, now)}
         update["last_on_ts" if on else "last_off_ts"] = now
         return pruned.model_copy(update=update)
+
+    def phase_switches_in_window(self, now: datetime) -> int:
+        start = now - SWITCH_WINDOW
+        return sum(1 for ts in self.phase_switch_times if start < ts <= now)
+
+    def with_phase_switch(self, now: datetime) -> DeviceRuntime:
+        """Record a phase change at ``now`` (E2), keeping only the sliding hour."""
+        start = now - SWITCH_WINDOW
+        kept = tuple(ts for ts in self.phase_switch_times if ts > start)
+        return self.model_copy(
+            update={"phase_switch_times": (*kept, now), "last_phase_switch_ts": now}
+        )
 
     def is_held(self, now: datetime) -> bool:
         if not self.override:

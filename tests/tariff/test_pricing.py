@@ -142,6 +142,54 @@ def test_without_the_rule_export_keeps_its_price_at_negative_prices() -> None:
         assert zeroed == 0
 
 
+def test_a_reference_spot_price_decides_the_rule_for_an_all_in_source() -> None:
+    """The all-in end price is positive but the reference sensor says the spot is negative:
+    the slot it covers is zeroed; slots it does not cover keep using the proxy."""
+    series = prices(T0, [0.25, 0.20, -0.01, 0.30], includes="all_in")
+    reference = prices(T0, [-0.03, 0.04], includes="spot_only")
+    out, zeroed = planning_prices(
+        [series],
+        grid(4),
+        formula=None,
+        export_price=0.08,
+        rule=RULE,
+        tz=BERLIN,
+        reference_spot=[reference],
+    )
+    assert out.export_price is not None
+    assert out.export_price.values == (0.0, 0.08, 0.0, 0.08)
+    assert zeroed == 2
+
+
+def test_a_reference_that_is_positive_overrides_a_negative_proxy_and_is_ignored_for_spot() -> None:
+    all_in = prices(T0, [-0.01, 0.2], includes="all_in")
+    reference = prices(T0, [0.02], includes="spot_only")
+    out, _ = planning_prices(
+        [all_in],
+        grid(2),
+        formula=None,
+        export_price=0.08,
+        rule=RULE,
+        tz=BERLIN,
+        reference_spot=[reference],
+    )
+    assert out.export_price is not None
+    assert out.export_price.values == (0.08, 0.08)  # the spot is positive: remunerated
+    spot_only = prices(T0, [-0.05, 0.1], includes="spot_only")
+    out, zeroed = planning_prices(
+        [spot_only],
+        grid(2),
+        formula=None,
+        export_price=0.08,
+        rule=RULE,
+        tz=BERLIN,
+        reference_spot=[prices(T0, [0.5, 0.5], includes="spot_only")],
+    )
+    assert out.export_price is not None
+    assert out.export_price.values == (0.0, 0.08)
+    assert zeroed == 1
+
+
 def test_unknown_prices_stay_unknown_in_both_series() -> None:
     series = prices(T0, [0.2, None, 0.2], includes="all_in")
     out, _ = run([series], 5)

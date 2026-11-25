@@ -46,7 +46,11 @@ for (const scheme of ['light', 'dark'] as const) {
 
     for (const [name, hash] of [
       ['now', '#/'],
-      ['settings', '#/settings'],
+      ['settings', '#/settings/system'],
+      ['settings index', '#/settings'],
+      ['settings devices', '#/settings/devices'],
+      ['settings goals', '#/settings/goals'],
+      ['settings advanced', '#/settings/advanced'],
       ['decisions', '#/decisions'],
     ] as const) {
       test(`${name} view has no axe violations`, async ({ page }) => {
@@ -69,11 +73,12 @@ test('keyboard: skip link and navigation are reachable', async ({ page }) => {
   await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: 'Skip to content' })).toBeFocused();
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('link', { name: 'Now' })).toBeFocused();
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  await expect(nav.getByRole('link', { name: 'Now' })).toBeFocused();
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('link', { name: 'Plan', exact: true })).toBeFocused();
+  await expect(nav.getByRole('link', { name: 'Plan', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('link', { name: 'Decision log', exact: true })).toBeFocused();
+  await expect(nav.getByRole('link', { name: 'Analysis', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#\/settings$/);
@@ -84,7 +89,8 @@ test('diagram has a text alternative listing every flow', async ({ page }) => {
   await page.goto('/');
   const figure = page.getByRole('figure', { name: 'Energy flow diagram' });
   await expect(figure).toBeVisible();
-  await expect(figure.locator('svg')).toHaveAttribute('aria-hidden', 'true');
-  const items = page.getByRole('list', { name: 'Current power values' }).getByRole('listitem');
+  // The diagram's nodes are the text: one list item per flow, the lines are decoration.
+  const items = figure.getByRole('list', { name: 'Current power values' }).getByRole('listitem');
   await expect(items).toHaveCount(4);
+  await expect(items.first()).toContainText('Solar');
 });

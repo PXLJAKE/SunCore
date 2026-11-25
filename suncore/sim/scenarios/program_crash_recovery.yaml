@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+name: program_crash_recovery
+description: >-
+  PR 6-L. The washing machine of program_deadline_plug, armed at 07:01:30 ("finished by
+  18:00"); SunCore switched the plug off at arming. The test kills SunCore at 09:00 and starts it
+  again at 09:30: the crash recovery switches the plug back on (its baseline, P3), the machine
+  resumes at once (earlier than planned rather than never), the new controller sees it running
+  by its power and never switches it off again.
+start: "2026-06-20T07:00:00+02:00"
+duration_s: 21600
+step_s: 30
+house:
+  seed: 63
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.05}
+outdoor: {mean_c: 20.0, amplitude_c: 6.0}
+control:
+  import_limit_w: 16000
+devices:
+  - id: washer
+    template: generic.program_plug
+    physics:
+      kind: program
+      method: plug
+      profile_w: [2000, 480, 240, 240, 240, 240, 1000, 480]
+      lag_s: 120
+      lag_w: 2
+      loaded_at_s: 60
+    control:
+      power_model: {kind: measured, power_role: power, nominal_w: 2000}
+      program:
+        runtime_min: 120
+        profile_wh: [500, 120, 60, 60, 60, 60, 250, 120]
+        start_method: plug
+        idle_w: 5
+        resume_confirmed: true
+      behaviour_confirmed: true
+    jobs:
+      - {arm_at_s: 90, deadline_s: 39600}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 9000, factor: 0.3}
+  - {at_s: 9300, factor: 1.0}

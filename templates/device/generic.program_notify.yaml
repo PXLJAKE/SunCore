@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# A shiftable program that SunCore never switches (PR 6-L): it notifies the user when to start
+# the appliance and sees the start, the run and the end on the appliance's power sensor.
+id: generic.program_notify
+kind: device
+schema_version: 1
+name: template.generic.program_notify.name
+source:
+  - title: "home-assistant/core sensor/const.py (SensorDeviceClass.POWER, unit sets)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/const.py"
+    date: 2026-10-13
+  - title: "ADR-0016 decision 7 and plan phase-6 WP5 (program start-now notification)"
+    url: "https://github.com/pxljake/suncore/blob/main/docs/adr/0016-ha-surface-mqtt-and-notifications.md"
+    date: 2026-11-24
+tested_with: []
+capabilities: [power_measured]
+unverified:
+  - "Generic template, exercised in the simulator only (sensor.sim_dishwasher_power); not tested with a physical appliance."
+  - "runtime_min 120, idle_w 5 W and nominal_w 2000 W are placeholders: the wizard asks for the programme's run time and the appliance's peak power."
+device_kind: program
+roles:
+  power:
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.program_notify.role.power
+defaults:
+  power_model:
+    kind: measured
+    power_role: power
+    nominal_w: 2000
+  control:
+    kind: notify
+  program:
+    runtime_min: 120
+    start_method: notify
+    idle_w: 5

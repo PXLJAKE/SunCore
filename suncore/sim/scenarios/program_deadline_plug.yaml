@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+name: program_deadline_plug
+description: >-
+  PR 6-L. A washing machine behind a smart plug on a summer day with cloud flicker. The user
+  loads it and presses start at 07:01 and arms "finished by 18:00" at 07:01:30. SunCore switches
+  the plug off while the machine still only locks its door (below idle_w), starts it once at the
+  planned window (with the planner) or at the latest start 16:00 (without a plan), never
+  interrupts it and releases the plug (on) when the programme has finished.
+start: "2026-06-20T07:00:00+02:00"
+duration_s: 43200
+step_s: 30
+house:
+  seed: 61
+  pv: {kwp: 8.0}
+  load: {noise_fraction: 0.05}
+outdoor: {mean_c: 20.0, amplitude_c: 6.0}
+control:
+  import_limit_w: 16000
+devices:
+  - id: washer
+    template: generic.program_plug
+    physics:
+      kind: program
+      method: plug
+      profile_w: [2000, 480, 240, 240, 240, 240, 1000, 480]
+      lag_s: 120
+      lag_w: 2
+      loaded_at_s: 60
+    control:
+      power_model: {kind: measured, power_role: power, nominal_w: 2000}
+      program:
+        runtime_min: 120
+        profile_wh: [500, 120, 60, 60, 60, 60, 250, 120]
+        start_method: plug
+        idle_w: 5
+        resume_confirmed: true
+      behaviour_confirmed: true
+    jobs:
+      - {arm_at_s: 90, deadline_s: 39600}
+clouds:
+  - {at_s: 0, factor: 1.0}
+  - {at_s: 9000, factor: 0.3}
+  - {at_s: 9300, factor: 1.0}
+  - {at_s: 9600, factor: 0.3}
+  - {at_s: 9900, factor: 1.0}
+  - {at_s: 18000, factor: 0.2}
+  - {at_s: 18600, factor: 1.0}
+  - {at_s: 19200, factor: 0.2}
+  - {at_s: 19800, factor: 1.0}
+  - {at_s: 32400, factor: 0.4}
+  - {at_s: 33000, factor: 1.0}

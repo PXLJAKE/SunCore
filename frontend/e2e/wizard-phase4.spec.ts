@@ -206,7 +206,7 @@ test('step 10: the first plan preview', async ({ page }) => {
 });
 
 test('settings link to the steps and show the new summaries', async ({ page }) => {
-  await page.goto('/#/settings');
+  await page.goto('/#/settings/system');
   const overview = page.getByTestId('overview');
   await expect(overview).toContainText('forecast source');
   await expect(overview).toContainText('Control:');

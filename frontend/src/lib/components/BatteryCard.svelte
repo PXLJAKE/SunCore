@@ -1,9 +1,14 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <script lang="ts">
   import type { BatteryAction, BatteryControlState, OperatingMode } from '../api/types';
-  import { MODE_ORDER } from '../control/present';
+  import { MODE_KEY, MODE_ORDER, MODE_SHORT_KEY } from '../control/present';
+  import { activityOf, clampPercent, type Activity } from '../flow';
   import { t, tDynamic, tPercent, tPower, tTime, type MessageKey } from '../i18n/index.svelte';
   import { BATTERY_SCOPE, control } from '../stores/control.svelte';
+  import Card from '../ui/Card.svelte';
+  import CardFooter from '../ui/CardFooter.svelte';
+  import Chip from '../ui/Chip.svelte';
+  import ToggleGroup from '../ui/ToggleGroup.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import ReasonList from './ReasonList.svelte';
 
@@ -15,12 +20,6 @@
   }
   let { battery, socPct = null, powerW = null }: Props = $props();
 
-  const uid = $props.id();
-  const MODE_LABEL: Record<OperatingMode, MessageKey> = {
-    shadow: 'mode.shadow',
-    assisted: 'mode.assisted',
-    automatic: 'mode.automatic',
-  };
   const KIND_LABEL: Record<string, MessageKey> = {
     accepted: 'decision.kind.accepted',
     rejected: 'decision.kind.rejected',
@@ -36,12 +35,25 @@
     grid_charge: 'bcard.cap.grid_charge',
     hardware_fallback: 'bcard.cap.hardware_fallback',
   };
+  const ACTIVITY: Partial<Record<Activity, MessageKey>> = {
+    idle: 'activity.idle',
+    charging: 'activity.charging',
+    discharging: 'activity.discharging',
+  };
 
   const busy = $derived(control.busy[BATTERY_SCOPE] ?? false);
   const error = $derived(control.errors[BATTERY_SCOPE] ?? null);
   const limitedByGlobal = $derived(battery.effective_mode !== battery.battery_mode);
+  const modeOptions = $derived(
+    MODE_ORDER.map((m) => ({ value: m, label: t(MODE_SHORT_KEY[m]), name: t(MODE_KEY[m]) })),
+  );
+  const activity = $derived(
+    powerW == null
+      ? null
+      : t(ACTIVITY[activityOf('battery', { value: powerW, quality: 'ok' })] ?? 'activity.idle'),
+  );
 
-  /** The limits of an action as list items; unset fields are the adapter's own settings. */
+  /** The limits of an action as rows; unset fields are the adapter's own settings. */
   function limitRows(a: BatteryAction | null): { key: MessageKey; value: string }[] {
     if (!a) return [];
     const rows: { key: MessageKey; value: string }[] = [];
@@ -60,6 +72,9 @@
   const held = $derived(limitRows(battery.held));
   const limits = $derived(limitRows(battery.limits));
   const wanted = $derived(limitRows(battery.wanted));
+  const showHeld = $derived(battery.under_control && held.length > 0);
+  const showWanted = $derived(wanted.length > 0 && !battery.under_control);
+  const hasLimits = $derived(showHeld || limits.length > 0 || showWanted);
 
   // --- mode switch ---------------------------------------------------------------------
   /** The token the user was shown when the dialog opened (sent as is: a re-mapped battery 409s). */
@@ -82,33 +97,92 @@
     pending = null;
     await control.setBatteryMode(mode, identity);
   }
+
+  const footerItems = $derived([
+    ...(hasLimits
+      ? [
+          {
+            id: 'limits',
+            label: showHeld ? t('bcard.held') : t('bcard.limits'),
+            panel: limitsPanel,
+          },
+        ]
+      : []),
+    { id: 'why', label: t('card.why'), testid: 'battery-why', panel: whyPanel },
+  ]);
 </script>
 
-<article
-  class="card bat"
-  aria-labelledby="{uid}-name"
-  data-testid="battery-card"
+{#snippet rows(list: { key: MessageKey; value: string }[])}
+  <ul class="rows">
+    {#each list as r (r.key)}<li><span>{t(r.key)}</span> <strong>{r.value}</strong></li>{/each}
+  </ul>
+{/snippet}
+
+{#snippet limitsPanel()}
+  {#if showHeld}
+    <div data-testid="battery-held">{@render rows(held)}</div>
+  {:else if limits.length > 0}
+    <div data-testid="battery-limits">{@render rows(limits)}</div>
+  {/if}
+  {#if showWanted}
+    <div data-testid="battery-wanted">
+      <p class="kicker">{t('bcard.wanted')}</p>
+      {@render rows(wanted)}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet whyPanel()}
+  {#if battery.reasons.length > 0}
+    <ReasonList reasons={battery.reasons} />
+  {:else}
+    <p class="hint">{t('card.why_none')}</p>
+  {/if}
+  {#if battery.last_decision}
+    {@const d = battery.last_decision}
+    <p class="last" data-testid="battery-last">
+      <strong>{t('card.last_decision')}</strong>
+      <time datetime={d.ts}>{tTime(new Date(d.ts))}</time>
+      {t(KIND_LABEL[d.kind] ?? 'reason.unknown')}
+    </p>
+    <ReasonList reasons={d.reasons} />
+  {/if}
+  <p class="hint">
+    {t('bcard.adapter', { adapter: battery.adapter_template_id })}
+    {#each battery.capabilities as c (c)}
+      <span class="chip-tag">{CAPABILITY[c] ? t(CAPABILITY[c]) : c}</span>
+    {/each}
+  </p>
+{/snippet}
+
+<Card
+  title={t('battery.title')}
+  icon="battery"
+  testid="battery-card"
   data-mode={battery.effective_mode}
 >
-  <header>
-    <h3 id="{uid}-name">{t('battery.title')}</h3>
-    <span
-      class="chip-tag"
-      class:warn={battery.effective_mode === 'automatic'}
-      data-testid="battery-effective-mode">{t(MODE_LABEL[battery.effective_mode])}</span
+  {#snippet status()}
+    <Chip
+      tone={battery.effective_mode === 'automatic' ? 'warn' : 'neutral'}
+      testid="battery-effective-mode">{t(MODE_KEY[battery.effective_mode])}</Chip
     >
-  </header>
+  {/snippet}
 
-  <dl class="facts">
-    <div>
-      <dt>{t('bcard.soc')}</dt>
-      <dd data-testid="battery-soc">{socPct == null ? t('site.unknown') : tPercent(socPct)}</dd>
+  <div class="gauge">
+    <div class="soc">
+      <span class="sr-only">{t('bcard.soc')}</span>
+      <span class="big" data-testid="battery-soc"
+        >{socPct == null ? t('site.unknown') : tPercent(socPct)}</span
+      >
+      <span class="power" data-testid="battery-power">
+        {powerW == null ? '' : tPower(Math.abs(powerW))}
+        {activity ?? ''}
+      </span>
     </div>
-    <div>
-      <dt>{t('bcard.power')}</dt>
-      <dd data-testid="battery-power">{powerW == null ? t('site.unknown') : tPower(powerW)}</dd>
-    </div>
-  </dl>
+    <span class="bar" aria-hidden="true"
+      ><span class="fill" style:width="{socPct == null ? 0 : clampPercent(socPct)}%"></span></span
+    >
+  </div>
 
   <ul class="badges">
     <li class="chip-tag" class:warn={battery.under_control} data-testid="battery-control">
@@ -121,58 +195,25 @@
     {/if}
   </ul>
 
-  {#if battery.under_control && held.length > 0}
-    <div data-testid="battery-held">
-      <p class="label">{t('bcard.held')}</p>
-      <ul class="rows">
-        {#each held as r (r.key)}<li>{t(r.key)}: <strong>{r.value}</strong></li>{/each}
-      </ul>
-    </div>
-  {:else if limits.length > 0}
-    <div data-testid="battery-limits">
-      <p class="label">{t('bcard.limits')}</p>
-      <ul class="rows">
-        {#each limits as r (r.key)}<li>{t(r.key)}: <strong>{r.value}</strong></li>{/each}
-      </ul>
-    </div>
+  <ToggleGroup
+    label={t('bcard.mode')}
+    options={modeOptions}
+    value={battery.battery_mode}
+    disabled={busy}
+    onselect={choose}
+    testid="battery-mode"
+  />
+  {#if limitedByGlobal}
+    <p class="hint" data-testid="battery-mode-limited">
+      {t('card.mode_limited', {
+        effective: t(MODE_KEY[battery.effective_mode]),
+        global: t(MODE_KEY[battery.global_mode]),
+      })}
+    </p>
   {/if}
-  {#if wanted.length > 0 && !battery.under_control}
-    <div data-testid="battery-wanted">
-      <p class="label">{t('bcard.wanted')}</p>
-      <ul class="rows">
-        {#each wanted as r (r.key)}<li>{t(r.key)}: <strong>{r.value}</strong></li>{/each}
-      </ul>
-    </div>
+  {#if battery.mode_capped}
+    <p class="notice info" data-testid="battery-cap-note">{t('bcard.cap_fallback')}</p>
   {/if}
-
-  <div class="modes" role="group" aria-labelledby="{uid}-modes">
-    <span id="{uid}-modes" class="label">{t('bcard.mode')}</span>
-    <div class="seg">
-      {#each MODE_ORDER as m (m)}
-        <button
-          type="button"
-          class="seg-btn"
-          aria-pressed={battery.battery_mode === m}
-          disabled={busy}
-          data-testid="battery-mode-{m}"
-          onclick={() => choose(m)}>{t(MODE_LABEL[m])}</button
-        >
-      {/each}
-    </div>
-    {#if limitedByGlobal}
-      <p class="hint" data-testid="battery-mode-limited">
-        {t('card.mode_limited', {
-          effective: t(MODE_LABEL[battery.effective_mode]),
-          global: t(MODE_LABEL[battery.global_mode]),
-        })}
-      </p>
-    {/if}
-    {#if battery.mode_capped}
-      <p class="notice info" data-testid="battery-cap-note">
-        {t('bcard.cap_fallback')}
-      </p>
-    {/if}
-  </div>
 
   {#if error}
     <p class="err" role="alert" data-testid="battery-error">
@@ -180,30 +221,10 @@
     </p>
   {/if}
 
-  <details class="why" data-testid="battery-why">
-    <summary>{t('card.why')}</summary>
-    {#if battery.reasons.length > 0}
-      <ReasonList reasons={battery.reasons} />
-    {:else}
-      <p class="hint">{t('card.why_none')}</p>
-    {/if}
-    {#if battery.last_decision}
-      {@const d = battery.last_decision}
-      <p class="last" data-testid="battery-last">
-        <strong>{t('card.last_decision')}</strong>
-        <time datetime={d.ts}>{tTime(new Date(d.ts))}</time>
-        {t(KIND_LABEL[d.kind] ?? 'reason.unknown')}
-      </p>
-      <ReasonList reasons={d.reasons} />
-    {/if}
-    <p class="hint">
-      {t('bcard.adapter', { adapter: battery.adapter_template_id })}
-      {#each battery.capabilities as c (c)}
-        <span class="chip-tag">{CAPABILITY[c] ? t(CAPABILITY[c]) : c}</span>
-      {/each}
-    </p>
-  </details>
-</article>
+  {#snippet footer()}
+    <CardFooter items={footerItems} />
+  {/snippet}
+</Card>
 
 <ConfirmDialog
   open={pending !== null}
@@ -227,36 +248,45 @@
   {#if battery.mode_capped && pending?.mode === 'automatic'}
     <p>{t('bcard.confirm_capped')}</p>
   {/if}
-  <p>{t('card.auto_global', { global: t(MODE_LABEL[battery.global_mode]) })}</p>
+  <p>{t('card.auto_global', { global: t(MODE_KEY[battery.global_mode]) })}</p>
 </ConfirmDialog>
 
 <style>
-  .bat {
+  .gauge {
     display: grid;
-    gap: 12px;
-    align-content: start;
-    min-width: 0;
+    gap: var(--sc-space-2);
   }
-  header {
+  .soc {
     display: flex;
-    align-items: center;
+    flex-wrap: wrap;
+    align-items: baseline;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sc-space-1) var(--sc-space-3);
   }
-  .facts {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-    gap: 8px 16px;
-    margin: 0;
-  }
-  dt {
-    color: var(--secondary-text-color);
-    font-size: 0.875rem;
-  }
-  dd {
-    margin: 0;
-    font-weight: 600;
+  .big {
+    font-size: var(--sc-font-2xl);
+    font-weight: var(--sc-weight-strong);
+    line-height: var(--sc-leading-tight);
     font-variant-numeric: tabular-nums;
+  }
+  .power {
+    color: var(--sc-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    display: block;
+    height: 10px;
+    border-radius: var(--sc-radius-pill);
+    background: var(--sc-surface-sunken);
+    box-shadow: inset 0 0 0 1px var(--sc-outline);
+    overflow: hidden;
+  }
+  .fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--sc-energy-bat-in);
+    transition: width var(--sc-motion-normal) ease;
   }
   .badges {
     list-style: none;
@@ -264,68 +294,29 @@
     padding: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-  }
-  .label {
-    display: block;
-    font-weight: 600;
-    margin: 0 0 6px;
+    gap: var(--sc-space-1);
   }
   .rows {
+    display: grid;
+    gap: var(--sc-space-1);
     margin: 0;
-    padding-left: 20px;
-    font-variant-numeric: tabular-nums;
+    padding: 0;
+    list-style: none;
   }
-  .seg {
+  .rows li {
     display: flex;
-    border: 1px solid var(--primary-color);
-    border-radius: 22px;
-    overflow: hidden;
+    justify-content: space-between;
+    gap: var(--sc-space-3);
   }
-  .seg-btn {
-    flex: 1 1 0;
-    min-height: 44px;
-    padding: 0 6px;
-    font: inherit;
-    font-size: 0.875rem;
-    border: 0;
-    border-inline-start: 1px solid var(--primary-color);
-    background: transparent;
-    color: var(--primary-color);
-    cursor: pointer;
-  }
-  .seg-btn:first-child {
-    border-inline-start: 0;
-  }
-  .seg-btn[aria-pressed='true'] {
-    background: var(--primary-color);
-    color: var(--text-primary-color);
-    font-weight: 700;
-  }
-  .seg-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .modes .hint,
-  .modes .notice {
-    margin-top: 6px;
+  .rows strong {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .err {
     margin: 0;
-    color: var(--error-color);
-  }
-  summary {
-    cursor: pointer;
-    min-height: 32px;
-    display: flex;
-    align-items: center;
-    font-weight: 600;
-    color: var(--primary-color);
-  }
-  details > :global(*:not(summary)) {
-    margin-top: 8px;
+    color: var(--sc-error);
   }
   .last {
-    margin: 8px 0 4px;
+    margin: 0;
   }
 </style>

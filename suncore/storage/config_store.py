@@ -15,9 +15,14 @@ from pydantic import BaseModel, ValidationError
 from suncore import __version__
 from suncore.core.battery import BatterySettings
 from suncore.core.config import (
+    REVEAL_SECRETS,
     DevicesConfig,
     ForecastConfig,
     GoalsConfig,
+    InverterConfig,
+    InverterVerificationRecord,
+    MqttConfig,
+    NotificationsConfig,
     OperationConfig,
     RegionConfig,
     TariffConfig,
@@ -28,7 +33,14 @@ from suncore.core.config import (
 )
 from suncore.core.decisions import OperatingMode
 from suncore.core.devices import DeviceConfig
-from suncore.core.identity import battery_identity_token, device_identity, new_device_ids
+from suncore.core.expert import ExpertConfig
+from suncore.core.identity import (
+    battery_identity_token,
+    device_identity,
+    identity_parts,
+    new_device_ids,
+)
+from suncore.core.params import sanitise_stored_overrides
 from suncore.core.site import SiteConfig, migrate_site_v1_to_v2
 from suncore.storage.db import Database, Row, Transaction
 from suncore.storage.errors import (
@@ -53,6 +65,21 @@ DocMigration = Callable[[Body], Body]
 """Upgrades a body dict by exactly one schema version."""
 
 
+def describe_validation_error(exc: ValidationError) -> str:
+    """The errors of ``exc`` without the offending input.
+
+    ``str(ValidationError)`` repeats ``input_value``, which for the ``mqtt`` section is the
+    whole body with the password in clear text; the message ends up in the log of a rejected
+    import or a corrupt stored section (security review 1.0, SEC-01). Location, type and the
+    (static) message are enough to find the problem.
+    """
+    parts = [
+        f"{'.'.join(str(p) for p in err['loc']) or '<root>'}: {err['msg']} [{err['type']}]"
+        for err in exc.errors(include_url=False, include_input=False, include_context=False)
+    ]
+    return f"{exc.error_count()} validation error(s): " + "; ".join(parts)
+
+
 @dataclass(frozen=True)
 class SectionSpec:
     """A configuration section: its model and the migrations from version 1 upwards.
@@ -63,6 +90,9 @@ class SectionSpec:
 
     model: type[BaseModel]
     migrations: tuple[DocMigration, ...] = field(default=())
+    on_load: DocMigration | None = None
+    """Repairs the *current* stored body before validation (``get`` only; restore and import
+    stay strict). Used where a document may outlive the rules it was written under."""
 
     @property
     def current_version(self) -> int:
@@ -116,6 +146,19 @@ def migrate_forecast_v1_to_v2_logged(body: Body) -> Body:
     return migrate_forecast_v1_to_v2(body)
 
 
+def sanitise_expert_body(body: Body) -> Body:
+    """Load path of ``expert``: a stored override that the current registry no longer accepts
+    (key removed, range tightened) is dropped or clamped and logged, instead of making the
+    section - and with it the start-up - fail (control-safety review of PR 5-E)."""
+    overrides = body.get("overrides")
+    if not isinstance(overrides, dict):
+        return body
+    repaired, fixed = sanitise_stored_overrides(overrides)
+    if fixed:
+        log.warning("config.expert_overrides_repaired", keys=sorted(fixed))
+    return {**body, "overrides": repaired}
+
+
 DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "site": SectionSpec(SiteConfig, (migrate_site_v1_to_v2,)),
     "region": SectionSpec(RegionConfig),
@@ -126,6 +169,10 @@ DEFAULT_SECTIONS: Final[Mapping[str, SectionSpec]] = {
     "operation": SectionSpec(OperationConfig),
     "wizard": SectionSpec(WizardState),
     "battery": SectionSpec(BatterySettings),
+    "mqtt": SectionSpec(MqttConfig),
+    "notifications": SectionSpec(NotificationsConfig),
+    "inverter": SectionSpec(InverterConfig),
+    "expert": SectionSpec(ExpertConfig, on_load=sanitise_expert_body),
 }
 
 
@@ -153,8 +200,11 @@ class ConfigStore:
             msg = f"unknown config section {section!r}"
             raise UnknownSectionError(msg) from None
 
-    def _upgrade(self, section: str, version: int, body: Body) -> BaseModel:
-        """Migrate ``body`` from ``version`` to current and validate it."""
+    def _upgrade(
+        self, section: str, version: int, body: Body, *, repair: bool = False
+    ) -> BaseModel:
+        """Migrate ``body`` from ``version`` to current and validate it; ``repair`` runs the
+        section's ``on_load`` on the migrated body first (the stored current document only)."""
         spec = self._spec(section)
         if version < 1 or version > spec.current_version:
             msg = (
@@ -166,14 +216,31 @@ class ConfigStore:
             for step in spec.migrations[version - 1 :]:
                 body = step(dict(body))
             body = {**body, "schema_version": spec.current_version}
+            if repair and spec.on_load is not None:
+                body = spec.on_load(body)
             return spec.model.model_validate(body)
-        except (ValidationError, KeyError, TypeError, ValueError) as exc:
+        except ValidationError as exc:
+            msg = f"section {section!r} is invalid: {describe_validation_error(exc)}"
+            raise ConfigCorruptError(msg) from None
+        except (KeyError, TypeError, ValueError) as exc:
             msg = f"section {section!r} is invalid: {exc}"
             raise ConfigCorruptError(msg) from exc
 
     @staticmethod
     def _dump(model: BaseModel) -> str:
-        return model.model_dump_json(by_alias=True)
+        """The stored body: the only place that writes secrets in clear text (ADR-0016)."""
+        return model.model_dump_json(by_alias=True, context={REVEAL_SECRETS: True})
+
+    def _masked_body(self, section: str, version: object, raw: object) -> Any:
+        """A stored body for the outside (export, history): secrets replaced by the mask."""
+        body = json.loads(str(raw))
+        if section != "mqtt" or not isinstance(body, dict) or body.get("password") is None:
+            return body
+        try:
+            model = self._upgrade(section, int(str(version)), body)
+        except ConfigCorruptError:
+            return {**body, "password": None}
+        return json.loads(model.model_dump_json(by_alias=True))
 
     async def get(self, section: str) -> BaseModel | None:
         """Return the validated (and migrated) section, or ``None`` if never stored."""
@@ -183,9 +250,9 @@ class ConfigStore:
         )
         if row is None:
             return None
-        return self._parse_row(section, row)
+        return self._parse_row(section, row, current=True)
 
-    def _parse_row(self, section: str, row: Row) -> BaseModel:
+    def _parse_row(self, section: str, row: Row, *, current: bool = False) -> BaseModel:
         version, raw = row
         try:
             body = json.loads(str(raw))
@@ -195,7 +262,7 @@ class ConfigStore:
         if not isinstance(body, dict):
             msg = f"section {section!r}: stored body is not an object"
             raise ConfigCorruptError(msg)
-        return self._upgrade(section, int(str(version)), body)
+        return self._upgrade(section, int(str(version)), body, repair=current)
 
     def _try_parse(self, section: str, row: Row | None) -> BaseModel | None:
         """Parse a stored row; a corrupt one counts as absent (it still goes to the history)."""
@@ -217,6 +284,8 @@ class ConfigStore:
         decision 6): a ``battery`` or ``site`` put that changes the battery's identity token
         (``core.identity.battery_identity_token``) drops ``operation.battery_mode`` to shadow; an
         ``operation`` put with a non-shadow battery mode records the token it was granted to.
+        Inverter (PR 6-G): an ``inverter`` put that changes the adapter's identity resets
+        ``limit_verified`` and drops ``operation.inverter_mode`` to shadow.
         """
         return await self._put(section, model, restoring=False)
 
@@ -234,6 +303,19 @@ class ConfigStore:
             raise ValueError(msg)
         async with self._db.transaction() as tx:
             now = self._clock().isoformat()
+            if isinstance(model, MqttConfig) and model.password_masked:
+                # The UI or an export sends the mask back: keep the stored secret.
+                row = await tx.fetchone(
+                    "SELECT schema_version, body FROM config_doc WHERE section = 'mqtt'"
+                )
+                stored_mqtt = self._try_parse("mqtt", row)
+                prior_mqtt = stored_mqtt if isinstance(stored_mqtt, MqttConfig) else None
+                # A mask with nothing to keep is rejected (MqttPasswordIsMaskError), never dropped.
+                model = (
+                    model.keep_secret_of(prior_mqtt)
+                    if restoring
+                    else model.require_secret_of(prior_mqtt)
+                )
             if isinstance(model, DevicesConfig):
                 previous = await self._stored_devices(tx)
                 await self._write(tx, section, model, now)
@@ -243,9 +325,13 @@ class ConfigStore:
                 if restoring:
                     model = await self._drop_changed_identities(tx, model, devices)
                     model = await self._drop_changed_battery(tx, model)
+                    # PR 6-G: a restored inverter mode is never trusted (no identity record).
+                    model = model.without_inverter_mode()
                 await self._write(tx, section, model, now)
                 await self._record_identities(tx, model, devices, now)
                 await self._record_battery_identity(tx, model, now)
+            elif isinstance(model, InverterConfig):
+                model = await self._put_inverter(tx, model, now)
             elif isinstance(model, BatterySettings | SiteConfig):
                 before = await self._battery_token(tx)
                 await self._write(tx, section, model, now)
@@ -253,6 +339,66 @@ class ConfigStore:
                     await self._shadow_battery(tx, now)
             else:
                 await self._write(tx, section, model, now)
+        return model
+
+    # --- inverter identity (PR 6-G, ADR-0018 decision 3) ---------------------------------
+
+    async def _put_inverter(
+        self, tx: Transaction, model: InverterConfig, now: str
+    ) -> InverterConfig:
+        """A changed inverter adapter (``InverterConfig.identity_token``) is never verified and
+        never inherits a mode: ``limit_verified`` is reset and ``operation.inverter_mode`` drops
+        to shadow. The same adapter keeps both (only a passed verification test sets
+        ``limit_verified``, since 7-J; ``_guard_verification`` refuses a user-set flag).
+        """
+        row = await tx.fetchone(
+            "SELECT schema_version, body FROM config_doc WHERE section = 'inverter'"
+        )
+        stored = self._try_parse("inverter", row)
+        before = stored.identity_token() if isinstance(stored, InverterConfig) else None
+        model = _guard_verification(model, stored if isinstance(stored, InverterConfig) else None)
+        if model.identity_token() != before:
+            op_row = await tx.fetchone(
+                "SELECT schema_version, body FROM config_doc WHERE section = 'operation'"
+            )
+            operation = self._try_parse("operation", op_row)
+            if isinstance(operation, OperationConfig):
+                cleaned = operation.without_inverter_mode()
+                if cleaned is not operation:
+                    await self._write(tx, "operation", cleaned, now)
+        await self._write(tx, "inverter", model, now)
+        return model
+
+    async def record_inverter_verification(
+        self, record: InverterVerificationRecord, *, verified: bool | None
+    ) -> InverterConfig | None:
+        """Store the outcome of the verification procedure (PR 7-J; the only writer of
+        ``limit_verified = true``).
+
+        Applied only when the stored adapter still has ``record.identity`` (a test of an adapter
+        that changed meanwhile proves nothing): ``verified`` sets ``limit_verified`` with the
+        identity and the time, ``False`` resets it, ``None`` keeps it (a failure that is no
+        evidence against the adapter, e.g. a rising house load). Returns the stored section,
+        ``None`` when nothing was written (no adapter or another identity).
+        """
+        async with self._db.transaction() as tx:
+            row = await tx.fetchone(
+                "SELECT schema_version, body FROM config_doc WHERE section = 'inverter'"
+            )
+            stored = self._try_parse("inverter", row)
+            if not isinstance(stored, InverterConfig) or stored.identity_token() != record.identity:
+                return None
+            update: dict[str, object] = {"last_verification": record}
+            if verified is True:
+                update |= {
+                    "limit_verified": True,
+                    "verified_identity": record.identity,
+                    "verified_at": record.at,
+                }
+            elif verified is False:
+                update |= {"limit_verified": False, "verified_identity": None, "verified_at": None}
+            model = InverterConfig.model_validate({**stored.model_dump(), **update})
+            await self._write(tx, "inverter", model, self._clock().isoformat())
         return model
 
     # --- battery identity (ADR-0013 decision 6) -----------------------------------------
@@ -332,8 +478,7 @@ class ConfigStore:
 
     @staticmethod
     def _fingerprint(device: DeviceConfig) -> str:
-        identity = device_identity(device)
-        return json.dumps([identity.template_id, sorted(identity.entities)])
+        return json.dumps(identity_parts(device_identity(device)))
 
     @staticmethod
     async def _load_identities(tx: Transaction) -> dict[str, str]:
@@ -457,7 +602,9 @@ class ConfigStore:
             (section,),
         )
         return [
-            HistoryEntry(int(str(i)), section, int(str(v)), str(t), json.loads(str(b)))
+            HistoryEntry(
+                int(str(i)), section, int(str(v)), str(t), self._masked_body(section, v, b)
+            )
             for i, v, b, t in rows
         ]
 
@@ -538,7 +685,7 @@ class ConfigStore:
         for section, version, raw in rows:
             sections[str(section)] = {
                 "schema_version": int(str(version)),
-                "body": json.loads(str(raw)),
+                "body": self._masked_body(str(section), version, raw),
             }
         return {
             "suncore_export": EXPORT_FORMAT,
@@ -616,7 +763,11 @@ class ConfigStore:
                 # An import never carries trust over: the global mode is shadow afterwards, and so
                 # is the battery (ADR-0013: an imported battery is never trusted to write).
                 operation = operation.model_copy(
-                    update={"mode": OperatingMode.SHADOW, "battery_mode": OperatingMode.SHADOW}
+                    update={
+                        "mode": OperatingMode.SHADOW,
+                        "battery_mode": OperatingMode.SHADOW,
+                        "inverter_mode": OperatingMode.SHADOW,
+                    }
                 )
                 if isinstance(new_devices, DevicesConfig):
                     operation = operation.without_modes_of(
@@ -629,6 +780,16 @@ class ConfigStore:
                 else:  # no devices imported: all are new
                     operation = operation.without_modes_of(frozenset(operation.device_modes))
                 validated["operation"] = operation
+            mqtt = validated.get("mqtt")
+            if isinstance(mqtt, MqttConfig) and mqtt.password_masked:
+                prev_mqtt = self._try_parse("mqtt", old.get("mqtt"))
+                validated["mqtt"] = mqtt.keep_secret_of(
+                    prev_mqtt if isinstance(prev_mqtt, MqttConfig) else None
+                )
+            inverter = validated.get("inverter")
+            if isinstance(inverter, InverterConfig):
+                # Like the battery (ADR-0013): an import never carries the verification over.
+                validated["inverter"] = _guard_verification(inverter, None)
             await self._save_identities(tx, record, now)
             await self._save_battery_record(tx, None, now)
             stored = {name: self._dump(model) for name, model in validated.items()}
@@ -646,3 +807,36 @@ class ConfigStore:
                     (name, self._spec(name).current_version, body, now),
                 )
         return sorted(validated)
+
+
+def _guard_verification(model: InverterConfig, stored: InverterConfig | None) -> InverterConfig:
+    """PR 7-J (plan phase 7 §1 criterion 4): ``limit_verified`` comes only from a passed test.
+
+    A put can never raise ``limit_verified``: the verified identity and time always come from
+    the stored version, and only while both the body and the stored version say verified.
+    Lowering by a put stays possible (the safe direction; e.g. restoring an older version). A
+    changed adapter (or nothing stored, or an import) is never verified and has no record.
+    """
+    same = (
+        stored is not None
+        and stored.identity_token() is not None
+        and stored.identity_token() == model.identity_token()
+    )
+    if not same or stored is None:
+        update: dict[str, object] = {
+            "limit_verified": False,
+            "verified_identity": None,
+            "verified_at": None,
+            "last_verification": None,
+        }
+    else:
+        keep = model.limit_verified and stored.limit_verified
+        update = {
+            "limit_verified": keep,
+            "verified_identity": stored.verified_identity if keep else None,
+            "verified_at": stored.verified_at if keep else None,
+            "last_verification": stored.last_verification,
+        }
+    if all(getattr(model, k) == v for k, v in update.items()):
+        return model
+    return InverterConfig.model_validate({**model.model_dump(), **update})

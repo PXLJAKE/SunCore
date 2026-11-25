@@ -351,10 +351,22 @@ def build_tariff_plan(
     )
     if source is None:
         return None
+    reference = tariff.export.negative_reference_entity
     return TariffPlan(
         source=source,
         export_tariff=tariff.export,
-        negative_rule=negative_price_rule(catalog, region),
+        negative_rule=(
+            NegativePriceRule.NONE  # §51 EEG switch: this plant is remunerated at negative prices
+            if tariff.export.remunerate_negative
+            else negative_price_rule(catalog, region)
+        ),
+        reference_source=(
+            None
+            if reference is None
+            else CurrentPriceSource(
+                reference.entity_id, cache_reader(cache), price_includes="spot_only", clock=clock
+            )
+        ),
         tz=tz,
         currency=region.currency,
         formula=tariff.import_.formula,

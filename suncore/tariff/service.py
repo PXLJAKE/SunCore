@@ -113,6 +113,9 @@ class TariffPlan:
     currency: str
     formula: PriceFormula | None = None
     total_kwp: float | None = None
+    reference_source: SegmentSource | None = None
+    """Optional spot price sensor for the negative-price rule (``tariff.export.
+    negative_reference_entity``); best effort, a failure falls back to the proxy."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +142,8 @@ class _State:
     """Start of the latest fetch, successful or not."""
     carried: int = 0
     """Slots of the current data that an earlier fetch supplied because the latest had none."""
+    reference: tuple[PriceSeries, ...] = ()
+    """Spot price of the reference sensor from the latest fetch (empty = none or unavailable)."""
 
     @property
     def known_end(self) -> datetime | None:
@@ -239,7 +244,11 @@ class TariffService:
 
     @property
     def watched_entities(self) -> tuple[str, ...]:
-        return self._plan.source.watched_entities
+        reference = self._plan.reference_source
+        return (
+            *self._plan.source.watched_entities,
+            *(reference.watched_entities if reference else ()),
+        )
 
     def add_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Call ``listener`` after every successful refresh (new prices); returns the remover."""
@@ -255,7 +264,7 @@ class TariffService:
 
     def watched_entities_isdisjoint(self, entity_ids: Iterable[str]) -> bool:
         """Whether none of ``entity_ids`` is an entity this service watches."""
-        return set(self._plan.source.watched_entities).isdisjoint(entity_ids)
+        return set(self.watched_entities).isdisjoint(entity_ids)
 
     def reset_backoff(self) -> None:
         """Forget the failure back-off (Home Assistant is connected again)."""
@@ -376,6 +385,7 @@ class TariffService:
                 if not any(v is not None for s in data.segments for v in s.import_price.values):
                     raise SourceUnavailableError("the source returned no price")
                 self._accept(data, now)
+                await self._fetch_reference(window, now)
             except SourceThrottledError as exc:
                 self._state.retry_at = now + timedelta(seconds=max(exc.retry_after_s, 1.0))
                 return RefreshResult(reason, ok=False, throttled=True, error=exc)
@@ -391,6 +401,19 @@ class TariffService:
             except Exception:
                 log.exception("tariff.listener_failed")
         return RefreshResult(reason, ok=True, known_until=self._state.known_end)
+
+    async def _fetch_reference(self, window: TimeRange, now: datetime) -> None:
+        """The reference spot price, best effort: any problem leaves the proxy in charge."""
+        source = self._plan.reference_source
+        self._state.reference = ()
+        if source is None:
+            return
+        try:
+            data = await source.fetch_segments(window, now)
+        except Exception as exc:
+            log.warning("tariff.reference_unavailable", error=f"{type(exc).__name__}: {exc}")
+            return
+        self._state.reference = tuple(data.segments)
 
     def _failed(self, reason: RefreshReason, now: datetime, error: TariffError) -> RefreshResult:
         state = self._state
@@ -496,6 +519,7 @@ class TariffService:
             rule=plan.negative_rule,
             tz=plan.tz,
             source_id=plan.source.source_id,
+            reference_spot=self._state.reference,
         )
 
     def prices(self, hours: float = 48, now: datetime | None = None) -> PriceSeries:

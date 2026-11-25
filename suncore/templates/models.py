@@ -46,31 +46,39 @@ from suncore.core.decisions import REASON_KEY_PATTERN
 from suncore.core.devices import (
     TEMPLATE_ID_PATTERN,
     THERMAL_KINDS,
+    ChargerControl,
     ComfortBand,
     ContinuousControl,
     ControlSpec,
     DeviceKind,
+    EvSpec,
+    LoadpointControl,
     OnOffControl,
     PowerModelKind,
+    ProgramSpec,
     RelaysControl,
     RoleName,
     SetpointControl,
+    SgReadyControl,
     StepsControl,
+    ThermalSpec,
     control_roles,
 )
+from suncore.core.inverter import InverterAdapterSpec, InverterDriverKind, LimitCapability
 from suncore.core.units import Unit, parse_unit
 
 SCHEMA_VERSION: Final = 1
 VERSION_PATTERN: Final = r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$"
 """PEP 440 subset accepted for ``min_app_version`` (no epochs, no local versions)."""
 
-TemplateKind = Literal["device", "tariff", "forecast", "region", "battery"]
+TemplateKind = Literal["device", "tariff", "forecast", "region", "battery", "inverter"]
 TEMPLATE_KINDS: Final[tuple[TemplateKind, ...]] = (
     "device",
     "tariff",
     "forecast",
     "region",
     "battery",
+    "inverter",
 )
 
 Slug = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$", max_length=48)]
@@ -443,7 +451,11 @@ class PowerModelDefault(_Frozen):
 
 
 class DeviceDefaults(_Frozen):
-    """Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`."""
+    """Defaults copied into a new :class:`~suncore.core.devices.DeviceConfig`.
+
+    Phase 6 (additive): ``ev`` (wallbox), ``program`` (program) and ``thermal`` (thermal kinds,
+    e.g. a vendor COP curve with the template's ``source``) - the same models as on the device.
+    """
 
     power_model: PowerModelDefault
     control: ControlSpec
@@ -454,6 +466,9 @@ class DeviceDefaults(_Frozen):
     hysteresis_delay_s: Annotated[int, Field(ge=0, le=3600)] | None = None
     settle_s: Annotated[int, Field(ge=0, le=600)] | None = None
     comfort: ComfortBand | None = None
+    ev: EvSpec | None = None
+    program: ProgramSpec | None = None
+    thermal: ThermalSpec | None = None
 
 
 class DeviceTemplate(TemplateHeader):
@@ -464,7 +479,8 @@ class DeviceTemplate(TemplateHeader):
 
     @model_validator(mode="after")
     def _device(self) -> Self:
-        _check_roles(self.roles)
+        # An evcc loadpoint writes no Home Assistant entity (MQTT only): no roles to map.
+        _check_roles(self.roles, required=not isinstance(self.defaults.control, LoadpointControl))
         if "." not in self.id:
             msg = "id: must be `<vendor>.<model>`"
             raise ValueError(msg)
@@ -480,6 +496,7 @@ class DeviceTemplate(TemplateHeader):
         if self.defaults.comfort is not None and self.device_kind not in THERMAL_KINDS:
             msg = f"defaults.comfort: not applicable to device_kind `{self.device_kind.value}`"
             raise ValueError(msg)
+        self._phase6()
         self._capabilities()
         return self
 
@@ -506,6 +523,59 @@ class DeviceTemplate(TemplateHeader):
             isinstance(control, SetpointControl),
             "control is not setpoint",
         )
+        _need(
+            caps,
+            Capability.EV_CHARGING,
+            isinstance(control, ChargerControl | LoadpointControl),
+            "control is neither charger nor loadpoint",
+        )
+        _need(
+            caps,
+            Capability.PHASE_SWITCHING,
+            isinstance(control, ChargerControl) and control.phases_role is not None,
+            "control is not a charger with a `phases_role`",
+        )
+        _need(
+            caps,
+            Capability.SG_READY,
+            isinstance(control, SgReadyControl),
+            "control is not sg_ready",
+        )
+        _need(
+            caps,
+            Capability.REMOTE_START,
+            self.defaults.program is not None and self.defaults.program.start_method == "remote",
+            "defaults.program.start_method is not `remote`",
+        )
+        for cap in (Capability.EXPORT_LIMIT, Capability.AC_LIMIT, Capability.BACKUP_STATE):
+            _need(caps, cap, False, "it is not a device capability (inverter/site)")
+
+    def _phase6(self) -> None:
+        """Kind checks of the Phase 6 controls and defaults (mirror ``DeviceConfig``)."""
+        control = self.defaults.control
+        kind = self.device_kind
+        if (
+            isinstance(control, ChargerControl | LoadpointControl)
+            and kind is not DeviceKind.WALLBOX
+        ):
+            msg = f"defaults.control: `{control.kind}` needs device_kind `wallbox`"
+            raise ValueError(msg)
+        if isinstance(control, SgReadyControl) and kind is not DeviceKind.HEAT_PUMP:
+            msg = "defaults.control: `sg_ready` needs device_kind `heat_pump`"
+            raise ValueError(msg)
+        for field, value, kinds in (
+            ("ev", self.defaults.ev, frozenset({DeviceKind.WALLBOX})),
+            ("program", self.defaults.program, frozenset({DeviceKind.PROGRAM})),
+            ("thermal", self.defaults.thermal, THERMAL_KINDS),
+        ):
+            if value is not None and kind not in kinds:
+                msg = f"defaults.{field}: not applicable to device_kind `{kind.value}`"
+                raise ValueError(msg)
+        if self.defaults.ev is not None:
+            for role in self.defaults.ev.roles():
+                if role not in self.roles:
+                    msg = f"defaults.ev: unknown role `{role}`"
+                    raise ValueError(msg)
 
     def message_keys(self) -> list[str]:
         return [self.name, *(r.description for r in self.roles.values())]
@@ -998,15 +1068,125 @@ class BatteryTemplate(TemplateHeader):
         )
 
 
+INVERTER_LIMIT_ROLE: Final = "limit"
+"""The one role of an ``inverter`` template: the entity that shows (and, for a number, takes)
+the limit."""
+
+
+class InverterTemplate(TemplateHeader):
+    """Inverter limit adapter template (PR 6-G, ADR-0018 decision 3; kind ``inverter``).
+
+    Exactly one role, ``limit``: a ``number`` for ``generic_number`` and ``kostal_rest`` (it is
+    written with ``number.set_value`` and read back), a ``modbus`` ``sensor`` for
+    ``kostal_modbus`` (read-back of the register that ``modbus.write_register`` writes).
+    ``limit_capability`` ``None`` = the configuration chooses (generic: W or %). ``min``/``max``
+    bound the writable value in the capability's unit; ``volatile``: the value is lost on an
+    inverter reset and is re-written while SunCore holds a limit. Writes go through the safety
+    gate only (X1-X6, ``safety.inverter``).
+    """
+
+    kind: Literal["inverter"]
+    roles: dict[RoleName, RoleSpec]
+    driver: InverterDriverKind
+    limit_capability: LimitCapability | None = None
+    min: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.0
+    max: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None
+    settle_s: Annotated[int, Field(ge=0, le=600)] = 10
+    volatile: bool = False
+    modbus_register: Annotated[int, Field(ge=0, le=65535)] | None = None
+    default_pct: Annotated[float, Field(ge=1, le=100)] = 100.0
+
+    @model_validator(mode="after")
+    def _inverter(self) -> Self:
+        if "." not in self.id:
+            msg = "id: must be `<vendor>.<model>`"
+            raise ValueError(msg)
+        _check_roles(self.roles)
+        if set(self.roles) != {INVERTER_LIMIT_ROLE}:
+            msg = f"roles: exactly one role, `{INVERTER_LIMIT_ROLE}`"
+            raise ValueError(msg)
+        matcher = self.roles[INVERTER_LIMIT_ROLE].matcher
+        modbus = self.driver == "kostal_modbus"
+        domain = "sensor" if modbus else "number"
+        if matcher.domain != domain:
+            msg = f"roles.{INVERTER_LIMIT_ROLE}: driver `{self.driver}` needs a `{domain}` entity"
+            raise ValueError(msg)
+        if modbus:
+            if (
+                self.limit_capability != "ac_limit"
+                or self.modbus_register is None
+                or not self.volatile
+            ):
+                msg = (
+                    "driver `kostal_modbus` needs `limit_capability: ac_limit`, "
+                    "`modbus_register` and `volatile: true`"
+                )
+                raise ValueError(msg)
+            if matcher.platforms != ["modbus"]:
+                msg = f"roles.{INVERTER_LIMIT_ROLE}: driver `kostal_modbus` reads a modbus sensor"
+                raise ValueError(msg)
+        elif self.modbus_register is not None:
+            msg = "`modbus_register` belongs to driver `kostal_modbus` only"
+            raise ValueError(msg)
+        if self.driver == "kostal_rest" and self.limit_capability is None:
+            msg = "driver `kostal_rest`: set `limit_capability`"
+            raise ValueError(msg)
+        if self.limit_capability == "ac_limit" and self.max is not None and self.max > 100:
+            msg = "max: an AC limit is at most 100 %"
+            raise ValueError(msg)
+        if self.max is not None and self.max < self.min:
+            msg = "max: below min"
+            raise ValueError(msg)
+        caps = set(self.capabilities)
+        offered = (
+            {Capability.EXPORT_LIMIT, Capability.AC_LIMIT}
+            if self.limit_capability is None
+            else {Capability(self.limit_capability)}
+        )
+        if caps != offered:
+            names = ", ".join(sorted(c.value for c in offered))
+            msg = f"capabilities: the driver provides exactly {names}"
+            raise ValueError(msg)
+        return self
+
+    def message_keys(self) -> list[str]:
+        return [self.name, *(r.description for r in self.roles.values())]
+
+    def adapter_spec(self) -> InverterAdapterSpec:
+        """The template as the inverter adapters see it (``suncore.devices`` imports no
+        template model)."""
+        return InverterAdapterSpec(
+            template_id=self.id,
+            driver=self.driver,
+            capability=self.limit_capability,
+            min=self.min,
+            max=self.max,
+            settle_s=float(self.settle_s),
+            volatile=self.volatile,
+            register=self.modbus_register,
+            default_pct=self.default_pct,
+        )
+
+
 Template = Annotated[
-    DeviceTemplate | TariffTemplate | ForecastTemplate | RegionTemplate | BatteryTemplate,
+    DeviceTemplate
+    | TariffTemplate
+    | ForecastTemplate
+    | RegionTemplate
+    | BatteryTemplate
+    | InverterTemplate,
     Field(discriminator="kind"),
 ]
 """Discriminated union on ``kind``."""
 
 TEMPLATE_ADAPTER: Final[
     TypeAdapter[
-        DeviceTemplate | TariffTemplate | ForecastTemplate | RegionTemplate | BatteryTemplate
+        DeviceTemplate
+        | TariffTemplate
+        | ForecastTemplate
+        | RegionTemplate
+        | BatteryTemplate
+        | InverterTemplate
     ]
 ] = TypeAdapter(Template)
 
@@ -1016,9 +1196,11 @@ KIND_MODELS: Final[dict[str, type[BaseModel]]] = {
     "forecast": ForecastTemplate,
     "region": RegionTemplate,
     "battery": BatteryTemplate,
+    "inverter": InverterTemplate,
 }
 
 __all__ = [
+    "INVERTER_LIMIT_ROLE",
     "KIND_MODELS",
     "KOSTAL_MODBUS_ROLES",
     "PRICE_ENERGY_FACTORS",
@@ -1044,6 +1226,7 @@ __all__ = [
     "ForceChargeSwitchControl",
     "ForecastSeriesSource",
     "ForecastTemplate",
+    "InverterTemplate",
     "ModbusRegisterMap",
     "ModeSelectControl",
     "NegativePriceRule",

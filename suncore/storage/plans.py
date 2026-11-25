@@ -121,6 +121,20 @@ class PlanSnapshotStore:
                 return snapshot
         return None
 
+    async def at(self, moment: datetime) -> PlanSnapshot | None:
+        """The snapshot that was valid at ``moment``: the newest readable one created at or
+        before it. ``None`` if there is none (never stored, or pruned)."""
+        rows = await self._db.fetchall(
+            "SELECT id, created_at, source, schema_version, payload FROM plan_snapshot "
+            "WHERE created_at <= ? ORDER BY created_at DESC, id DESC LIMIT 5",
+            (moment.astimezone(UTC).isoformat(),),
+        )
+        for row in rows:
+            snapshot = self._decode(row)
+            if snapshot is not None:
+                return snapshot
+        return None
+
     async def headers(self, limit: int = 50) -> list[PlanSnapshotMeta]:
         """Headers, newest first; ``limit`` is clamped to ``1..MAX_LIMIT``."""
         bounded = max(1, min(int(limit), MAX_LIMIT))

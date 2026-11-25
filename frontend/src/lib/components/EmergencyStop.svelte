@@ -3,6 +3,7 @@
   import { t, tDynamic } from '../i18n/index.svelte';
   import { control } from '../stores/control.svelte';
   import { live } from '../stores/live.svelte';
+  import Button from '../ui/Button.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
 
   const stopped = $derived(live.control?.emergency_stop ?? false);
@@ -17,23 +18,26 @@
 </script>
 
 {#if stopped}
-  <button
-    type="button"
-    class="btn resume"
+  <Button
+    variant="danger"
     disabled={busy}
-    data-testid="estop-clear"
+    testid="estop-clear"
     onclick={() => {
       control.clearError('emergency');
       confirmClear = true;
-    }}>{t('estop.clear')}</button
+    }}>{t('estop.clear')}</Button
   >
 {:else}
-  <button
-    type="button"
-    class="btn stop"
+  <!-- Phones show the short label; the accessible name is the full one and contains it. -->
+  <Button
+    variant="danger-fill"
+    icon="stop"
     disabled={busy}
-    data-testid="estop"
-    onclick={() => void control.emergencyStop()}>{t('estop.button')}</button
+    testid="estop"
+    onclick={() => void control.emergencyStop()}
+    ><span class="long">{t('estop.button')}</span><span class="short" aria-hidden="true"
+      >{t('estop.short')}</span
+    ></Button
   >
 {/if}
 
@@ -57,20 +61,24 @@
 </ConfirmDialog>
 
 <style>
-  .stop {
-    background: var(--error-color);
-    border-color: var(--error-color);
-    color: var(--card-background-color);
-    font-weight: 700;
+  .short {
+    display: none;
   }
-  .resume {
-    background: transparent;
-    border-color: var(--error-color);
-    color: var(--error-color);
-    font-weight: 700;
+  @media (max-width: 599px) {
+    .long {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+    .short {
+      display: inline;
+    }
   }
   .err {
-    color: var(--error-color);
-    font-size: 0.875rem;
+    color: var(--sc-error);
+    font-size: var(--sc-font-sm);
   }
 </style>

@@ -857,6 +857,12 @@ Read on 2026-10-14, `home-assistant/core` `dev` `c433453ac565f083a4515ec5edfbdbe
 `a2627a1ce37032ecd5c6509813f70cf5b95d32c2`: `supervisor/api/proxy.py`,
 `supervisor/homeassistant/api.py`.
 
+PR 6-K (2026-11-24) uses the `water_heater` reading of this verification for the heat-pump lift:
+state = `current_operation`, attributes `temperature` (target), `current_temperature`,
+`min_temp`, `max_temp`, `target_temp_step`, `operation_list`, `operation_mode`;
+`water_heater.set_temperature` with `temperature` (not range-checked by core, so the driver
+clamps to `min_temp`/`max_temp`). No new source was read.
+
 `UNVERIFIED` (needs a live HA): the Core-side user id behind the Supervisor proxy; the runtime
 error code for `subscribe_events` `state_reported`; whether the 5 s context window is hit in
 practice for `lg_thinq` pushes (timing of the cloud echo); `SUBSCRIBE_ALLOWLIST` content
@@ -935,3 +941,26 @@ was verified on 2026-10-23, see "Weather forecasts"); the vendor meaning of the
 Forecast.Solar `watt_hours_period` keys (start vs end of the period, API
 unreachable); the HA error for an unknown Modbus hub name; whether a plain Modbus
 hub can be added in the UI.
+
+## Notifications and notification actions (Phase 6, PR 6-E, 2026-11-24)
+
+The `home-assistant/core` source was **not reachable** in this session (the repository is not
+configured for the tools; no other mirror was tried). Used as documented in ADR-0016 (read
+2026-11-24 from `components/{persistent_notification,notify}/services.yaml`, the companion app
+documentation and `auth/permissions/events.py`):
+
+- `persistent_notification.create` (`message` required, `title`, `notification_id`) and
+  `.dismiss` (`notification_id`); `notify.send_message` (target: `notify` entities; `message`,
+  optional `title`; **no** documented button field, so SunCore sends buttons only through the
+  legacy service); legacy `notify.<service>` with `message`, `title` and `data`. Companion app:
+  `data.actions[]` with `action` and `title`; a tap fires `mobile_app_notification_action`.
+- `UNVERIFIED`: the payload of that event beyond `data.action` (SunCore reads nothing else), that
+  it carries nothing that identifies the sender (so the single-use token is the only
+  authentication), whether the Supervisor proxy's token may `subscribe_events` for it (it is not
+  in the non-admin `SUBSCRIBE_ALLOWLIST`; a refusal degrades to plain messages), whether
+  `notify.send_message` accepts a `data` field on current versions, and whether a legacy
+  `notify.<service>` call accepts `data.actions` for every service (it does for the companion
+  app). The list of legacy services (`get_services`) is not read: the settings page asks for the
+  name, entities come from the entity cache.
+- Wire shape used (the generic `call_service` command, `service_data`/`target`, as in "Service
+  calls" above) and `subscribe_events` with `event_type` (as for the registry events).

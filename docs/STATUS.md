@@ -3,14 +3,1073 @@
 Read this first in every session, then `CLAUDE.md` (once it exists) and the
 ADRs relevant to your task. Keep it short; history lives in git.
 
-**Last update:** 2026-10-28 · **Phase:** 4 implemented in the stacked PRs 4-A (contracts), 4-B
-(storage), 4-C (tariffs), 4-D (PV forecast), 4-E (load forecast and risk model), 4-F (planner and
-runtime), 4-G (battery control), 4-H (UI and docs, WP11 + WP13) and the optional 4-I (ML load
-model, WP12); waiting for the maintainer's acceptance on his system. Phase 3 (3-A `phase-3/a-safety`,
-3-B `phase-3/b-controller`, 3-C `phase-3/c-ui`) is implemented, waiting for the maintainer's shadow
-test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
+**Last update:** 2026-11-25 (Phase 7 integrated: 7-A to 7-O and 7-Q on one branch, 7-P release
+preparation; state: **1.0 release candidate**, not tagged) ·
+**Phase:** 7, final integration (7-P). Phases 1 to 6 are built; Phases 3 and 4 are merged into
+`main`, the Phase 5, 6 and 7 stacks wait for review and merge (order: "1.0 candidate" below).
+The acceptance on the maintainer's system (plan phase 7, section 6, H0 to H7) is still open,
+because no PV surplus, wallbox, heat pump, §14a box or backup switch was available in the
+sessions; 1.0 follows after H7 unless question 10 decides otherwise ·
+**Branch:** `phase-7/p-release` (integration of all Phase 7 branches on `phase-7/n-hygiene`)
+
+## 1.0 candidate (7-P, branch `phase-7/p-release`)
+
+**What is in it.** Everything of Phase 7 on top of the Phase 6 line: 7-A plan and ADRs, 7-B
+Phase 5 tail, 7-C demo flex devices, 7-D design system and shell, 7-E Now, 7-F Plan and
+Analysis, 7-G Settings and wizard, 7-H HA site sensors and event types, 7-I diagnostics and heat
+pump live values, 7-J inverter limit verification (**CS**), 7-K late-car fix (planner), 7-L docs
+site, 7-M Weblate (repo side), 7-N release readiness and community hygiene, 7-O security review
+with the SEC-13/15/16 fixes (**CS**), 7-Q Phase 6 fields in Settings, and the MQTT
+discovery fix #79 (`phase-7/fix-mqtt-test-timing`). Merge commits record every conflict.
+
+**Integration fixes on this branch** (each its own commit):
+
+- `fix(frontend)`: the 7-J verification commands called `fetch` directly and so missed the
+  SEC-13 header; on the integrated line every start, confirm and abort was refused with 403. The
+  e2e suite could not see it (the Playwright context sets the header for every request); a unit
+  test now covers it.
+- `fix(e2e)`: the wizard screenshots failed since 5-F (a pasted line used the plan shot's
+  variable), so the docs still had old wizard images; found while regenerating the set.
+- `ci(bench)`: `bench-arm.yml` (7-N) pinned by SHA like every other workflow (7-O, SEC-08).
+- Docs: troubleshooting points at the diagnostics panel (7-L predates 7-I); navigation names of
+  the new shell in the guides (History, Decision log and What-if are tabs under Analysis, expert
+  mode is in Settings, Advanced); markdownlint fixes of the merged plan.
+
+**Release preparation (WP15):** release notes en/de (`docs/user/<lang>/release-notes.md`) with
+the behaviour changes, the simulator-only list and the upgrade paths; security page en/de with
+the SEC-22 and SEC-14 outcome (closes "user-guide notes on MQTT ACLs and backup encryption");
+`DOCS.md` of both apps rewritten for 1.0 (five Settings pages, diagnostics, SEC-13 header,
+"Updating from 0.2.0", current "What is not there yet"); final screenshot set regenerated with
+the `demo-screenshots` skill. `prepare-release` repo-side items: see below.
+
+**Behaviour changes for the release notes** (all in `docs/user/*/release-notes.md`):
+
+- An inverter section with `limit_verified: true` but no `verified_identity` counts as
+  unverified; the limit is capped at assisted until the verification test passes; an import
+  resets the flag (7-J).
+- Every non-GET request needs `X-SunCore-Request: 1` (403 `api.error.request_header_missing`);
+  only `POST /api/v1/control/emergency-stop` is exempt, clearing is not (7-O, SEC-13).
+- The `homeassistant_config` map is gone (SEC-07); body caps (413) on every JSON route;
+  `proxy_headers=False`; `nosniff` and `Referrer-Policy` (7-O).
+- Database `suncore.db` schema 6 and `timeseries.db` schema 3: 0.2.0 refuses them (7-N), so
+  the way back is a backup.
+- The stable app has no `stage: experimental` any more (7-N part 2).
+
+**Checks on this branch** (2026-11-25, local, x86_64):
+
+- `./scripts/check.sh`, Python part: ruff, format, mypy (273 files), and the generator checks
+  (OpenAPI, reasons, schemas, compatibility, backend catalogue, beta translations, parameters,
+  templates) green; every generator re-run after each merge changed nothing. pytest: **10,138
+  passed, 1 skipped**, coverage 95 % overall and 97 % on the control-critical packages (gate
+  80 %). The serial `check.sh` run was not completed on `p-release`; the count comes from an
+  ad-hoc `pytest -n 4` run with the xdist plugin (not a project dependency; nothing was added)
+  and coverage, same test selection. CI runs the serial command.
+- `pytest -m simulator`: **486 passed**.
+- Frontend: `npm ci`, `gen:api:check`, `check:tokens`, `format:check`, `check` (svelte-check, 0
+  errors, 0 warnings), `lint`, `test` (**511 tests in 59 files passed**), `build` green;
+  **`size` fails** (bundle below).
+- Playwright (local Chromium): **501 passed, 360 skipped** (project-specific skips and the
+  screenshot spec), 0 failed.
+- `mkdocs build --strict`, markdownlint (0 errors), actionlint (clean).
+
+**Bundle (`npm run size`):** standard path **256.9 kB** gzip, budget 250 kB (**over by 6.9
+kB**; 7-G had 244.1, 7-Q alone measured 252.4, 7-I added the diagnostics chunk); first paint
+124.9 of 125 kB; expert extras 25.5 of 30 kB; ECharts core + view 196.2 and 192.0 of 240 kB.
+The budget is unchanged; the decision is question 34. Until then `npm run size` and so CI fail
+(the e2e job runs after the size step).
+
+**`prepare-release` checklist, repo side:**
+
+1. `./scripts/check.sh`: see "Checks" above; CI, App lint, docs lint and CodeQL have not run on
+   this branch (not pushed).
+2. Release PR CHANGELOG: no release-please PR for 1.0 yet (needs `release-as` or a
+   `Release-As: 1.0.0` footer, question 25).
+3. App versions: untouched (release-please bumps the stable app, `bump-beta` the beta).
+4. `addon/suncore/CHANGELOG.md`: copied from the generated CHANGELOG at release time; not
+   pre-written (Home Assistant shows the file, an unreleased entry would mislead).
+5. STATUS: this section.
+6. Breaking changes: the migration note is in both `DOCS.md` ("Updating from 0.2.0");
+   `breaking_versions` is **not** set, the maintainer decides (question 26; Supervisor
+   behaviour `UNVERIFIED`).
+7. Pins checked 2026-11-25 against the registries: `eclipse-mosquitto:2.0.23` index
+   `sha256:6a332cc7…2ad9` is still the newest `2.x.y`, and `ghcr.io/pxljake/suncore:0.2.0`
+   index `sha256:05641188…3b32` is still the last release; both pins are current. Base and `uv`
+   image digests are open (question 33).
+8. Freezing the 1.0 database for the migration tests: after tagging.
+
+**Recommended merge order into `main`** (the same order this branch merged them, so each
+conflict has the resolution recorded in its merge commit here): Phase 5 stack, Phase 6 stack,
+then the stacked line 7-A, 7-B, 7-C, 7-D, 7-E, 7-F, 7-G, 7-L, 7-M, 7-N part 1, 7-N part 2
+(`n-hygiene`); then 7-J and 7-Q; 7-I backend and 7-I frontend; 7-H and 7-O (7-O contains 7-H
+and the 7-I backend); 7-K; #79 (`fix-mqtt-test-timing`); last 7-P. Merge commits, not squash:
+the branches are stacked. Alternative: review the PRs, then merge only `phase-7/p-release`,
+which contains all of them with the conflicts resolved.
+
+**Open before 1.0:** the maintainer acceptance H0 to H7 (plan section 6); the bundle budget
+(question 34); the 1.0 numbering (`release-as`, question 25) and `breaking_versions`
+(question 26); the final `reviewer` pass on the whole Phase 7 diff (WP15; not done in this
+session); the dashboard recipe (WP11, still a placeholder page); the first CI run of the upgrade
+test, the loaded smoke test, the arm benchmark, the docs jobs and the SHA pins.
+
+**Control-safety reviews done:** 7-J had independent reviews (approved with conditions, then approved
+after the fixes cf7e557 and 73a66de); 7-K was approved earlier with follow-ups F1 to F3 and I1
+done (0f05f53); 7-Q was approved after fixes; a short final review of `p-release` found no
+safety blocker. These reviews do not replace the hardware acceptance H0 to H7, which stays open.
+
+**Open maintainer questions** (plan section 10; the recommendation applies until answered):
+needing an action from the maintainer: 7 and 24 (Weblate project), 10 (when 1.0), 14 (Pi 4
+measurement), 15 (version jump), 17 (Discussions, `main` reachable), 23 (Plesk docs hosting),
+25 (`release-as`), 26 (`breaking_versions`), 27 and 33 (image digests at each release), 34
+(bundle budget). Settled by the implementation, confirmation only: 2 (review stops held), 12
+(7-K), 19 and 28 (password storage kept), 21 (X3 waiver as built in 7-J), 29 (config map
+removed), 31 (SEC-13 built). Defaults that stand unless changed: 1, 3 to 6, 8, 9, 11, 13, 16,
+18, 20, 22, 30, 32. Further open questions live in the review pages (`docs/design/review-7*.md`)
+and in plan section 8 (7-H: `savings_today` baseline, forecast error in W).
+
+**Remaining `UNVERIFIED`:** the table "Known problems and `UNVERIFIED` items" below is the
+complete list. The groups that matter for 1.0: everything on hardware (EV, evcc, heat pump,
+programs, grid shedding, §14a, island, inverter limit and its classification, Kostal Modbus and
+REST details); the HA surface on a running HA (MQTT payload defaults, device classes, Supervisor
+proxy commands); the CI jobs that never ran (upgrade test, loaded smoke, arm benchmark, docs
+zip and deploy, Weblate sync, SHA pins); the hosted docs site and Weblate project; the HA menu
+names in the guides; budgets on aarch64; the HA backup encryption default; both ingress hops
+forwarding `X-SunCore-Request`.
+
+## Phase 6 at a glance
+
+What exists (all behind shadow mode, none of it has run on hardware):
+
+- **HA surface:** MQTT discovery with a command path (modes, emergency stop, overrides, replan;
+  raising refused by default), read-only views of grid, battery, EV, heat pump and programs, and
+  notifications (persistent, push, confirm and reject buttons, quiet hours, daily cap, island,
+  §14a and EV target at risk); backend ICU catalogue en/de.
+- **Grid:** one resolver for the import limit, export limit and §14a budget; peak shaving with a
+  monthly peak and a shed order; §14a and island caps; export chain with an inverter limit (capped
+  at assisted until `limit_verified`; since 7-J set only by the verification test).
+- **Devices:** wallbox/EV (modes `off`, `now`, `min_pv`, `pv`, `target`, phase switching), evcc as
+  actor, heat pump (SG-Ready 2/3, state 4 opt-in, set-point lift, RC model and COP), shiftable
+  programs (plug, remote switch, notify).
+- **Safety:** invariant families G1-G6, X1-X6, E1-E9, L1-L5, H1-H5, P1-P6 with property tests and
+  scenarios; `NOT_YET_SUPPORTED_KINDS` is empty; every PR has a `control-safety` sign-off table.
+- **Docs:** user guides en/de for entities, notifications, grid limits, EV and evcc, heat pump
+  and programs; architecture updated for Phases 5 and 6; acceptance table in plan §9.
+
+Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
+
+- **Phase 7 - 7-P, integration and release preparation (branch `phase-7/p-release`; WP15)** -
+  details, checks and open items: "1.0 candidate" above and plan section 8 (7-P).
+- **Phase 7 - 7-N part 2, community hygiene (branch `phase-7/n-hygiene`, on 7-M with 7-N part 1
+  merged; `docs-writer`)** - details: plan section 8 (7-N part 2):
+  - Merge: both branches added questions 23 to 25; the 7-N ones are now 25, 26, 27.
+  - Issue forms point to the diagnostics export, `.github/labels.yml`, `SECURITY.md` and
+    `CONTRIBUTING.md` aligned, README with badges, features and install steps, `stage:
+    experimental` removed from the stable app. Code of conduct, security policy and forms
+    already existed.
+  - `UNVERIFIED`: the diagnostics route and panel are 7-I and not on this branch; the
+    `my.home-assistant.io` badge URL; the docs site; `NOTICE` does not name echarts and
+    intl-messageformat and promises a third-party notice no script generates.
+- **Phase 7 - PR 7-M, WP12 Weblate onboarding, repository side (branch `phase-7/m-weblate`, on
+  7-G with 7-L merged; `i18n-sync`)** - no app code changed; the Hosted Weblate project is the
+  maintainer's (plan section 10, question 24, in German):
+  - `docs/i18n-weblate.md`: component values with sources. Verified against the Weblate source:
+    format ids `json` (flat keys) and `yaml` (not `ruby-yaml`), ICU flag `icu-message-format`,
+    `json_indent` 2 and no YAML line wrapping needed, a third component `frontend-params`
+    (the default language filter skips `params.en.json`), VCS `GitHub` + push branch `weblate`.
+  - `scripts/sync_beta_translations.py` (+ test, `--check` in `check.sh` and `ci.yml`): the beta
+    app's option translations are a byte copy of the stable app's while the option sets are equal.
+  - `.github/workflows/weblate-sync.yml`: on pull requests from `weblate` (same repository
+    only), empty workflow permissions and `contents: write` for the one job, actions pinned by
+    SHA like 7-O; regenerates the backend catalogue (a message outside the ICU subset fails with
+    the key list), syncs the beta translations, pushes the result, runs `check_reasons.py`.
+  - CONTRIBUTING, en/de "Translate" pages, README badge (commented placeholder), the
+    sync-translations skill, ADR-0020 decision 4 updated. Merge of 7-L: STATUS and plan section 8
+    merged from both sides, review shots stay in `docs/assets/screenshots/`.
+  - `UNVERIFIED` until the first Weblate pull request: the workflow itself (never run), JSON
+    umlauts unescaped, key order of new strings, that Weblate's `yaml` keeps Home Assistant's
+    layout (`App lint`), the free Libre plan, the exact menus. `WEBLATE_SYNC_TOKEN` is optional.
+- **Phase 7 - PR 7-Q, Phase 6 fields in Settings (frontend only; branch
+  `phase-7/q-phase6-fields`, on 7-J; `frontend-engineer`, **CS** read of the field semantics)** -
+  no backend change, the fields and ranges are the backend's own:
+  - Settings -> Devices: per device `para14a` (checkbox) and `shed_rank` (integer 0-10,000, empty =
+    reverse priority) in one card, saved with the whole `devices` section (`PUT`); the island keep
+    list (`grid.backup.keep_devices`) as a checkbox list, saved with the `site` section, only
+    while a backup entity is configured.
+  - Settings -> Home Assistant: the manual MQTT broker (`broker`, `host`, `port` 1-65,535, `tls`,
+    `username`, `password`); the password is write-only (never filled from the API, an empty
+    field sends the mask so the stored secret is kept, "Remove" sends none).
+  - Validation errors of the backend (422) show at the field; strings in `p6.*` (en, de).
+  - Bundle: standard path 247.5 -> 252.4 kB, **over the 250 kB budget by 2.4 kB** (see plan
+    section 8, 7-Q); first paint 122.7 -> 123.8 kB, expert extras unchanged.
+  - Review fixes: shared lock and fresh read for the two MQTT saves, keep list pruned when a
+    device is deleted (and unknown ids removable), corrected shed and §14a texts (plan section 8,
+    7-Q).
+  - Screenshots `docs/assets/screenshots/7q/`; user pages `grid-limits.md` and
+    `home-assistant-entities.md` (en, de) updated.
+- **Phase 7 - PR 7-J, inverter limit verification (WP8, ADR-0018 addendum; branch
+  `phase-7/j-inverter-verify`, on 7-G; `control-safety`, **CS**)** - no new writer:
+  - `core/verification.py`: `VerificationWindow` (id, opened, expiry at most 600 s, lowest
+    limit), the only way to waive X3. `GateInputs.verification_window` (additive) is filled by
+    the gate from its own register; a provider value is ignored.
+  - `safety/`: `window_waives_chain` (only an active window, only `Origin.USER`, only intents
+    `verify:<window id>:...`, only at or above `lowest`; X1, X2, X4, X5, X6 never waived). The
+    gate opens and closes the window (only while the inverter is effectively assisted, no
+    emergency stop, an actuator exists), releases a limit written under it when it closes or
+    expires (`safety.verification_window_closed`) and clears it on emergency stop, recover
+    (restart), shutdown, handover and connection loss.
+  - `app/verification.py`: the procedure (preconditions, 2 min stable sunshine, proposal,
+    one confirmed USER write, observe and classify export or AC semantics, release and read-back,
+    recovery check). It only calls `gate.submit`, `gate.release_device` and the window methods;
+    an AST test keeps it so. While it runs the export chain waits (`verify.running`).
+  - `limit_verified`: set only by the procedure (`ConfigStore.record_inverter_verification`),
+    bound to the adapter identity (`verified_identity`); a PUT cannot raise it, an import resets
+    it; a failed test with evidence (semantics mismatch, export not following, read-back
+    mismatch, baseline not restored) resets it. The last outcome is stored in
+    `inverter.last_verification`.
+  - API `GET/POST /api/v1/inverter/verification`, `POST .../confirm`, `POST .../abort` (409 with
+    reason keys). Panel: `InverterVerify` card and dialog in setup step 5 and Settings, Your
+    system; closing the dialog while the test runs aborts it.
+  - Simulator: limiter with physical export/AC semantics and an inert mode, load events;
+    scenarios `inverter_verify_rest`, `inverter_verify_modbus`; 14 scenario tests (pass,
+    mismatch, inert, read-back failure, load rise, disconnect, emergency stop, restart, abort,
+    window expiry). Deviations in plan section 8 (7-J).
+  - Review fixes (CS F1-F4): a re-test judges X2 as for an unverified limit while the window
+    is open or its limit is held; `confirm` stops when something else ended the procedure
+    during the write and `_finish` is idempotent; the export chain waits only from the write
+    on; a window cannot be re-opened (no extension past 600 s).
+  - **Behaviour change (for the release notes, plan WP15):** a stored `inverter` section with
+    `limit_verified: true` but no `verified_identity` (written by a hand edit or an import
+    before 7-J; the panel never set it) counts as **unverified** after the update, so the
+    inverter limit is capped at assisted until the verification test passes. Release notes
+    text: en "Inverter limit: run the verification test again after updating; a flag set by
+    hand is no longer trusted and the limit runs at most in assisted mode until the test
+    passes." de "Wechselrichter-Limit: Führe nach dem Update den Verifikationstest erneut aus;
+    ein von Hand gesetztes Flag gilt nicht mehr, und das Limit läuft höchstens assistiert, bis
+    der Test bestanden ist."
+- **Phase 7 - PR 7-G, Settings and wizard (frontend; branch `phase-7/g-settings`, on 7-F;
+  `frontend-engineer`)** - review stop 2; stores, API calls, validation and step ids unchanged:
+  - Settings: an index of five groups (Your system, Devices, Goals and operating mode, Home
+    Assistant, Advanced) with one page each (`#/settings/<page>`); two panes on desktop, index
+    then page on phones and tablets. Advanced holds expert mode (moved out of the top bar),
+    earlier versions, backup and "About SunCore" (version, data source, licence, link), and the
+    slot for the 7-I diagnostics panel.
+  - Wizard: the ten steps in four stages (stage bar, grouped step list, kicker "Your system ·
+    step 3 of 10"); one sticky footer; no card inside a card (global rule); the grid step's
+    optional parts behind two `Disclosure`s that open when something in them is set.
+  - Bundle: one lazy chunk per wizard stage instead of per step, the settings pages in the one
+    Settings chunk, backend-only messages left out of the browser catalogues
+    (`scripts/backend-only.mjs`). Phase 6 panel fields (`para14a`, `shed_rank`, island keep
+    list, manual broker) are not in this PR (question 2 in `review-7g.md`); 7-Q adds them.
+  - Screenshots `docs/assets/screenshots/{before-7g,after-7g}/`; deviations in plan section 8
+    (7-G); six questions in `review-7g.md`.
+- **Phase 7 - PR 7-F, Plan and Analysis (frontend; branch `phase-7/f-plan-analysis`, on 7-E;
+  `frontend-engineer`)** - presentation only (stores, API calls, routes, test ids unchanged):
+  - Plan: one toolbar (24 h · 48 h · Today, replan, planner run line, "Why this plan?"), look
+    back as a collapsible card, one chart card with the usage hint, the text alternatives and
+    the CSV links inside; next actions beside two collapsible forecast cards with status chips
+    (Open-Meteo credit always visible).
+  - History: period switch with arrows, figures as three `Stat` group cards (energy,
+    self-sufficiency, costs with the savings attribution), chart cards ending in one row (table,
+    PNG, CSV), one `.data-table` style.
+  - Decision log: collapsible filters with an active count (closed on phones), CSV export at the
+    list, the shared shadow note once, outcomes as tinted tags. What-if: header and a reading
+    width for the form.
+  - `lib/ui` in one `ui` chunk (budgets kept); `Card` chevron leads the title; icons prev, next,
+    refresh, download, filter. E2E helper `openCard`.
+  - Screenshots `docs/assets/screenshots/{before-7f,after-7f}/`; deviations in plan section 8
+    (7-F); four questions in `review-7f.md`.
+- **Phase 7 - PR 7-E, Now view and cards (frontend; branch `phase-7/e-now`, on 7-D with 7-C
+  merged; `frontend-engineer`)** - presentation only (stores, API calls, routes and the safety
+  paths unchanged):
+  - *Energy now* card: the flow nodes are the text (one list item per flow, values once, the
+    four duplicate tiles gone); surplus figures in the same card, the "would run" explanation in
+    a `Disclosure`.
+  - Battery card: SoC with a bar, power and state; compact mode switch; limits and "Why?" in a
+    quiet footer. Next actions: a three-entry timeline whose rows open the reasons (also on the
+    Plan view). Device, EV, heat pump and program cards on `Card` with equal heights, the mode
+    as `ToggleGroup` (`aria-pressed`, no arrow-key selection), "Why?" and "Take over manually"
+    in `CardFooter`. Latest decisions: four entries, a note all share shown once.
+  - Reasons show device names instead of ids and start with a capital (`tReason`); free surplus
+    never below 0 W; an adjustable load at level 0 reads "Off".
+  - New `ui/ToggleGroup`, `ui/CardFooter`, icons house/battery/grid, global `.facts` and
+    `.kicker`; `EnergyFlow` and `SiteSummary` removed (`FlowList` stays for the wizard summary).
+  - Screenshots `docs/assets/screenshots/after-7e/`; deviations in plan section 8 (7-E).
+- **Phase 7 - PR 7-D, design system and shell (frontend; branch `phase-7/d-design-shell`, on
+  7-B; `frontend-engineer`)** - review stop 1, presentation only (stores, API calls, routes
+  unchanged):
+  - Tokens `frontend/src/lib/theme/tokens.css` (HA variables as input, semantic `--sc-*` tokens,
+    light and dark, `color-mix()` tints with static fallbacks), mirror `tokens.ts`; guard
+    `npm run check:tokens` (verify, `check.sh`, CI) and a contrast test of every pair.
+  - Components in `frontend/src/lib/ui/` (Card, SectionHeader, Stat, Chip, Button, FormRow,
+    EmptyState, Loading, Banner, SegmentedControl, Disclosure, Icon); global classes restyled on
+    the tokens.
+  - Shell: four destinations (Now, Plan, Analysis with tabs History, Decisions, What-if,
+    Settings), sticky top bar with the emergency stop on every size, bottom bar on phones; hash
+    routes unchanged. Chart theme `frontend/src/lib/charts/theme.ts`.
+  - Before/after screenshots and the German review page `docs/design/review-7d.md`;
+    deviations in plan section 8 (7-D). Bundle: first paint 118.9 kB, standard path 243.7 kB,
+    expert extras 25.4 kB.
+- **Phase 7 - PR 7-L, WP10 documentation site (branch `phase-7/l-docs-site`, on 7-B;
+  `docs-writer`)** - docs, generators and CI only, no code of the app changed:
+  - Spike: MkDocs 1.6.1 + Material 9.8.2 + `mkdocs-static-i18n` 1.3.1 folder layout builds with
+    `--strict`, shares assets and switches languages; no fallback needed. One rule found: no
+    same-named Markdown file in the root of `docs/user` (plan section 8, 7-L).
+  - `mkdocs.yml` (`docs_dir: docs/user`, Material light/dark, search, Mermaid; `site_url` from
+    `SUNCORE_DOCS_URL`), a `docs` dependency group (locked), screenshots moved to
+    `docs/user/assets/screenshots/`, links out of `docs/user` are absolute GitHub links.
+  - Generators write per language: `docs/user/<lang>/reference/parameters.md` and
+    `docs/user/<lang>/compatibility.md` (German now complete); stubs stay at
+    `docs/reference/parameters*.md`; `docs/user/compatibility.md` is gone.
+  - New pages en and de: index, concepts, FAQ, troubleshooting, translate, release notes and
+    upgrade, security, and a dashboard recipe **placeholder** (WP11 is still to do).
+  - CI: `mkdocs build --strict` in `docs-lint.yml`; on stable releases `build.yml` attaches
+    `suncore-docs-<version>.zip` (`docs-zip`) and, only with the `DOCS_DEPLOY_*` secrets, syncs the
+    site to the maintainer's Plesk server by rsync over SSH (`docs-deploy`). No GitHub Pages, no
+    mike. Never run yet; setup steps in plan question 23.
+  - `UNVERIFIED`: both release jobs, the hosted site, Plesk menu names, a followed test of the
+    how-tos.
+- **Phase 7 - 7-N part 1, release readiness (branch `phase-7/n-release`, on 7-B;
+  `qa-engineer`, `ha-integration`)** - details and deviations: plan section 8 (7-N):
+  - Frozen `suncore_v1.sql` and the 0.2.0 export, generated from the tag by
+    `scripts/gen_release_fixtures.py` (only `v0.2.0` exists; v2 to v6 and the time-series
+    database were never released, so no dumps for them); upgrade chain, export import, refusal
+    of newer databases, hypothesis tests for the four section migrations
+    (`tests/storage/test_release_upgrade.py`).
+  - CI: `scripts/upgrade_test.sh` (0.2.0 image by digest, seeded through its API, candidate on
+    the same volume) and `LOADED=1 scripts/smoke_image.sh` (pinned Mosquitto, 10 min) as steps of
+    `build.yml`; `bench-arm.yml` on `ubuntu-24.04-arm`; `SUNCORE_DEMO_MQTT=1`; `beta_version.py`
+    reads `release-as`. None of the three CI jobs has run yet (no Docker in the session).
+  - **Memory, measured locally** (full app, demo with flexible loads, battery control, MQTT to the
+    test stub broker, 75 entities, a replan per minute for 10 min, `/proc` RSS, x86_64, CPython
+    3.13, merge of 7-N and 7-C in a scratch tree): 132.3 MiB after the broker connected, 136.4 MiB
+    after 10 min (peak = final, growth about 0.4 MiB/min early, flat from minute 6); limit 300.
+    Docker's cgroup figure will be higher (page cache, s6); the loaded smoke test in CI is the
+    authoritative reading, also on aarch64.
+
+- **Phase 7 - PR 7-I, diagnostics panel and heat pump live values (frontend half; branch
+  `phase-7/i-diagnostics-frontend`, on 7-G with the backend half merged; `frontend-engineer`)**:
+  - *Settings > Advanced > Diagnostics* (`DiagnosticsPanel.svelte`, loaded on demand): a collapsible
+    preview of `GET /api/v1/diagnostics` (facts, one collapsible, keyboard-scrollable JSON block per
+    section), a download button (`suncore-diagnostics-<date>.json`, the exact export that was
+    previewed), a note that the export is pseudonymised and must be read before posting.
+  - Heat pump card (Now): COP at the current outdoor temperature (chip "assumed" while
+    `cop_assumed`), thermal model fit error, whether the planner uses it, days of history; falls
+    back to the curve range without an outdoor value.
+  - en/de keys (`diag.*`, `hp.*`), Vitest (panel, presenter, card), Playwright `diagnostics.spec.ts`
+    with axe on desktop, phone and tablet. Bundle: first paint 122.3 kB, standard 247.6 kB, expert
+    extras 25.6 kB. Screenshots: `docs/assets/screenshots/after-7i/`.
+- **Phase 7 - PR 7-O, security review 1.0 (WP14; branch `phase-7/o-security`, 7-I + 7-H;
+  `reviewer`)** - `docs/security/review-1.0.md`, 26 findings (SEC-01 to SEC-26). Nothing in
+  `safety/` or `controller/` changed, and no MQTT command changed its effect:
+  - Fixed:
+    - a rejected or corrupt `mqtt` section no longer writes the password into the log or a
+      traceback (Pydantic `input_value`);
+    - broker passwords are registered with the log redaction;
+    - the redaction covers password-like keys and `user:password` in URLs;
+    - `SUNCORE_ALLOW_ANY_PEER` logs a warning;
+    - uvicorn ignores `X-Forwarded-For`;
+    - every JSON route has a body cap, and a test guards it;
+    - `nosniff` and `Referrer-Policy: same-origin`;
+    - the unused `homeassistant_config` map is removed from both apps, with a least-privilege
+      packaging test;
+    - actions are pinned by commit SHA (`helpers/info` was on `master`);
+    - CodeQL covers JavaScript/TypeScript;
+    - Dependabot watches npm;
+    - certifi and opentelemetry-api are bumped, and `pip-audit` is clean.
+  - Fixed with the `control-safety` sign-off (plan section 8, 7-O):
+    - SEC-13: every write needs `X-SunCore-Request: 1` (403
+      `api.error.request_header_missing`), the SPA always sends it; only *setting* the
+      emergency stop is exempt, clearing it never is; both ingress hops forward the header
+      (source read, `UNVERIFIED` on a live system);
+    - SEC-15: MQTT emergency-stop messages coalesce into the run in flight only while the stop
+      is in effect, so a flood costs one repeat; a stop after a clear starts its own run at once,
+      and a session teardown waits for a stop run instead of cancelling it (review F1, F2);
+    - SEC-16: the first refusal per entity and reason is logged, then a count every 60 s;
+      unknown object ids share one bucket (review F3).
+    - The independent `control-safety` review approved with conditions F1 to F3 (and wording
+      F6); all are fixed.
+  - Open after 1.0: CSP, a non-root user, an own AppArmor profile, image digests (`BUILD_FROM`,
+    `uv`) and ECharts 6. The verification window is pending 7-J.
+  - Questions 28 to 33 (23 to 28 on the 7-O branch) are in plan section 10; deviations and
+    `UNVERIFIED` are in plan section 8 (7-O).
+- **Phase 7 - PR 7-I, diagnostics export and heat pump live values (backend half; branch
+  `phase-7/i-diagnostics-backend`, on 7-B; `backend-engineer`)** - nothing in `safety/` or
+  `controller/` changed; `frontend/` only by the regenerated OpenAPI types:
+  - `GET /api/v1/diagnostics` (BRIEF section 5, plan WP7): versions (app, HA core, schemas,
+    config sections), architecture, the configuration through a field allowlist, mapped entities,
+    connection, watchdog and planner state, solver status and times, `timeseries.db` state and
+    `size_report`, the newest 200 decisions and the newest 500 warning-and-error log lines.
+    Entity ids, device names and HA area names are salted per-export pseudonyms (the same one in
+    configuration, decisions and logs); secrets are masked; coordinates, tokens, passwords and
+    MQTT credentials never appear. Missing sources are `null` and listed in `unavailable`.
+  - New: `app/diagnostics.py` (builder), `app/pseudonyms.py`, `app/logbuffer.py` (in-memory
+    warning ring attached by `configure_logging`), `app/diagnostics_collect.py` (reads the
+    runtime), `storage.timeseries.probe_timeseries_file` (the too-new state, read only; closes the
+    4-B / 4-H follow-up on the backend side).
+  - Control state, additive: `DeviceControlState.heat_pump` with the COP at the current outdoor
+    temperature (`cop_assumed` while the curve is the generic one) and the thermal model quality
+    (fit error, history days, `used_by_planner`).
+  - Tests: allowlist and pseudonym unit tests, a demo-runtime export seeded with an MQTT password,
+    a Tibber token, a config entry id, a home name and coordinates that asserts none of them and
+    no real entity id, device id or name, or HA area name appears, consistent pseudonyms across
+    config, decisions and logs, the ring, the probe, the API route, and the heat pump values.
+  - The frontend half is below (7-I frontend). Deviations and `UNVERIFIED`: plan section 8, 7-I.
+- **Phase 7 - PR 7-H, WP6 HA surface completion (branch `phase-7/h-ha-surface`, on 7-B;
+  `ha-integration`)** - read only, no command path, nothing in `safety/` or `controller/`:
+  - Five site sensors announced: `plan_cost_today` (the plan's priced intervals of the local
+    day), `savings_today` (today's `day_summary` preview, saving against a house without PV),
+    `autarky_today` (same row, in %), `pv_forecast_error` (newest `accuracy_day` day of the
+    blended PV forecast, n-weighted MAE) and `next_action` (first busy plan interval, rendered by
+    the backend ICU renderer in the configured language, at most 255 characters). The day values
+    are read in the background at most every 5 minutes; a missing source is "unknown".
+  - `pv_forecast_error` is now a `power` sensor in W, not `%`: `accuracy_day` has no actual
+    energy to divide by. `savings_month` stays unannounced (no month sum yet).
+  - MQTT event types with producers: `island_start/_end`, `para14a_start/_end`,
+    `program_start_now`, `program_done`, `cheap_window_start/_end`, `ev_target_at_risk`. They
+    are derived from the same `NotifyEvent`s as the pushes (`notify/signals.py`), independent
+    of quiet hours, the daily cap and category switches. `cheap_window_end` is new in the rule
+    engine. `proposal_expired` still has no producer; a program that was missed or whose
+    outcome is unknown stays push only.
+  - Device classes `plug`, `battery`, `timestamp`, unit `K` without a class, `monetary` and
+    `power` checked against the HA core source (`research/mqtt-discovery.md`).
+  - Deviations, `UNVERIFIED` and questions: plan section 8 (7-H).
+- **Phase 7 - PR 7-K, WP9 late-car gap (branch `phase-7/k-late-car`; `qa-engineer` root cause,
+  `optimizer-engineer` fix)** - planner only, nothing in `safety/` or `controller/` changed:
+  - Cause: each plan booked its whole first quarter although most of it had passed
+    (`docs/research/late-car-gap.md`). Fix: `planner/slots.py`, `PlannerInputs.hours`; every
+    energy and cost term is `power * hours[t]`, the first slot counts only the time left after
+    `now` (battery, EV, programs resampled from `now`, thermal step, grid slack, costs; LP and
+    heuristic alike). A remainder below 1 s counts as 1 s; the slot is never dropped.
+  - Simulator: the EV harness ticks the planner every step (service cadence); a scenario with
+    every plan 14.5 min late is the regression. Late car 81.15 % (service cadence) and 79.94 %
+    (late plans) of 80 %, before 77.35 %; assertion raised to 79 %, `xfail` removed.
+  - Tests: Hypothesis property "energy in slot 0 <= max power x remaining hours" (EV and
+    battery, LP and heuristic), a 1-microsecond remainder, and a late plan whose infeasible
+    target is reported and announced once ("EV target at risk").
+  - No second notification rule ("plan meets, controller misses"): decided in plan section 8
+    (7-K).
+- **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
+  `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
+  - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable
+    source is "no information"), start at once, end after 120 s without the signal (flicker
+    gives one start and one end); "EV target at risk" from the newest plan's
+    `planner.ev.target_shortfall` (plan made after the target was set, held 10 min, once per
+    target). Quiet hours and the daily cap as before; safety ignores both.
+  - `notify.quiet_hint` (en, de) now says what the rules do: proposals, charging targets, cheap
+    windows, "finished" and "did not start" are dropped in quiet hours; errors, safety, "start
+    now" and the summary are not.
+  - HA entities, read only: month peak, grid state, §14a, island, battery action and lease, job
+    state, planned start, plus new sensors for the EV (mode, target, plug, phases, vehicle SoC)
+    and heat pump (SG state, lift). The table's EV, program and comfort *controls* are not
+    announced (no command path, plan section 8, 6-O).
+  - Tests: rules, service, limiter text, runtime sources, discovery payloads (golden files),
+    and simulator closed loops (`tests/sim/test_notify_scenarios.py`).
+  - Deviations, `UNVERIFIED` and questions: plan section 8 (6-O).
+- **Phase 6 - PR 6-N, WP14 docs, translations, STATUS (branch `phase-6/n-docs`, on 6-M;
+  `docs-writer`)** - docs only, no code and no safety path changed:
+  - User guides en and de: `home-assistant-entities.md`, `notifications.md`, `grid-limits.md`,
+    `ev-charging.md` (with evcc), `heat-pump.md`, `programs.md`. Each covers the setup in the
+    wizard, what SunCore does and never does, shadow and assisted behaviour, hand-back and the
+    emergency stop, and the known limits and `UNVERIFIED` items, including the residual risks of
+    the reviews (evcc `smart` reacts to the import limit only after about a minute, the program
+    plug's safe state is ON and the HA automation for a plug stuck off, evcc liveness caveats,
+    register 533 without a timeout).
+  - Existing pages extended, not duplicated: quick start (grid step, gallery, "cannot do yet"),
+    surplus control and planning (links, schema 6 and 3 instead of 4, stale "no wallbox"
+    statements), both `DOCS.md` (the MQTT service needs no `hassio_api`).
+  - `docs/architecture.md` brought up to date: Phase 5 and 6 modules, dependency rules (notify
+    and MQTT never write), grid chain and flexible loads, the HA surface, storage (schema 6 and
+    3, `flex_state`, `grid_event`, `grid_peak`), the process model (the planner runs in a daemon
+    thread, not a process pool), the frontend routes.
+  - Catalogues: frontend en/de (2214 keys) and backend en/de (683 keys) have the same keys and
+    placeholders; `check_reasons` passes; the addon translations cover every option of both app
+    folders. Four unused frontend keys removed (`plan.status.solve`, `plan.next.more`,
+    `fc.accuracy.title`, `bat.settings_title`). The generators (`gen_schemas`, `gen_compat`,
+    `gen_backend_catalogue`) produce no diff.
+  - Plan `docs/plans/phase-6.md`: acceptance table with evidence (section 9) and one consolidated
+    German list of the open questions (section 10).
+  - Not done: screenshots of the new views (they need the demo with a browser; carried to
+    Phase 7), a click-through of the new how-tos on a real Home Assistant.
+- **Phase 6 - PR 6-M, WP13 frontend (branch `phase-6/m-frontend`, on 6-L, 6-J, 6-K, 6-G;
+  `frontend-engineer`)** - no safety path changed, shadow stays the default:
+  - Backend (commit scope `api`, `suncore/api/flex.py`): `GET /devices/{id}/flex`,
+    `PUT /devices/{id}/ev` (mode + target into `flex_state`, the controller reads it),
+    `POST /devices/{id}/program/arm` and `/cancel` (through `ProgramJobBook`; a cancelled
+    plug job is released by the controller, never written by the API),
+    `GET /grid/status`, `GET /grid/events?days=`; errors are Reason keys (`api.error.*`).
+    New entity role `backup_state` (detect.py) for the island entity picker.
+  - Wizard step 3: peak shaving, export chain (zero export, 0 W at negative prices), §14a
+    signal kind and limit, backup entity with live state preview and island states. Step 5:
+    inverter limit block, disabled with a reason (no verification endpoint exists yet).
+    Step 7: wallbox, evcc, heat pump and program templates in the gallery (13 templates),
+    evcc loadpoint id/prefix, program run time/idle power/peak placeholder, resume
+    confirmation, "behaviour confirmed" checkbox where the backend caps the mode. The device
+    form now carries `ev`/`program`/`thermal` from the template (they were dropped before).
+  - Now: device cards for EV (mode, target, plug, phases, vehicle SoC), heat pump (SG state,
+    lift, COP range, learned-model error), program (arm "finished by", job state, planned
+    start, cancel); a warning dialog before cancelling a job and before "back to normal" of a
+    plug program (the plug switches ON, the machine starts at once); badges island, §14a,
+    month peak. Settings: "Home Assistant entities" (status, broker hint, republish,
+    mode-raise opt-in) and "Notifications" (categories, targets, quiet hours, cap, test).
+    Plan Gantt: program start slots; History: grid events and monthly peaks.
+  - Bundle: `scripts/bundle-size.mjs` counts one language catalogue (the largest) because the
+    app loads only the active language: 228.6 kB of 250 kB, first paint 123.5 kB of 125 kB.
+  - Tests: Vitest 378, Playwright `phase6.spec.ts` (10 tests) plus the updated gallery count.
+  - Deviations, `UNVERIFIED` and questions: plan section 8 (6-M).
+- **Phase 6 - PR 6-L, WP12 shiftable programs (branch `phase-6/l-programs`, on 6-I + 6-E;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - Control kind `program` is judged now (no longer rejected). `safety/programs.py`: P1-P5 as
+    pure functions (start only for an armed job with a fresh measured power; never off while
+    the job runs, the appliance draws `idle_w` or more, its power is unknown or within run
+    time + 15 min of SunCore's switch-on; off only within 600 s of arming; a deadline-bound
+    start may import up to the program's peak power, the import limit holds). The plug's
+    takeover baseline is on (P3); a release never switches a possibly running program off; the
+    G2 fuse waiver skips running programs (6-F review H3); programs have no surplus levels, so
+    the deficit back-off never touches them. P6 = the existing behaviour cap.
+  - New control kind `notify` (`NotifyControl`, only with `start_method: notify`): nothing is
+    ever written, the gate rejects every action but a release.
+  - `devices/drivers/program.py`: plug (`switch`/`input_boolean`), remote start (switch, never
+    switched off, release writes nothing), notify (no entity).
+  - `controller/programs.py`: armed -> scheduled (fresh plan `start` band) -> running (start
+    accepted, or power >= `idle_w` for 30 s: manual start) -> done (run time + 5 min idle);
+    start at the planned window or at the latest start that meets the deadline; missed
+    deadline = cancelled + notification; no start on unknown power, untrusted site inputs, a
+    blocked device or in island; one release after a job SunCore wrote for.
+  - `app/programs.py` `ProgramJobBook` (open jobs, persisted to `flex_state`), notifications
+    `notify.program.start_now/done/missed` through `NotificationService.post`; the runtime
+    passes the open jobs to the planner (`FlexRequest.jobs`). No API/MQTT/panel to arm a job
+    yet (6-D/6-M, like the EV mode in 6-I).
+  - Templates `generic.program_plug`, `generic.program_notify`, `generic.program_remote`
+    (+ conformance scenarios), en/de keys; simulator `SimProgram` and scenarios
+    `program_deadline_plug` (with and without the real planner, cloud flicker),
+    `program_notify_start`, `program_crash_recovery`; e2e gallery count 10.
+  - Deviations, safety self-review and questions: plan section 8 (6-L).
+  - Review conditions of PR #62 done (H1, M1, M2, L1-L4): a release after a job is retried
+    until settled, nothing in flight blocks it (timeout, submit errors), docs recommend an HA
+    automation "plug off for hours -> on", `start_now`/`missed` pass the daily push cap, the
+    "start now" request is persisted (`notified_at`), `idle_w > 0`, an unseen run is reported
+    as "status unknown"; e2e wizard search adjusted for the new plug template.
+- **Phase 6 - PR 6-J, WP10 evcc as actor (branch `phase-6/j-evcc`, on 6-I + 6-C;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - `loadpoint` is a judged action kind now (`NOT_YET_SUPPORTED_KINDS` = inverter limit only).
+    `safety/evcc.py`: L1-L5 as pure functions (values in range, no vehicle plan, `now` only with
+    an allowance and the E6 battery lock, no raise on unknown evcc state, potential power
+    `maxCurrent x V x phases` under G1-G6); a loadpoint takes only `loadpoint` actions and a
+    release, only it takes them.
+  - `devices/evcc.py`: dumb driver over evcc's MQTT API (read from the evcc source, 2026-11-24):
+    mode `off`/`smart`/`now`, `maxCurrent`, `limitSoc` through `<prefix>/loadpoints/<id>/<key>/set`
+    (not retained); never `site/*`, `minCurrent`, `phasesConfigured` or a plan; read-back from
+    the retained topics; the release restores the takeover baseline and waits for the echo.
+  - `app/evcc_link.py`: second MQTT connection to the broker of the `mqtt` section, heartbeat
+    `<prefix>/updated` (alive only while younger than 120 s), the one `publish_set` write path.
+  - `controller/evcc.py` `EvccIntents`: runtime EV mode -> `smart`/`now`/`off` with a
+    `maxCurrent` that fits the allowance, import limit and §14a budget; no raise on anything
+    unknown; debounced raises, immediate lowering; asks the battery controller for the E6 lock.
+    `min_pv` maps to `smart` (no floor, evcc has no minimum-power mode).
+  - Template `evcc.loadpoint` (no roles; conformance scenario), simulator `SimLoadpoint` on an
+    in-memory `FakeEvccBus`, scenario `evcc_actor` (+ silent evcc, emergency stop, manual mode
+    change in evcc's app); en/de keys; e2e gallery count 8.
+  - Review conditions of PR #61 done (A1, A2, B1, B2, C1-C3): best-effort release (mode and
+    `maxCurrent` only in the echo), G1/peak check for a raise to `smart` plus an import-cut
+    path in the controller (scenario `evcc_plan`), release retries with back-off, the link
+    starts for a loadpoint added after start-up, liveness and E6 warnings in template and docs.
+  - Re-review: import cut with hysteresis (off after 60 s over, back on after 300 s with 1 A
+    margin; loadpoint off/on counts as a switch, off never blocked; scenario `evcc_flicker`),
+    failed emergency-stop/recovery releases retried by `poll` with back-off. Residual risk:
+    the smart import check is reactive (overshoot up to about 1 min).
+  - C4: the over-limit clock restarts only after 30 s under the limit (noise around a mean
+    above the limit is cut within about 60-90 s); above the fuse limit `off` at once.
+    Residual risk: G1 for `smart` is reactive, about 1 min.
+  - Deviations, safety self-review and questions: plan section 8 (6-J).
+
+- **Phase 6 - PR 6-I, WP9 wallbox/EV direct control (branch `phase-6/i-ev`, on 6-F + 6-H;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - `charge` is a judged action kind now (`NOT_YET_SUPPORTED_KINDS` = loadpoint, inverter
+    limit). `safety/flex.py`: E1-E6 as pure functions (current range incl. the live entity
+    range, phase change only paused/rarely/never in `now`, the bounded import exception of
+    ADR-0017 decision 4, the battery lock, no increase unplugged or in `off`); a charger takes
+    only `charge` and a release, only a charger takes `charge`. The gate reads the EV mode
+    (runtime `flex_state`, unreadable = `off`) and the fresh plan band (`target`).
+  - E6: grid power for the car only without a home battery or while SunCore holds a confirmed
+    discharge lock; the battery controller asks for that lock (`controller.battery.ev_lock`,
+    B4 extended) while a charger has an allowance, also without a fresh plan.
+  - `devices/drivers/charger.py`: current number (snapped to the entity step), pause switch,
+    optional phase select/switch, vehicle SoC and plug sensor; write on change; read-back and
+    baseline are the full state (current, phases, switch), so a release restores all three.
+  - `controller/ev.py`: levels 0 (pause) and min..max A in 1 A steps; floors for `now`,
+    `min_pv` and the plan's `grid_power_max_w` (`target`); cap 0 for `off`/unplugged/phase
+    switch; fail-safe cap at the minimum while the site inputs are not trusted; deficit
+    back-off down to the floor only; 1/3-phase switching (5 min dwell, +500 W to go up, pause
+    around the switch, max switches per hour, never in `now`).
+  - Runtime: `ControlStack(ev_states=...)` from `flex_state`, `FlexRequest` (EV states, SoC,
+    plug) for the planner; `GridRequest` still not wired.
+  - Template `generic.wallbox` (+ conformance scenario), en/de keys; simulator `SimWallbox`
+    and scenarios `ev_pv_only_flicker`, `ev_min_pv`, `ev_phase_switching`, `ev_arrives_late`
+    (real planner, battery lock), `ev_para14a`.
+  - Deviations, safety self-review and questions: plan section 8 (6-I).
+  - Review conditions of PR #59 done (A1, A2, M1-M3, H1-H3): staged charger release (pause
+    first, phases/§14a later), immediate shed of a battery-fed car when the lock is lost,
+    one lock tolerance in `core.battery`, gate-observed idle time for E2, unit check on the
+    current entity; e2e gallery count updated for `generic.wallbox`.
+- **Phase 6 - PR 6-K, WP11 heat pump (branch `phase-6/k-heatpump`, on 6-F + 6-H;
+  `control-safety`)** - shadow stays the default, every write passes the gate:
+  - SG-Ready is supported: `core/sgready.py` (step <-> state <-> contacts, `contact_path` that
+    never passes the block pattern, fail-safe causes), `devices/drivers/sgready.py` (two contact
+    switches, read-back of unknown pairs as a mode, release to the baseline or state 2 - never
+    state 1), `safety/heatpump.py` (H1-H5: no state 1, state 4 only with `allow_forced`, dwell
+    600 s and switch limit, probe and comfort band, fail-safe to state 2 that waives dwell, min
+    run and the switch limit). `safety.sg_ready_not_supported` is gone.
+  - Hot-water lift: `devices/drivers/water_heater.py` (`water_heater.set_temperature`, snapped
+    and clamped to the entity range, never while `off`, release to the user's set-point).
+  - Controller: SG levels (state 2 = 0 W, state 3/4 nominal), fail-safe back-off also with an
+    unknown surplus, dwell wait, restart hysteresis 3 K below `comfort.max_c`.
+  - `forecast/thermal.py`: RC least squares on 15-minute data with a MAD outlier filter, quality
+    = NRMSE of a 24 h replay, stored in `learned_param` (`thermal_model`), refitted daily; the
+    planner runtime builds the thermal `FlexRequest` (probe temperatures, outdoor forecast,
+    learned models). Probe temperatures are recorded as `device.<id>.temperature_c`.
+  - Templates `generic.heat_pump_sg_ready`, `generic.heat_pump_dhw_setpoint` (sources,
+    `unverified`, en/de); simulator `SimHeatPump`; scenarios `heat_pump_sg_ready_surplus`,
+    `heat_pump_dhw_lift` and a planner-level history -> fit -> plan test. Deviations and the
+    safety self-review: plan section 8 (6-K).
+  - Review conditions A1-A5 (PR #60): release never lifts a foreign SG lock, the lift is
+    capped at assisted until confirmed, H4 checks against the user's baseline set-point.
+- **Phase 6 - PR 6-G, WP7 export chain and inverter limit (branch `phase-6/g-export`, on 6-F;
+  `control-safety`)** - shadow stays the default (`operation.inverter_mode`), every write
+  passes the gate:
+  - `safety/inverter.py`: invariants X1-X6 as pure functions (never above the baseline or the
+    static limit; an AC limit, or a not yet verified export limit, leaves house + battery
+    charging + 500 W; below the current export only with an exhausted chain; heartbeat and
+    read-back; island/stale inputs never write and end the lease; at most assisted until
+    `limit_verified`). `safety/gate.py` is still the only caller of `apply()`/`release()`; the
+    inverter has a lease, a heartbeat for volatile limits, reset detection, release to the
+    user's own value, crash recovery and an orphan release after an adapter change.
+  - `controller/export.py`: the chain surplus -> devices -> battery (SunCore's own charge cap
+    lifted, `controller.export.battery_cap_lifted`) -> inverter limit, with a curtail delay
+    (120 s), no tightening while devices can still rise, loosening at once, pacing and a 3 %
+    AC hysteresis (no oscillation under cloud flicker).
+  - Drivers `generic_number`, `kostal_rest` (`Inverter:ActivePowerLimitation`) and
+    `kostal_modbus` (register 533 via `modbus.write_register`, int, volatile); template kind
+    `inverter` with the role `limit` and three templates; `PUT /operation/inverter` with the
+    adapter's identity; a changed adapter resets `limit_verified` and the inverter mode.
+  - Simulator: inverter limiter (static limit, the three adapters, register resets); scenarios
+    `export_limit_zero_export`, `negative_price_curtail`, `inverter_limit_heartbeat_lost`
+    (reset, lost read-back, crash and restart in the test).
+    Deviations, safety self-review and questions: plan section 8 (6-G).
+  - Review conditions (PR #58): the lease checks every limit that may be in force and the
+    heartbeat re-writes only the confirmed one; takeover only from the register default or an
+    export limit not below the static limit (modbus release = 100 %); `nominal_ac_w`
+    plausibility; no write in an unknown unit. Residual risk: an AC limit (533) stays after a
+    crash or connection loss (no documented timeout) - plan question 6.
+
+- **Phase 6 - PR 6-F, WP6 import side, §14a, island (branch `phase-6/f-grid-import`, on 6-B;
+  `control-safety`)** - shadow stays the default, every write still passes the gate:
+  - `safety/grid.py`: invariants G1-G6 as pure functions, wired into the device invariants
+    (`check_grid_situation`, the G2 fuse waiver in min run and the switch limit) and the battery
+    invariants (no grid charging under §14a or in a cool-down, nothing import-causing in island;
+    the lease ends with them). The gate keeps an island/§14a memory (`core.grid.GridMemory`) for
+    the cool-down (`safe_state_cooldown_s`) and sums the other §14a devices' upper estimates.
+  - `controller/grid.py`: one resolver per tick through `core.grid` (effective import limit =
+    min(fuse, peak), §14a budget, grid state, warnings); level caps for island (shed all but the
+    keep list, keep frozen), cool-down, §14a (budget shared in priority order, keep at `<=`,
+    rise with hysteresis to spare) and unknown §14a (frozen); the back-off above the limit uses
+    the shedding order (continuous first, `shed_rank`, reverse priority) and waives min run of
+    non-thermal kinds only above the fuse limit; battery support lifts a discharge lock near the
+    limit, island releases the battery, §14a blocks grid charging. `GateInputs` gains
+    `fuse_limit_w` and `para14a_devices` (additive).
+  - `app/grid.py` `GridMonitor`: monthly peak from 15-minute means of the tick values (reset at
+    local midnight of the 1st, seeded from `grid_peak`), grid events (island, §14a, new peak,
+    import above the fuse) persisted to `timeseries.db`; the controller ignores the plan in
+    island.
+  - Simulator: island (grid 0, battery covers, PV curtailed) and §14a signals in the fake HA;
+    scenarios `import_limit_fuse_shed`, `peak_shaving_month`, `para14a_dimming` (with cloud
+    flicker), `grid_outage_island`. Behaviour change: with only a fuse limit the import-limit
+    back-off now reports `controller.grid.fuse_shed` and skips min run of non-thermal kinds.
+    Deviations, safety self-review and questions: plan section 8 (6-F).
+  - Review conditions (PR #54): no G2 waiver on a stale snapshot; the §14a sum counts writes
+    in flight; the cool-down memory is restored from `grid_event` at start; G1 rejects load
+    increases of unknown size (`safety.power_unknown`). H3 (running programs) is due in 6-L.
+
+- **Phase 6 - PR 6-H, WP8 planner for flexible loads and grid (branch `phase-6/h-planner-flex`,
+  on 6-B; `optimizer-engineer`)** - plans and bands only, no device writes, no runtime wiring:
+  - `planner/flex.py` (inputs from the 6-B contracts: `build_flex`, `build_grid`),
+    `planner/flexmodel.py` (LP/MILP columns and rows), `planner/flexheuristic.py` (fallback).
+    Without flexible loads or grid limits the model is exactly Phase 4 (same columns and rows,
+    no integrality; test).
+  - EV: modes off/min/pv/min_pv/target, charging window from arrival/departure, 6 A floor,
+    on/off binaries only in the first 24 h (LP beyond), energy target counted on the P10
+    surplus, never fed by the home battery. Program jobs: one binary per candidate start before
+    the deadline, warm start keeps the previous start. Heat pump: exact RC discretisation, COP
+    curve, comfort band with soft slacks, surplus pre-heat; grid pre-heat only with
+    `grid_preheat`.
+  - Grid: per-slot import/export limits from `core.grid`, monthly peak variable with the
+    capacity price (local month bounds), §14a sum of flagged loads within the budget for the
+    hold time, grid charging 0 while dimmed; a demanded load above the import limit uses a
+    penalised slack (`planner.grid.import_limit_exceeded`).
+  - Bands: `max_power_w`, `grid_power_max_w` (EV target, grid pre-heat), `start` (jobs); 18 new
+    reason keys (`planner.ev.*`, `planner.job.*`, `planner.thermal.*`, `planner.grid.*`, en/de).
+  - Simulator: `sim/planner_flex.py` with nine scenarios (full house, late EV, PV-only EV,
+    program deadline (feasible/infeasible), heat pump surplus/grid pre-heat, peak shaving,
+    §14a). Hypothesis: random flexible loads and grid limits, both schedules feasible, solver
+    never worse than the heuristic.
+  - Benchmark (`scripts/bench_planner.py --scenario full_house`, x86_64, 5 runs): 5931 columns,
+    2414 rows, 234 binaries, solve 0.22 s cold / 0.21 s warm, whole run 0.26 s, MIP gap 0;
+    heuristic objective -0.37 vs solver -12.88. Reference house unchanged (5 ms solve, 31 ms
+    run). Slow CI test: full house < 5 s. aarch64 not measured (`UNVERIFIED`).
+  - Deviations: plan section 8 (6-H).
+- **Phase 6 - PR 6-E, WP5 notifications (branch `phase-6/e-notify`, on 6-D;
+  `backend-engineer`, `ha-integration`, `control-safety` review pending for the confirm path)** -
+  SunCore tells the user what matters and lets them confirm an assisted proposal from the phone:
+  - `HAConnection.notify(domain, service, data, target)` with an allowlist
+    (`persistent_notification.create|dismiss`, `notify.send_message` to `notify.*` entities,
+    `notify.<name>` only for configured names), its own 1 s limiter, no payload in logs;
+    `subscribe_notification_actions` (event `mobile_app_notification_action`, only the `action`
+    string passes). WebSocket client and `sim` fake both implement it.
+  - `suncore/notify/`: `rules.py` (categories: error, safety, proposal, program, EV target,
+    cheap window, daily summary; first observation = baseline), `ratelimit.py` (dedupe key,
+    interval, quiet hours 22:00-07:00, 20 push a day), `actions.py` (random single-use tokens
+    bound to a proposal and its expiry), `sink.py`, `render.py` (backend ICU catalogue),
+    `service.py` (observe, deliver, confirm path).
+  - Confirm path: a tap is honoured only after the event subscription succeeded; token valid and
+    unused, proposal still open, not expired, device still `assisted`; then one
+    `Runtime.confirm_proposal` (the panel's `gate.confirm`, `Origin.USER`). Reject calls nothing.
+    The port cannot raise a mode or clear the emergency stop (boundary tests).
+  - API `GET/PUT /api/v1/notifications/settings`, `GET .../status`, `POST .../test`; MQTT
+    mode-raise refusals (6-D) now raise a persistent notification.
+  - Not in this PR: grid events (island, section 14a) are consumed from `Observation` once 6-F
+    delivers them; program and EV events come with 6-L and 6-I (`NotificationService.post`);
+    settings UI is 6-M. Review conditions of #57 (safety bypasses the daily cap,
+    `gate.confirm` re-checks the current mode, a lost subscription drops buttons) are in.
+    Deviations, safety self-review and questions: plan section 8 (6-E).
+- **Phase 6 - PR 6-D, WP4 MQTT commands (branch `phase-6/d-mqtt-commands`, on 6-C;
+  `ha-integration`, `control-safety` review pending)** - Home Assistant can now command SunCore,
+  only through the services layer:
+  - `suncore/ha/mqtt/commands.py`: parse (`ON`/`OFF`, `PRESS`, finite numbers in range, at most
+    64 bytes), rate limit (1/s per entity, burst 3, 20 per 10 s over all; the emergency stop is
+    exempt), the mode-raise rule, one `CommandPort` call per command, a `Reason` per outcome in the
+    log; retained commands are ignored and removed from the broker; the true state is republished
+    after every command (also after a refusal).
+  - `app/ha_entities.py` `RuntimeCommandPort`: forwards to `Runtime.set_global_mode`,
+    `set_device_mode`, `emergency_stop`, `clear_emergency_stop`, `override_device`, `replan` (the
+    methods of the REST API). Never `apply()`, never the gate directly (boundary tests).
+  - Announced command entities: `auto`, `replan`, `emergency_stop_button`,
+    `emergency_stop_clear` (only with `mqtt.allow_mode_raise`), per device `<dev>_auto`,
+    `<dev>_boost`, `<dev>_pause`, `<dev>_resume`, `<dev>_boost_minutes`.
+  - Raising (`auto` ON, clearing the emergency stop) is refused unless `mqtt.allow_mode_raise`
+    (default off): `safety.mqtt_mode_raise_disabled`. `auto` OFF lowers to shadow; stop, pause,
+    resume, boost and replan always work.
+  - Not in this PR (no config path or values yet): battery strategy/reserve/evening target, EV,
+    comfort and program commands, the `mqtt` config author, the persistent notification (6-E).
+    Review conditions A1, A2, N1-N3 are in (opt-in withdrawn at once, emergency stop in its own
+    task, 5 s timeout, explicit payloads). Deviations and open questions: plan section 8 (6-D).
+
+- **Phase 6 - PR 6-C, WP3 MQTT base and backend ICU (branch `phase-6/c-mqtt`, on 6-B;
+  `ha-integration`, `backend-engineer`)** - read-only HA entities, no commands, nothing writes:
+  - `suncore/i18n/`: minimal ICU renderer (arguments, `number` with `::.0`/`0` skeletons, `plural`
+    with `=n`/`one`/`other`/`offset`, `select`, apostrophes; en/de plural rules and separators,
+    `other` fallback), generated `catalogue/{en,de}.json` (`scripts/gen_backend_catalogue.py`,
+    `--check` in `check.sh` and CI, prefixes `mqtt. notify. safety. controller. planner. device.
+    grid.`), golden file `tests/fixtures/i18n_golden.json` from a Vitest helper with
+    `intl-messageformat` (1 200 cases, Python equals it). Closes the ADR-0007 follow-up.
+  - `suncore/ha/mqtt/`: `catalogue.py` (the v1 entity catalogue as data), `discovery.py`
+    (device-based payloads with `via_device`, origin `SunCore`, topics, install id),
+    `states.py` (on change, deadbands, 5 s per entity, retained), `broker.py` (Supervisor
+    `GET /services/mqtt` or manual settings; status `disabled|no_broker|connecting|connected|error`
+    with a reason key), `client.py` (`aiomqtt` on `paho-mqtt` 2.2: connect, back-off, last will,
+    TLS, error classification), `service.py` (session, announce on connect and on the HA birth
+    message after 1-5 s, removal of vanished devices and on disable, events), `check.py`
+    (system-check item). Composition in `app/ha_entities.py`; runs only outside demo mode.
+  - API `GET /api/v1/ha-entities/status` (state, source, entity count, reason key, install hint
+    key), `POST /api/v1/ha-entities/republish`; system check "Home Assistant entities";
+    `schema.d.ts` regenerated. Frontend settings page for it follows in 6-M.
+  - **`hassio_api` stays off** (the Supervisor lets apps call `/services*` without it, verified);
+    a boundary test pins `GET /services/mqtt` as the only Supervisor REST URL. In-process stub
+    MQTT broker for the tests (no `amqtt`). Deviations and open questions: plan section 8 (6-C)
+    and questions 15-16.
+  - Announced so far: status, mode, available surplus, healthy, shadow mode, emergency stop,
+    event entity; per device mode, power and last decision. Everything else of the catalogue waits
+    for the PR that produces its values.
+
+- **Phase 6 - PR 6-B, WP2 contracts and configuration (branch `phase-6/b-contracts`, on 6-A;
+  `control-safety`)** - additive, no behaviour yet:
+  - Actions `charge`, `loadpoint`, `inverter_limit` in the `Action` union; the gate rejects
+    them with `safety.<kind>_not_supported` before mode handling, and every action but a release
+    for a device with a `charger`, `loadpoint` or `sg_ready` control (`safety.charge_/
+    loadpoint_/sg_ready_not_supported`) or a program spec (`safety.program_not_supported`).
+    Property test: every `ActionKind` is judged or rejected; nothing is written, released or
+    proposed. Devices of these controls get a placeholder driver that never writes.
+  - `core/devices.py`: the three controls, `EvSpec`, `ProgramSpec`, `ThermalSpec`, `shed_rank`,
+    `para14a`, `behaviour_confirmed` (identity; Phase 3 tokens unchanged). Phase 6 devices run at
+    most assisted until the behaviour is confirmed.
+  - `core/grid.py` (effective import/export limit, §14a budget, `GridState`, `BackupConfig`,
+    `PeakShaving`, DST-safe month bounds), `core/thermal.py` (RC model, COP curve, generic
+    air/water assumption), `core/flex.py` (EV modes/targets, program jobs and transitions);
+    `DeviceBand.grid_power_max_w`/`start`, `GateInputs` export limit, §14a budget/status, grid
+    state; `GridConfig` additions (peak shaving, dynamic/zero export, §14a limit and signal kind,
+    backup).
+  - New config sections `mqtt` (password stored, masked in API, export and history; a masked
+    value keeps the stored secret), `notifications`, `inverter` (an import resets
+    `limit_verified`). Template schema v1: the three controls, `defaults.ev/program/thermal`,
+    seven capabilities (`templates/README.md`).
+  - Storage: `suncore.db` 5 -> 6 (`flex_state`), `timeseries.db` 2 -> 3 (`grid_event` 400 days,
+    `grid_peak` for ever). **Export the configuration before updating** (older versions refuse
+    both files).
+  - Frontend follows the regenerated types; the site form keeps the grid fields it does not
+    edit yet. Deviations: plan section 8 (6-B).
+
+- **Phase 5 – PR 5-L, WP12 docs (branch `phase-5/l-docs`, on 5-K + 5-F; `docs-writer`)**:
+  - **Phase 5 in short:** analytics core (`suncore/analysis`, ADR-0014: attribution rule, two
+    baselines), frozen `day_summary`/`accuracy_day` with a 365-day backfill, history API with CSV,
+    plan-at/compare and decision explain, parameter registry with 32 parameters and the expert API
+    (ADR-0015, `control-safety` reviewed), UI: plan chart v2, history, decision log with "Why?",
+    expert mode, what-if; backtest engine with job API (`control-safety` reviewed). No new write
+    path to devices; the backtest reads through `ReadOnlyHistory` and writes nothing back.
+  - Guides en + de: `history-and-analysis.md`, `decision-log.md`, `plan-chart.md`,
+    `expert-mode.md`, `what-if-and-backtesting.md` (limitations, the 5 % cost-fidelity tolerance
+    as a stated expectation, link to the generated reference); quick start, README, both app
+    `DOCS.md` and the roadmap point to them. Screenshots are the existing demo ones. There is no
+    `mkdocs.yml` in the repository, so the README documentation list is the index.
+  - Not done here: `docs/architecture.md` §7 (new tables) and §9 (routes, chunks) stay as they
+    are because it is an engineering document; the architect should add `day_summary`,
+    `accuracy_day`, `backtest_run`, and the routes `#/history`, `#/decisions`, `#/whatif`.
+    The generated parameter reference (`docs/reference/parameters*.md`) is current from 5-E.
+  - Merge of 5-F into 5-K: conflicts in STATUS, plan §8 and the catalogues were unions; router and
+    `vite.config.ts` merged without conflict (chunks `echarts-core|plan|history`).
+  - **Bundle after the merge (`npm run verify`):** tests and type check green (Vitest 382),
+    first paint 106.3 kB (budget 125), ECharts chunks core 182.9 / history 13.3 / plan 9.1 kB
+    (each under 200), core + history 196.2 and core + plan 192.0 kB (budget 240). The total
+    without ECharts first summed both language catalogues (265.9 kB). Maintainer decision
+    (2026-11-24): only the active language counts, because only one catalogue is loaded at
+    runtime; the script counts the larger of en/de. **Total now 232.6 kB against 250 kB**;
+    the budget stays unchanged.
+
+- **Phase 5 – PR 5-K, WP11 what-if UI (branch `phase-5/k-whatif`, on 5-J + 5-I + 5-H;
+  `frontend-engineer`)**:
+  - `#/whatif` (lazy chunk `WhatIf`), reachable from the header only while expert mode is on; with
+    expert mode off a deep link shows a hint, not the form. `api/backtests.ts` (list, get, start,
+    DELETE = cancel or delete), `stores/whatif.svelte.ts` (runs, selection, 1 s polling only while
+    a run is active, server date from `history/summary`), pure logic in `whatif/model.ts` (request
+    building and checks, change list, comparison rows, CSV), chart options in
+    `whatif/chartOptions.ts` (types only from ECharts; registered in the existing `echarts` chunk,
+    194.3 of 200 kB, unchanged).
+  - Form: period (default last 14 days up to yesterday, max 30, server date), planner parameters
+    from `GET /params` filtered to tag `whatif` and numeric type (names and help from the lazy
+    param catalogue), battery overlay (strategy, capacity, charge/discharge power, reserve,
+    autarky weight, grid charging off/on with a price), flat tariff, perfect foresight. Only
+    edited parameters are sent. Progress bar and cancel, a live-region announcement, 409/422/503
+    keys through `tDynamic`.
+  - Result: verdict (cheaper/dearer/same), "what is not modelled" from `result.limitations`,
+    list of changes with `params` vs `params_requested` (budget capped), comparison table
+    (actual, what-if, perfect foresight), reference costs (no PV, PV only), charts (net cost per
+    day, SoC, grid power) with PNG download, daily table, skipped days with their reason keys,
+    CSV of the daily table, run list (last five) with show, delete and cancel.
+  - i18n: 5-H lazy main catalogue and 5-E lazy param catalogue compose (`Translator.extend` keeps a
+    side catalogue next to the lazy `set`; main keys win). Vitest: model, chart options, store
+    (polling, start, cancel, delete, 503), router; Playwright `e2e/whatif.spec.ts` on desktop,
+    phone and tablet incl. axe and German; screenshots `whatif-*`.
+  - Numbers: first paint 104.9 kB (budget 125), ECharts chunk 194.3 kB (200), total without
+    ECharts 251.7 kB with both catalogues counted (the what-if view is 12.6 kB JS + 0.7 kB CSS,
+    about 85 catalogue keys); 219.3 kB with only the active language counted (maintainer
+    decision, see the 5-F merge entry above).
+  - Deviations: see plan §8 (5-K).
+
+- **Phase 5 – PR 5-J, WP6 backtest engine and job API (branch `phase-5/j-backtest`, on 5-D + 5-E;
+  `optimizer-engineer`)**:
+  - `suncore/sim/backtest.py`: per local day and hour, `PlannerInputs` from what was known then
+    (newest stored PV/load forecast issued before the hour, stored prices up to their day-ahead
+    publication at 13:00 local, the simulated SoC), the real planner (HiGHS + heuristic, warm
+    start), then the hour executed against the actual PV and house load (`execute_slot`: PV
+    surplus charges, a deficit discharges, inside the plan's band: SoC corridor, power limits,
+    discharge lock, grid charge only where planned; efficiencies of the battery model). Runs
+    compared on the same priced slots: actual (measured, equals `day_summary`), what-if and
+    optionally perfect foresight; both baselines from `suncore.analysis`. Days with < 80 %
+    measured, without prices or without a stored forecast are skipped with a `backtest.skip.*`
+    reason; every result lists its `backtest.limit.*` limitations and is labelled
+    `plan_with_perfect_execution`.
+  - Overlay (`suncore/sim/backtest_models.py`, `core/params.py::check_whatif_overrides`): registry
+    parameters of the `planner`/`forecast` groups tagged `whatif` only (`planner.budget_s`, capped
+    at 10 s, and `planner.mip_gap` today); anything `safety`, controller or untagged is a 422
+    `param_not_whatif`. Plus battery settings (strategy, autarky weight, grid-charge policy,
+    capacity, power, reserve) and a flat tariff. Nothing is written back.
+  - Jobs (`suncore/app/backtests.py`): one run at a time, refused while the planner solves; stop
+    checked before every replan (cancel, 900 s runtime, 280 MB process RSS); results in
+    `backtest_run` (last 5); runs left `running` are `failed` at start-up. History reaches the
+    engine only through `ReadOnlyHistory`; boundary test: the backtest modules import nothing of
+    `safety`, `ha`, `devices`, `controller`, `app.control` and name no write call; a demo-runtime
+    test replays a day with zero service calls.
+  - API: `POST|GET /api/v1/backtests`, `GET|DELETE /api/v1/backtests/{id}` (DELETE cancels a
+    running run, deletes a finished one); new en/de keys; OpenAPI and `schema.d.ts` regenerated.
+  - Numbers (amd64, `scripts/bench_backtest.py`, demo history): 14 days 8.9 s (336 replans, slowest
+    0.05 s), with perfect foresight 16.6 s; 30 days 22.5 s / 39.2 s; peak RSS 80 MB. Override-free
+    replay of the demo's last 14 days: 17.41 EUR vs 17.21 EUR recorded (+1.1 %); the test allows
+    5 %. `UNVERIFIED`: run time and RSS on aarch64 (Pi 4).
+  - `control-safety` review (PR #47, conditions A1–A10) addressed: the overlay is applied at
+    start (422 `api.error.backtest_overlay_invalid|_no_battery`, nothing stored); a battery size,
+    power or reserve change without a battery model is refused; the result echoes the effective
+    params (`params`, budget capped) next to `params_requested` and lists values above the
+    hardware (`backtest.limit.overlay_capped`); replays run in the planner's daemon-thread helper
+    at niceness 10 (Linux, ignored elsewhere); cancel and shutdown wait at most 2 s and abandon a
+    running solve; no start while shutting down; the loop yields between days and old days read
+    `measurement_15m` only. Loop lag while a run replays: 65 ms worst (test bound 250 ms).
+  - Deviations: see plan §8 (5-J).
+- **Phase 5 - PR 5-F, WP7 plan chart v2 (branch `phase-5/f-plan-chart`, on 5-H;
+  `frontend-engineer`)**:
+  - `#/plan` shows measured values (`/history/series`, 15 min) as wide faint lines under the
+    planned ones, a Gantt per controlled device and for the battery (planned bars outlined,
+    measured bars solid, from `device.<id>.on` and `site.battery_w`), dataZoom synced over all
+    panels with buttons and keys (arrows, `+`, `-`, `0`), tooltips with the interval reasons
+    (`ReasonList`), PNG and CSV (plan, measured values, comparison).
+  - Deep links: `#/plan?day=YYYY-MM-DD` (history), `#/plan?at=<time>` (decision log; marks the
+    decision's interval), `&compare=<time>` (`/plan/compare`, dashed lines and a difference
+    table); a look-back panel sets them. A missing snapshot (pruned) is said, the measured
+    values still show.
+  - Text alternatives: table with measured columns, device schedule as text, colour key.
+  - Bundle: ECharts split into `echarts-core` 183 kB, `-plan` 9 kB, `-history` 13 kB gzip; core +
+    view 192/196 of 240 kB; first paint 101.7 of 125 kB; total without ECharts 232 of 250 kB.
+    Deviations: plan section 8 (5-F).
+
+- **Phase 5 – PR 5-G, WP8 history view and export (branch `phase-5/g-history`, on 5-D;
+  `frontend-engineer`)**:
+  - `#/history` (lazy chunk): period day/week/month/year with previous/next/today and a date jump,
+    state in the URL (`#/history?period=week&date=2026-06-10`); tiles (autarky, self-consumption,
+    PV, consumption, import, export, cost, savings against both baselines, cycles) with the
+    attribution box; charts energy bars, cost against the baselines, Sankey, heatmap, cycles with
+    SoC range, forecast skill; device run-time table. Every chart has a data table as text
+    alternative, a CSV link (`format=csv`) and a PNG button. Incomplete days are dashed and
+    marked; collecting, unavailable (503) and per-section error states.
+  - ECharts only in the existing chunk (`HistoryChart.svelte`: bar, line, sankey, heatmap,
+    visualMap added). `api/history.ts` and the store live in the lazy chunk, not in first paint.
+  - Verified: Vitest 307, `npm run verify` green, Playwright `history.spec.ts` 36 passed (desktop,
+    phone, tablet; axe light and dark), screenshots `history-*` in `docs/assets/screenshots/`.
+  - Bundle: first paint 124.9 kB gzip (budget 125 kB, the catalogues grew by about 90 keys),
+    everything but ECharts 202 kB, ECharts chunk 194 kB (budget 200 kB). Deviations: plan §8 (5-G).
+
+- **Phase 5 - PR 5-H, WP9 decision log and "why" (branch `phase-5/h-decisions`, on 5-D;
+  `frontend-engineer`)**:
+  - `#/decisions` is a table (cards on phones) with filters for device, outcome, layer
+    (`intent.origin`), reason key or prefix, free text and a date range. The filters live in the
+    hash (`#/decisions?device=..&kind=..&from=..`), so a link restores them; invalid values in a
+    pasted link are dropped. Paging of 50 rows by `offset`, total from `X-Total-Count`, CSV export
+    as a plain link to `GET /decisions?format=csv` with the same filters.
+  - "Why?" per row (button, `aria-expanded`, Escape closes and returns the focus) loads
+    `GET /decisions/{id}/explain` (row id from `X-Decision-Ids`): decision, reasons, plan band and
+    expected flows of the interval, site readings, neighbouring decisions; links to the plan
+    (`#/plan?at=<ts>`), the device card (`#/?device=<id>`, scrolls and focuses the card) and the
+    log of that device.
+  - Tests: Vitest (filters, store, readings, table/panel), Playwright `decisions.spec.ts`
+    (filters, URL, CSV, keyboard, phone width, axe); screenshots `decisions-*` refreshed.
+  - Bundle: only the active language's catalogue ships on first paint (English eager, German lazy):
+    98.8 kB of 125 kB, see plan section 8 (5-H).
+
+- **Phase 5 – PR 5-D, WP4 history API (branch `phase-5/d-api`, on 5-C; `backend-engineer`)**:
+  - `GET /api/v1/history/{summary,series,sankey,heatmap,cycles,forecast-skill,devices}`, each with
+    `format=csv` (UTF-8, comma, dot, ISO time with the site offset, units in column names);
+    `GET /plan/at?ts=` (404 `api.error.snapshot_not_found` when pruned), `GET /plan/compare?a=&b=`
+    (snapshot ids or times), `GET /decisions` with `from`, `to`, `layer`, `reason`, `q`, `offset`,
+    `format=csv` and the headers `X-Total-Count` / `X-Decision-Ids` (row ids), and
+    `GET /decisions/{id}/explain`. Week/month/year sum the frozen `day_summary` rows; today and
+    yesterday (before the nightly job) are computed live (`DaySummaryJob.preview`).
+  - Wiring: `Services.history_sources()` returns `HistorySources` (stores, tz, clock, live day);
+    `None` -> `api.error.history_unavailable` (503). New keys in en+de; OpenAPI and `schema.d.ts`
+    regenerated. Tests: `tests/api/test_history_api.py` (demo history, DST day, empty, pruned
+    snapshot, filters, explain, validation, year read < 1 s).
+  - Deviations: see plan §8 (5-D).
+
+- **Phase 5 – PR 5-C, WP3 storage and recording (branch `phase-5/c-storage`, on 5-B; `backend-engineer`)**:
+  - **Schema bump: `timeseries.db` 1 -> 2 (`day_summary`, `accuracy_day`) and `suncore.db` 4 -> 5
+    (`backtest_run`). Earlier versions refuse the newer `suncore.db` and read a newer
+    `timeseries.db` as "no time series": export before updating (release-risk note, plan R9).**
+  - `day_summary` (one frozen row per local day, 23/25 h days included): flows by the ADR-0014
+    attribution rule, KPIs, cost and both baselines (`suncore.analysis`), coverage, `derived_slots`,
+    tariff fingerprint and currency. Cost is only computed for slots with a *stored* price (NULL
+    without; `priced_slots` says how many). `accuracy_day`: MAE/bias per source, kind, day and
+    horizon bucket. Both kept for ever; `size_report` lists them.
+  - `suncore/app/summaries.py`: the nightly job (03:30, after downsample) computes yesterday and
+    repairs the last 7 days (new row, or a row whose day has more measured slots than before; a
+    tariff edit never changes a frozen day). First run on a file and the end of a rebuild/backfill
+    walk the whole stored history (`catch_up`). Skipped while the time zone is unknown. The numbers
+    are computed in a worker thread; `accuracy_day` is written after the forecast learning.
+  - Backfill: `backfill_history` extends the 28-day rebuild to 365 days (hourly, `derived`, windows
+    of 60 days because a series is limited to 20 000 points; marker `history_backfilled_at`; for
+    installs that already rebuilt it runs once on the next start).
+  - Recording: `device.<id>.power_w` was already recorded for every controlled device; added
+    `device.<id>.on` (1.0/0.0, only OK-quality driver state). `suncore.storage.backtests`:
+    `backtest_run` table and a repository keeping the last 5 (the engine follows in 5-J).
+  - Demo: `suncore.sim.demo_history` seeds 90 deterministic days (setting `demo_history_days`,
+    env `SUNCORE_DEMO_HISTORY_DAYS`, 0 = none) into the throw-away demo database only (it refuses
+    anything under `/data`): measurements, prices, 40 days of forecasts, `day_summary`,
+    `accuracy_day`, decisions and three solved plan snapshots; about 2 s at demo start.
+  - `UNVERIFIED`: how many days of long-term statistics a given Home Assistant keeps and that the
+    Supervisor proxy forwards `recorder/*` for 365-day ranges (days without statistics stay gaps);
+    memory and time of the 365-day backfill on aarch64.
+
+- **Phase 5 – PR 5-B, WP2 analytics core (branch `phase-5/b-analysis`, on 5-A; `optimizer-engineer`)**:
+  - `suncore/analysis/` (pure, `core` only, `mypy --strict`): `energy.py` (quarter-hour Wh from
+    mean-power series, incomplete slots dropped, coverage, 80 % completeness), `flows.py` (the
+    ADR-0014 attribution rule per slot, exact balances, measurement residual), `kpi.py` (autarky,
+    self-consumption, equivalent full cycles over `BatteryModel.usable_wh`), `cost.py` (grid cost,
+    prices per slot, unpriced slots skipped and counted), `baselines.py` (no PV/no battery and
+    PV-only, `savings = baseline - actual`), `period.py` (day/week/month/year buckets between local
+    midnights, 23/25 h days, ISO weeks), `summary.py` (one period's figures).
+  - Boundary test: `analysis` imports `core` only; package added to the strict mypy list and the
+    coverage gate.
+  - Tests `tests/analysis/` (hypothesis: flow balance, KPI bounds, savings identity, PV-only ≤ no-PV
+    baseline for non-negative prices, energy-preserving bucketing across DST in four zones).
+
+- **Phase 5 – PR 5-I, WP10 expert mode UI (branch `phase-5/i-expert-ui`, base `phase-5/e-params`;
+  `frontend-engineer`)**: header switch `Expert mode` (`role=switch`, per browser in localStorage,
+  default off); Settings "Expert" area is a lazy chunk (`ExpertArea`) generated from
+  `GET /api/v1/params` (number/int/bool/enum/entity inputs, unit, default and hard range, search,
+  "only modified", modified/unsaved/safety/restart markers, per-key and per-group reset, restart
+  hint). A change of safety-tagged keys opens a confirmation dialog (old to new) and is sent with
+  `confirm_safety`; client-side range check plus the API's `api.validation.param_*` messages per
+  field. Debug views: raw live signals, plan JSON with copy, solver statistics (existing
+  endpoints only). The `param.*` help catalogue is a lazy chunk (`params.<locale>.json`, commit
+  `perf(i18n)`; `check_reasons.py` reads both). First paint 124.4 kB gzip (budget 125 kB, tight:
+  keep new first-paint strings small), total without ECharts 201 kB. Vitest (model, generated
+  form) and Playwright `expert.spec.ts` incl. axe light/dark.
+- **Phase 5 – PR 5-E, WP5 parameter registry and expert API (branch `phase-5/e-params`;
+  `backend-engineer`, safety bounds proposed for `control-safety` review)**:
+  - `suncore/core/params.py`: `ParamSpec` registry (key, kind, unit, default, hard range, group,
+    tags `expert|safety|restart|whatif`, catalogue keys `param.<key>.name|help`), range check
+    (`ParamError` -> `suncore.param_*` validation keys). 32 parameters: 21 controller
+    (`ControlSettings`; 16 `safety`), 7 planner/solver, 4 config
+    (`tariff.export.remunerate_negative`, `tariff.export.negative_reference_entity`,
+    `forecast.learning.min_history_days|load_ml_mode`).
+    Config parameters take default/range from the model field and are tagged by
+    `json_schema_extra={"param": ...}`; the rest is an explicit table (controller defaults read from
+    `ControlSettings`, planner defaults tied to the runtime by a test).
+  - Safety: `core/control.py::SAFETY_LIMITS` is the single table of hard bounds (inside the model
+    bounds, around the defaults); the registry range of every `safety` key *is* that table, the
+    `expert` document model rejects values outside; a *stored* document is repaired at load
+    (out-of-range clamped, unknown keys dropped, logged) so a tightened limit cannot block the
+    start-up; restore and import stay strict and take effect through `gate.handover`.
+    No parameter can switch a check off (every limit has a positive minimum except the deficit
+    battery budget, where 0 = no deficit allowed). `PUT /config/expert` refuses a changed safety
+    value without `/params` confirmation. `control-safety` review: settle time and write
+    interval max 60 s (they pace the import-limit back-off), release deadline 5–10 s,
+    staleness factor 1.5–3, balance tolerance max 1000 W / 30 %, and
+    `inputs_max_age_ticks × tick_s ≤ 180 s` (`INPUTS_MAX_AGE_LIMIT_S`).
+  - New optional section `expert` (`core/expert.py`, schema v1, sparse `overrides` map, absent =
+    today's behaviour, golden-tested); stored/exported/history like any section. Hot apply:
+    `Runtime._apply_expert` swaps the planner settings in place (`PlanningService.update_settings`)
+    and rebuilds the control stack (same hand-over as a device edit) only when a controller value
+    changed; no parameter needs `restart`. The demo stores an empty section.
+  - Tariff (§51 EEG switch and reference spot, plan question 8): `tariff.export.remunerate_negative`
+    (default off) turns the region's `no_remuneration` rule off for the plant;
+    `tariff.export.negative_reference_entity` (sensor, default unset) lets the rule judge a real
+    spot price for the **current slot** of an all-in source (a price sensor has no curve; later
+    slots keep the proxy). Both additive in tariff v3, watched/subscribed like the price entity.
+  - API: `GET|PUT /api/v1/params`, `POST /api/v1/params/reset` (`suncore/api/params.py`); PUT is
+    all-or-nothing, 422 for unknown key/type/range, 422 `param_confirm_required` for a changed
+    safety value without `confirm_safety`, 409 when a config parameter's section does not exist.
+    OpenAPI and `schema.d.ts` regenerated.
+  - `scripts/gen_params.py` (+ `--check` in `check.sh` and CI) writes
+    `docs/reference/parameters.md` and `parameters.de.md`; en/de catalogue keys added
+    (`check_reasons` also checks the registry keys).
+  - Tests: registry/range/safety (hypothesis: no accepted value leaves `SAFETY_LIMITS`, forced
+    out-of-range rows are clamped), API, `expert` section storage/migration, wiring (golden of
+    `ControlSettings`/`PlanningSettings`, stack rebuild, negative-price switch), generator.
 
 - **Phase 4 – PR 4-I, WP12 optional ML load model (branch `phase-4/i-ml-load`, stacked on 4-H;
   `optimizer-engineer`)**:
@@ -655,6 +1714,48 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
   - Beta version derivation in `build.yml` and the E2E/screenshot work were done
     in PR 2-D, see Open – Phase 1.
 
+## Open - Phase 7 (carried over from Phase 6)
+
+Phase 7 is the UI design pass, the documentation site (`mkdocs.yml`, `mkdocs build`), Weblate,
+the Lovelace cards, the companion integration (ADR-0005) and 1.0. What Phase 6 leaves for it:
+
+- **Maintainer acceptance, nothing of Phase 6 has run on hardware:** MQTT with the Mosquitto app
+  and one notification on the phone (stage A), then the grid section (static export limit shown,
+  §14a "not active", backup entity mapped or skipped), the simulated "car arrives late" and a
+  washing-machine job in the demo, later a real wallbox, heat pump, evcc and inverter limit.
+  The 16 questions of plan section 10 need answers or confirmation of the defaults.
+- **Still not offered (6-O and 7-H closed the rest):** the month's savings as an MQTT entity, the
+  event type `proposal_expired`; HA **commands** for EV mode, target, program arming, comfort
+  band and the battery settings (with the author `mqtt` in the config history; needs a
+  `control-safety` review, plan section 8, 6-O). A push for a target the plan meets but the
+  controller later misses is not needed (7-K: the gap had a planner cause, see plan section 8).
+- **Panel gaps:** evcc `loadpoint_id` and `topic_prefix`; bundle budget (integrated: standard
+  path 256.9 of 250 kB, question 34). Done since: the inverter
+  verification test (7-J), the per-device `para14a` flag, `shed_rank`, the island keep list and
+  the manual MQTT broker (7-Q), the COP and model rows on the heat pump card (7-I).
+- **Behaviour decisions deferred:** hard target at any price for the EV (the late-car gap is
+  fixed in 7-K: 79.94 % of 80 % even with every plan 14.5 min late), grid pre-heating
+  execution, `generic.heat_pump_select`, a `button.press` remote start, a plan clear for evcc,
+  resetting evcc's mode at unplugging.
+- **Budgets to measure:** resident memory 136 MiB measured locally (7-N); the CI loaded smoke
+  and the aarch64 planner job (at most 10 s; amd64: 0.26 s for the full house) still need their
+  first run.
+- **Docs:** a followed test of every new how-to on Home Assistant OS, the dashboard recipe
+  (WP11, still a placeholder), the hosted docs site and the Weblate project (the translation
+  structure of `docs/user/en` and `docs/user/de` is identical). The screenshot set was
+  regenerated in 7-P.
+- **Security (7-O, `docs/security/review-1.0.md`):**
+  - SEC-13, SEC-15 and SEC-16 are fixed (question 31 is answered by the fix; a reverse proxy
+    in front of HA that strips custom headers would break writes, the error text says so);
+  - review the 7-J verification window (SEC-24);
+  - CSP after a browser check (`frontend-engineer`);
+  - digests for `BUILD_FROM` and the `uv` image (question 33);
+  - user-guide notes on MQTT ACLs and backup encryption (questions 28, 30): done in 7-P
+    (`docs/user/*/security.md`, release notes);
+  - after 1.0: a non-root user, an AppArmor profile and ECharts 6 (question 32).
+- Deferred past 1.0 unless asked: built-in PV and price fallbacks, calibration charging, per-phase
+  imbalance limits, V2H, several vehicles per charger, EEBus and the certified §14a path.
+
 ## Open – Phase 4
 
 - PR order (stacked, each on the previous, `phase-4/<letter>-<topic>`): 4-B storage/time series
@@ -879,11 +1980,15 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
 
 ## Next steps
 
-1. Maintainer: **Phase 3 shadow test first.** Install the beta (export a configuration backup first:
-   schema 4 cannot be opened by earlier versions), keep everything in **shadow mode**, read
-   `docs/user/en/surplus-control.md` (or `de`) and check the **Decision log** after a day with sun:
-   are the "would have" entries plausible? Check the summary system check at noon. Then switch
-   **one** device to automatic and report the first live writes. Then merge 3-A, 3-B, 3-C.
+1. Maintainer: **Phase 3 acceptance in two stages** (decided 2026-11-23 because there is no PV
+   surplus in winter; the logic is covered by the simulator scenarios, re-run in shadow and automatic
+   on 2026-11-23). *Stage A, now:* export a configuration backup (schema 4 cannot be opened by
+   earlier versions), install the current beta, keep everything in **shadow mode** for 1-2 days and
+   check that no "paused" or "stale data" banner appears (battery SoC, LG power sensor), that the
+   **Decision log** stays (nearly) empty without surplus and that the system check is green.
+   *Stage B, on the first day with real surplus:* are the "would have" entries plausible at noon,
+   then switch **only the LG climate** to automatic, check the first live writes (`accepted`, not
+   `failed`) and the emergency stop. Stage B does not block later phases.
 2. Then **Phase 4**, following `docs/user/en/planning-and-battery.md` (or `de`):
    1. Wizard: step 4 (forecast sources, workday and weather inputs), step 5 (battery model,
       strategy, risk level), step 6 (price formula for a spot source, HT/NT), step 8 (grid charging
@@ -896,18 +2001,76 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
    4. Optional, later: enable external battery management via Modbus on the inverter, add the modbus
       hub, and measure the fallback timer with the documented procedure; then set
       `battery.fallback_measured`.
-3. Merge the stacked PRs in order **#25 → #26 → #27/#29 → #30 → #31 → #33 → 4-H → 4-I** (squash
-   recommended), after the Phase 3 acceptance; each rebase onto `main` after the previous merge.
-   Release the next release-please PR for the stable app after acceptance (schema 4: release note
-   "export before updating").
-4. Answer the open questions in `docs/plans/phase-4.md` §6 ("Offene Fragen aus PR 4-A" and "4-C"),
-   in particular grid charging on the Kostal (generic force-charge entity or a §3.4 ADR) and the
-   fallback timer procedure.
+3. ~~Merge the stacked PRs~~ (done 2026-11-23: #25–#36 and #35 as one merge commit, because
+   squashing would have broken the stack). Release the next release-please PR (#17) for the stable
+   app only after the acceptance (schema 4: release note "export before updating").
+4. The questions of 4-A/4-B/4-C were answered with the defaults on 2026-10-19. Still open: what needs
+   the maintainer's system or bills (VAT on negative spot prices, the EEG tiers, the Kostal fallback
+   timer measurement, the publication time of next-day prices) and the 4-I questions (defaults built).
+5. Phases 5 and 6 were built on the defaults of their plans' §6 while the maintainer was away
+   (`docs/plans/phase-5.md`, `docs/plans/phase-6.md`). Review and merge the Phase 6 stack in
+   order (6-A ... 6-N), read the consolidated questions in `docs/plans/phase-6.md` section 10, and
+   do the acceptance listed under "Open - Phase 7". Then Phase 7 (plan to be written by the
+   architect).
+6. Phase 5 (#38–#50): review and merge in the order A to L (see the table in
+   `docs/plans/phase-5.md` §3); decide the bundle budget first (item 1 below). It was built on the
+   defaults of plan §6 while the maintainer was away. After the merge: run a backtest and the
+   history on the real system, and a 14-day backtest on a Pi (time and memory).
+
+### Open maintainer questions from PRs #38–#50
+
+Each was built with the proposed default; the answer may change that default.
+
+1. **Bundle budget (5-K, #50): decided 2026-11-24.** Only the active language catalogue counts
+   towards the 250 kB total; the budget stays. Total after 5-F + 5-K: 232.6 kB.
+2. **Backtest start while the planner solves (#50):** the server answers 409; should the UI retry
+   by itself?
+3. **Max. switches per hour in expert mode (#42):** hard bound 30, safety review recommends 12.
+4. **Negative-price reference (#42):** is a sensor with the current spot price enough for now?
+5. **Restore/import with changed safety values (#42):** no confirmation (the UI shows the
+   difference first, 5-I). The dialog (#44) does not show the allowed range; add it?
+6. **Backtest (#47):** what-if battery and tariff fields as `whatif` registry parameters instead
+   of fixed request fields? Memory guard 280 MB (plan said 200 MB)? Prices known from 13:00
+   local the day before? HT/NT and price formulas in the what-if form or flat tariff only? State
+   the 5 % cost-fidelity tolerance in the user guide (done in 5-L, change if you disagree).
+7. **History API (#43):** headers `X-Total-Count` and `X-Decision-Ids` instead of a new response
+   model; `layer` filters on `intent.origin`; resolution picks the finest one within 2 000 points
+   (plan decision 8 contradicts itself).
+8. **Storage (#41):** run the 365-day backfill once on existing installs (default yes); demo
+   history on by default (about 2 s longer start, default yes).
+9. **Analytics (#40):** equivalent full cycles over the usable capacity (default) or the nominal
+   one; cost is grid exchange only, without battery wear and standing charges.
+10. **History view (#46):** is "period plus date jump" enough, or should `/history/summary` take a
+    free range?
+11. **Decision log (#45):** link `#/plan?at=<time>` (done in 5-F); are site readings plus device
+    power and state enough in the "Why?" panel?
+12. **Plan chart (#48):** no blocking questions; window snapshot per window, measured CSV with at
+    most three devices, zoom not in the URL.
+13. **Release:** `timeseries.db` 1 to 2 and `suncore.db` 4 to 5 are one-way; the release note must
+    say "export before updating" (plan R9). #39 (dependency bump) and #49 (Phase 6 plan) are not
+    part of Phase 5.
 
 ## Known problems and `UNVERIFIED` items
 
 | Item | Where | Needed to resolve |
 |---|---|---|
+| 7-O security: whether an app with `NET_ADMIN` on the `hassio` bridge can spoof the ingress peer 172.30.32.2; Docker applying `docker-default` AppArmor when the Supervisor names no profile; whether HA onboarding sets a backup encryption key by default; the affected option of the ECharts advisory GHSA-fgmj-fm8m-jvvx; keyless Cosign in the HA builder; the Mosquitto ACL default (from its docs) | `docs/security/review-1.0.md` | Docker and builder source; the advisory text; maintainer's HA backup settings |
+| 7-O: the action SHA pins were resolved with `git ls-remote` but not run in CI in the session | `.github/workflows/*.yml` | first CI run of the 7-O PR |
+| 7-I diagnostics: the HA core version is read from the `version` key of `get_config` (documented in `docs/research/ha-websocket-api.md`, verified there against `Config.as_dict`) with `auth_ok` `ha_version` as the fallback; the simulator's `get_config` has neither, so the demo shows `null` until a test sets it | `suncore/app/runtime.py` `_remember_ha_version` | Look at the export on a real Home Assistant |
+| 7-I diagnostics: free-text fields of config and logs are scrubbed by known values and a closed list of entity domains; an entity id of a domain not in `ENTITY_DOMAINS` (a custom integration domain) that is not mapped in the configuration is not recognised in a log line, and a log field that holds a secret under an innocent key name is only masked if that exact value was seen in the configuration | `suncore/app/pseudonyms.py` | Read one real export before attaching it to a public issue; extend the domain list from reports |
+| 7-I heat pump card: the outdoor temperature is the weather entity's forecast of the current hour, not a sensor reading | `suncore/app/thermal_live.py` | Decide whether a measured outdoor sensor role is worth adding |
+| Phase 6 residual risk (6-J): for evcc `smart` the import limit (G1) is checked reactively; evcc may import by its own plan until the controller saw the import and the cut was echoed, about 1 min (60-90 s with noisy import, scenario `evcc_plan`: 20 s over the limit); the gate only sees what evcc *may* do. Accepted, the fuse and the operator's limit stay the user's own protection | `suncore/controller/evcc.py`, `suncore/safety/evcc.py`, `docs/user/*/ev-charging.md` | a running evcc with a smart-cost limit or plan |
+| Phase 6 residual risk (6-J): evcc liveness is `<prefix>/updated` younger than 120 s; a quiet evcc that publishes less often trips falsely, and an evcc clock running ahead makes an old retained timestamp look fresh | `suncore/app/evcc_link.py`, `templates/device/evcc.loadpoint.yaml` | measure the publication interval of the user's evcc |
+| Phase 6 residual risk (6-L): the safe state of a program's plug is ON (a failed power sensor, a crash, "back to normal", a missed job release it and the machine starts early); if SunCore does not run while the plug is off nobody switches it on, so the guides recommend an HA automation "plug off longer than X h -> on" (SunCore does not create it) | `suncore/safety/programs.py`, `docs/user/*/programs.md`, `docs/user/*/surplus-control.md` | maintainer decides whether SunCore should create the automation (plan section 10) |
+| Phase 6 residual risk (6-G): a held AC limit in register 533 survives a crash or a lost connection without a documented timeout; when the house load rises above it the difference is imported | `suncore/devices/inverter/`, `docs/user/*/grid-limits.md` | the inverter's communication-timeout setting; until then prefer the REST export limit |
+| Budgets: resident memory is 136 MiB after 10 min with flex, MQTT and replans (x86_64, local, 7-N); the cgroup figure in the image and everything on aarch64 are not measured; the planner at most 10 s on aarch64 (amd64: 0.26 s for the full house) | `scripts/smoke_image.sh` (`LOADED=1`), `.github/workflows/bench-arm.yml`, `scripts/bench_planner.py` | first CI run on `main`; a Pi 4 (plan question 14) |
+| 7-N CI jobs (upgrade test, loaded smoke, arm benchmark) were written without a Docker daemon, `actionlint` or `shellcheck`; the pieces were rehearsed locally (real 0.2.0 code seeded over HTTP, current code verified, loaded API steps against the real app) | `scripts/upgrade_test.sh`, `scripts/upgrade_probe.py`, `scripts/smoke_image.sh`, `.github/workflows/` | first CI runs |
+| Digests pinned 2026-11-25 by lookup: `ghcr.io/pxljake/suncore` 0.2.0 index `sha256:05641188…3b32`; `eclipse-mosquitto:2.0.23` index `sha256:6a332cc7…2ad9` (verified against the manifest body hash) | `scripts/upgrade_test.sh`, `scripts/smoke_image.sh` | refresh at each release (skill `prepare-release`) |
+| `release-as` is deprecated in release-please's schema (a `Release-As:` footer replaces it) and not set yet; what `breaking_versions` does for installed versus store config is not verified; `stage` default `stable` verified in Supervisor source | `release-please-config.json`, `scripts/beta_version.py`, plan questions 25, 26 | maintainer decision; `stage` line removed in 7-N part 2 |
+| The Phase 6 user guides (6-N) are written from the code and the catalogues; their set-up steps and the UI names were not followed on a real Home Assistant, and the new views have no screenshots yet | `docs/user/*/home-assistant-entities.md`, `notifications.md`, `grid-limits.md`, `ev-charging.md`, `heat-pump.md`, `programs.md` | maintainer follows them; screenshots through `demo-screenshots` (Phase 7) |
+| 6-D MQTT commands: default payloads of the MQTT `switch` (`ON`/`OFF`), `button` (`PRESS`) and the `number` keys `min`, `max`, `step`, `mode` (HA source was not reachable in the session; used as documented); that HA sends commands with retain off | `research/mqtt-discovery.md`, `suncore/ha/mqtt/commands.py`, `discovery.py` | maintainer's HA: press the buttons, set the switches and the boost duration, see the true state come back |
+| 7-H: the device classes and units of the read-only entities (`plug`, `battery`, `timestamp`, `K`, `monetary`, `power`) are verified against the HA core source, not on a running HA; how the sensors, the one-line next action and the events look in HA and in the Companion app; the savings figure reads 0 or the plant's gain while in shadow mode | `research/mqtt-discovery.md`, `suncore/app/ha_site_values.py`, `suncore/notify/signals.py` | maintainer's HA with the Mosquitto app: the five sensors fill after the first plan and the first summary; an event automation fires at night (island simulated in the demo) |
+| 6-C MQTT: Home Assistant `get_config` carries the UI language under `language`; a custom HA birth topic is never configured (default `homeassistant/status`); TLS to the Mosquitto app with certificate verification; the Supervisor `GET /services/mqtt` answer on a real HA OS (verified from source only) | `research/mqtt-discovery.md`, `suncore/ha/mqtt/` | maintainer's HA with the Mosquitto app: entities appear, birth republish, language, a restart of the broker |
 | Kostal §3.4 set-point timeout and how external battery management is enabled (register map itself is verified from KOSTAL rev 2.9) | `research/kostal-plenticore-modbus.md` | Phase 4 measurement on the maintainer's inverter |
 | Hosted Weblate free tier for libre projects | ADR-0007 | maintainer confirms on weblate.org |
 | Energy-Charts and aWATTar APIs and terms (not shipped in Phase 4) | `research/integrations.md` | session with network access (Phase 6) |
@@ -925,7 +2088,6 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
 | Nord Pool `config_entry` id source, sensor translation keys, publication time; Octopus/ENTSO-E/EPEX entity matchers (platform and unit only, no translation keys); `start`/`end` sent to `tibber.get_prices` as ISO with offset; negative-price rule proxy for all-in sources | `templates/tariff/*.yaml`, `suncore/tariff/pricing.py` | live check on a system with the integration |
 | VAT applied to negative spot prices | `suncore/core/tariff.py` | maintainer's bill / supplier terms |
 | KNN load model run time on aarch64 (amd64: training + 48 h prediction 30–50 ms for 30–90 days, `scripts/bench_load_ml.py`); its constants (K 24, slot window ±2, scales 4 K / 15 % level / 120 days age, 2 % margin) are reasoned, not fitted | plan WP12, `suncore/forecast/load_ml.py` | CI arm runner or a Pi; 30+ days of the maintainer's data in `shadow` |
-| Energy colour variable names (`--energy-*`) | `frontend/src/app.css` | read HA frontend source |
 | HA UI menu paths in the user docs (Settings → Apps → App store, Repositories, Show in sidebar; German labels) | `addon/*/DOCS.md`, `README.md`, `docs/user/*/quick-start.md` | maintainer checks on HA OS during the beta install |
 | Supervisor Core proxy passes `supported_features` through | `suncore/ha/websocket.py` | first run on HA OS |
 | Registry and energy-prefs shapes on cores older than dev (single `config_entry_id` on devices, unified grid source); `unknown_command` code without the `energy` integration; Supervisor proxy passes registry commands | `research/ha-websocket-api.md` | first run on HA OS; parsers tolerate both shapes |
@@ -938,19 +2100,37 @@ test · **Branch:** `phase-4/i-ml-load` (stacked on `phase-4/h-ui-docs`)
 | Water heater templates (`generic.water_heater_steps`, `_relays`), drivers for select/number/relays/mode, `ClimateDriver` paths other than `lg_thinq` source reading: simulator only, no hardware; `lg_thinq` `step is None` `TypeError` on `set_temperature`, push latency after a command, `climate.turn_on` fallback for modes not in `hvac_modes` | `templates/device/generic.water_heater_*.yaml`, `suncore/devices/drivers/`, `research/device-integrations.md` | first limited live write on the maintainer's AC; a user with a water heater |
 | Default sensor cadences (power sensor 60 s = the client resync, energy counter without `counter_update_s` 300 s); whether a quiet plug re-reports an unchanged value so that `last_reported` moves | `suncore/app/cadence.py`, `research/ha-websocket-api.md` | shadow-mode run on the maintainer's system; set `power_update_s`/`counter_update_s` where a sensor is slower (`power_update_s` is in the device editor since WP10) |
 | Controller tuning (deficit delay/budget, downside spread of the smoothing, counter-only climate needs `nominal + span + hysteresis` free surplus to shift; battery share without a goal = battery first) | `suncore/controller/`, `tests/controller/test_climate_equivalence.py` | shadow-mode run on the maintainer's system (plan exit criterion) |
-| evcc REST API paths | `research/competitors.md` | Phase 6, MQTT API is verified and sufficient |
+| §14a numeric signal convention (allowed power in W while dimmed, 0 when not dimmed; 0 W cannot be a legal dimming value given the 4.2 kW minimum, a positive value is used as min(value, limit)) and the EMS formula for several devices | `suncore/core/grid.py` (`para14a_budget_w`), ADR-0018, plan section 8 (6-F) | a grid operator's control box / documentation |
+| Kostal register 533: readable back (Kostal lists only FC 0x06), whether it includes battery discharge, the reset behaviour (volatile per rev 2.9, re-written every heartbeat); `Inverter:ActivePowerLimitation` semantics (export or AC limit), whether the REST value survives an inverter restart, out-of-range handling | `suncore/devices/inverter/drivers.py`, `templates/inverter/`, `research/kostal-plenticore-modbus.md` | maintainer's inverter: the verification test (7-J, plan H9) |
+| 7-J verification classification: export semantics = export settles at the limit, AC semantics = at limit − house (DC-coupled battery charges before the AC output) or limit − house − battery charging (AC-coupled); tolerance max(150 W, 5 %) held 20 s; observed only in the simulator | `suncore/app/verification.py` (`classify`), `suncore/sim/limiter.py` | H9 on the maintainer's inverter |
+| Export chain tuning (curtail delay 120 s, AC hysteresis 3 %, lease at half the 500 W margin, device headroom >= 100 W) and the simulator's 0-8 W regulation jitter below an AC limit (keeps the watchdog's frozen-PV check quiet) | `suncore/controller/export.py`, `suncore/safety/inverter.py`, `suncore/sim/limiter.py` | shadow run on the maintainer's system with surplus |
+| Backup-switch island state names (simulator: `island`/`on_grid`; Kostal BackUp Switch G3 entity and states unknown) | `suncore/core/grid.py` `BackupConfig`, `suncore/sim/fake_ha.py` | maintainer maps the entity (question 10) |
+| Grid shedding and §14a dimming exercised in the simulator only (no fuse, peak tariff, control box or backup hardware in the session) | `suncore/controller/grid.py`, `suncore/safety/grid.py` | shadow run on a system with the hardware |
+| SG-Ready contact mapping per vendor; charger phase-switch pause | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-K) |
+| evcc as actor: exercised on the fake evcc only (no running evcc in the session); clearing a vehicle plan over MQTT; how fast evcc applies `maxCurrent` while charging; evcc resetting the mode at vehicle disconnect (read as an override); `smart` with `alwaysCharge` for `min_pv`. Resolved from the evcc source (2026-11-24): loadpoint ids start at 1, `phasesConfigured` 0/1/3, the retained read topics, the heartbeat `<prefix>/updated` | `templates/device/evcc.loadpoint.yaml`, `suncore/devices/evcc.py`, plan section 8 (6-J) | a running evcc with MQTT enabled on the maintainer's broker |
+| Wallbox control: exercised in the simulator only (no wallbox in the session); the phase switch pause (120 s default), whether a charger accepts a phase change while paused, min run/pause defaults (300 s) for cloud-polled chargers; no integration template verified from `home-assistant/core` source (only home-assistant.io `wallbox` page, 2026-11-24) | `templates/device/generic.wallbox.yaml`, `suncore/devices/drivers/charger.py`, plan section 8 (6-I) | a real wallbox; a session with access to the core source |
+| Shiftable programs (6-L): exercised in the simulator only; whether an appliance resumes its programme after the plug's power returns (per appliance, the user confirms `resume_confirmed`); remote-start switches per integration (a `button` role is not supported yet); placeholder run time 120 min, `idle_w` 5 W and peak power in the templates; appliances that draw more than `idle_w` right after start are treated as running (no delay) | `templates/device/generic.program_*.yaml`, `suncore/devices/drivers/program.py`, plan section 8 (6-L) | a real washing machine/dishwasher behind a plug; an integration with a remote start |
+| Notifications (6-E): payload of `mobile_app_notification_action` beyond `data.action`; that the Supervisor token may `subscribe_events` for it (else plain messages); `data.actions` on every legacy `notify.<service>`; `notify.send_message` has no button field | `suncore/ha/connection.py`, `suncore/notify/`, `research/ha-websocket-api.md` | first run on HA OS with the companion app |
+| Heat pump (6-K): SG-Ready contact mapping of the generic template (normal 00, intensified 01, forced 11, block 10); which integrations expose a heat pump's hot water as `water_heater` and how fast they apply a target; template defaults (dwell 600 s, min run 1200 s, min pause 600 s, 3/h, comfort 45-55 °C, restart 3 K); grid pre-heat planned but not executed; simulator only, no heat pump in the session | `templates/device/generic.heat_pump_*.yaml`, `suncore/core/sgready.py`, plan section 8 (6-K) | a user's heat pump with its manual; 6-I import mechanism |
+| RC learner (6-K): losses fitted against the outdoor series (stores indoors lose to the room); small fast stores miss the quality threshold on 15-minute data and stay energy-only | `suncore/forecast/thermal.py` | 14+ days of a real heat pump's probe, power and weather |
+| SG-Ready contact mapping per vendor; charger phase-switch pause; evcc `phasesConfigured` values, loadpoint ids starting at 1, the min+PV mapping to evcc `smart` | `suncore/core/devices.py`, `suncore/core/flex.py`, ADR-0017 | templates with vendor sources (6-I, 6-J, 6-K) |
+| evcc REST API paths | `research/competitors.md` | not needed: the MQTT API is verified from source and sufficient |
 | Solcast day sensors d3/d4: translation keys `total_kwh_forecast_d3`/`_d4` from the research notes; the date-time format the fallback action `query_forecast_data` accepts for `start_date_time`/`end_date_time` (SunCore sends ISO 8601 with offset) | `templates/forecast/solcast.pv.yaml`, `suncore/forecast/pv/adapter.py` | maintainer's HA with Solcast |
 | Open-Meteo Solar Forecast: translation key assumed equal to the description key (the CC BY 4.0 attribution is shown in the plan view since 4-H) | `templates/forecast/open_meteo_solar_forecast.pv.yaml` | a running integration |
 | Forecast.Solar `wh_hours`/`watt_hours_period` keys read as period *start* (vendor API unreachable) | `templates/forecast/forecast_solar.pv.yaml`, `suncore/forecast/pv/parsing.py` | live comparison with the integration's sensors |
 | Supervisor proxy forwards `energy/solar_forecast` | `suncore/ha/` (`fetch_solar_forecast`) | first run on HA OS |
 | PV calibration constants (classes kt 0.3/0.65, shrink k = 16, decay 0.98, factor 0.5–1.5) and the clipping thresholds (plateau ±0.3 % for ≥ 1 h on ≥ 2 days; export within max(3 %, 50 W)) are reasoned, not fitted to real data | `suncore/forecast/pv/` | 30+ days of the maintainer's data |
-| Planner solve times on aarch64 (Raspberry Pi 4, HA Green); amd64: 4 ms solve, 24 ms whole run for the reference house; HiGHS releasing the GIL on aarch64 (measured on amd64) | ADR-0003, `scripts/bench_planner.py`, `tests/planner/test_gil.py` | run the benchmark and the slow tests on a Pi / the CI arm runner |
+| Planner solve times on aarch64 (Raspberry Pi 4, HA Green); amd64: 4 ms solve, 24 ms whole run for the reference house, 0.22 s solve / 0.26 s run for the 6-H full house (EV, program, heat pump, 234 binaries); HiGHS releasing the GIL on aarch64 (measured on amd64) | ADR-0003, `scripts/bench_planner.py`, `tests/planner/test_gil.py` | run the benchmark and the slow tests on a Pi / the CI arm runner |
 | Negative-price rule slots in the planner use a proxy (export price ≤ 0 and import price < 0); a spot-only source with a formula whose end price stays positive is not detected | `suncore/planner/inputs.py` | tariff service exposes the rule's slots (Phase 5) |
 | Planner weights and rules: target penalties (10 × max price + 1, buffer 2 × + 0.5), terminal value (median import × discharge efficiency − degradation/2), device budget on P50 plus overflow (a day far below P50 can miss the evening target, review D4), flat 500 W base load without a load forecast, automatic device value export + 0.01 | `suncore/planner/model.py`, `inputs.py` | shadow plans on the maintainer's system |
 | `weather.get_forecasts` `hourly` support of the maintainer's weather integration (the `temperature_unit` attribute and the conversion of the forecast to it are verified from source, `research/ha-websocket-api.md`) | `suncore/app/adapters.py` (`HaLoadReader`) | maintainer's HA |
 | `workday.check_date` over the Supervisor proxy and with the maintainer's Workday configuration (the `days_offset` handling is verified from source; a changed country/holiday list is not visible in the attributes, so the day-type cache only resets on a changed entity, `workdays`, `excludes` or offset) | `suncore/app/adapters.py`, `suncore/forecast/load_service.py` | maintainer maps a Workday sensor |
 | Load and risk constants (half-life 21 days, outlier z 3, shrink 3 days, 7 clean days, degree-day bases 15/22 °C, coverage 75 %/90 %, 20 h temperature days, anchors sunrise + 1 h / sunset − 1 h, sunrise threshold 2 %/20 W) and the default PV bands per weather class (clear 0.85/1.10, mixed 0.55/1.35, overcast 0.35/1.70) are reasoned, not fitted | `suncore/forecast/load.py`, `suncore/forecast/risk.py`, `risk_learning.py` | 30+ days of the maintainer's data |
 | Known limitation (n6): the load history and the risk samples are not re-derived when the device list changes - a device added later is only subtracted from the base load from the day its power is recorded (or rebuilt), and older risk samples keep the old base load | `suncore/forecast/load_service.py`, `risk_learning.py` | accepted for Phase 4; the KNN model (4-I) shares the base load and the limitation; revisit in Phase 5 |
+| Backtest run time and peak memory on aarch64 (Pi 4, HA Green); amd64: 14 days 8.9 s, 30 days 22.5 s, RSS 80 MB (`scripts/bench_backtest.py`); the 5 % cost fidelity was measured on the demo history only (+1.1 %), not on real data | `suncore/sim/backtest.py`, `docs/user/*/what-if-and-backtesting.md` | CI arm runner or a Pi; a 14-day override-free run on the maintainer's history |
+| Number of days of long-term statistics a Home Assistant keeps and whether the Supervisor proxy forwards `recorder/*` for 365-day ranges; time and memory of the 365-day backfill on aarch64 | `suncore/storage/`, `suncore/app/summaries.py` | first start on HA OS |
+| Expert parameter bounds in `SAFETY_LIMITS` (reviewed, not tried on hardware); the "needs restart" marker (no parameter uses it) | `suncore/core/control.py`, `docs/reference/parameters.md` | shadow run; maintainer's decision on the switches-per-hour bound |
+| Wording and walk-through of the Phase 5 guides (written from the code, the demo and the catalogues, not followed on a real system) | `docs/user/*/history-and-analysis.md`, `decision-log.md`, `plan-chart.md`, `expert-mode.md`, `what-if-and-backtesting.md` | maintainer follows them on his system |
 
 ## Environment notes
 

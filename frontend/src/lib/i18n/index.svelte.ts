@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Reactive i18n: `t(key, args)` re-renders when the locale changes.
-import de from './locales/de.json';
 import en from './locales/en.json';
-import { createTranslator, resolveLocale, type Locale, type MessageArgs } from './core';
+import {
+  createTranslator,
+  resolveLocale,
+  type Catalogue,
+  type Locale,
+  type MessageArgs,
+} from './core';
 import {
   formatDateTime,
   numberFormat,
@@ -15,7 +20,20 @@ import {
 
 export type MessageKey = keyof typeof en;
 
-const translator = createTranslator({ en, de });
+// English is eager: it is the typed source of keys and the fallback for any missing key, so no
+// raw key is ever shown. Every other language is a separate chunk that is fetched only when it
+// is the active language (browser or region.language); first paint carries one catalogue.
+const translator = createTranslator({ en });
+const LOADERS: Partial<Record<Locale, () => Promise<Catalogue>>> = {
+  de: () => import('./locales/de.json').then((m) => m.default),
+};
+
+/** Make the catalogue of `locale` available (no-op for English and for loaded ones). */
+export async function loadLocale(locale: Locale): Promise<void> {
+  if (translator.loaded(locale)) return;
+  const load = LOADERS[locale];
+  if (load) translator.set(locale, await load());
+}
 
 function initialLocale(): Locale {
   if (typeof navigator === 'undefined') return 'en';
@@ -26,10 +44,24 @@ class I18n {
   locale = $state<Locale>(initialLocale());
   /** Home Assistant's time zone (region section); `undefined` = the browser's. */
   timeZone = $state<string | undefined>(undefined);
+  /** Bumped when a lazy catalogue arrives, so `t()` callers render again. */
+  loaded = $state(0);
 
+  private wanted: Locale = this.locale;
+
+  /**
+   * Switch the language. The text changes once its catalogue is there (English shows until
+   * then); a newer request wins over a slower older one.
+   */
   setLocale(locale: Locale): void {
-    this.locale = locale;
-    if (typeof document !== 'undefined') document.documentElement.lang = locale;
+    this.wanted = locale;
+    const apply = () => {
+      if (this.wanted !== locale) return;
+      this.locale = locale;
+      if (typeof document !== 'undefined') document.documentElement.lang = locale;
+    };
+    if (translator.loaded(locale)) apply();
+    else void loadLocale(locale).then(apply, () => undefined);
   }
 }
 
@@ -46,12 +78,18 @@ export function tClock(date: Date): { hour: number; minute: number } {
 }
 
 /** The language preference of the region section: `auto` follows the browser. */
+/** Load the catalogue of the language the page starts in (call before the first render). */
+export function preloadInitialLocale(): Promise<void> {
+  return loadLocale(initialLocale());
+}
+
 export function applyLanguage(pref: 'auto' | 'en' | 'de'): void {
   i18n.setLocale(pref === 'auto' ? initialLocale() : pref);
 }
 
 /** Typed lookup: unknown keys fail `svelte-check`. */
 export function t(key: MessageKey, args?: MessageArgs): string {
+  void i18n.loaded;
   return translator.render(i18n.locale, key, args);
 }
 
@@ -64,13 +102,38 @@ export function tDynamic(
   args: MessageArgs | undefined,
   fallback: MessageKey = 'reason.unknown',
 ): string {
+  void i18n.loaded;
   if (!translator.has(key)) return translator.render(i18n.locale, fallback, { key });
   return translator.render(i18n.locale, key, args);
 }
 
 /** Whether the catalogue has `key` (backend ids such as template names may not be translated). */
 export function hasMessage(key: string): boolean {
+  void i18n.loaded;
   return translator.has(key);
+}
+
+let paramsLoad: Promise<void> | null = null;
+
+/**
+ * The `param.*` catalogue (names, help texts, group titles of the parameter registry) is large
+ * and only the expert area needs it: it is a separate chunk, loaded on first use.
+ */
+export function loadParamCatalogue(): Promise<void> {
+  paramsLoad ??= Promise.all([
+    import('./locales/params.en.json'),
+    import('./locales/params.de.json'),
+  ])
+    .then(([en, de]) => {
+      translator.extend('en', en.default);
+      translator.extend('de', de.default);
+      i18n.loaded += 1;
+    })
+    .catch((e: unknown) => {
+      paramsLoad = null; // allow a retry
+      throw e;
+    });
+  return paramsLoad;
 }
 
 export function tPower(watts: number): string {

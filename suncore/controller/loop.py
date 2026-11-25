@@ -51,7 +51,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, tzinfo
 from types import MappingProxyType
 
@@ -69,13 +69,51 @@ from suncore.controller.battery import (
     BatteryIntents,
     BatteryView,
 )
+from suncore.controller.ev import battery_holds_lock
+from suncore.controller.evcc import INTENT_PREFIX as EVCC_INTENT_PREFIX
+from suncore.controller.evcc import EvccIntents, LoadpointTick, LoadpointView
+from suncore.controller.export import (
+    DeviceHeadroom,
+    ExportChain,
+    ExportControlInputs,
+    ExportControlSettings,
+    ExportView,
+    absorb_headroom_w,
+    export_over_limit,
+)
+from suncore.controller.grid import GridHolds, GridInputs, situation_reasons
+from suncore.controller.hysteresis import Phase
 from suncore.controller.levels import ConfigQuantiser, Quantiser
+from suncore.controller.programs import (
+    INTENT_PREFIX as PROGRAM_INTENT_PREFIX,
+)
+from suncore.controller.programs import (
+    ProgramController,
+    ProgramEvent,
+    ProgramInputs,
+)
 from suncore.controller.surplus import SiteSurplus, SurplusTracker
 from suncore.core.balance import FlowSnapshot
 from suncore.core.config import GoalsConfig
-from suncore.core.control import ControlSettings, DeviceState, GateInputs, Plan, PowerEstimate
+from suncore.core.control import (
+    ControlSettings,
+    DeviceState,
+    GateInputs,
+    Plan,
+    PowerEstimate,
+    device_band_now,
+)
 from suncore.core.decisions import Decision, Intent, Reason
-from suncore.core.devices import DeviceConfig
+from suncore.core.devices import DeviceConfig, LoadpointControl
+from suncore.core.flex import EV_MODE_DEFAULT, EvMode, EvTarget, ProgramJob
+from suncore.core.grid import (
+    GridMemory,
+    GridState,
+    advance_grid_memory,
+    island_hold_s,
+    merge_grid_memory,
+    para14a_hold_s,
+)
 from suncore.core.signals import Quality
 
 log = structlog.get_logger(__name__)
@@ -105,6 +143,33 @@ class ControllerInputs:
     battery: BatteryControlInputs | None = None
     """The battery adapter's capabilities, ranges and what the gate holds (``None`` = no battery
     adapter: the battery is only observed, no battery intents; Phase 4 WP10)."""
+    inverter: ExportControlInputs | None = None
+    """PR 6-G: the inverter limit adapter (``None`` = none configured: no inverter intents,
+    the export limit stays the inverter's own)."""
+    grid: GridInputs | None = None
+    """PR 6-F: effective import limit (fuse and peak), §14a, island
+    (``controller.grid.resolve_grid_inputs``); ``None`` = only ``import_limit_w`` (Phase 3)."""
+    ev_modes: Mapping[str, EvMode] = field(default_factory=dict)
+    """PR 6-I: the runtime EV mode per charger (``flex_state``; missing = the default mode)."""
+    ev_targets: Mapping[str, EvTarget] = field(default_factory=dict)
+    """PR 6-J: the runtime EV target per charger or loadpoint (``flex_state``; mode ``target``)."""
+    battery_present: bool = True
+    """PR 6-I (E6): the site has a home battery (the conservative default assumes one)."""
+    jobs: Mapping[str, Sequence[ProgramJob]] = field(default_factory=dict)
+    """PR 6-L: the open program jobs per device (``flex_state``)."""
+
+    @property
+    def grid_inputs(self) -> GridInputs:
+        return self.grid if self.grid is not None else GridInputs.from_limit(self.import_limit_w)
+
+
+@dataclass(frozen=True, slots=True)
+class GridView:
+    """The grid situation of a tick for the API and the "Why?" view (PR 6-F)."""
+
+    inputs: GridInputs
+    reasons: tuple[Reason, ...]
+    holds: GridHolds
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +188,15 @@ class TickResult:
     attributable_deficit_w: float
     battery: BatteryView | None = None
     """The battery decision of the tick (``None`` without a battery adapter)."""
+    grid: GridView | None = None
+    program_jobs: tuple[ProgramJob, ...] = ()
+    """PR 6-L: program jobs that changed this tick (the composition root persists them)."""
+    program_events: tuple[ProgramEvent, ...] = ()
+    """PR 6-L: program starts, ends and "start now" requests (notifications)."""
+    loadpoints: Mapping[str, LoadpointView] = field(default_factory=dict)
+    """PR 6-J: what the controller wants of each evcc loadpoint this tick."""
+    export: ExportView | None = None
+    """The export-chain decision of the tick (``None`` without an inverter adapter)."""
 
 
 class Controller:
@@ -136,9 +210,11 @@ class Controller:
         tz: tzinfo = UTC,
         quantiser: Quantiser | None = None,
         battery: BatteryControlSettings | None = None,
+        export: ExportControlSettings | None = None,
     ) -> None:
         self._settings = settings if settings is not None else ControlSettings()
         self._battery = BatteryIntents(battery)
+        self._export = ExportChain(export)
         self._tz = tz
         devices = list(devices)
         if quantiser is None:
@@ -152,6 +228,11 @@ class Controller:
         self._surplus = SurplusTracker(self._settings.smoothing_s)
         self._allocator = Allocator(self._settings, quantiser, tz=tz)
         self._allocator.set_devices(devices)
+        self._programs = ProgramController(devices, tz=tz)
+        self._para14a_ids = frozenset(d.id for d in devices if d.para14a)
+        self._grid_memory = GridMemory()
+        self._evcc = EvccIntents()
+        self._loadpoints = tuple(d for d in devices if isinstance(d.control, LoadpointControl))
 
     @property
     def settings(self) -> ControlSettings:
@@ -167,6 +248,21 @@ class Controller:
         if self._config_quantiser is not None:
             self._config_quantiser.update({d.id: d for d in devices})
         self._allocator.set_devices(devices)
+        self._programs.set_devices(devices)
+        self._para14a_ids = frozenset(d.id for d in devices if d.para14a)
+        self._loadpoints = tuple(d for d in devices if isinstance(d.control, LoadpointControl))
+
+    @property
+    def programs(self) -> ProgramController:
+        return self._programs
+
+    @property
+    def grid_memory(self) -> GridMemory:
+        return self._grid_memory
+
+    def seed_grid_memory(self, memory: GridMemory) -> None:
+        """Add a restored island/§14a history (mirrors ``SafetyGate.seed_grid_memory``)."""
+        self._grid_memory = merge_grid_memory(self._grid_memory, memory)
 
     def step(self, now: datetime, inputs: ControllerInputs) -> TickResult:
         """One deterministic tick."""
@@ -177,16 +273,38 @@ class Controller:
         # default plan) leaves the Phase 3 goal rules in charge, never the empty default band.
         interval = inputs.plan.interval_at(now)
         band = None if interval is None else interval.battery
+        grid = inputs.grid_inputs
+        self._grid_memory = advance_grid_memory(
+            self._grid_memory, now, grid.grid_state, grid.para14a.status
+        )
+        cooldown = self._settings.safe_state_cooldown_s
+        holds = GridHolds(
+            island_s=island_hold_s(self._grid_memory, now, cooldown),
+            para14a_s=para14a_hold_s(self._grid_memory, now, cooldown),
+        )
+        soc_flow = None if inputs.flows is None else inputs.flows.battery_soc_pct
+        # Only an OK reading counts (review 4-G minor 7): a stale SoC never sets a floor.
+        soc = soc_flow.value if soc_flow is not None and soc_flow.quality is Quality.OK else None
+        held = None if inputs.battery is None else inputs.battery.held
         allocation = AllocationInputs(
+            ev_modes=inputs.ev_modes,
+            # E6 as the gate judges it (review 6-I H1): a lock being released is no lock.
+            battery_locked=not inputs.battery_present
+            or (
+                inputs.battery is not None
+                and not inputs.battery.release_pending
+                and battery_holds_lock(held, soc)
+            ),
             states=inputs.states,
             estimates=inputs.estimates,
             blocked=inputs.blocked,
             plan=inputs.plan,
             reserve_soc_pct=inputs.reserve_soc_pct,
-            import_limit_w=inputs.import_limit_w,
+            import_limit_w=grid.import_limit_w,
+            grid=grid,
+            grid_holds=holds,
         )
         outcome = self._allocator.prepare(now, allocation)
-        held = None if inputs.battery is None else inputs.battery.held
         site = self._surplus.update(
             now,
             inputs.flows,
@@ -199,42 +317,193 @@ class Controller:
         # (each intent's own added demand is the gate's ``delta``).
         surplus = site.gate_estimate(self._settings.reserve_w, outcome.committed_w)
         outcome = self._allocator.run(now, site, allocation, outcome)
-        soc_flow = None if inputs.flows is None else inputs.flows.battery_soc_pct
-        # Only an OK reading counts (review 4-G minor 7): a stale SoC never sets a floor.
-        soc = soc_flow.value if soc_flow is not None and soc_flow.quality is Quality.OK else None
-        battery_intent = self._battery.step(now, inputs.plan, inputs.battery, soc)
-        intents = (*outcome.intents, battery_intent) if battery_intent else tuple(outcome.intents)
+        battery_locked = allocation.battery_locked
+        loadpoint_intents = self._evcc.step(
+            now,
+            self._loadpoint_ticks(
+                now,
+                inputs,
+                grid,
+                holds,
+                site_trusted=site.trusted,
+                battery_locked=battery_locked,
+            ),
+        )
+        battery_intent = self._battery.step(
+            now,
+            inputs.plan,
+            inputs.battery,
+            soc,
+            grid=grid,
+            holds=holds,
+            deficit_w=_house_deficit_w(inputs.flows),
+            reserve_w=self._settings.reserve_w,
+            ev_lock=(outcome.ev_lock or self._evcc.lock_wanted) and inputs.battery_present,
+            export_over_limit=export_over_limit(inputs.flows, grid),
+        )
+        grid_flow = None if inputs.flows is None else inputs.flows.grid_w
+        programs = self._programs.step(
+            now,
+            ProgramInputs(
+                jobs=inputs.jobs,
+                states=inputs.states,
+                estimates=inputs.estimates,
+                blocked=inputs.blocked,
+                plan=inputs.plan,
+                site_ok=grid_flow is not None
+                and grid_flow.quality is Quality.OK
+                and grid_flow.value is not None
+                and surplus is not None
+                and surplus.quality is Quality.OK,
+                island=grid.grid_state is GridState.ISLAND,
+            ),
+        )
+        headroom = _headroom_w(outcome.views, inputs)
+        export_intent = self._export.step(now, inputs.inverter, inputs.flows, grid, headroom)
+        intents = (
+            *outcome.intents,
+            *programs.intents,
+            *loadpoint_intents,
+            *(i for i in (battery_intent, export_intent) if i is not None),
+        )
+        views = dict(outcome.views)
+        for device_id, why in programs.reasons.items():
+            view = views.get(device_id)
+            if view is not None:
+                views[device_id] = replace(view, reasons=why)
         gate_inputs = GateInputs(
             flows=inputs.flows,
             surplus=surplus,
             estimates=dict(inputs.estimates),
-            import_limit_w=inputs.import_limit_w,
+            import_limit_w=grid.import_limit_w,
             reserve_soc_pct=inputs.reserve_soc_pct,
             ts=now,
+            export_limit_w=grid.export_limit_w,
+            para14a_budget_w=grid.para14a.budget_w,
+            para14a_status=grid.para14a.status,
+            grid_state=grid.grid_state,
+            fuse_limit_w=grid.fuse_limit_w,
+            para14a_devices=self._para14a_ids,
+            battery_present=inputs.battery_present,
+            export_headroom_w=headroom,
         )
         return TickResult(
             ts=now,
             gate_inputs=gate_inputs,
             site=site,
             intents=intents,
-            views=MappingProxyType(dict(outcome.views)),
+            views=MappingProxyType(views),
             deviations=tuple(outcome.deviations),
             total_w=outcome.total_w,
             free_w=outcome.free_w,
             allocated_draw_w=outcome.allocated_draw_w,
             attributable_deficit_w=outcome.attributable_deficit_w,
             battery=self._battery.view,
+            grid=GridView(grid, situation_reasons(grid), holds),
+            program_jobs=programs.jobs,
+            program_events=programs.events,
+            loadpoints=MappingProxyType(dict(self._evcc.views)),
+            export=self._export.view,
         )
+
+    def _loadpoint_ticks(
+        self,
+        now: datetime,
+        inputs: ControllerInputs,
+        grid: GridInputs,
+        holds: GridHolds,
+        *,
+        site_trusted: bool,
+        battery_locked: bool,
+    ) -> list[LoadpointTick]:
+        flow = None if inputs.flows is None else inputs.flows.grid_w
+        import_w = flow.value if flow is not None and flow.quality is Quality.OK else None
+        ticks: list[LoadpointTick] = []
+        for device in self._loadpoints:
+            spec = device.ev
+            default = spec.default_mode if spec is not None else EV_MODE_DEFAULT
+            ticks.append(
+                LoadpointTick(
+                    device=device,
+                    state=inputs.states.get(device.id),
+                    mode=inputs.ev_modes.get(device.id, default),
+                    target=inputs.ev_targets.get(device.id),
+                    band=device_band_now(inputs.plan, device.id, now),
+                    battery_locked=battery_locked,
+                    site_trusted=site_trusted,
+                    grid=grid,
+                    holds=holds,
+                    import_w=import_w,
+                    blocked=inputs.blocked.get(device.id),
+                )
+            )
+        return ticks
 
     def report(self, decision: Decision) -> bool:
         """Feed the gate's decision on an intent back; ``True`` if it was ours and pending."""
         if self._battery.report(decision):
+            return True
+        if self._programs.report(decision):
+            return True
+        if self._evcc.report(decision):
+            return True
+        if self._export.report(decision):
             return True
         return self._allocator.report(decision)
 
     @property
     def battery(self) -> BatteryIntents:
         return self._battery
+
+    @property
+    def evcc(self) -> EvccIntents:
+        return self._evcc
+
+    @property
+    def export(self) -> ExportChain:
+        return self._export
+
+
+def _headroom_w(views: Mapping[str, DeviceView], inputs: ControllerInputs) -> float:
+    """``GateInputs.export_headroom_w``: chain steps 1 and 2 not yet exhausted (X3)."""
+    devices = [
+        DeviceHeadroom(
+            v.device_id,
+            rising=v.phase is Phase.PENDING_UP
+            or (
+                v.phase is Phase.IN_FLIGHT
+                and v.pending_level is not None
+                and v.pending_level > v.level
+            ),
+            step_w=0.0,
+        )
+        for v in views.values()
+    ]
+    battery = inputs.battery
+    flow = None if inputs.flows is None else inputs.flows.battery_w
+    battery_w = flow.value if flow is not None and flow.quality is Quality.OK else None
+    high = None
+    if battery is not None and battery.ranges.max_charge_w is not None:
+        high = battery.ranges.max_charge_w.high
+    return absorb_headroom_w(
+        devices,
+        None if battery is None else battery.held,
+        battery_w,
+        battery_blocked=battery is None or battery.blocked is not None,
+        battery_high_w=high,
+    )
+
+
+def _house_deficit_w(flows: FlowSnapshot | None) -> float | None:
+    """``max(0, house - pv)`` from ``OK`` readings: what the grid must cover without the battery."""
+    if flows is None:
+        return None
+    house, pv = flows.house_w, flows.pv_w
+    if house.value is None or pv.value is None:
+        return None
+    if house.quality is not Quality.OK or pv.quality is not Quality.OK:
+        return None
+    return max(0.0, house.value - pv.value)
 
 
 class ControllerLoop:
@@ -296,6 +565,12 @@ class ControllerLoop:
             log.warning("controller.submit_failed", intent_id=intent.id, error=str(exc)[:200])
             if intent.id.startswith("battery:"):
                 self._controller.battery.reset_pending()
+            elif intent.id.startswith(PROGRAM_INTENT_PREFIX):
+                self._controller.programs.reset_pending(intent)
+            elif intent.id.startswith(EVCC_INTENT_PREFIX):
+                self._controller.evcc.reset_pending()
+            elif intent.id.startswith("inverter:"):
+                self._controller.export.reset_pending()
             return
         self._controller.report(decision)
 
@@ -316,6 +591,7 @@ __all__ = [
     "ControllerInputs",
     "ControllerLoop",
     "DeviationSink",
+    "GridView",
     "IntentSubmitter",
     "Poller",
     "TickResult",

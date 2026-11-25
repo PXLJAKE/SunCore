@@ -8,10 +8,11 @@ Collected from ``suncore/``:
 * string constants starting with ``api.error.`` (the error ``detail`` keys of the API) or
   ``api.validation.`` in ``suncore/api`` (validation issue keys),
 * string constants that are exactly one key with the prefix ``wizard.`` (check and import
-  reasons built from a variable), ``detect.criterion.``, ``ha.error.`` or ``tariff.error.``
-  (the tariff adapters' error keys) anywhere in ``suncore/``, and ``controller.`` in
-  ``suncore/controller/reasons.py`` (the controller's key constants) and ``planner.`` in
-  ``suncore/planner/reasons.py`` (the planner's).
+  reasons built from a variable), ``detect.criterion.``, ``ha.error.``, ``tariff.error.``
+  (the tariff adapters' error keys), ``mqtt.reason.`` or ``mqtt.hint.`` anywhere in
+  ``suncore/``, and ``controller.`` in ``suncore/controller/reasons.py`` (the controller's key
+  constants) and ``planner.`` in ``suncore/planner/reasons.py`` (the planner's), and the name,
+  help and group keys of the parameter registry (``suncore.core.params``, built at run time).
 
 Each key must be present in ``frontend/src/lib/i18n/locales/en.json`` and ``de.json``.
 Run via ``uv run python scripts/check_reasons.py``; exit code 1 lists the gaps.
@@ -25,11 +26,21 @@ import re
 import sys
 from pathlib import Path
 
+from suncore.core.params import GROUPS, REGISTRY
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "suncore"
 LOCALES = ROOT / "frontend" / "src" / "lib" / "i18n" / "locales"
 ERROR_PREFIXES = ("api.error.", "api.validation.")
-KEY_PREFIXES = ("wizard.", "detect.criterion.", "ha.error.", "tariff.error.")
+KEY_PREFIXES = (
+    "wizard.",
+    "detect.criterion.",
+    "ha.error.",
+    "tariff.error.",
+    "mqtt.reason.",
+    "mqtt.hint.",
+    "notify.reason.",
+)
 CONTROLLER_KEYS = Path("controller") / "reasons.py"
 """The controller defines its keys as constants in one module (log event names elsewhere
 may share the ``controller.`` prefix)."""
@@ -100,14 +111,32 @@ def missing_keys(keys: dict[str, list[str]], locales: Path = LOCALES) -> dict[st
     gaps: dict[str, list[str]] = {}
     for catalogue in ("en", "de"):
         data = json.loads((locales / f"{catalogue}.json").read_text(encoding="utf-8"))
+        # The parameter help is a separate, lazily loaded catalogue (``params.<locale>.json``).
+        extra = locales / f"params.{catalogue}.json"
+        if extra.exists():
+            data |= json.loads(extra.read_text(encoding="utf-8"))
         absent = sorted(k for k in keys if k not in data)
         if absent:
             gaps[catalogue] = absent
     return gaps
 
 
+def registry_keys() -> dict[str, list[str]]:
+    """The parameter registry's catalogue keys (name, help, group), Phase 5 WP5.
+
+    They are built from the parameter keys at run time, so the AST scan cannot see them.
+    """
+    found: dict[str, list[str]] = {}
+    for spec in REGISTRY.values():
+        for key in (spec.name_key, spec.help_key):
+            found.setdefault(key, []).append(f"suncore/core/params.py:{spec.key}")
+    for group in GROUPS:
+        found.setdefault(f"param.group.{group}", []).append("suncore/core/params.py:GROUPS")
+    return found
+
+
 def main() -> int:
-    keys = collect_keys()
+    keys = {**collect_keys(), **registry_keys()}
     gaps = missing_keys(keys)
     if not gaps:
         print(f"check_reasons: {len(keys)} backend keys present in en.json and de.json")

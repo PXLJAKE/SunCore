@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=../schema/device.schema.json
+# A shiftable program (washing machine, dishwasher, dryer) behind a smart plug with a power
+# sensor (PR 6-L, ADR-0017 decision 7). The user selects the programme, presses start and arms
+# the job in SunCore ("finished by"); SunCore switches the plug off while the appliance still
+# draws less than `idle_w` and on again at the planned start. This works only for appliances
+# that resume their programme after power returns: the user must confirm that on the device
+# (`program.resume_confirmed`). A running programme is never interrupted.
+id: generic.program_plug
+kind: device
+schema_version: 1
+name: template.generic.program_plug.name
+source:
+  - title: "home-assistant/core switch/__init__.py (turn_on, turn_off services; branch dev, fetched 2026-10-13)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/switch/__init__.py"
+    date: 2026-10-13
+  - title: "home-assistant/core sensor/const.py (SensorDeviceClass.POWER, unit sets)"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/const.py"
+    date: 2026-10-13
+  - title: "ADR-0017 decision 7 and plan phase-6 WP12 (start by plug, baseline on, never interrupted)"
+    url: "https://github.com/pxljake/suncore/blob/main/docs/adr/0017-flexible-loads-ev-heat-pump-programs.md"
+    date: 2026-11-24
+tested_with: []
+capabilities: [on_off, power_measured]
+unverified:
+  - "Generic template, exercised in the simulator only (switch.sim_washer); not tested with a physical plug or appliance."
+  - "Whether an appliance resumes its programme after power returns is appliance-specific: the user confirms it per device (resume_confirmed)."
+  - "runtime_min 120, idle_w 5 W and nominal_w 2200 W are placeholders: the wizard asks for the programme's run time and the appliance's peak power."
+  - "Some appliances draw more than idle_w right after start (door lock, pump); then SunCore treats the programme as running and does not delay it."
+device_kind: program
+roles:
+  switch:
+    matcher:
+      domain: switch
+    description: template.generic.program_plug.role.switch
+  power:
+    same_device_as: switch
+    matcher:
+      domain: sensor
+      device_class: power
+      units: [W, kW]
+    description: template.generic.program_plug.role.power
+defaults:
+  power_model:
+    kind: measured
+    power_role: power
+    nominal_w: 2200
+  control:
+    kind: on_off
+    role: switch
+  settle_s: 3
+  program:
+    runtime_min: 120
+    start_method: plug
+    idle_w: 5

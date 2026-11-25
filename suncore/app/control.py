@@ -42,6 +42,10 @@ from typing import Final, cast
 
 import structlog
 
+from suncore.app.grid import GridMonitor
+from suncore.app.programs import ProgramJobBook
+from suncore.app.verification import REASON_RUNNING as REASON_VERIFY_RUNNING
+from suncore.app.verification import InverterVerification
 from suncore.controller import (
     CallableQuantiser,
     Controller,
@@ -50,7 +54,10 @@ from suncore.controller import (
     DeviationEvent,
 )
 from suncore.controller.battery import BatteryControlInputs
+from suncore.controller.export import ExportControlInputs
+from suncore.controller.grid import GridInputs, resolve_grid_inputs
 from suncore.controller.loop import TickResult
+from suncore.controller.programs import ProgramEvent
 from suncore.core.balance import FlowSnapshot, compute_flows
 from suncore.core.battery import (
     BATTERY_ASSET_ID,
@@ -59,7 +66,7 @@ from suncore.core.battery import (
     GridChargePolicy,
 )
 from suncore.core.battery_adapter import BatteryAdapterSpec
-from suncore.core.config import GoalsConfig
+from suncore.core.config import GoalsConfig, InverterConfig
 from suncore.core.control import (
     TEMPERATURE_ROLE,
     ControlSettings,
@@ -72,23 +79,37 @@ from suncore.core.controlstate import (
     BatteryControlState,
     ControlState,
     DeviceControlState,
+    InverterControlState,
     SiteControlState,
 )
-from suncore.core.decisions import Action, Decision, Reason
-from suncore.core.devices import DeviceConfig, control_roles
+from suncore.core.decisions import Action, Decision, InverterLimitAction, Reason
+from suncore.core.devices import ChargerControl, DeviceConfig, LoadpointControl, control_roles
+from suncore.core.flex import EV_MODE_DEFAULT, EvMode, EvState, EvTarget
+from suncore.core.grid import GridState, static_export_limit_w
 from suncore.core.identity import identity_token
+from suncore.core.inverter import INVERTER_ASSET_ID, InverterAdapterSpec
 from suncore.core.measurements import (
     SITE_BATTERY_W,
     SITE_GRID_W,
     SITE_HOUSE_W,
     SITE_PV_W,
     SITE_SOC_PCT,
+    device_on_key,
     device_power_key,
+    device_temperature_key,
 )
 from suncore.core.signals import Quality, Sample
 from suncore.core.site import SiteConfig
 from suncore.devices.battery import BatteryDriver, create_battery_driver
-from suncore.devices.drivers import ClimateDriver, NumberDriver, create_driver
+from suncore.devices.drivers import (
+    ClimateDriver,
+    NumberDriver,
+    WaterHeaterDriver,
+    create_driver,
+)
+from suncore.devices.drivers.charger import ChargerDriver
+from suncore.devices.evcc import EvccBus, EvccEvents
+from suncore.devices.inverter import InverterDriver, create_inverter_driver
 from suncore.devices.power import create_power_model, restore_power_model
 from suncore.devices.power.common import PowerEstimator
 from suncore.ha.cache import EntityCache
@@ -108,6 +129,7 @@ from suncore.safety.gate import (
     DecisionSink,
     SafetyGate,
 )
+from suncore.safety.inverter import InverterGateConfig
 from suncore.safety.modes import ModeProvider
 from suncore.safety.runtime import MemoryRuntimeStore, RuntimeStore
 from suncore.safety.watchdog import Watchdog
@@ -119,6 +141,8 @@ log = structlog.get_logger(__name__)
 DEFAULT_POWER_SAVE_INTERVAL_S: Final = 300.0
 """The learned power models are saved this often (and on shutdown)."""
 DEVIATION_HISTORY: Final = 100
+BATTERY_FLOW_SEEN_W: Final = 1.0
+"""A battery flow above this counts as a measured battery (E6, review 6-I H3)."""
 CELSIUS: Final = "°C"
 """The only probe unit judged (HA ``UnitOfTemperature.CELSIUS``); °F counts as unknown."""
 
@@ -176,6 +200,20 @@ class BatteryWiring:
     import_price: PriceProvider = _no_price
 
 
+@dataclass(frozen=True, slots=True)
+class InverterWiring:
+    """The inverter limit as a controlled asset (PR 6-G): what the runtime hands the stack.
+
+    ``identity`` is ``InverterConfig.identity_token()``; ``export_price`` the live export price
+    (currency/kWh) for the dynamic 0 W limit at negative prices (ADR-0018 decision 4).
+    """
+
+    config: InverterConfig
+    spec: InverterAdapterSpec
+    identity: str
+    export_price: PriceProvider = _no_price
+
+
 def grid_heartbeats(site: SiteConfig | None) -> tuple[tuple[str, ...], ...]:
     """The grid meter as one heartbeat group: the signals that must keep reporting.
 
@@ -229,6 +267,14 @@ class ControlStack:
             recording can never disturb the control loop.
         plan_provider: ``now -> Plan`` read once per tick (``PlanningService.active_plan``); without
             it the plan given to :meth:`set_plan` (default ``Plan.default()``) is used.
+        evcc: the MQTT side of the evcc loadpoints (PR 6-J, ``suncore.app.evcc_link``); ``None`` =
+            no broker link (a loadpoint then reports its state unavailable and is never written).
+        ev_states: ``device id -> EvState | None`` - the runtime EV mode and target of a charger
+            (``flex_state``, PR 6-I); ``None`` or a missing state = the device's default mode.
+        programs: the open program jobs (PR 6-L; the runtime's book persists to
+            ``flex_state``); ``None`` = a private in-memory book.
+        on_program_event: receives the controller's program events (start now, done, missed)
+            after the tick; an exception is logged and swallowed.
         defer_recover: wait for :meth:`allow_recover` before ``gate.recover()`` (the runtime
             first learns Home Assistant's time zone, whose change would rebuild the stack in
             the middle of the recovery).
@@ -262,8 +308,23 @@ class ControlStack:
         plan_provider: PlanProvider | None = None,
         on_measurements: MeasurementSink | None = None,
         battery: BatteryWiring | None = None,
+        grid_monitor: GridMonitor | None = None,
+        ev_states: Callable[[str], EvState | None] | None = None,
+        programs: ProgramJobBook | None = None,
+        on_program_event: Callable[[ProgramEvent], None] | None = None,
+        evcc: EvccBus | None = None,
+        inverter: InverterWiring | None = None,
     ) -> None:
         self._connection = connection
+        self.programs = programs if programs is not None else ProgramJobBook()
+        """The open program jobs (PR 6-L) the controller and the gate read."""
+        self._on_program_event = on_program_event
+        self._ev_states = ev_states
+        self._evcc = evcc
+        self.grid_monitor = grid_monitor if grid_monitor is not None else GridMonitor(tz)
+        """Monthly peak and grid events (PR 6-F); in memory unless the runtime gives a store."""
+        self.grid: GridInputs | None = None
+        """The grid situation of the latest tick (island, §14a, effective import limit)."""
         self._plan_provider = plan_provider
         self._plan = Plan.default()
         self._on_measurements = on_measurements
@@ -310,7 +371,27 @@ class ControlStack:
         self.battery_driver: BatteryDriver | None = self._make_battery(connection, battery)
         self.battery_limits: BatteryAction | None = None
         """What the battery adapter's entities showed at the latest tick."""
-        actuators: dict[str, StatefulActuator | BatteryDriver] = dict(self.drivers)
+        self._battery_seen = False
+        """A battery flow was measured this session (E6, review 6-I H3)."""
+        self.inverter_wiring = inverter
+        self.inverter_driver: InverterDriver | None = self._make_inverter(connection, inverter)
+        self.inverter_limit: InverterLimitAction | None = None
+        """What the inverter adapter's entity showed at the latest tick."""
+        self.verification: InverterVerification | None = None
+        """The inverter limit verification running on this stack (PR 7-J; set by the runtime):
+        ticked after every controller tick, the export chain pauses while it is active."""
+        actuators: dict[str, StatefulActuator | BatteryDriver | InverterDriver] = dict(self.drivers)
+        gate_inverter: InverterGateConfig | None = None
+        if inverter is not None and self.inverter_driver is not None:
+            actuators[INVERTER_ASSET_ID] = self.inverter_driver
+            gate_inverter = InverterGateConfig(
+                identity=inverter.identity,
+                capability=self.inverter_driver.capability,
+                verified=inverter.config.verified,
+                nominal_ac_w=inverter.config.nominal_ac_w,
+                static_limit_w=self._static_export_limit_w(),
+                pv_kwp=self._site.total_kwp if self._site is not None else None,
+            )
         gate_battery: BatteryGateConfig | None = None
         if battery is not None and self.battery_driver is not None:
             actuators[BATTERY_ASSET_ID] = self.battery_driver
@@ -332,10 +413,13 @@ class ControlStack:
             setpoint_steps={
                 k: v.effective_step_c
                 for k, v in self.drivers.items()
-                if isinstance(v, ClimateDriver)
+                if isinstance(v, ClimateDriver | WaterHeaterDriver)
             },
             power_snaps={
                 k: v.snap_power_w for k, v in self.drivers.items() if isinstance(v, NumberDriver)
+            },
+            current_snaps={
+                k: v.snap_current_a for k, v in self.drivers.items() if isinstance(v, ChargerDriver)
             },
         )
         self.controller = Controller(devices, settings=settings, tz=tz, quantiser=quantiser)
@@ -354,6 +438,10 @@ class ControlStack:
             sleep=sleep,
             predecessor=predecessor,
             battery=gate_battery,
+            ev_modes=self.ev_mode,
+            plan=self.current_plan,
+            programs=self.programs.jobs_of,
+            inverter=gate_inverter,
         )
         self.deviations: deque[DeviationEvent] = deque(maxlen=DEVIATION_HISTORY)
         self.loop = ControllerLoop(
@@ -362,6 +450,12 @@ class ControlStack:
             poll=self.gate.poll,
             on_deviation=self.deviations.append,
         )
+        self._loadpoint_roots: dict[str, str] = {
+            device.id: f"{device.control.topic_prefix}/loadpoints/{device.control.loadpoint_id}/"
+            for device in devices
+            if isinstance(device.control, LoadpointControl)
+        }
+        """Loadpoint device id -> the topic root its messages arrive under (override feed)."""
         self._owner: dict[str, str] = {
             device.entities[role].entity_id: device.id
             for device in devices
@@ -387,8 +481,15 @@ class ControlStack:
 
     # --- wiring helpers ----------------------------------------------------------------------
 
+    def now(self) -> datetime:
+        """The injected clock's now."""
+        return self._clock()
+
     def _make_driver(self, device: DeviceConfig, write: WriterFn) -> DeviceActuator:
-        return cast("DeviceActuator", create_driver(device, write=write, states=self._lookup))
+        return cast(
+            "DeviceActuator",
+            create_driver(device, write=write, states=self._lookup, evcc=self._evcc),
+        )
 
     def _make_battery(
         self, connection: HAConnection, battery: BatteryWiring | None
@@ -410,9 +511,78 @@ class ControlStack:
             log.warning("control.battery_adapter_unusable", error=str(exc)[:200])
             return None
 
+    def ev_mode(self, device_id: str) -> EvMode:
+        """The runtime EV mode of a charger, else its configured default (PR 6-I).
+
+        An unreadable runtime state counts as ``off`` (no increase) rather than a guess.
+        """
+        device = self._devices.get(device_id)
+        default = (
+            device.ev.default_mode
+            if device is not None and device.ev is not None
+            else EV_MODE_DEFAULT
+        )
+        if self._ev_states is None:
+            return default
+        try:
+            state = self._ev_states(device_id)
+        except Exception:
+            log.exception("control.ev_state_failed", device_id=device_id)
+            return EvMode.OFF
+        return default if state is None else state.mode
+
+    def ev_target(self, device_id: str) -> EvTarget | None:
+        """The runtime EV target of a charger or loadpoint (``None`` = none or unreadable)."""
+        if self._ev_states is None:
+            return None
+        try:
+            state = self._ev_states(device_id)
+        except Exception:
+            log.exception("control.ev_state_failed", device_id=device_id)
+            return None
+        return None if state is None else state.target
+
+    def _make_inverter(
+        self, connection: HAConnection, inverter: InverterWiring | None
+    ) -> InverterDriver | None:
+        """The inverter limit adapter, or ``None`` (no inverter control) when it cannot be
+        built (no read-back entity, no modbus link, a device named ``inverter``)."""
+        if inverter is None:
+            return None
+        if INVERTER_ASSET_ID in self._devices:
+            log.error("control.inverter_id_conflict", device_id=INVERTER_ASSET_ID)
+            return None
+        spec, config = inverter.spec, inverter.config
+
+        def make(write: WriterFn) -> InverterDriver:
+            return create_inverter_driver(spec, config, write=write, states=self._lookup)
+
+        try:
+            return build_actuator(connection, make)
+        except ValueError as exc:
+            log.warning("control.inverter_adapter_unusable", error=str(exc)[:200])
+            return None
+
+    def _static_export_limit_w(self) -> float | None:
+        site = self._site
+        if site is None:
+            return None
+        grid = site.grid
+        return static_export_limit_w(grid.export_limit_w, grid.export_limit_pct_kwp, site.total_kwp)
+
     def _lookup(self, entity_id: str) -> EntityState | None:
         entry = self.cache.get(entity_id)
         return None if entry is None else entry.state
+
+    def device_state(self, device_id: str) -> DeviceState | None:
+        """The driver's view of one device now (``None`` = unknown device or unreadable)."""
+        if device_id not in self.drivers:
+            return None
+        try:
+            return self._device_state(device_id)
+        except Exception:
+            log.exception("control.device_state_failed", device_id=device_id)
+            return None
 
     def _device_state(self, device_id: str) -> DeviceState | None:
         return self._with_temperature(
@@ -452,6 +622,8 @@ class ControlStack:
             ids.update(
                 dict.fromkeys(r.entity_id for r in self.battery_wiring.settings.entity_refs())
             )
+        if self.inverter_wiring is not None and self.inverter_wiring.config.limit_entity:
+            ids[self.inverter_wiring.config.limit_entity.entity_id] = None
         return list(ids)
 
     @property
@@ -529,6 +701,13 @@ class ControlStack:
             self._unsubscribe.append(self._connection.add_entity_listener(self.on_update))
             self._unsubscribe.append(self._connection.add_state_listener(self.on_state))
             await self._connection.subscribe_entities(self.entity_ids)
+        if self._loadpoint_roots and isinstance(self._evcc, EvccEvents):
+            self._unsubscribe.append(self._evcc.add_listener(self._on_evcc_topic))
+        now = self._clock()
+        await self.grid_monitor.load(now)
+        memory = await self.grid_monitor.load_memory(now)
+        self.gate.seed_grid_memory(memory)
+        self.controller.seed_grid_memory(memory)
         if self._connection.state is ConnectionState.CONNECTED:
             await self.recover()
 
@@ -599,6 +778,8 @@ class ControlStack:
     async def shutdown(self) -> None:
         """Graceful stop: stop ticking, release every device (baseline restored), save models."""
         self.stopped = True
+        if self.verification is not None:
+            self.verification.stopped(Reason(key="verify.stopped"))
         await self._stop_tasks()
         await self.loop.close()
         await self.gate.shutdown()
@@ -614,6 +795,8 @@ class ControlStack:
         (``gate.handover``): a harmless edit must not short-cycle a compressor.
         """
         self.stopped = True
+        if self.verification is not None:
+            self.verification.stopped(Reason(key="verify.stopped"))
         await self._stop_tasks()
         await self.loop.close()
         await self.gate.handover(keep)
@@ -708,6 +891,8 @@ class ControlStack:
 
     async def _disconnected(self) -> None:
         await self.gate.connection_lost()
+        if self.verification is not None:
+            self.verification.connection_lost()
         self._notify()
 
     # --- entity feed -------------------------------------------------------------------------
@@ -728,6 +913,15 @@ class ControlStack:
             if device_id is not None:
                 context = state.context.id if state.context is not None else None
                 self._spawn(self._observe(device_id, context))
+
+    def _on_evcc_topic(self, topic: str) -> None:
+        """evcc published a value: feed the loadpoint's observed state to the override
+        detection (an evcc mode changed in evcc's own app shows up here; PR 6-J)."""
+        if not self.recovered:
+            return
+        for device_id, root in self._loadpoint_roots.items():
+            if topic.startswith(root):
+                self._spawn(self._observe(device_id, None))
 
     async def _observe(self, device_id: str, context_id: str | None) -> None:
         """Feed the device's observed state to the gate's override detection."""
@@ -791,6 +985,8 @@ class ControlStack:
             await self.gate.check_site(self._site, samples)
             flows = compute_flows(self._site, samples)
             await self.gate.check_battery(flows)
+        if self.inverter_driver is not None:
+            await self.gate.check_inverter(self.inverter_driver.readable())
         states: dict[str, DeviceState] = {}
         estimates: dict[str, PowerEstimate] = {}
         for device_id, device in self._devices.items():
@@ -806,24 +1002,132 @@ class ControlStack:
             model.observe(now, state, dev_samples)
             states[device_id] = state
             estimates[device_id] = model.estimate(now, state, dev_samples)
+        grid = self._grid_inputs(now)
+        self.grid = grid
+        # Island: the planner's plan assumes a grid; the controller runs on the island caps and
+        # the Phase 3 rules alone (ADR-0018 decision 6, "planner paused").
+        plan = Plan.default() if grid.grid_state is GridState.ISLAND else self.current_plan(now)
         inputs = ControllerInputs(
             flows=flows,
             states=states,
             estimates=estimates,
             blocked=self._blocked(now),
-            import_limit_w=self._import_limit_w,
+            import_limit_w=grid.import_limit_w,
             reserve_soc_pct=self._reserve_soc_pct,
             goals=self._goals,
-            plan=self.current_plan(now),
+            plan=plan,
             battery=await self._battery_inputs(now),
+            grid=grid,
+            ev_modes={
+                d.id: self.ev_mode(d.id)
+                for d in self._devices.values()
+                if isinstance(d.control, ChargerControl | LoadpointControl)
+            },
+            ev_targets={
+                d.id: target
+                for d in self._devices.values()
+                if isinstance(d.control, LoadpointControl)
+                and (target := self.ev_target(d.id)) is not None
+            },
+            # review 6-I H3: a measured battery flow is a battery, configured or not
+            battery_present=self._battery_present(flows),
+            jobs=self.programs.open_jobs(),
+            inverter=await self._inverter_inputs(now),
         )
         self.estimates = estimates
         self.states = states
-        self._record_measurements(now, flows, estimates)
+        self._record_measurements(now, flows, estimates, states)
         self.last = await self.loop.tick(now, inputs)
+        if self.verification is not None:
+            try:
+                await self.verification.tick(now)
+            except Exception:
+                log.exception("control.verification_tick_failed")
+                await self.verification.abort(Reason(key="verify.internal_error"))
+        self._program_outcome(self.last)
+        self._observe_grid(now, flows, grid)
         self._maybe_save_models(now)
         self._notify()
         return self.last
+
+    def _program_outcome(self, result: TickResult) -> None:
+        """Persist the tick's job changes and announce its program events (PR 6-L)."""
+        if self.programs.update_jobs(result.program_jobs):
+            self._spawn(self.programs.flush())
+        for event in result.program_events:
+            log.info(
+                "control.program_event",
+                kind=event.kind,
+                device_id=event.device_id,
+                job=event.job.id,
+            )
+            if self._on_program_event is None:
+                continue
+            try:
+                self._on_program_event(event)
+            except Exception:
+                log.exception("control.program_event_failed")
+
+    def _battery_present(self, flows: FlowSnapshot | None) -> bool:
+        """E6: a home battery exists - configured, wired as an adapter, or ever measured.
+
+        Review 6-I H3: a battery flow that was measured once keeps the battery present for the
+        session, so a sensor that drops out never makes the EV side think there is none.
+        """
+        # Without a battery in the site config the flow is a synthetic 0 W (core.balance): only
+        # a non-zero value is a measurement.
+        value = None if flows is None else flows.battery_w.value
+        if value is not None and abs(value) > BATTERY_FLOW_SEEN_W:
+            self._battery_seen = True
+        return (
+            self._site is None
+            or self._site.battery is not None
+            or self.battery_driver is not None
+            or self._battery_seen
+        )
+
+    def _state_text(self, entity_id: str | None) -> str | None:
+        if entity_id is None:
+            return None
+        state = self._lookup(entity_id)
+        return None if state is None else state.state
+
+    def _grid_inputs(self, now: datetime) -> GridInputs:
+        """The tick's grid situation through ``core.grid`` (one resolver for every layer)."""
+        site = self._site
+        if site is None:
+            return GridInputs.from_limit(self._import_limit_w)
+        config = site.grid
+        if config.import_limit_w != self._import_limit_w:
+            config = config.model_copy(update={"import_limit_w": self._import_limit_w})
+        inverter = self.inverter_wiring if self.inverter_driver is not None else None
+        try:
+            return resolve_grid_inputs(
+                config,
+                export_price=None if inverter is None else inverter.export_price(now),
+                export_adapter_verified=inverter is not None and inverter.config.verified,
+                month_peak_w=self.grid_monitor.month_peak_w(now),
+                para14a_state=self._state_text(
+                    None if config.para14a_signal is None else config.para14a_signal.entity_id
+                ),
+                backup_state=self._state_text(
+                    None if config.backup is None else config.backup.entity_id
+                ),
+                total_kwp=site.total_kwp,
+            )
+        except Exception:
+            # Never without a limit: the fuse limit alone, the gate rejects what it cannot judge.
+            log.exception("control.grid_inputs_failed")
+            return GridInputs.from_limit(self._import_limit_w)
+
+    def _observe_grid(self, now: datetime, flows: FlowSnapshot | None, grid: GridInputs) -> None:
+        try:
+            self.grid_monitor.observe(now, flows, grid)
+        except Exception:
+            log.exception("control.grid_monitor_failed")
+            return
+        if self.grid_monitor.pending or self.grid_monitor.pending_peaks:
+            self._spawn(self.grid_monitor.flush())
 
     def _battery_blocked(self, now: datetime) -> Reason | None:
         runtime = self.gate.runtime_of(BATTERY_ASSET_ID)
@@ -838,6 +1142,43 @@ class ControlStack:
         if runtime is not None and runtime.is_held(now):
             return REASON_OVERRIDE_HELD
         return None
+
+    def _inverter_blocked(self, now: datetime) -> Reason | None:  # noqa: PLR0911
+        runtime = self.gate.runtime_of(INVERTER_ASSET_ID)
+        if self.gate.emergency_stopped:
+            return REASON_EMERGENCY_STOP
+        if self.verification is not None and self.verification.holds_inverter:
+            return REASON_VERIFY_RUNNING
+        if (pause := self.watchdog.pause_reason(INVERTER_ASSET_ID, now)) is not None:
+            return pause
+        if self.gate.is_orphaned(INVERTER_ASSET_ID):
+            return REASON_ORPHANED
+        if runtime is not None and runtime.release_pending:
+            return REASON_RELEASE_PENDING
+        if runtime is not None and runtime.is_held(now):
+            return REASON_OVERRIDE_HELD
+        return None
+
+    async def _inverter_inputs(self, now: datetime) -> ExportControlInputs | None:
+        """The inverter adapter as the export chain sees it this tick (reads the cache only)."""
+        driver, wiring = self.inverter_driver, self.inverter_wiring
+        if driver is None or wiring is None:
+            return None
+        observed = await driver.read_back()
+        self.inverter_limit = observed if isinstance(observed, InverterLimitAction) else None
+        runtime = self.gate.runtime_of(INVERTER_ASSET_ID)
+        under = runtime is not None and runtime.under_control
+        held = runtime.last_written if under and runtime is not None else None
+        return ExportControlInputs(
+            capability=driver.capability,
+            nominal_ac_w=wiring.config.nominal_ac_w,
+            static_limit_w=self._static_export_limit_w(),
+            enforce_static=wiring.config.enforce_static,
+            verified=wiring.config.verified,
+            held=held if isinstance(held, InverterLimitAction) else None,
+            under_control=under,
+            blocked=self._inverter_blocked(now),
+        )
 
     async def _battery_inputs(self, now: datetime) -> BatteryControlInputs | None:
         """The battery adapter as the controller sees it this tick (reads the cache only)."""
@@ -857,6 +1198,7 @@ class ControlStack:
             held=held if isinstance(held, BatteryAction) else None,
             under_control=under,
             blocked=self._battery_blocked(now),
+            release_pending=runtime is not None and runtime.release_pending,
         )
 
     def _record_measurements(
@@ -864,8 +1206,15 @@ class ControlStack:
         now: datetime,
         flows: FlowSnapshot | None,
         estimates: Mapping[str, PowerEstimate],
+        states: Mapping[str, DeviceState] | None = None,
     ) -> None:
-        """Hand this tick's values to the recorder; only ``OK`` data counts (a gap otherwise)."""
+        """Hand this tick's values to the recorder; only ``OK`` data counts (a gap otherwise).
+
+        Per controlled device: the estimated power (``device.<id>.power_w``) and, when the
+        driver reports it, the on/off state (``device.<id>.on``, 1.0 / 0.0; the history view's
+        run times and the plan chart's actual Gantt overlay read it); for a thermal device with
+        a probe its temperature (``device.<id>.temperature_c``, the thermal learner reads it).
+        """
         if self._on_measurements is None:
             return
         try:
@@ -883,6 +1232,16 @@ class ControlStack:
                 values[device_power_key(device_id)] = (
                     estimate.value_w if estimate.quality is Quality.OK else None
                 )
+            for device_id, state in (states or {}).items():
+                values[device_on_key(device_id)] = (
+                    None if state.on is None or state.quality is not Quality.OK else float(state.on)
+                )
+            for device in self._devices.values():
+                # PR 6-K: the probe of a thermal device, for the learned RC model.
+                if device.thermal is not None and TEMPERATURE_ROLE in device.entities:
+                    values[device_temperature_key(device.id)] = probe_temperature_c(
+                        self.cache, device
+                    )
             self._on_measurements(now, values)
         except Exception:
             log.exception("control.measurement_sink_failed")
@@ -924,6 +1283,37 @@ class ControlStack:
             devices=devices,
             proposals=list(self.gate.proposals()),
             battery=self._battery_control_state(now),
+            inverter=self._inverter_control_state(now),
+        )
+
+    def _inverter_control_state(self, now: datetime) -> InverterControlState | None:
+        driver, wiring = self.inverter_driver, self.inverter_wiring
+        if driver is None or wiring is None:
+            return None
+        modes = self.gate.modes_of(INVERTER_ASSET_ID)
+        runtime = self.gate.runtime_of(INVERTER_ASSET_ID)
+        under = runtime is not None and runtime.under_control
+        view = None if self.last is None else self.last.export
+        held = runtime.last_written if under and runtime is not None else None
+        baseline = runtime.baseline if under and runtime is not None else None
+        return InverterControlState(
+            identity=wiring.identity,
+            adapter=wiring.config.adapter,
+            adapter_template_id=wiring.spec.template_id,
+            capability=driver.capability,
+            verified=wiring.config.verified,
+            global_mode=modes.global_mode,
+            inverter_mode=self._modes.inverter_mode(),
+            effective_mode=modes.effective,
+            mode_capped=self.gate.inverter_mode_capped,
+            limit=self.inverter_limit,
+            held=held if isinstance(held, InverterLimitAction) else None,
+            baseline=baseline if isinstance(baseline, InverterLimitAction) else None,
+            under_control=under,
+            wanted=None if view is None else view.wanted,
+            reasons=[] if view is None else list(view.reasons),
+            paused=self._inverter_blocked(now),
+            last_decision=self.last_decisions.get(INVERTER_ASSET_ID),
         )
 
     def _battery_control_state(self, now: datetime) -> BatteryControlState | None:
@@ -997,5 +1387,6 @@ __all__ = [
     "BatteryWiring",
     "ControlStack",
     "DeviceActuator",
+    "InverterWiring",
     "probe_temperature_c",
 ]

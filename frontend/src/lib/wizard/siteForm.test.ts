@@ -25,6 +25,12 @@ const SITE: SiteConfig = {
     para14a_signal: ref('binary_sensor.evu'),
     energy_import: ref('sensor.imp_kwh'),
     energy_export: null,
+    peak_shaving: { enabled: false, peak_floor_w: 2500, capacity_price_per_kw_month: 0 },
+    export_dynamic: false,
+    zero_export: false,
+    para14a_limit_w: 4200,
+    para14a_signal_kind: 'binary',
+    backup: null,
   },
   pv: [
     {
@@ -52,6 +58,19 @@ const SITE: SiteConfig = {
 describe('site form mapping', () => {
   it('round-trips a complete site', () => {
     expect(siteFromForm(siteFormFromSite(SITE))).toEqual(SITE);
+  });
+  it('keeps the Phase 6 grid settings it does not edit', () => {
+    const site: SiteConfig = {
+      ...SITE,
+      grid: {
+        ...SITE.grid,
+        peak_shaving: { enabled: true, peak_floor_w: 3000, capacity_price_per_kw_month: 4 },
+        zero_export: true,
+        para14a_limit_w: 6000,
+        backup: { entity_id: 'sensor.backup', island_states: ['island'], keep_devices: [] },
+      },
+    };
+    expect(siteFromForm(siteFormFromSite(site))).toEqual(site);
   });
   it('shows the capacity in kWh and stores Wh', () => {
     const form = siteFormFromSite(SITE);

@@ -11,7 +11,17 @@ from typing import Any
 from pydantic import BaseModel
 
 from suncore import __version__
-from suncore.api.services import EntityQuery, HealthReport, PeerPolicy, TariffNotConfiguredError
+from suncore.api.diagnostics_models import DiagnosticsOut
+from suncore.api.flex_types import GridEvents, GridStatus
+from suncore.api.services import (
+    BacktestService,
+    EntityQuery,
+    HealthReport,
+    HistorySources,
+    PeerPolicy,
+    TariffNotConfiguredError,
+)
+from suncore.app.diagnostics import DiagnosticsInputs, build_diagnostics
 from suncore.app.planning import LiveReading, PlanningService, PlanningSnapshot
 from suncore.core.balance import FlowSnapshot
 from suncore.core.battery import BatterySettings
@@ -19,6 +29,8 @@ from suncore.core.config import OperationConfig
 from suncore.core.controlstate import ControlState, DeviceControlState, OverrideCommand
 from suncore.core.decisions import Decision, DecisionKind, OperatingMode
 from suncore.core.detection import DetectedEntity, EnergySuggestions
+from suncore.core.flex import EvMode, EvState, EvTarget, ProgramJob
+from suncore.core.haentities import BrokerState, HaEntitiesStatus
 from suncore.core.site import SiteConfig
 from suncore.core.wizard import CheckItem, PreviewItem
 from suncore.forecast.accuracy import accuracy_view
@@ -26,6 +38,7 @@ from suncore.forecast.load_service import LoadForecastService
 from suncore.forecast.risk import ErrorModel
 from suncore.forecast.risk_learning import risk_view
 from suncore.forecast.views import ForecastAccuracyView, LoadForecastView, PvForecastView, RiskView
+from suncore.notify import ActionsState, NotifyStatus, TestResult
 from suncore.planner.views import PlanStatusView, PlanSummary, PlanView, ReplanAck
 from suncore.storage import HistoryEntry
 from suncore.tariff.report import PriceReport
@@ -87,6 +100,12 @@ class StubServices:
     ) -> list[Decision]:
         return []
 
+    def history_sources(self) -> HistorySources | None:
+        return None
+
+    def backtests(self) -> BacktestService | None:
+        return None
+
     async def pv_forecast(self, hours: int) -> PvForecastView:
         return PvForecastView(generated_at=datetime.now(UTC), hours=hours, sources=[], blended=None)
 
@@ -134,6 +153,24 @@ class StubServices:
     def proposals(self) -> list[Decision]:
         return []
 
+    async def flex_view(self, device_id: str) -> tuple[EvState | None, ProgramJob | None]:
+        raise NotImplementedError
+
+    async def set_ev_state(self, device_id: str, mode: EvMode, target: EvTarget | None) -> EvState:
+        raise NotImplementedError
+
+    async def arm_program(self, device_id: str, deadline: datetime) -> ProgramJob:
+        raise NotImplementedError
+
+    async def cancel_program(self, device_id: str) -> ProgramJob:
+        raise NotImplementedError
+
+    async def grid_status(self) -> GridStatus:
+        raise NotImplementedError
+
+    async def grid_events(self, days: int) -> GridEvents:
+        raise NotImplementedError
+
     async def confirm_proposal(self, intent_id: str) -> Decision:
         raise NotImplementedError
 
@@ -151,6 +188,13 @@ class StubServices:
         return OperationConfig()
 
     async def set_battery_mode(
+        self,
+        mode: OperatingMode,  # noqa: ARG002
+        identity: str | None,  # noqa: ARG002
+    ) -> OperationConfig:
+        return OperationConfig()
+
+    async def set_inverter_mode(
         self,
         mode: OperatingMode,  # noqa: ARG002
         identity: str | None,  # noqa: ARG002
@@ -181,11 +225,38 @@ class StubServices:
     def plan_summary(self) -> PlanSummary:
         return self._planning().summary()
 
+    def ha_entities_status(self) -> HaEntitiesStatus:
+        return HaEntitiesStatus(BrokerState.DISABLED, None, 0, None)
+
+    async def ha_entities_republish(self) -> bool:
+        return False
+
+    def notifications_status(self) -> NotifyStatus:
+        return NotifyStatus(ActionsState.PENDING, "notify.reason.no_targets", 0, 0, 0, 0)
+
+    def notify_entity_targets(self) -> list[str]:
+        return []
+
+    async def notifications_test(self) -> TestResult:
+        return TestResult(0, 0, "notify.reason.no_targets")
+
     def add_plan_listener(self, listener: Callable[[], None]) -> Callable[[], None]:  # noqa: ARG002
         return lambda: None
 
     async def export_config(self) -> dict[str, Any]:
         return {}
+
+    async def diagnostics(self) -> DiagnosticsOut:
+        inputs = DiagnosticsInputs(
+            now=datetime.now(UTC),
+            app_version=__version__,
+            ha_core=None,
+            supervised=False,
+            demo=False,
+            operating_mode="shadow",
+            config_export={},
+        )
+        return build_diagnostics(inputs)
 
     async def import_config(self, data: object) -> list[str]:  # noqa: ARG002
         return []

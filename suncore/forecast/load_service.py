@@ -561,6 +561,22 @@ class LoadForecastService:
         if points:
             self._weather_points = points
 
+    def outdoor_forecast(self, now: datetime) -> TimeSeries | None:
+        """The hourly outdoor-temperature forecast from ``now`` (°C) for the thermal planner
+        (PR 6-K); ``None`` without a weather entity or forecast."""
+        hour = timedelta(hours=1)
+        points = sorted((t, v) for t, v in self._weather_points if t + hour > now)
+        if not points:
+            return None
+        start = points[0][0]
+        count = int((points[-1][0] - start) / hour) + 1
+        values: list[float | None] = [None] * count
+        for t, v in points:
+            index = round((t - start) / hour)
+            if 0 <= index < count:
+                values[index] = v
+        return TimeSeries(start=start, step=hour, values=tuple(values), unit=SeriesUnit.CELSIUS)
+
     def daily_temperatures(self, now: datetime) -> dict[date, float]:
         """Mean temperature per forecast date: today from the recorded hours plus the forecast
         hours, later dates from the forecast alone; only dates with at least

@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+name: grid_outage_island
+description: Netzausfall (BRIEF §4.14, PR 6-F) - a sunny day with a 10 kWh battery and a backup switch. A heating rod (continuous, 0-3000 W) and a pool pump (switch, on the keep list) run on surplus. From 12:30 to 13:30 the grid fails; the backup entity reports island. SunCore sheds the rod at once, keeps the pool pump as it is, raises nothing and leaves the battery to the inverter. The planner's plan is not used. After the grid returns, increases wait the cool-down. From 14:30 to 14:40 the backup entity is unavailable - unknown counts as connected (with a warning), no island rules.
+start: "2026-06-21T12:00:00+02:00"
+duration_s: 10800
+step_s: 5
+house:
+  seed: 42
+  pv: {kwp: 8.0}
+  load:
+    noise_fraction: 0.03
+    hourly_w: [400, 400, 400, 400, 400, 400, 500, 600, 600, 600, 500, 500, 500, 500, 500, 500, 600, 700, 800, 800, 700, 600, 500, 400]
+  battery: {capacity_wh: 10000, max_charge_w: 1500, max_discharge_w: 5000, initial_soc_pct: 60}
+outdoor: {mean_c: 24.0, amplitude_c: 4.0}
+clouds:
+  - {at_s: 0, factor: 0.95}
+control:
+  import_limit_w: 11000
+grid:
+  backup: true
+  keep_devices: [pool]
+  outages:
+    - {from_s: 1800, to_s: 5400}
+faults:
+  - {kind: unavailable, target: sensor.sim_backup_state, from_s: 9000, to_s: 9600}
+devices:
+  - id: rod
+    template: generic.number_load
+    physics: {kind: number, max: 3000, step: 100, power_sensor: true}
+    control:
+      priority: 10
+      power_model: {kind: measured, power_role: power, nominal_w: 3000}
+  - id: pool
+    template: generic.switch
+    physics: {kind: switch, nominal_w: 750, power_sensor: true}
+    control:
+      priority: 20
+      min_run_s: 300
+      min_pause_s: 300
+      power_model: {kind: measured, power_role: power, nominal_w: 750}

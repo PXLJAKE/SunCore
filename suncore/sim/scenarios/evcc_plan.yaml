@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+name: evcc_plan
+description: >-
+  PR 6-J review A2. evcc imports from the grid although it is in `smart` (its own vehicle plan,
+  modelled as `always_charge`): the car would draw 11 kW on top of the house against a 6 kW
+  import limit. SunCore must not let the import stay over the limit: the controller lowers
+  evcc's maximum current by the excess (and keeps it), the gate judges the raise to `smart`
+  against the import limit with the worst case.
+start: "2026-05-10T07:00:00+02:00"
+duration_s: 7200
+step_s: 5
+house:
+  seed: 43
+  pv: {kwp: 2.0}
+  load: {noise_fraction: 0.05}
+  battery: {capacity_wh: 0}
+outdoor: {mean_c: 12.0, amplitude_c: 4.0}
+control:
+  import_limit_w: 6000
+  site_battery: false
+devices:
+  - id: evcc_lp
+    template: evcc.loadpoint
+    physics:
+      kind: loadpoint
+      initial_mode: "off"
+      initial_max_current_a: 10
+      initial_soc_pct: 20
+      capacity_wh: 60000
+      always_charge: true
+    control:
+      behaviour_confirmed: true
+    ev_mode: pv

@@ -19,9 +19,12 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',
     locale: 'en-US',
+    // The server refuses a write without it (SEC-13). The specs set up state with direct
+    // `request.put/post` calls; the SPA sends the header itself (`client.test.ts`).
+    extraHTTPHeaders: { 'X-SunCore-Request': '1' },
   },
   webServer: {
-    command: `npm run build && cd .. && SUNCORE_PORT=${PORT} SUNCORE_DEMO=1 SUNCORE_DEMO_BATTERY_CONTROL=1 SUNCORE_DEMO_START_TIME=09:30 SUNCORE_STATIC_DIR=frontend/dist uv run python -m suncore`,
+    command: `npm run build && cd .. && SUNCORE_PORT=${PORT} SUNCORE_DEMO=1 SUNCORE_DEMO_BATTERY_CONTROL=1 SUNCORE_DEMO_FLEX=1 SUNCORE_DEMO_START_TIME=09:30 SUNCORE_STATIC_DIR=frontend/dist uv run python -m suncore`,
     url: `http://127.0.0.1:${PORT}/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
