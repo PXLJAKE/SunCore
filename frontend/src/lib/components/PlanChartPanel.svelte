@@ -540,6 +540,7 @@
   }
   .alternatives {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     border-top: 1px solid var(--sc-outline);
     padding-top: var(--sc-space-2);
   }

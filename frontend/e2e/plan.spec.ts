@@ -69,6 +69,11 @@ test.describe('Plan view', () => {
     // Both cards start collapsed; the credit stays visible below them.
     await openCard(page, 'fc-card');
     await openCard(page, 'fc-ml-card');
+    // The wide tables scroll inside their cards; the page itself never scrolls sideways.
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
     await expect(panel.getByTestId('fc-accuracy')).toBeVisible();
     await expect(panel.getByTestId('fc-weights')).toContainText('equal');
     await expect(panel.getByTestId('fc-calibration')).toContainText('No history yet');

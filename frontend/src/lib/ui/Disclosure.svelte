@@ -49,6 +49,7 @@
   }
   .content {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--sc-space-2);
     padding: var(--sc-space-1) 0 var(--sc-space-2) var(--sc-space-5);
   }

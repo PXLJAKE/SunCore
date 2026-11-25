@@ -325,6 +325,7 @@
 <style>
   .forecast {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--sc-space-4);
     min-width: 0;
   }

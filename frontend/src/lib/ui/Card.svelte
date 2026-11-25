@@ -164,8 +164,10 @@
     align-items: center;
     gap: var(--sc-space-2);
   }
+  /* One flexible column: a wide table inside scrolls instead of widening the card. */
   .body {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--sc-space-3);
     min-width: 0;
   }
