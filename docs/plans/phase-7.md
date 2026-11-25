@@ -955,6 +955,50 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
 - **Budgets:** first paint 118.9 → 120.5 kB, standard path 243.7 → 245.8 kB, expert extras
   25.4 kB, ECharts unchanged.
 
+### 7-F
+
+- Based on `phase-7/e-now` (7-E with 7-C and 7-D), not on 7-D alone as the table in section 3
+  says, so Plan and Analysis share the 7-E cards, `ToggleGroup` and the planned-actions timeline.
+- **Range switches** (plan 24/48 h/today, history periods) are `ToggleGroup` (`aria-pressed`),
+  not `SegmentedControl` (WP5): the plan range can have no pressed option (a past time or day),
+  and the E2E suites assert `aria-pressed`; same reasoning as the mode switches in 7-E.
+- **Planner status** is a quiet line inside the toolbar card instead of a status chip in the
+  header row: the last and next run times are the information, a chip would hide them.
+- **Forecast panel:** two collapsible cards ("Forecasts and accuracy", "Machine-learning load
+  model"), closed by default, each with a status chip; the Open-Meteo credit stays visible
+  below them. `data-testid="forecast-panel"` moved to the wrapper of both cards. The E2E tests
+  open the cards with the new helper `openCard` (no assertion changed).
+- **Plan chart legend stays at the top** (7-D left the move to 7-F): four stacked panels and the
+  Gantt's own legend at the bottom; question 2 in `review-7f.md`.
+- **History:** the ten tiles became three group cards of `Stat` (energy with the energy palette
+  dots, self-sufficiency, costs with the savings attribution); chart cards end in one row (table
+  disclosure, PNG, CSV) instead of three stacked controls; one global `.data-table` style for
+  all data tables of Plan and Analysis (and `.table-scroll`).
+- **Decision log:** filters in a collapsible card with an active-filter count (`filterCount`),
+  closed on phones unless the URL sets filters; `Sheet` is still 7-G. The note all listed
+  decisions share is shown once above the table (`splitSharedReasons`, new `reasons` prop of
+  `DecisionTable`); outcomes are tinted tags. E2E: `openCard` before the filter tests on phones.
+- **What-if:** header and spacing only, the form keeps a 56 rem reading width; result cards
+  unchanged.
+- `Card` collapsible: the chevron now leads the title (pointing right while closed), like
+  `Disclosure`. New icons prev, next, refresh, download, filter. The `no-hardcoded-text` lint
+  rule allows the `density` and `layout` props (enums of `Card` and `Loading`).
+- **Bundle:** once the lazy views import `lib/ui`, Rolldown split the components into a dozen
+  tiny chunks (first paint 125.0 kB, standard path 253.1 kB). A `manualChunks` rule puts
+  `src/lib/ui/` into one `ui` chunk: first paint 120.5 → 122.6 kB, standard path 245.8 →
+  249.6 kB, expert extras 25.4 → 25.5 kB, ECharts unchanged. The standard path has 0.4 kB left
+  until 7-G's lazy wizard steps and settings pages.
+- **Phone overflow found by the full E2E run:** `Card`'s body and `Disclosure`'s content were
+  grids with an implicit `auto` column, so a wide table (the forecast accuracy table, 30 rem)
+  widened the card and the page on a 375 px phone (Chrome then zoomed out and the clicks missed).
+  Both now use one `minmax(0, 1fr)` column; the plan spec checks for no sideways scroll with
+  the forecast cards open.
+- Merged `origin/phase-7/e-now` at `1b2eeb4` (deterministic demo washer test) before the final
+  checks.
+- `review-shots.spec.ts` gained the views `plan-live`, `decisions` and `whatif` (expert mode via
+  local storage). Before: `docs/assets/screenshots/before-7f/` (7-E tip with only this spec
+  change), after: `docs/assets/screenshots/after-7f/`; palette-quantised like 7-D and 7-E.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update

@@ -11,11 +11,13 @@ Bundle budget split pending maintainer decision; option A implemented (standard 
 expert extras 30 kB; 7-B measured 236.9 and 25.4 kB, first paint 113.2 kB).
 PR 7-D adds the design system and the new shell (review stop 1: `docs/design/review-7d.md`;
 first paint 118.9 kB, standard path 243.7 kB). PR 7-E rebuilds the Now view and its cards
-(`docs/design/review-7e.md`; first paint 120.5 kB, standard path 245.8 kB).
+(`docs/design/review-7e.md`; first paint 120.5 kB, standard path 245.8 kB). PR 7-F does the
+same for Plan and Analysis (`docs/design/review-7f.md`; first paint 122.6 kB, standard path
+249.6 kB).
 Phases 3 and 4 are merged; their acceptance on the maintainer's system (two stages, see "Next
 steps") and the acceptance of everything Phase 6 added are still open, because no PV surplus, wallbox,
 heat pump, §14a box or backup switch was available in the sessions ·
-**Branch:** `phase-7/e-now` (on `phase-7/d-design-shell`, with `phase-7/c-demo-flex` merged)
+**Branch:** `phase-7/f-plan-analysis` (on `phase-7/e-now`)
 
 ## Phase 6 at a glance
 
@@ -40,6 +42,22 @@ Carried to Phase 7: see "Open - Phase 7".
 
 ## Done
 
+- **Phase 7 - PR 7-F, Plan and Analysis (frontend; branch `phase-7/f-plan-analysis`, on 7-E;
+  `frontend-engineer`)** - presentation only (stores, API calls, routes, test ids unchanged):
+  - Plan: one toolbar (24 h · 48 h · Today, replan, planner run line, "Why this plan?"), look
+    back as a collapsible card, one chart card with the usage hint, the text alternatives and
+    the CSV links inside; next actions beside two collapsible forecast cards with status chips
+    (Open-Meteo credit always visible).
+  - History: period switch with arrows, figures as three `Stat` group cards (energy,
+    self-sufficiency, costs with the savings attribution), chart cards ending in one row (table,
+    PNG, CSV), one `.data-table` style.
+  - Decision log: collapsible filters with an active count (closed on phones), CSV export at the
+    list, the shared shadow note once, outcomes as tinted tags. What-if: header and a reading
+    width for the form.
+  - `lib/ui` in one `ui` chunk (budgets kept); `Card` chevron leads the title; icons prev, next,
+    refresh, download, filter. E2E helper `openCard`.
+  - Screenshots `docs/assets/screenshots/{before-7f,after-7f}/`; deviations in plan section 8
+    (7-F); four questions in `review-7f.md`.
 - **Phase 7 - PR 7-E, Now view and cards (frontend; branch `phase-7/e-now`, on 7-D with 7-C
   merged; `frontend-engineer`)** - presentation only (stores, API calls, routes and the safety
   paths unchanged):
