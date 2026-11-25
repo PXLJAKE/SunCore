@@ -348,8 +348,8 @@ class ConfigStore:
     ) -> InverterConfig:
         """A changed inverter adapter (``InverterConfig.identity_token``) is never verified and
         never inherits a mode: ``limit_verified`` is reset and ``operation.inverter_mode`` drops
-        to shadow. The same adapter keeps both (only a passed verification test sets ``limit_verified``, since
-        7-J; ``_guard_verification`` refuses a user-set flag).
+        to shadow. The same adapter keeps both (only a passed verification test sets
+        ``limit_verified``, since 7-J; ``_guard_verification`` refuses a user-set flag).
         """
         row = await tx.fetchone(
             "SELECT schema_version, body FROM config_doc WHERE section = 'inverter'"
