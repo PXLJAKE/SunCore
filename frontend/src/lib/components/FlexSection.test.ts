@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, controlApi, flexApi } from '../api/client';
-import type { DeviceConfig, FlexView, ProgramJob } from '../api/types';
+import type { DeviceConfig, DeviceControlState, FlexView, ProgramJob } from '../api/types';
 import { controlState, device } from '../control/fixtures';
 import { applyLanguage } from '../i18n/index.svelte';
 import { control } from '../stores/control.svelte';
@@ -172,6 +172,81 @@ describe('heat pump section', () => {
     expect(screen.getByTestId('hp-sg').textContent?.trim()).toBe('3: raised');
     expect(screen.getByTestId('hp-cop').textContent).toContain('3.4');
     expect(screen.getByTestId('hp-model').textContent).toBe('Not learned yet');
+  });
+});
+
+describe('heat pump live values (7-I)', () => {
+  const hp = (heat_pump: DeviceControlState['heat_pump']) =>
+    device({
+      device_id: 'hp',
+      name: 'Heat pump',
+      kind: 'heat_pump',
+      state: { quality: 'ok', step: 2 },
+      heat_pump,
+    });
+  const model = (used: boolean) => ({
+    fit_error: 0.082,
+    history_days: 21,
+    fitted_at: '2026-06-20T03:00:00+02:00',
+    used_by_planner: used,
+  });
+
+  it('shows the COP at the outdoor temperature, labelled assumed for the generic curve', () => {
+    render(DeviceCard, {
+      props: {
+        device: hp({ outdoor_c: 7.4, cop: 3.2, cop_assumed: true, model: null }),
+        config: HEAT_PUMP,
+        now: NOW,
+      },
+    });
+    expect(screen.getByTestId('hp-cop').textContent).toContain('3.2 at 7.4 °C outdoors');
+    expect(screen.getByTestId('hp-cop-assumed').textContent).toBe('assumed');
+    expect(screen.queryByTestId('hp-model-use')).toBeNull();
+  });
+
+  it('shows no assumed label for a configured curve', () => {
+    render(DeviceCard, {
+      props: {
+        device: hp({ outdoor_c: 7, cop: 3.4, cop_assumed: false, model: null }),
+        config: HEAT_PUMP,
+        now: NOW,
+      },
+    });
+    expect(screen.queryByTestId('hp-cop-assumed')).toBeNull();
+  });
+
+  it('falls back to the curve range without an outdoor temperature', () => {
+    render(DeviceCard, {
+      props: {
+        device: hp({ outdoor_c: null, cop: null, cop_assumed: false, model: null }),
+        config: HEAT_PUMP,
+        now: NOW,
+      },
+    });
+    expect(screen.getByTestId('hp-cop').textContent).toContain('3.4');
+    expect(screen.getByTestId('hp-cop').textContent).not.toContain('outdoors');
+  });
+
+  it('shows the fit error and whether the planner uses the model', () => {
+    const { unmount } = render(DeviceCard, {
+      props: {
+        device: hp({ outdoor_c: 7, cop: 3.4, cop_assumed: false, model: model(true) }),
+        config: HEAT_PUMP,
+        now: NOW,
+      },
+    });
+    expect(screen.getByTestId('hp-model').textContent).toContain('Learned, error 8');
+    expect(screen.getByTestId('hp-model-use').textContent).toContain('Uses the model');
+    expect(screen.getByTestId('hp-model-use').textContent).toContain('21 days of data');
+    unmount();
+    render(DeviceCard, {
+      props: {
+        device: hp({ outdoor_c: 7, cop: 3.4, cop_assumed: false, model: model(false) }),
+        config: HEAT_PUMP,
+        now: NOW,
+      },
+    });
+    expect(screen.getByTestId('hp-model-use').textContent).toContain('Does not use the model');
   });
 });
 

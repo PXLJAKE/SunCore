@@ -120,8 +120,10 @@
   <p class="hint" data-testid="expert-off">{t('settings.expert.off')}</p>
 {/if}
 
-<!-- 7-I: the diagnostics panel (GET /api/v1/diagnostics) goes here, between expert mode and the
-     configuration history. -->
+<!-- Diagnostics export (7-I): loaded on demand, it is only needed when someone files a report. -->
+{#await import('../../components/DiagnosticsPanel.svelte') then panel}
+  <panel.default />
+{/await}
 
 <section class="card stack" aria-labelledby="{uid}-hist">
   <h4 id="{uid}-hist">{t('settings.history.title')}</h4>

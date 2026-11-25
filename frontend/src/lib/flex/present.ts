@@ -5,6 +5,7 @@ import type {
   DeviceControlState,
   EvMode,
   EvTarget,
+  HeatPumpLive,
   JobState,
   ProgramJob,
   ThermalSpec,
@@ -153,3 +154,28 @@ export const JOB_STATES: readonly JobState[] = [
   'done',
   'cancelled',
 ];
+
+export interface HeatPumpLiveView {
+  /** COP at the outdoor temperature of the current hour; `null` without a weather forecast. */
+  cop: { value: number; outdoorC: number | null; assumed: boolean } | null;
+  /** The thermal model quality; `null` while no model was fitted. */
+  model: { fitError: number; historyDays: number; usedByPlanner: boolean } | null;
+}
+
+/** The live values of a heat pump card (7-I); `null` when the control state has none. */
+export function heatPumpLiveView(live: HeatPumpLive | null | undefined): HeatPumpLiveView | null {
+  if (!live) return null;
+  return {
+    cop:
+      live.cop == null
+        ? null
+        : { value: live.cop, outdoorC: live.outdoor_c ?? null, assumed: live.cop_assumed },
+    model: live.model
+      ? {
+          fitError: live.model.fit_error,
+          historyDays: live.model.history_days,
+          usedByPlanner: live.model.used_by_planner,
+        }
+      : null,
+  };
+}

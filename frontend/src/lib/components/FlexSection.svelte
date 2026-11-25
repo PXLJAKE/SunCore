@@ -7,6 +7,7 @@
     evPlug,
     evTarget,
     flexKind,
+    heatPumpLiveView,
     jobOpen,
     liftK,
     parseDeadline,
@@ -125,6 +126,7 @@
   const sg = $derived(sgState(device.state?.step));
   const lift = $derived(liftK(device));
   const thermal = $derived(thermalView(config?.thermal));
+  const hpLive = $derived(heatPumpLiveView(device.heat_pump));
 
   // --- program ----------------------------------------------------------------------------
   const job = $derived(view?.job ?? null);
@@ -279,12 +281,24 @@
       <div>
         <dt>{t('hp.cop')}</dt>
         <dd data-testid="hp-cop">
-          {#if thermal.cop}
+          {#if hpLive?.cop}
+            {hpLive.cop.outdoorC === null
+              ? tNumber(hpLive.cop.value, { maximumFractionDigits: 1 })
+              : t('hp.cop_now', {
+                  cop: tNumber(hpLive.cop.value, { maximumFractionDigits: 1 }),
+                  temp: tNumber(hpLive.cop.outdoorC, { maximumFractionDigits: 1 }),
+                })}
+            {#if hpLive.cop.assumed}<span class="chip-tag warn" data-testid="hp-cop-assumed"
+                >{t('hp.cop_assumed')}</span
+              >{/if}
+          {:else if thermal.cop}
             {t('hp.cop_range', {
               min: tNumber(thermal.cop.min, { maximumFractionDigits: 1 }),
               max: tNumber(thermal.cop.max, { maximumFractionDigits: 1 }),
             })}
-            {#if thermal.cop.assumed}<span class="chip-tag warn">{t('hp.cop_assumed')}</span>{/if}
+            {#if thermal.cop.assumed}<span class="chip-tag warn" data-testid="hp-cop-assumed"
+                >{t('hp.cop_assumed')}</span
+              >{/if}
           {:else}
             {t('hp.unknown')}
           {/if}
@@ -293,11 +307,28 @@
       <div>
         <dt>{t('hp.model')}</dt>
         <dd data-testid="hp-model">
-          {thermal.nrmse === null
-            ? t('hp.model_none')
-            : t('hp.model_learned', { error: tPercent(thermal.nrmse * 100) })}
+          {#if hpLive?.model}
+            {t('hp.model_learned', { error: tPercent(hpLive.model.fitError * 100) })}
+          {:else if thermal.nrmse !== null}
+            {t('hp.model_learned', { error: tPercent(thermal.nrmse * 100) })}
+          {:else}
+            {t('hp.model_none')}
+          {/if}
         </dd>
       </div>
+      {#if hpLive?.model}
+        <div>
+          <dt>{t('hp.model_use')}</dt>
+          <dd data-testid="hp-model-use">
+            {#if hpLive.model.usedByPlanner}
+              {t('hp.model_used')}
+            {:else}
+              <span class="chip-tag warn">{t('hp.model_not_used')}</span>
+            {/if}
+            <span class="days">{t('hp.model_days', { count: hpLive.model.historyDays })}</span>
+          </dd>
+        </div>
+      {/if}
     </dl>
   </section>
 {:else if kind === 'program'}
@@ -383,6 +414,12 @@
     display: grid;
     gap: var(--sc-space-3);
     min-width: 0;
+  }
+  .days {
+    margin-inline-start: var(--sc-space-1);
+    font-weight: var(--sc-weight-regular);
+    font-size: var(--sc-font-xs);
+    color: var(--sc-text-muted);
   }
   .mode {
     display: grid;

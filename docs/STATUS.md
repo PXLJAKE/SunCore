@@ -107,6 +107,18 @@ Carried to Phase 7: see "Open - Phase 7".
     deviations in plan section 8 (7-D). Bundle: first paint 118.9 kB, standard path 243.7 kB,
     expert extras 25.4 kB.
 
+- **Phase 7 - PR 7-I, diagnostics panel and heat pump live values (frontend half; branch
+  `phase-7/i-diagnostics-frontend`, on 7-G with the backend half merged; `frontend-engineer`)**:
+  - *Settings > Advanced > Diagnostics* (`DiagnosticsPanel.svelte`, loaded on demand): a collapsible
+    preview of `GET /api/v1/diagnostics` (facts, one collapsible, keyboard-scrollable JSON block per
+    section), a download button (`suncore-diagnostics-<date>.json`, the exact export that was
+    previewed), a note that the export is pseudonymised and must be read before posting.
+  - Heat pump card (Now): COP at the current outdoor temperature (chip "assumed" while
+    `cop_assumed`), thermal model fit error, whether the planner uses it, days of history; falls
+    back to the curve range without an outdoor value.
+  - en/de keys (`diag.*`, `hp.*`), Vitest (panel, presenter, card), Playwright `diagnostics.spec.ts`
+    with axe on desktop, phone and tablet. Bundle: first paint 122.3 kB, standard 247.6 kB, expert
+    extras 25.6 kB. Screenshots: `docs/assets/screenshots/after-7i/`.
 - **Phase 7 - PR 7-I, diagnostics export and heat pump live values (backend half; branch
   `phase-7/i-diagnostics-backend`, on 7-B; `backend-engineer`)** - nothing in `safety/` or
   `controller/` changed; `frontend/` only by the regenerated OpenAPI types:
@@ -128,8 +140,7 @@ Carried to Phase 7: see "Open - Phase 7".
     a Tibber token, a config entry id, a home name and coordinates that asserts none of them and
     no real entity id, device id or name, or HA area name appears, consistent pseudonyms across
     config, decisions and logs, the ring, the probe, the API route, and the heat pump values.
-  - Open for the frontend half (needs 7-G): the Diagnostics panel with download and preview, the
-    COP and model rows on the heat pump card. Deviations and `UNVERIFIED`: plan section 8, 7-I.
+  - The frontend half is below (7-I frontend). Deviations and `UNVERIFIED`: plan section 8, 7-I.
 - **Phase 6 - PR 6-O, gaps of Phase 6 (backend; branch `phase-6/o-gaps`, on 6-N;
   `ha-integration`, `backend-engineer`)** - nothing in `safety/` or `controller/` changed:
   - Notifications wired: island and §14a from the grid monitor (`grid_flags`; an unreadable

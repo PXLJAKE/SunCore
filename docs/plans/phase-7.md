@@ -1117,6 +1117,20 @@ dashboard look beyond the recipe; any change of the contracts `Plan`, `Intent`, 
   `docs/user` on this base, so no troubleshooting note was added; the panel's help text belongs
   to the frontend half.
 
+### 7-I (frontend half; branch `phase-7/i-diagnostics-frontend`, on 7-G)
+
+- The panel sits in the slot 7-G left in *Settings > Advanced*, between expert mode and the
+  configuration history, and is a lazy chunk (the standard path grew 3.9 kB to 247.6 kB, budget 250).
+- The download saves the export that the preview loaded (one salt), so what a person read is what
+  they post; "Create again" fetches a new export with new pseudonyms. Sections are rendered only
+  while open (the log and decision lists are long).
+- Heat pump card: `device.heat_pump` is preferred; without an outdoor temperature (no weather
+  entity) the card keeps the 7-E curve range. The outdoor value is the forecast of the current hour
+  (backend note above), not a measurement; the card does not call it one.
+- No troubleshooting page exists in `docs/user` on this base, so no hint was added there.
+- E2E note: the demo's simulated clock drifts when one server runs for hours; `plan.spec` ("jumps
+  to a day") and `whatif.spec` (replay) then fail on the tablet project and pass on a fresh server.
+
 ## 9. Follow-ups per agent
 
 - `architect`: architecture §9 after 7-G; record the 7-L spike outcome in ADR-0020 (update
