@@ -66,6 +66,23 @@ export function siteWithKeep(site: SiteConfig, keep: readonly string[]): SiteCon
 }
 
 /**
+ * The keep list of the server's current site with only this edit applied: ids the user added
+ * or removed relative to the list they saw (`seen`). Entries changed elsewhere survive.
+ */
+export function mergeKeep(
+  current: readonly string[],
+  seen: readonly string[],
+  wanted: readonly string[],
+): string[] {
+  const removed = seen.filter((id) => !wanted.includes(id));
+  const added = wanted.filter((id) => !seen.includes(id));
+  return [
+    ...current.filter((id) => !removed.includes(id)),
+    ...added.filter((id) => !current.includes(id)),
+  ];
+}
+
+/**
  * The site with the keep list reduced to devices that exist before and after a change of the
  * device list, or `null` when nothing changes. A kept id that is gone (or was already stale) is
  * dropped, so a later device with the same id never inherits "kept in island operation".

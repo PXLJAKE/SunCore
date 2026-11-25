@@ -27,7 +27,13 @@ vi.mock('../api/client', () => ({
 }));
 
 import { api } from '../api/client';
-import { mqttFromForm, mqttFormFromConfig, pruneKeep } from './phase6';
+import {
+  applyDeviceGridEdits,
+  mergeKeep,
+  mqttFromForm,
+  mqttFormFromConfig,
+  pruneKeep,
+} from './phase6';
 import { mqttLock } from './mqttSave.svelte';
 
 const MQTT: MqttConfig = {
@@ -109,11 +115,64 @@ describe('F3: a deleted device leaves the keep list for good', () => {
       devices: { schema_version: 1, devices: [dev('pump'), dev('rod')] },
     } as never;
     store.site = site;
+    store.devices = { schema_version: 1, devices: [dev('pump'), dev('rod')] };
     // Delete "pump" ...
-    await wizard.saveDevices([dev('rod')]);
+    await wizard.saveDevices((cur) => cur.filter((d) => d.id !== 'pump'));
     expect(store.site.grid.backup?.keep_devices).toEqual(['rod']);
     // ... and add a new device with the same id.
-    await wizard.saveDevices([dev('rod'), dev('pump')]);
+    await wizard.saveDevices((cur) => [...cur, dev('pump')]);
     expect(store.site.grid.backup?.keep_devices).toEqual(['rod']);
+  });
+});
+
+describe('7-Q: whole-section saves start from the server copy', () => {
+  const site = {
+    schema_version: 2,
+    grid: { backup: { entity_id: 'sensor.x', island_states: ['island'], keep_devices: ['a'] } },
+  } as unknown as SiteConfig;
+  const dev = (id: string, extra = {}) => ({ id, name: id, priority: 1, ...extra }) as never;
+
+  it('a keep-list save keeps an entry another tab added meanwhile', () => {
+    // The panel saw ["a"], the user ticked "b"; another tab stored ["a", "c"] in between.
+    expect(mergeKeep(['a', 'c'], ['a'], ['a', 'b'])).toEqual(['a', 'c', 'b']);
+    // An untick removes only that id from the server list.
+    expect(mergeKeep(['a', 'c'], ['a'], [])).toEqual(['c']);
+  });
+
+  it('a shed_rank save keeps a device value changed on the server after load', async () => {
+    const { wizard } = await import('../stores/wizard.svelte');
+    wizard.saved = {
+      ...wizard.saved,
+      site,
+      devices: { schema_version: 1, devices: [dev('a'), dev('b')] },
+    } as never;
+    store.site = site;
+    // After load another tab set para14a on "b" and renamed "a".
+    store.devices = {
+      schema_version: 1,
+      devices: [dev('a', { name: 'renamed' }), dev('b', { para14a: true })],
+    };
+    await wizard.saveDevices((cur) =>
+      applyDeviceGridEdits(cur, { a: { para14a: false, shedRank: 3 } }),
+    );
+    const out = (store.devices as { devices: Record<string, unknown>[] }).devices;
+    expect(out[0]).toMatchObject({ id: 'a', name: 'renamed', shed_rank: 3 });
+    expect(out[1]).toMatchObject({ id: 'b', para14a: true });
+  });
+
+  it('pruning reads the server site, so a keep entry stored meanwhile is not overwritten', async () => {
+    const { wizard } = await import('../stores/wizard.svelte');
+    wizard.saved = {
+      ...wizard.saved,
+      site,
+      devices: { schema_version: 1, devices: [dev('a')] },
+    } as never;
+    store.devices = { schema_version: 1, devices: [dev('a'), dev('z')] };
+    store.site = {
+      ...site,
+      grid: { backup: { ...site.grid.backup!, keep_devices: ['a', 'z'] } },
+    } as SiteConfig;
+    await wizard.saveDevices((cur) => cur.filter((d) => d.id !== 'a'));
+    expect(store.site.grid.backup?.keep_devices).toEqual(['z']);
   });
 });
